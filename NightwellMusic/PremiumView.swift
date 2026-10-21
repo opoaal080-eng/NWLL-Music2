@@ -27,7 +27,10 @@ struct PremiumView: View {
                 inactiveSheet
             }
         }
+        .padding(.horizontal, 24)
+        .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
         .preferredColorScheme(.dark)
+        .presentationBackground(.clear)
         .presentationDetents([.height(500), .large], selection: $selectedDetent)
         .presentationDragIndicator(.hidden)
         .task { await refresh() }
