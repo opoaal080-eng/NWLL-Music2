@@ -11,7 +11,7 @@ assert 'opacity(0.98)' not in app
 assert '.sheet(isPresented: $settings)' not in app
 assert '.sheet(isPresented: $store.authPresented)' not in app
 assert 'struct NativeSettings: View' in views
-assert 'Label("Оформление", systemImage:' in views
+assert 'Button("Темы и ленты · Premium")' in views
 assert 'Label("Воспроизведение", systemImage:' in views
 assert '.nightwellLiquidGlass(22)' in views
 assert 'nightwellLiquidGlass(' in app
