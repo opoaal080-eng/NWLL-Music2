@@ -1,4 +1,5 @@
 from pathlib import Path
+
 root = Path(__file__).resolve().parents[1]
 app = (root / 'NightwellMusic/App.swift').read_text()
 views = (root / 'NightwellMusic/NativePlayerViews.swift').read_text()

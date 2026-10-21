@@ -1,0 +1,492 @@
+[
+  {
+    "file": ".github/workflows/build-ios.yml",
+    "size": 14234,
+    "sha256": "15638e8b5d9386a3b392d84a486122babdc4a155beb5d2ead10ebdcb7a7b88c9"
+  },
+  {
+    "file": ".gitignore",
+    "size": 220,
+    "sha256": "78d99c79d652d1812a53c281c1780b250e0e66ab1cabd554a5240e24f2a2c726"
+  },
+  {
+    "file": "NATIVE_BRANCH_STATUS_RU.md",
+    "size": 4050,
+    "sha256": "1071dc6dffcfac439c00bfaadaa7f8191b68bc37f24b373e3a7dd1717de40694"
+  },
+  {
+    "file": "NativeTests/NativeEQPlaybackTests.swift",
+    "size": 4379,
+    "sha256": "9e440ae0b727ea7c1c9f5050cb44ea328321d8b839ef88bb1a05377d681f6f52"
+  },
+  {
+    "file": "NativeTests/NativeRegressionTests.swift",
+    "size": 18770,
+    "sha256": "f504767a4cd27ac8e268461ba449d3bb1485bd4ef747350b8f18362e8ea9ffa7"
+  },
+  {
+    "file": "NativeTests/PremiumDSPTests.swift",
+    "size": 1099,
+    "sha256": "5069986d5ed1f3f431329d4280febda9b7abdad0fd7e6212b72cb8944c1bca87"
+  },
+  {
+    "file": "NightwellMusic/App.swift",
+    "size": 23645,
+    "sha256": "58ecbe412f7c22a8da4a01f3b8bec8a457cfc731fc5a92defbf94dba950b5180"
+  },
+  {
+    "file": "NightwellMusic/Assets.xcassets/AppIcon.appiconset/Contents.json",
+    "size": 144,
+    "sha256": "49feaefd87dbf9de7b9041b4285edbfb497b24bc246d0420337a1cd066cf1da5"
+  },
+  {
+    "file": "NightwellMusic/Assets.xcassets/AppIcon.appiconset/Icon.png",
+    "size": 59755,
+    "sha256": "abcf64e662fc5eaa5f05ca3623e0be4c6bf5b3caab834b489f108986d7e5768f"
+  },
+  {
+    "file": "NightwellMusic/Assets.xcassets/BrandLogo.imageset/Contents.json",
+    "size": 103,
+    "sha256": "dd865a47812e1bb8728eb1fe040d8449f3d05c1bacb63d24a8edc34e5a3f967d"
+  },
+  {
+    "file": "NightwellMusic/Assets.xcassets/BrandLogo.imageset/logo.png",
+    "size": 29848,
+    "sha256": "6675078226b16d9c49ca4f5e52fb2f535fba086f42a56b3fb8b843662369cf55"
+  },
+  {
+    "file": "NightwellMusic/Assets.xcassets/Contents.json",
+    "size": 43,
+    "sha256": "e8e8ef4b27126d62305af321d12a6e64b866ca0b160f0f83efae90111f0ee576"
+  },
+  {
+    "file": "NightwellMusic/Assets.xcassets/SeasonLandscape.imageset/Contents.json",
+    "size": 109,
+    "sha256": "e0c8399a9df63e747a544fec4a659089f3e7f0aa9bf544de8057d0fa33e3df39"
+  },
+  {
+    "file": "NightwellMusic/Assets.xcassets/SeasonLandscape.imageset/background.jpg",
+    "size": 262545,
+    "sha256": "9f5b2d85926e910130452532189deb5a5b44e167712c62de6884f59710c221c7"
+  },
+  {
+    "file": "NightwellMusic/Assets.xcassets/SeasonPortrait.imageset/Contents.json",
+    "size": 109,
+    "sha256": "e0c8399a9df63e747a544fec4a659089f3e7f0aa9bf544de8057d0fa33e3df39"
+  },
+  {
+    "file": "NightwellMusic/Assets.xcassets/SeasonPortrait.imageset/background.jpg",
+    "size": 285296,
+    "sha256": "191deb78822e064fe9d7df13c90eb8f46b63104c13202f22d7ab72f43c37faba"
+  },
+  {
+    "file": "NightwellMusic/AudioOutputPolicy.swift",
+    "size": 504,
+    "sha256": "611655d109bd9d1162a5f3fb72b72cc016d6575891d4fc5d3088b85946931a81"
+  },
+  {
+    "file": "NightwellMusic/BackgroundDownloads.swift",
+    "size": 8922,
+    "sha256": "84a6eebcb8aad9f1f045349db9b58d566956cb6f5d333fd76aca7608b5d5e9f5"
+  },
+  {
+    "file": "NightwellMusic/IndependentAudioMeter.swift",
+    "size": 9244,
+    "sha256": "573579b968fa4a1a5c5c431ba176a21a43a49fe86eb9af3500b71eec216bf865"
+  },
+  {
+    "file": "NightwellMusic/LocalAudioMeter.swift",
+    "size": 7039,
+    "sha256": "2f208b3ee0fb24f37056c811c76c76576cc9441c99261051abb0c0fc281babcc"
+  },
+  {
+    "file": "NightwellMusic/Models.swift",
+    "size": 6581,
+    "sha256": "3d4e0b4c54523579ef82cfaadb687013e90e7a091a45ea53056c7f4207c05c91"
+  },
+  {
+    "file": "NightwellMusic/MusicStore.swift",
+    "size": 25731,
+    "sha256": "ae389bdd86ed8c1e6e4267c70bac36d6176bac6b3112b7d92be0f3ea16826a0a"
+  },
+  {
+    "file": "NightwellMusic/NativeEQPlayback.swift",
+    "size": 5295,
+    "sha256": "441e307333553f78541995c511ac387141af1e2ba3f73065e2ae78c14789f8e7"
+  },
+  {
+    "file": "NightwellMusic/NativeEffects.swift",
+    "size": 5072,
+    "sha256": "91d2e17c01cf355d29cca605e751ae76e7b6d6b4c96142ffcf8a9166fd659817"
+  },
+  {
+    "file": "NightwellMusic/NativePlayer.swift",
+    "size": 42372,
+    "sha256": "a1572fa35eb8edb09fb46246ea2c1abc34472233533f52d016b11285b1eaf319"
+  },
+  {
+    "file": "NightwellMusic/NativePlayerViews.swift",
+    "size": 41344,
+    "sha256": "94b55e6b48f28469a2f278b1d343e1924e8e110a0a383991301be4eb1f9a5da2"
+  },
+  {
+    "file": "NightwellMusic/NativeSupportView.swift",
+    "size": 15259,
+    "sha256": "465fd77759ee7ad1f4456c8356dc8f96b0fa2c6f999b51bafa2cd42fb1dc3821"
+  },
+  {
+    "file": "NightwellMusic/OfflineStore.swift",
+    "size": 7287,
+    "sha256": "12392969a3616a77ff2f32542f5b5d88d840e588550373c562b71ee722f9b0f3"
+  },
+  {
+    "file": "NightwellMusic/PlaybackMemory.swift",
+    "size": 4572,
+    "sha256": "80becc77caf992765e9054a50f723b3eb52a3a2be449af30bfa1db8f4630b1bb"
+  },
+  {
+    "file": "NightwellMusic/PlaybackRecovery.swift",
+    "size": 1988,
+    "sha256": "b6e5c7f0db48ef62dd2cff34fa0edbb028ff548da6f6b65f2180e32ad7aa47a3"
+  },
+  {
+    "file": "NightwellMusic/PremiumDSP.swift",
+    "size": 1940,
+    "sha256": "70d9dc8ff8bd2549ced04f9b835c36a37e92769f27b2eaf224380e1342b30b5e"
+  },
+  {
+    "file": "NightwellMusic/PremiumFeatures.swift",
+    "size": 18159,
+    "sha256": "aaed095a2455e0390894007fcb765c85ddd3c16f2d4516ce15063b9826cdf62d"
+  },
+  {
+    "file": "NightwellMusic/PremiumTerms.swift",
+    "size": 9655,
+    "sha256": "6aafbd427fd88485a05627b669bccc37b6dc53833d6dbffffa850dd349615c8a"
+  },
+  {
+    "file": "NightwellMusic/PremiumView.swift",
+    "size": 8720,
+    "sha256": "391108c13c6f2147f35f0f7d3e2a7ce5ab11e407fab3b63e5a05e5f67b019b3a"
+  },
+  {
+    "file": "NightwellMusic/RecommendationOrder.swift",
+    "size": 1925,
+    "sha256": "80c06e08ce4a11fb7d7add785f0f3b99604bc0b101e5d63335f06d3866b35a77"
+  },
+  {
+    "file": "NightwellMusic/TrackEnvelope.swift",
+    "size": 3428,
+    "sha256": "dea22347502317750424824f6b38772604eac46ee08baf829e57005e4c6befaa"
+  },
+  {
+    "file": "NightwellMusic/WaveSettings.swift",
+    "size": 5924,
+    "sha256": "e2949cb459cdbb58f1d16d4b025b817d75679c0ed2641ce64490838893f6b6a9"
+  },
+  {
+    "file": "README_NATIVE_RU.md",
+    "size": 5681,
+    "sha256": "29da655f3e3c6e25e3bb38fc2f97574563cb9f23e214efea10e559e3f4ab3d4e"
+  },
+  {
+    "file": "README_RECOVERY_APPS.md",
+    "size": 2029,
+    "sha256": "dae84c42371b10a3ed3851f710cf420ade6165f051fc87d7ea2f37c13450289b"
+  },
+  {
+    "file": "android/app/build.gradle",
+    "size": 1254,
+    "sha256": "7bb3d6103bf44af3701342097b23ef1c4e12d69a1bc1fd262eface67b0fa1708"
+  },
+  {
+    "file": "android/app/src/main/AndroidManifest.xml",
+    "size": 2544,
+    "sha256": "745b5909cdad170ca62a3ca66806aa2bed94f01198b56519d7d9bc52d1fe71bd"
+  },
+  {
+    "file": "android/app/src/main/java/fun/nightwell/music/BackgroundDownloads.java",
+    "size": 6131,
+    "sha256": "0081893bd1ddf19c57d5535137e73910b06ed2a33b7b6862176f4773bfa639c8"
+  },
+  {
+    "file": "android/app/src/main/java/fun/nightwell/music/DownloadPreparationService.java",
+    "size": 3412,
+    "sha256": "277c8816ff981aeb620f13fe447905ccdf53b9f65ea0c3f8d06307c6692852d3"
+  },
+  {
+    "file": "android/app/src/main/java/fun/nightwell/music/DownloadReceiver.java",
+    "size": 336,
+    "sha256": "d62199890b586b8728b34b28d34fbd127514f7fa527ab8acd233a5cd5db882c8"
+  },
+  {
+    "file": "android/app/src/main/java/fun/nightwell/music/FiveBandEQ.java",
+    "size": 1997,
+    "sha256": "d38177c9f69876e0a967d7ebd28cad3b35c934791a2ae54f96e379907a3a5b70"
+  },
+  {
+    "file": "android/app/src/main/java/fun/nightwell/music/HalloweenAtmosphere.java",
+    "size": 2171,
+    "sha256": "7c6c58f07cc8de9007eb2ec2cfe0e2204d679dad77d04b26b2bf669083cdf77d"
+  },
+  {
+    "file": "android/app/src/main/java/fun/nightwell/music/LatestRequest.java",
+    "size": 866,
+    "sha256": "4bb01400592c0190a2326219bc56337f40eb4b9d91b0afdfbcc3e29d1d762c87"
+  },
+  {
+    "file": "android/app/src/main/java/fun/nightwell/music/LocalAudioMeter.java",
+    "size": 2026,
+    "sha256": "5c33341059e792c327f3f59a661e6fcc81f7e17dd2e91339894f2399dcf25911"
+  },
+  {
+    "file": "android/app/src/main/java/fun/nightwell/music/MainActivity.java",
+    "size": 100303,
+    "sha256": "bbacea1786669898c5ad6c1ee3aab2c9b09160f1a08fae1412d985d7b547e3bf"
+  },
+  {
+    "file": "android/app/src/main/java/fun/nightwell/music/NativeAPI.java",
+    "size": 6674,
+    "sha256": "58966a7b2b38c2f57b245fe0d22d6467ef8b7e2cc9a50d6c135f3fdca94b6412"
+  },
+  {
+    "file": "android/app/src/main/java/fun/nightwell/music/NativeIconButton.java",
+    "size": 2922,
+    "sha256": "c6469db4e991c08fbe3a66acbd0cd2a0f4e5e116e33f67fdd0299719a803f6b8"
+  },
+  {
+    "file": "android/app/src/main/java/fun/nightwell/music/NativeSceneryDrawable.java",
+    "size": 842,
+    "sha256": "0a6e7aa70f50a5cc63a0824a3d1517dea8293cea36fa11bf7f04946bc85c83e4"
+  },
+  {
+    "file": "android/app/src/main/java/fun/nightwell/music/NativeSurfaceDrawable.java",
+    "size": 474,
+    "sha256": "cde103737ba56b0015dbd88b0f25d40fc57c19902360e22ac12d944f208eda32"
+  },
+  {
+    "file": "android/app/src/main/java/fun/nightwell/music/NetworkRetry.java",
+    "size": 2268,
+    "sha256": "d0e217aa0dab39e500b27de5092b1d979140c6d2f5c56524cc2d593e353b2361"
+  },
+  {
+    "file": "android/app/src/main/java/fun/nightwell/music/OfflineStore.java",
+    "size": 7412,
+    "sha256": "7db642c90a0de697230eb0600a8fc76e8b1d7260eedffad10fd867bbd4ae7cd5"
+  },
+  {
+    "file": "android/app/src/main/java/fun/nightwell/music/PlaybackService.java",
+    "size": 27388,
+    "sha256": "de9929ebf63209863431d98fe863e670236d3bd6b278685b33d57c537371f570"
+  },
+  {
+    "file": "android/app/src/main/java/fun/nightwell/music/PlayingIndicator.java",
+    "size": 940,
+    "sha256": "bef3a7d0290f15f7127d9047dadba94712d136402044e5ff9c10e432659f6843"
+  },
+  {
+    "file": "android/app/src/main/java/fun/nightwell/music/PremiumEqualizer.java",
+    "size": 1658,
+    "sha256": "5d9311d3ae4ac75edd1e8b5fa4e86098ef841af594bc4c27a6ff45573f655b73"
+  },
+  {
+    "file": "android/app/src/main/java/fun/nightwell/music/PremiumTerms.java",
+    "size": 9739,
+    "sha256": "f26a53f36dd3eb520a5693fd15d929c785b3951351de0af1ae91a334ceb09862"
+  },
+  {
+    "file": "android/app/src/main/java/fun/nightwell/music/RecommendationOrder.java",
+    "size": 1779,
+    "sha256": "3ae18295759489dc824c0936d5581837e425ffc9faab597deb8b6479afb7121a"
+  },
+  {
+    "file": "android/app/src/main/java/fun/nightwell/music/RibbonView.java",
+    "size": 3618,
+    "sha256": "15c2276bc5562d3947781a352289f86ef6ec16aac79200017ca28fe0c1da1303"
+  },
+  {
+    "file": "android/app/src/main/java/fun/nightwell/music/ServerAddress.java",
+    "size": 1357,
+    "sha256": "46f7ccbc99a40a067d586aadb71394efedb19cb34801ad7c00855f14811f442b"
+  },
+  {
+    "file": "android/app/src/main/java/fun/nightwell/music/SessionStore.java",
+    "size": 3826,
+    "sha256": "c063d15740940b6392518beb63d59da336cce4ab6fbfc5015bff0a85204281f5"
+  },
+  {
+    "file": "android/app/src/main/java/fun/nightwell/music/StreamPolicy.java",
+    "size": 724,
+    "sha256": "ad639756ada200d4d46a1077472500e6017d8fc88ab7cbf6f57ed6ad48ebc3c9"
+  },
+  {
+    "file": "android/app/src/main/java/fun/nightwell/music/VerticalEqualizerSlider.java",
+    "size": 1476,
+    "sha256": "7fe5fecc0bb59b1b8f8e48b2a84e17a9ec2cf396d6d0f9244ccbf70e2251345f"
+  },
+  {
+    "file": "android/app/src/main/java/fun/nightwell/music/WaveSettings.java",
+    "size": 1651,
+    "sha256": "0c9bd7643917145f2407b58d2e95ce577c3395986f6360f26ce1e1133e4b22b3"
+  },
+  {
+    "file": "android/app/src/main/res/drawable/brand_logo.png",
+    "size": 29848,
+    "sha256": "6675078226b16d9c49ca4f5e52fb2f535fba086f42a56b3fb8b843662369cf55"
+  },
+  {
+    "file": "android/app/src/main/res/drawable/season_background.webp",
+    "size": 253888,
+    "sha256": "2c6757cb6b4ddbdc1f717bec99874e2c41a1e86e2a999055be73725da7e4d96b"
+  },
+  {
+    "file": "android/app/src/main/res/mipmap-hdpi/ic_launcher.png",
+    "size": 1673,
+    "sha256": "3d625adfef8152b8675d4c79473e96b38d5d470a4070f163b639ea42fb1b9223"
+  },
+  {
+    "file": "android/app/src/main/res/mipmap-mdpi/ic_launcher.png",
+    "size": 1034,
+    "sha256": "05424f17a51b9e6c0323288a2a36152287b3859f315baa7bcbec5a8b6393a611"
+  },
+  {
+    "file": "android/app/src/main/res/mipmap-xhdpi/ic_launcher.png",
+    "size": 2330,
+    "sha256": "6246398fa4d315efabe73826543294affbce905e7fc76c69a3046f1863912e83"
+  },
+  {
+    "file": "android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png",
+    "size": 3952,
+    "sha256": "d9132b13b42103ce099464c35fc4a335eaec942e9cf5be6c500b01f8e2c4dd25"
+  },
+  {
+    "file": "android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png",
+    "size": 5686,
+    "sha256": "bbbb6f851470f1be678091d5bbf13cb37e5f6219f5e2f32c8d51a2d7aec51814"
+  },
+  {
+    "file": "android/app/src/main/res/values/styles.xml",
+    "size": 574,
+    "sha256": "7249a3d5ef460d0ef42517ecf38d6b6727f5cad8bdb822446cda78fbe16ed929"
+  },
+  {
+    "file": "android/build.gradle",
+    "size": 73,
+    "sha256": "4b08d3c261d317db5e5a5f7fa8ade50f361690e3b03fa86ee69a678f2a4b3a37"
+  },
+  {
+    "file": "android/capture-native-ui.py",
+    "size": 1926,
+    "sha256": "9bd0203f70857a3aea74294c4a0cee5a561c6081f0aead94e1073c7b8ddffb7b"
+  },
+  {
+    "file": "android/check-native-layout.py",
+    "size": 6328,
+    "sha256": "b096b2bd887f0031b8b4b32cb6a9ff45b3b0af8c4b080018075c9b6d2d03dcea"
+  },
+  {
+    "file": "android/check-native-ui.py",
+    "size": 1444,
+    "sha256": "ac6c595ec285e8db2c9c4474ba5e315c6fba4234b0e255a6d0e008b4c5d7ae47"
+  },
+  {
+    "file": "android/gradle.properties",
+    "size": 76,
+    "sha256": "4d4c82226865844bdc85391d907a383da4a35d3a3f5348985d5ec3997ab932fe"
+  },
+  {
+    "file": "android/settings.gradle",
+    "size": 286,
+    "sha256": "cf2c5c8a5ce2125d00aaa6ee640cac1025b67b7950cc7d44ebc5939c5fe304a7"
+  },
+  {
+    "file": "design-assets/halloween-landscape.webp",
+    "size": 235882,
+    "sha256": "ba4106861db6c8cfc1a195acaab9fb6daef803d483b92863024db68205364dcd"
+  },
+  {
+    "file": "design-assets/halloween-portrait.webp",
+    "size": 253888,
+    "sha256": "2c6757cb6b4ddbdc1f717bec99874e2c41a1e86e2a999055be73725da7e4d96b"
+  },
+  {
+    "file": "design-assets/halloween-theme.css",
+    "size": 10949,
+    "sha256": "fd1584ec33551fa5d89a135c1f9a3e72b06094f5555e337a1724dd0ade994e1e"
+  },
+  {
+    "file": "project.yml",
+    "size": 1995,
+    "sha256": "a3b8147c3efeafb18424abdae8a6d25dc4e92feb324c9c70c2e97d1a52948df6"
+  },
+  {
+    "file": "windows/App.xaml",
+    "size": 1374,
+    "sha256": "d5bbdf624bf3924420c8f6ddbc7dd8b6c20a472613a82fdb7c43b4e99ed3bdd0"
+  },
+  {
+    "file": "windows/App.xaml.cs",
+    "size": 90,
+    "sha256": "1896374a80f54560f386f2181018e9699be208a364fc1032b70a1edc07b871ec"
+  },
+  {
+    "file": "windows/MainWindow.xaml",
+    "size": 6322,
+    "sha256": "1894c35f538b4b2439147cc8ffd5f748e0696e7023b0e7b1a08bb4ffb02da6e1"
+  },
+  {
+    "file": "windows/MainWindow.xaml.cs",
+    "size": 24702,
+    "sha256": "df66db3ca7592670cb5ffda96a82a77e61a4e5dbe2548cf6a4e059af058f8864"
+  },
+  {
+    "file": "windows/NativeAPI.cs",
+    "size": 2534,
+    "sha256": "0209cf86e882814a6c2a11c9d1be317976862a20a3bfb956b0dcc3be6e2860b9"
+  },
+  {
+    "file": "windows/Nightwell.Native.csproj",
+    "size": 826,
+    "sha256": "f1ef404151e18879edea5be904740e614fd2f33e7d3da3b5471187e3a0adf95b"
+  },
+  {
+    "file": "windows/RibbonScene.cs",
+    "size": 1421,
+    "sha256": "07a5c6fc4815e0399e9f027ba54fe8912544a7e2818803fcf71a297090ad565d"
+  },
+  {
+    "file": "windows/StreamProxy.cs",
+    "size": 3159,
+    "sha256": "d8cd2b1ad0c9a490c3cc43a5df001e425bd813e18fb912f4f7979ca2c6d0864c"
+  },
+  {
+    "file": "windows/THIRD_PARTY/LGPL-2.1.txt",
+    "size": 26531,
+    "sha256": "7c6699c75f87b52bdc542db26d6b1b92892577cda46e20eceb79e2790a1c291b"
+  },
+  {
+    "file": "windows/THIRD_PARTY/NOTICES.txt",
+    "size": 985,
+    "sha256": "1cad3b9507e740aca6dab857eccfe27fbbd64e4250f5335837af0cb73a1a1731"
+  },
+  {
+    "file": "windows/icon.ico",
+    "size": 16314,
+    "sha256": "f41df12e7182048c321bd9be246b7bc5cafd5c3fde9be458bf669b77f0373c5c"
+  },
+  {
+    "file": "windows/installer.iss",
+    "size": 858,
+    "sha256": "6cad0f8f8acd296a3c89f7b4551ab6b1fa31bd2b72ac075b1d5d01985fe7b015"
+  },
+  {
+    "file": "windows/logo.png",
+    "size": 29848,
+    "sha256": "6675078226b16d9c49ca4f5e52fb2f535fba086f42a56b3fb8b843662369cf55"
+  },
+  {
+    "file": "windows/season.jpg",
+    "size": 262545,
+    "sha256": "9f5b2d85926e910130452532189deb5a5b44e167712c62de6884f59710c221c7"
+  }
+]

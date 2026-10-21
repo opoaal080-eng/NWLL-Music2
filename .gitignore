@@ -1,0 +1,10 @@
+
+# Local inference assets are reproduced from pinned model/runtime checksums by CI.
+local-ai/node_modules
+build-ai/
+NightwellMusic/Client/ai/
+android/app/src/main/assets/client/ai/
+windows/client/ai/
+
+__pycache__/
+*.pyc
