@@ -27,8 +27,12 @@ struct PremiumView: View {
                 inactiveSheet
             }
         }
-        .padding(.horizontal, 24)
-        .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+        .background(
+            RoundedRectangle(cornerRadius: 32, style: .continuous)
+                .fill(LinearGradient(colors: [nightwellViolet, Color.black], startPoint: .topLeading, endPoint: .bottomTrailing))
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
+        .padding(.horizontal, 16)
         .preferredColorScheme(.dark)
         .presentationBackground(.clear)
         .presentationDetents([.height(500), .large], selection: $selectedDetent)
@@ -158,7 +162,7 @@ struct PremiumView: View {
             }
             .padding(24)
         }
-        .background(LinearGradient(colors: [nightwellViolet, Color.black], startPoint: .topLeading, endPoint: .bottomTrailing))
+        .background(Color.clear)
     }
 
     @ViewBuilder private func featureHint(_ icon: String, _ title: String, _ hint: String) -> some View {
