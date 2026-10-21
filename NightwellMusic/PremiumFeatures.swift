@@ -114,7 +114,9 @@ struct PremiumPreferences: Codable {
                 .sheet(isPresented: $showPresetOptions) { NavigationStack { ScrollView { VStack { presetOptions }.padding(20) }.navigationTitle("Настройки эквалайзера").toolbar { Button("Готово") { showPresetOptions = false } } }.presentationDetents([.medium, .large]) }
                 .task(id: store.account?.id) { rules = []; statistics = nil; await premium.refresh(store); if premium.allowed { await load() } }
                 .task { while !Task.isCancelled { soundReady = NativePlayer.shared.premiumSoundAvailable; soundStatus = NativePlayer.shared.premiumSoundStatus; do { try await Task.sleep(nanoseconds: 1_000_000_000) } catch { return } } }
-        }.preferredColorScheme(.dark).presentationDetents([.fraction(0.86), .large]).presentationDragIndicator(.visible)
+        }.clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+         .padding(.horizontal, 24)
+         .preferredColorScheme(.dark).presentationBackground(.clear).presentationDetents([.fraction(0.86), .large]).presentationDragIndicator(.visible)
     }
     private var sound: some View {
         Group {
