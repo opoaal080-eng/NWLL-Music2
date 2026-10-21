@@ -18,6 +18,18 @@ jobs:
         run: brew install xcodegen
       - name: Generate project
         run: xcodegen generate
+      - name: Apply iOS 18 SDK Liquid Glass compatibility fallback
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("NightwellMusic/App.swift")
+          src = p.read_text(encoding="utf-8")
+          target = "self.glassEffect(.regular, in: .rect(cornerRadius: radius))"
+          replacement = "self.background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: radius))"
+          if target not in src:
+              raise SystemExit("Expected glassEffect call not found; review source")
+          p.write_text(src.replace(target, replacement), encoding="utf-8")
+          PY
       - name: Build unsigned IPA
         run: |
           xcodebuild -project NightwellMusic.xcodeproj -scheme NightwellMusic -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build-device CODE_SIGNING_ALLOWED=NO build
