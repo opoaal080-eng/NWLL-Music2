@@ -183,7 +183,7 @@ struct NativeRoot: View {
                         .overlay(alignment: .bottom) {
                             if store.screen == .home {
                                 HomeLyricLine(model: store.lyrics, clock: store.clock)
-                                    .frame(height: 70)
+                                    .frame(height: 60)
                                     .padding(.horizontal, 24)
                                     .offset(y: -85)
                             }
@@ -277,7 +277,7 @@ struct NativeRoot: View {
                 HStack(spacing: 9) {
                     Image("BrandLogo").resizable().scaledToFit().frame(width: 42, height: 42)
                     VStack(alignment: .leading, spacing: 1) {
-                        Text("Nightwell").font(.system(size: 27, weight: .bold))
+                        Text("Nightwell").font(.system(size: 23, weight: .bold))
                         Text("M U S I C").font(.caption).foregroundStyle(.secondary)
                     }
                 }.contentShape(Rectangle())
@@ -286,7 +286,7 @@ struct NativeRoot: View {
             .foregroundStyle(nightwellText)
             .accessibilityLabel("На главную")
             Spacer()
-            Button { if store.screen == .search { store.screen = .home } else { store.screen = .search } } label: { Image(systemName: store.screen == .search ? "xmark" : "magnifyingglass").font(.system(size: 22, weight: .medium)).foregroundStyle(pumpkin).frame(width: 56, height: 56).frostedGlass(28) }.accessibilityLabel(store.screen == .search ? "Закрыть поиск" : "Поиск")
+            Button { if store.screen == .search { store.screen = .home } else { store.screen = .search } } label: { Image(systemName: store.screen == .search ? "xmark" : "magnifyingglass").font(.system(size: 19, weight: .medium)).foregroundStyle(pumpkin).frame(width: 56, height: 56).frostedGlass(28) }.accessibilityLabel(store.screen == .search ? "Закрыть поиск" : "Поиск")
             Menu {
                 ForEach(MusicStore.Screen.allCases, id: \.self) { screen in Button(screen.rawValue) { store.screen = screen } }
                 Divider()
@@ -297,7 +297,7 @@ struct NativeRoot: View {
                 Button("Настройка подборки", systemImage: "slider.horizontal.3") { waveSettingsPresented = true }
                 Button("Обращения и поддержка", systemImage: "envelope") { supportPresented = true }
                 Button(store.account == nil ? "Войти" : "Выйти", systemImage: "person") { if store.account == nil { store.authPresented = true } else { Task { await store.logout() } } }
-            } label: { Image(systemName: "line.3.horizontal").font(.system(size: 22, weight: .medium)).foregroundStyle(pumpkin).frame(width: 56, height: 56).frostedGlass(28) }.accessibilityLabel("Меню").sheet(item: $feature) { PremiumFeatureView(kind: $0).environmentObject(store) }
+            } label: { Image(systemName: "line.3.horizontal").font(.system(size: 19, weight: .medium)).foregroundStyle(pumpkin).frame(width: 56, height: 56).frostedGlass(28) }.accessibilityLabel("Меню").sheet(item: $feature) { PremiumFeatureView(kind: $0).environmentObject(store) }
         }.padding(.horizontal, 20).padding(.top, 8)
     }
     @ViewBuilder private var content: some View {
