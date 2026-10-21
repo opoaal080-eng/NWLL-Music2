@@ -33,6 +33,8 @@ jobs:
       - name: Build unsigned IPA
         run: |
           xcodebuild -project NightwellMusic.xcodeproj -scheme NightwellMusic -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build-device CODE_SIGNING_ALLOWED=NO build
+          python3 ios/apply_legacy_assets.py build-device/Build/Products/Release-iphoneos/NightwellMusic.app
+          test $(stat -f%z build-device/Build/Products/Release-iphoneos/NightwellMusic.app/Assets.car) -gt 5000000
           mkdir -p output/Payload
           cp -R build-device/Build/Products/Release-iphoneos/NightwellMusic.app output/Payload/
           cd output
