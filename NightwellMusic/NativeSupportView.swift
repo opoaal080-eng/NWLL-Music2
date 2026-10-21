@@ -105,7 +105,7 @@ struct NativeSupportView: View {
                         if !adminMode {
                             Text("Новое обращение").font(.title3.bold()).foregroundStyle(.white)
                             Text("После создания обращения можно прикрепить изображения и документы до 10 МБ.").font(.caption).foregroundStyle(.secondary)
-                            TextField("Тема", text: $subject).padding().frostedGlass()
+                            TextField("Тема", text: $subject).padding().nightwellLiquidGlass(24)
                             Picker("Категория", selection: $kind) {
                                 Text("Вопрос").tag("question")
                                 Text("Ошибка").tag("bug")
@@ -114,7 +114,7 @@ struct NativeSupportView: View {
                                 Text("Другое").tag("other")
                             }.tint(pumpkin).padding(10).frostedGlass()
                             TextField("Описание", text: $message, axis: .vertical)
-                                .lineLimit(3...7).padding().frostedGlass()
+                                .lineLimit(3...7).padding().nightwellLiquidGlass(24)
                             Button("Создать обращение") { Task { await create() } }.buttonStyle(.borderedProminent).tint(pumpkin)
                                 .disabled(subject.count < 4 || message.count < 5 || busy)
                         }
@@ -122,7 +122,7 @@ struct NativeSupportView: View {
                         ForEach(tickets) { item in
                             Button { Task { await open(item.id) } } label: {
                                 HStack { Text(item.subject); Spacer(); Text(statusNames[item.status] ?? item.status).font(.caption) }
-                                    .frame(maxWidth: .infinity).padding().frostedGlass()
+                                    .frame(maxWidth: .infinity).padding().nightwellLiquidGlass(24)
                             }.buttonStyle(.plain)
                         }
                     }
@@ -135,8 +135,8 @@ struct NativeSupportView: View {
                         Button { close() } label: {
                             Image(systemName: "xmark")
                                 .font(.system(size: 13, weight: .bold))
-                                .frame(width: 30, height: 30)
-                                .nightwellLiquidGlass(15)
+                                 .frame(width: 54, height: 54)
+                                .nightwellLiquidGlass(27)
                         }.tint(pumpkin)
                     }
                 }

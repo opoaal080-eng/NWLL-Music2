@@ -207,10 +207,10 @@ struct MiniPlayer: View {
     var body: some View {
         GeometryReader { box in
             let compact = box.size.width < 350
-            HStack(spacing: compact ? 7 : 10) {
+            HStack(spacing: compact ? 8 : 12) {
                 Button(action: open) {
                     HStack(spacing: 7) {
-                        Cover(track: clock.current, origin: store.origin).frame(width: compact ? 37 : 42, height: compact ? 37 : 42).clipShape(RoundedRectangle(cornerRadius: 12))
+                        Cover(track: clock.current, origin: store.origin).frame(width: compact ? 42 : 46, height: compact ? 42 : 46).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                         VStack(alignment: .leading, spacing: 4) {
                             Text(clock.current?.title ?? "Выбери трек").font(.system(size: compact ? 12 : 14, weight: .semibold)).lineLimit(1)
                             Text(clock.current?.artist ?? "Nightwell Music").font(.system(size: compact ? 10 : 12)).foregroundStyle(.white.opacity(0.65)).lineLimit(1)
@@ -233,21 +233,21 @@ struct MiniPlayer: View {
                         Button { Task { await store.like(track) } } label: { Image(systemName: store.likes.contains(track.id) ? "heart.fill" : "heart").font(.system(size: 18)).foregroundStyle(pumpkin).frame(width: compact ? 26 : 29, height: 44) }.accessibilityLabel("Избранное")
                     }
                     Button { changeTrack(-1) } label: { Image(systemName: "backward.end").font(.system(size: 17)).frame(width: compact ? 24 : 28, height: 44) }.accessibilityLabel("Предыдущий трек")
-                    Button { clock.toggle() } label: { Image(systemName: clock.playing ? "pause" : "play.fill").font(.system(size: 19, weight: .light)).frame(width: compact ? 40 : 42, height: compact ? 40 : 42).overlay(Circle().stroke(pumpkin.opacity(0.9), lineWidth: 1.1)) }.accessibilityLabel(clock.playing ? "Пауза" : "Воспроизвести")
+                    Button { clock.toggle() } label: { Image(systemName: clock.playing ? "pause" : "play.fill").font(.system(size: 19, weight: .light)).frame(width: compact ? 44 : 48, height: compact ? 44 : 48).background(Circle().fill(Color.black.opacity(0.16))).overlay(Circle().stroke(pumpkin.opacity(0.95), lineWidth: 1.5)) }.accessibilityLabel(clock.playing ? "Пауза" : "Воспроизвести")
                     Button { changeTrack(1) } label: { Image(systemName: "forward.end").font(.system(size: 17)).frame(width: compact ? 24 : 28, height: 44) }.accessibilityLabel("Следующий трек")
                 }.buttonStyle(.plain)
-            }.foregroundStyle(.white).padding(.horizontal, 11).frame(maxWidth: .infinity, maxHeight: .infinity)
+            }.foregroundStyle(.white) .padding(.horizontal, 14).frame(maxWidth: .infinity, maxHeight: .infinity)
             .background {
                 ZStack(alignment: .leading) {
-                    FrostedSurface(radius: 30)
+                    FrostedSurface(radius: 32)
                     LinearGradient(colors: [pumpkin.opacity(0.14), Color.purple.opacity(0.035)], startPoint: .leading, endPoint: .trailing)
                         .frame(width: box.size.width * min(1, max(0, clock.duration > 0 ? clock.position / clock.duration : 0)))
                 }
             }
-            .overlay(RoundedRectangle(cornerRadius: 34, style: .continuous).stroke(LinearGradient(colors: [.white.opacity(0.32), pumpkin.opacity(0.26), .white.opacity(0.13)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: 34, style: .continuous).stroke(LinearGradient(colors: [.white.opacity(0.34), pumpkin.opacity(0.34), .white.opacity(0.14)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.1))
             .clipShape(RoundedRectangle(cornerRadius: 34, style: .continuous))
             .shadow(color: pumpkin.opacity(glow ? 0.4 : 0), radius: 18)
-        }.frame(height: 72)
+        }.frame(height: 76)
         .animation(reduced ? nil : .spring(response: 0.32, dampingFraction: 0.82), value: clock.id)
         .task(id: clock.id) { guard !reduced else { return }; glow = true; try? await Task.sleep(nanoseconds: 80_000_000); guard !Task.isCancelled else { return }; withAnimation(.easeOut(duration: 0.9)) { glow = false } }
         // Swipe wins over the artwork/title tap, so it never opens the full player.
@@ -657,12 +657,12 @@ struct NativeSettings: View {
     }
     var body: some View {
         VStack(spacing: 14) {
-            HStack { Text("Настройки").font(.title.bold()); Spacer(); Button { close() } label: { Image(systemName: "xmark").frame(width: 40, height: 40).glass(20) } }
+            HStack { VStack(alignment: .leading, spacing: 4) { Text("Моя статистика").font(.system(size: 28, weight: .bold)); Text("Настройки сохраняются в вашем аккаунте.").font(.callout).foregroundStyle(.white.opacity(0.55)) }; Spacer(); Button("Готово") { close() }.font(.system(size: 16, weight: .semibold)).foregroundStyle(pumpkin).padding(.horizontal, 20).frame(height: 50).nightwellLiquidGlass(25) }
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     VStack(alignment: .leading, spacing: 10) {
                         Button("Темы и ленты · Premium") { feature = .appearance }.sheet(item: $feature) { PremiumFeatureView(kind: $0).environmentObject(store) }
-                        Label("Оформление", systemImage: "paintbrush.pointed").font(.headline).foregroundStyle(pumpkin)
+                        Label("Последние 90 дней", systemImage: "chart.bar").font(.headline).foregroundStyle(pumpkin)
                         Toggle("Текст вместе с лентами", isOn: $ambientLyrics)
                             .onChange(of: ambientLyrics) { enabled in
                                 if enabled { store.lyrics.select(store.clock.current, api: store.api, origin: store.origin, online: store.account != nil) }

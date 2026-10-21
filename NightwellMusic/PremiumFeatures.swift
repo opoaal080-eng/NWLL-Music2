@@ -95,7 +95,7 @@ struct PremiumPreferences: Codable {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                Text(premium.note).font(.footnote).foregroundStyle(.secondary).padding(16).frame(maxWidth: .infinity, alignment: .leading).nightwellLiquidGlass(22)
+                Text(premium.note).font(.footnote).foregroundStyle(.secondary).padding(16).frame(maxWidth: .infinity, alignment: .leading).nightwellLiquidGlass(24)
                 Group {
                     switch kind {
                     case .sound: sound
@@ -105,7 +105,7 @@ struct PremiumPreferences: Codable {
                     }
                 }.disabled(!premium.allowed || busy)
                 }.padding(20)
-            }.background(LinearGradient(colors: [nightwellViolet, Color.black], startPoint: .topLeading, endPoint: .bottomTrailing))
+            }.background(LinearGradient(colors: [Color(red: 0.18, green: 0.07, blue: 0.30), Color.black], startPoint: .topLeading, endPoint: .bottomTrailing))
             .navigationTitle(kind.rawValue)
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) { if kind == .sound { Button { showPresetOptions = true } label: { Image(systemName: "ellipsis") }.accessibilityLabel("Дополнительные настройки эквалайзера") } }
@@ -114,7 +114,7 @@ struct PremiumPreferences: Codable {
                 .sheet(isPresented: $showPresetOptions) { NavigationStack { ScrollView { VStack { presetOptions }.padding(20) }.navigationTitle("Настройки эквалайзера").toolbar { Button("Готово") { showPresetOptions = false } } }.presentationDetents([.medium, .large]) }
                 .task(id: store.account?.id) { rules = []; statistics = nil; await premium.refresh(store); if premium.allowed { await load() } }
                 .task { while !Task.isCancelled { soundReady = NativePlayer.shared.premiumSoundAvailable; soundStatus = NativePlayer.shared.premiumSoundStatus; do { try await Task.sleep(nanoseconds: 1_000_000_000) } catch { return } } }
-        }.preferredColorScheme(.dark).presentationDetents([.fraction(0.78), .large]).presentationDragIndicator(.visible)
+        }.preferredColorScheme(.dark).presentationDetents([.fraction(0.86), .large]).presentationDragIndicator(.visible)
     }
     private var sound: some View {
         Group {

@@ -1,4 +1,4 @@
-import AVFoundation
+﻿import AVFoundation
 import MediaToolbox
 
 /// One PCM tap for the visualizer and optional Premium sound processing.
@@ -119,6 +119,7 @@ final class LocalAudioMeter {
         return playing && age < 1 ? value * exp(-max(0, age - 0.15) * 3) : 0
     }
 }
+
 
 
 

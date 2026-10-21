@@ -124,7 +124,7 @@ struct NightwellPopup<Content: View>: View {
     var body: some View {
         GeometryReader { proxy in
             ZStack {
-                Color.black.opacity(dimsBackground ? 0.28 : 0.001).ignoresSafeArea()
+                Color.black.opacity(dimsBackground ? 0.18 : 0.001).ignoresSafeArea()
                     .onTapGesture(perform: close)
                 content
                     .frame(maxWidth: .infinity)
@@ -286,7 +286,7 @@ struct NativeRoot: View {
             .foregroundStyle(nightwellText)
             .accessibilityLabel("На главную")
             Spacer()
-            Button { if store.screen == .search { store.screen = .home } else { store.screen = .search } } label: { Image(systemName: store.screen == .search ? "xmark" : "magnifyingglass").font(.system(size: 19, weight: .medium)).frame(width: 44, height: 44).frostedGlass(22) }.accessibilityLabel(store.screen == .search ? "Закрыть поиск" : "Поиск")
+            Button { if store.screen == .search { store.screen = .home } else { store.screen = .search } } label: { Image(systemName: store.screen == .search ? "xmark" : "magnifyingglass").font(.system(size: 22, weight: .medium)).foregroundStyle(pumpkin).frame(width: 56, height: 56).frostedGlass(28) }.accessibilityLabel(store.screen == .search ? "Закрыть поиск" : "Поиск")
             Menu {
                 ForEach(MusicStore.Screen.allCases, id: \.self) { screen in Button(screen.rawValue) { store.screen = screen } }
                 Divider()
@@ -297,7 +297,7 @@ struct NativeRoot: View {
                 Button("Настройка подборки", systemImage: "slider.horizontal.3") { waveSettingsPresented = true }
                 Button("Обращения и поддержка", systemImage: "envelope") { supportPresented = true }
                 Button(store.account == nil ? "Войти" : "Выйти", systemImage: "person") { if store.account == nil { store.authPresented = true } else { Task { await store.logout() } } }
-            } label: { Image(systemName: "line.3.horizontal").font(.system(size: 19, weight: .medium)).frame(width: 44, height: 44).frostedGlass(22) }.accessibilityLabel("Меню").sheet(item: $feature) { PremiumFeatureView(kind: $0).environmentObject(store) }
+            } label: { Image(systemName: "line.3.horizontal").font(.system(size: 22, weight: .medium)).foregroundStyle(pumpkin).frame(width: 56, height: 56).frostedGlass(28) }.accessibilityLabel("Меню").sheet(item: $feature) { PremiumFeatureView(kind: $0).environmentObject(store) }
         }.padding(.horizontal, 20).padding(.top, 8)
     }
     @ViewBuilder private var content: some View {
@@ -364,7 +364,7 @@ struct NativeTrackRow: View {
             Button { store.play(track, in: queue) } label: {
                 HStack(spacing: 12) {
                     Cover(track: track, origin: store.origin).frame(width: 46, height: 46).clipShape(RoundedRectangle(cornerRadius: 12))
-                    VStack(alignment: .leading, spacing: 5) { Text(track.title).font(.subheadline.weight(.semibold)).lineLimit(2); Text(track.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                    VStack(alignment: .leading, spacing: 5) { Text(track.title).font(.subheadline.weight(.semibold)).lineLimit(2); Text(track.artist).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
                     Spacer(minLength: 0)
                     if status.id == track.id { PlayingIndicator(playing: status.playing).frame(width: 20, height: 20) }
                 }.contentShape(Rectangle())
