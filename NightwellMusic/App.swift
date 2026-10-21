@@ -123,16 +123,18 @@ struct NightwellPopup<Content: View>: View {
     }
     var body: some View {
         GeometryReader { proxy in
-            ZStack {
+            ZStack(alignment: .bottom) {
                 Color.black.opacity(dimsBackground ? 0.18 : 0.001).ignoresSafeArea()
                     .onTapGesture(perform: close)
                 content
-                    .frame(maxWidth: .infinity)
+                    .frame(width: max(0, proxy.size.width - 48))
                     .frame(maxHeight: min(maxHeight, proxy.size.height * 0.84))
-                     .nightwellLiquidGlass(36)
-                    .clipShape(RoundedRectangle(cornerRadius: 36, style: .continuous))
-                    .padding(.horizontal, 20)
+                    .nightwellLiquidGlass(32)
+                    .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 32, style: .continuous)
+                        .stroke(.white.opacity(0.16), lineWidth: 1))
                     .shadow(color: nightwellViolet.opacity(0.55), radius: 34, y: 14)
+                    .padding(.bottom, 14)
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
