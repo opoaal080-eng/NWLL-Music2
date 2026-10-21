@@ -34,44 +34,42 @@ struct NativeWaveSettingsView: View {
     @State private var message = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(spacing: 12) {
-                Button("Сбросить") { draft = WaveSettings() }
-                    .font(.system(size: 15, weight: .medium))
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Button("Сброс") { draft = WaveSettings() }
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(pumpkin)
-                    .padding(.horizontal, 20)
-                    .frame(height: 54)
-                    .nightwellLiquidGlass(27)
+                    .frame(width: 64, height: 40)
+                    .nightwellLiquidGlass(20)
                     .disabled(applying)
-                Spacer()
-                Text("Настроить подборку")
-                    .font(.system(size: 20, weight: .bold))
+                Spacer(minLength: 4)
+                Text("Подборка")
+                    .font(.system(size: 17, weight: .semibold))
                     .lineLimit(1)
-                Spacer()
-                Button {
-                    close()
-                } label: {
+                    .minimumScaleFactor(0.8)
+                Spacer(minLength: 4)
+                Button(action: close) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 18, weight: .semibold))
+                        .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(pumpkin)
-                        .frame(width: 54, height: 54)
-                        .nightwellLiquidGlass(27)
+                        .frame(width: 40, height: 40)
+                        .nightwellLiquidGlass(20)
                 }
                 .disabled(applying)
             }
             Text("Выбери, что хочется услышать сейчас")
-                .font(.system(size: 16, weight: .medium))
+                .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(.white.opacity(0.72))
                 .padding(.horizontal, 2)
 
             ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 22) {
+                VStack(alignment: .leading, spacing: 16) {
                     ForEach(0..<3, id: \.self) { section in
-                        VStack(alignment: .leading, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 9) {
                             Text(WaveSettings.titles[section])
-                                .font(.system(size: 18, weight: .bold))
+                                .font(.system(size: 16, weight: .bold))
                                 .foregroundStyle(.white)
-                            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 9) {
                                 ForEach(WaveSettings.values[section].indices, id: \.self) { option in
                                     let selected = draft[section] == WaveSettings.values[section][option]
                                     Button {
@@ -80,16 +78,16 @@ struct NativeWaveSettingsView: View {
                                         HStack(spacing: 8) {
                                             if selected { Image(systemName: "checkmark").font(.system(size: 14, weight: .bold)) }
                                             Text(WaveSettings.labels[section][option])
-                                                .font(.system(size: 16, weight: .medium))
+                                                .font(.system(size: 14, weight: .medium))
                                                 .lineLimit(1)
                                         }
-                                        .frame(maxWidth: .infinity, minHeight: 58)
+                                        .frame(maxWidth: .infinity, minHeight: 46)
                                         .foregroundStyle(selected ? pumpkin : .white.opacity(0.92))
                                         .background(selected ? pumpkin.opacity(0.08) : Color.clear)
-                                        .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).stroke(selected ? pumpkin.opacity(0.9) : Color.white.opacity(0.20), lineWidth: 1.2))
+                                        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(selected ? pumpkin.opacity(0.9) : Color.white.opacity(0.20), lineWidth: 1.2))
                                     }
                                     .buttonStyle(.plain)
-                                    .nightwellLiquidGlass(26)
+                                    .nightwellLiquidGlass(22)
                                     .accessibilityAddTraits(selected ? .isSelected : [])
                                 }
                             }
@@ -109,7 +107,7 @@ struct NativeWaveSettingsView: View {
 
             HStack { Spacer() }
         }
-        .padding(20)
+        .padding(16)
         .background(Color.clear)
         .onAppear { draft = WaveSettings.read(store.origin, store.account?.id ?? "device") }
         .safeAreaInset(edge: .bottom) {
@@ -124,14 +122,14 @@ struct NativeWaveSettingsView: View {
                 HStack(spacing: 10) {
                     if applying { ProgressView().tint(pumpkin) }
                     Text("Готово")
-                        .font(.system(size: 18, weight: .semibold))
+                        .font(.system(size: 16, weight: .semibold))
                 }
                 .foregroundStyle(pumpkin)
-                .frame(maxWidth: .infinity, minHeight: 56)
+                .frame(maxWidth: .infinity, minHeight: 48)
             }
             .buttonStyle(.plain)
             .nightwellLiquidGlass(28)
-            .padding(.horizontal, 20)
+            .padding(.horizontal, 16)
             .padding(.bottom, 6)
             .disabled(applying || store.loading)
             .background(Color.clear)
