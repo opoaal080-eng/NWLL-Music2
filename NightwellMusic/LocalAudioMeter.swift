@@ -50,10 +50,10 @@ final class LocalAudioMeter {
                 let meter = Unmanaged<LocalAudioMeter>.fromOpaque(MTAudioProcessingTapGetStorage(tap)).takeUnretainedValue()
                 meter.consume(buffers, frames: Int(produced.pointee))
             })
-        var result: Unmanaged<MTAudioProcessingTap>?
+        var result: MTAudioProcessingTap?
         let status = MTAudioProcessingTapCreate(kCFAllocatorDefault, &callbacks,
             kMTAudioProcessingTapCreationFlag_PostEffects, &result)
-        guard status == noErr, let result = result?.takeRetainedValue() else {
+        guard status == noErr, let result else {
             Unmanaged<LocalAudioMeter>.fromOpaque(callbacks.clientInfo!).release(); return
         }
         let parameters = AVMutableAudioMixInputParameters(track: track)

@@ -244,10 +244,10 @@ struct MiniPlayer: View {
                         .frame(width: box.size.width * min(1, max(0, clock.duration > 0 ? clock.position / clock.duration : 0)))
                 }
             }
-            .overlay(RoundedRectangle(cornerRadius: 30).stroke(LinearGradient(colors: [.white.opacity(0.32), pumpkin.opacity(0.26), .white.opacity(0.13)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1))
-            .clipShape(RoundedRectangle(cornerRadius: 30))
+            .overlay(RoundedRectangle(cornerRadius: 34, style: .continuous).stroke(LinearGradient(colors: [.white.opacity(0.32), pumpkin.opacity(0.26), .white.opacity(0.13)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: 34, style: .continuous))
             .shadow(color: pumpkin.opacity(glow ? 0.4 : 0), radius: 18)
-        }.frame(height: 68)
+        }.frame(height: 72)
         .animation(reduced ? nil : .spring(response: 0.32, dampingFraction: 0.82), value: clock.id)
         .task(id: clock.id) { guard !reduced else { return }; glow = true; try? await Task.sleep(nanoseconds: 80_000_000); guard !Task.isCancelled else { return }; withAnimation(.easeOut(duration: 0.9)) { glow = false } }
         // Swipe wins over the artwork/title tap, so it never opens the full player.
@@ -343,7 +343,7 @@ struct FullPlayer: View {
         ZStack {
             SeasonBackground()
             VStack(spacing: 20) {
-                HStack { Button { dismiss() } label: { Image(systemName: "chevron.down").frame(width: 44, height: 44).frostedGlass() }; Spacer(); VStack(spacing: 5) { Text("HALLOWEEN EDITION").font(.caption2).tracking(3).foregroundStyle(pumpkin); Text("Играет сейчас").font(.headline) }; Spacer(); tools }
+                HStack { Button { dismiss() } label: { Image(systemName: "chevron.down").frame(width: 46, height: 46).nightwellLiquidGlass(24) }; Spacer(); VStack(spacing: 5) { Text("HALLOWEEN EDITION").font(.caption2).tracking(3).foregroundStyle(pumpkin); Text("Играет сейчас").font(.headline) }; Spacer(); tools }
                 GeometryReader { box in
                     if showLyrics {
                         SharedLyricsPanel(model: store.lyrics, clock: clock)
@@ -380,7 +380,7 @@ struct FullPlayer: View {
                     }.font(.title2)
                     Divider()
                     Button { showQueue = true } label: { HStack { Image(systemName: "list.bullet"); Text("Дальше в очереди"); Spacer(); Text(String(clock.queue.count)).foregroundStyle(.secondary) } }.font(.subheadline)
-                }.padding(20).frostedGlass(28)
+                }.padding(22).nightwellLiquidGlass(32)
                 if !clock.failure.isEmpty { Text(clock.failure).font(.caption).foregroundStyle(pumpkin) }
             }.padding(.horizontal, 22).padding(.vertical, 12)
         }.overlay { NativeFogLayer(active: !showQueue) }.tint(pumpkin)
@@ -419,7 +419,7 @@ struct FullPlayer: View {
                 ShareLink(item: store.origin.appendingPathComponent("track/" + track.id)) { Label("Поделиться", systemImage: "square.and.arrow.up") }
                 Menu("Добавить в плейлист") { ForEach(store.playlists) { p in Button(p.name) { Task { await store.add(track, playlist: p) } } } }
             }
-        } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44).frostedGlass() }
+        } label: { Image(systemName: "ellipsis").frame(width: 46, height: 46).nightwellLiquidGlass(24) }
     }
 }
 func formatTime(_ seconds: Double) -> String { let value = seconds.isFinite ? max(0, Int(seconds)) : 0; return String(format: "%d:%02d", value / 60, value % 60) }
@@ -442,9 +442,9 @@ struct PlaybackQueue: View {
                     }
                     Spacer()
                     Text("\(clock.queue.count)").font(.subheadline.monospacedDigit())
-                        .padding(10).frostedGlass(16)
+                        .padding(10).nightwellLiquidGlass(20)
                     Button { dismiss() } label: {
-                        Image(systemName: "xmark").frame(width: 42, height: 42).frostedGlass(21)
+                        Image(systemName: "xmark").frame(width: 42, height: 42).nightwellLiquidGlass(24)
                     }.accessibilityLabel("Закрыть очередь")
                 }
                 ScrollViewReader { reader in
@@ -468,7 +468,7 @@ struct PlaybackQueue: View {
                             }
                         }.padding(12)
                     }
-                    .frostedGlass(24)
+                    .nightwellLiquidGlass(28)
                     .onAppear { if currentIndex >= 0 { reader.scrollTo(currentIndex, anchor: .top) } }
                 }
             }.padding(.horizontal, 20).padding(.top, 28).padding(.bottom, 18)

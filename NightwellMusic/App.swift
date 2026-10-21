@@ -30,54 +30,87 @@ let pumpkin = Color(red: 1, green: 0.72, blue: 0.43)
 let nightwellViolet = Color(red: 0.19, green: 0.10, blue: 0.29)
 let nightwellText = Color(red: 0.94, green: 0.88, blue: 0.97)
 extension View {
-    func glass(_ radius: CGFloat = 24) -> some View {
-        self.background {
-            RoundedRectangle(cornerRadius: radius)
-                .fill(nightwellViolet.opacity(0.56))
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: radius))
-        }
-            .overlay(RoundedRectangle(cornerRadius: radius).stroke(
-                LinearGradient(colors: [pumpkin.opacity(0.33), .white.opacity(0.13), nightwellText.opacity(0.15)], startPoint: .topLeading, endPoint: .bottomTrailing),
-                lineWidth: 1
-            ))
+    func glass(_ radius: CGFloat = 30) -> some View {
+        self
+            .padding(.horizontal, 0)
+            .background {
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .fill(.ultraThinMaterial)
+                    .overlay(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.18), pumpkin.opacity(0.12), nightwellViolet.opacity(0.20)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+                    )
+            }
+            .overlay(
+                RoundedRectangle(cornerRadius: radius, style: .continuous).stroke(
+                    LinearGradient(colors: [Color.white.opacity(0.45), pumpkin.opacity(0.30), nightwellText.opacity(0.18)], startPoint: .topLeading, endPoint: .bottomTrailing),
+                    lineWidth: 1
+                )
+            )
+            .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
     }
 }
 
 // iOS 26+ system Liquid Glass, with a translucent fallback on older versions.
 extension View {
-    @ViewBuilder func nightwellLiquidGlass(_ radius: CGFloat = 24) -> some View {
+    @ViewBuilder func nightwellLiquidGlass(_ radius: CGFloat = 30) -> some View {
         if #available(iOS 26.0, *) {
             self.glassEffect(.regular, in: .rect(cornerRadius: radius))
         } else {
-            self.background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: radius))
-                .overlay(RoundedRectangle(cornerRadius: radius).stroke(Color.white.opacity(0.30), lineWidth: 1))
+            self
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: radius, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [Color.white.opacity(0.12), pumpkin.opacity(0.08), Color.clear],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                )
+                .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).stroke(Color.white.opacity(0.32), lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
         }
     }
 }
 
 // Shared with the mini-player: only the background is translucent.
 struct FrostedSurface: View {
-    var radius: CGFloat = 24
+    var radius: CGFloat = 30
     var body: some View {
-        RoundedRectangle(cornerRadius: radius)
+        RoundedRectangle(cornerRadius: radius, style: .continuous)
             .fill(.ultraThinMaterial)
-            .opacity(0.43)
+            .overlay(
+                LinearGradient(
+                    colors: [Color.white.opacity(0.12), pumpkin.opacity(0.10), Color.clear],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+            )
+            .opacity(0.72)
     }
 }
 extension View {
-    func frostedGlass(_ radius: CGFloat = 24) -> some View {
-        self.background { FrostedSurface(radius: radius) }
-            .overlay(RoundedRectangle(cornerRadius: radius).stroke(
-                LinearGradient(colors: [.white.opacity(0.32), pumpkin.opacity(0.26), .white.opacity(0.13)], startPoint: .topLeading, endPoint: .bottomTrailing),
+    func frostedGlass(_ radius: CGFloat = 30) -> some View {
+        self
+            .background { FrostedSurface(radius: radius) }
+            .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).stroke(
+                LinearGradient(colors: [.white.opacity(0.36), pumpkin.opacity(0.28), .white.opacity(0.14)], startPoint: .topLeading, endPoint: .bottomTrailing),
                 lineWidth: 1
             ))
-            .clipShape(RoundedRectangle(cornerRadius: radius))
+            .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
     }
 }
 
 struct NightwellPopup<Content: View>: View {
     let title: String
-    var maxHeight: CGFloat = 560
+    var maxHeight: CGFloat = 600
     var dimsBackground = true
     let close: () -> Void
     let content: Content
@@ -96,10 +129,10 @@ struct NightwellPopup<Content: View>: View {
                 content
                     .frame(maxWidth: .infinity)
                     .frame(maxHeight: min(maxHeight, proxy.size.height * 0.84))
-                    .nightwellLiquidGlass(30)
-                    .clipShape(RoundedRectangle(cornerRadius: 30))
+                     .nightwellLiquidGlass(36)
+                    .clipShape(RoundedRectangle(cornerRadius: 36, style: .continuous))
                     .padding(.horizontal, 20)
-                    .shadow(color: nightwellViolet.opacity(0.65), radius: 28, y: 12)
+                    .shadow(color: nightwellViolet.opacity(0.55), radius: 34, y: 14)
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
         }

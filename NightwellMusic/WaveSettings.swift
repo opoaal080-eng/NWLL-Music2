@@ -68,7 +68,7 @@ struct NativeWaveSettingsView: View {
                             applying = false
                         }
                     } label: {
-                        HStack { if applying { ProgressView().tint(pumpkin) }; Text("Применить") }.frame(maxWidth: .infinity).padding(16).frostedGlass(22)
+                        HStack { if applying { ProgressView().tint(pumpkin) }; Text("Применить") }.frame(maxWidth: .infinity).padding(16).nightwellLiquidGlass(26)
                     }.disabled(applying || store.loading)
                 }.padding(18)
             }.background(Color.clear)
@@ -79,7 +79,8 @@ struct NativeWaveSettingsView: View {
                 }.tint(pumpkin)
         }
         .onAppear { draft = WaveSettings.read(store.origin, store.account?.id ?? "device") }
-        .background(Color(red: 0.055, green: 0.032, blue: 0.092).opacity(0.86), in: RoundedRectangle(cornerRadius: 26))
-        .clipShape(RoundedRectangle(cornerRadius: 26))
+        .background(Color.clear)
+        .nightwellLiquidGlass(32)
+        .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
     }
 }

@@ -141,6 +141,8 @@ struct NativeSupportView: View {
                     }
                 }
         }
+                .nightwellLiquidGlass(32)
+        .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
         .sheet(item: $previewItem) { item in
             NavigationStack {
                 SupportFilePreview(url: item.url)
@@ -217,8 +219,9 @@ struct NativeSupportView: View {
                 }
             }
         }
-        .background(Color(red: 0.055, green: 0.032, blue: 0.092).opacity(0.86), in: RoundedRectangle(cornerRadius: 26))
-        .clipShape(RoundedRectangle(cornerRadius: 26))
+        .background(Color.clear)
+        .nightwellLiquidGlass(32)
+        .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
         .task { await refresh() }
     }
     private func preview(_ id: String, _ attachment: SupportAttachment) async {
