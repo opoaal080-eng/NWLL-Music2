@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+    <application android:label="Nightwell Music"
+        android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher"
+        android:theme="@style/AppTheme" android:allowBackup="false"
+        android:usesCleartextTraffic="false" android:enableOnBackInvokedCallback="false">
+        <service android:name=".PlaybackService" android:exported="false" android:foregroundServiceType="mediaPlayback">
+            <intent-filter><action android:name="androidx.media3.session.MediaSessionService"/></intent-filter>
+        </service>
+        <service android:name=".DownloadPreparationService" android:exported="false" android:foregroundServiceType="dataSync"/>
+        <receiver android:name=".DownloadReceiver" android:exported="false">
+            <intent-filter><action android:name="android.intent.action.DOWNLOAD_COMPLETE"/></intent-filter>
+        </receiver>
+        <activity android:name=".MainActivity" android:exported="true"
+            android:launchMode="singleTask" android:windowSoftInputMode="adjustResize">
+            <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="https" android:host="music.nightwell.fun" android:pathPrefix="/track/"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="nightwell" android:host="track"/>
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
