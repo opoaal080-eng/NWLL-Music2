@@ -1,0 +1,68 @@
+package fun.nightwell.music;
+import android.content.Context;
+import android.graphics.*;
+import android.view.View;
+
+/** Audio reactive ribbons on one native canvas. */
+final class RibbonView extends View {
+ private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
+ private final Path path=new Path();
+ private boolean running,playing;
+ private long flashAt,lastFrame;
+ private double phase,energy;
+ double premiumSpeed=1,premiumIntensity=1;String premiumTheme="nightwell";
+ private java.util.function.DoubleSupplier meter=()->0;
+ RibbonView(Context c){super(c);setLayerType(View.LAYER_TYPE_HARDWARE,null);}
+ void meter(java.util.function.DoubleSupplier m){meter=m;}
+ void running(boolean value){running=value;lastFrame=0;if(value)postInvalidateOnAnimation();}
+ void playing(boolean value){playing=value;if(running)postInvalidateOnAnimation();}
+ void flash(){flashAt=android.os.SystemClock.uptimeMillis();invalidate();}
+ @Override protected void onAttachedToWindow(){super.onAttachedToWindow();if(running)postInvalidateOnAnimation();}
+ private static final int[][] PALETTE={{135,87,255},{239,98,193},{255,153,92},{91,189,255}};
+ private static final int[][] AUTUMN_PALETTE={{182,105,62},{113,82,110},{201,128,73},{86,79,108}};
+ private int auraColor(double phase){
+  int[][] palette=premiumTheme.equals("nightwell")?AUTUMN_PALETTE:PALETTE;
+  double wrapped=(phase%4+4)%4;int index=(int)wrapped;
+  double f=wrapped-index,blend=f*f*(3-2*f);
+  int[] a=palette[index],b=palette[(index+1)%4];
+  return Color.rgb((int)(a[0]+(b[0]-a[0])*blend),(int)(a[1]+(b[1]-a[1])*blend),(int)(a[2]+(b[2]-a[2])*blend));
+ }
+ @Override protected void onDraw(Canvas canvas){
+  super.onDraw(canvas);
+  final float w=getWidth(),h=getHeight();if(w<1||h<1)return;
+  double raw=0;try{raw=meter.getAsDouble();}catch(RuntimeException ignored){}
+  if(!Double.isFinite(raw))raw=0;
+  raw=playing?Math.max(0,Math.min(1,raw*premiumIntensity)):0;
+  energy+=(raw-energy)*(raw>energy?.55:.2);
+  long now=android.os.SystemClock.uptimeMillis();
+  double delta=lastFrame==0?1.0/30:Math.min(.1,(now-lastFrame)/1000.0);lastFrame=now;
+  phase+=delta*.24*premiumSpeed;
+  float density=getResources().getDisplayMetrics().density;
+  float burst=Math.max(0,1-(now-flashAt)/700f);
+  paint.setStyle(Paint.Style.STROKE);paint.setStrokeCap(Paint.Cap.ROUND);
+  final double cx=w*.5,cy=h*.54;
+  for(int side=0;side<3;side++){
+   double dx=side==0?-w*.72:side==1?w*.72:0,dy=side==2?-h*.78:-h*.36;
+   double length=Math.hypot(dx,dy);
+   double hue=phase*.4+side*.8+(premiumTheme.equals("aurora")?1:premiumTheme.equals("ocean")?2:premiumTheme.equals("sunset")?3:0);
+   paint.setShader(new LinearGradient((float)cx,(float)cy,(float)(cx+dx),(float)(cy+dy),
+    new int[]{Color.TRANSPARENT,Color.TRANSPARENT,auraColor(hue),auraColor(hue+.6),auraColor(hue+1.2)},new float[]{0,.08f,.3f,.68f,1},Shader.TileMode.CLAMP));
+   for(int band=17;band>=0;band--){
+    double lane=(band-8.5)/17.0;
+    path.reset();
+    for(int i=6;i<=64;i++){
+     double u=i/64.0;
+     double spread=Math.sin(u*Math.PI*.5);
+     double bend=(Math.sin(u*9-phase+lane*3)*(.045+energy*.045)+lane*.26)*Math.min(w,h)*spread;
+     double x=cx+dx*u-dy/length*bend,y=cy+dy*u+dx/length*bend;
+     if(i==6)path.moveTo((float)x,(float)y);else path.lineTo((float)x,(float)y);
+    }
+    int alpha=(int)(255*Math.min(.52,(.11+energy*.20+burst*.12)*(1-Math.abs(lane)*.9)));
+    paint.setAlpha(alpha);paint.setStrokeWidth((float)((8+band*.68+energy*16)*density));
+    canvas.drawPath(path,paint);
+   }
+  }
+  paint.setShader(null);
+  if(running&&isShown()&&getWindowVisibility()==VISIBLE)postInvalidateOnAnimation();
+ }
+}

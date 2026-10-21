@@ -1,0 +1,18 @@
+Nightwell Music Native uses these unmodified, dynamically linked components:
+
+LibVLCSharp 3.10.1 — VideoLAN and contributors, LGPL-2.1-or-later.
+Project and corresponding source: https://code.videolan.org/videolan/LibVLCSharp
+Mirror: https://github.com/videolan/libvlcsharp
+
+VideoLAN.LibVLC.Windows 3.0.23.1 — VideoLAN and contributors.
+LibVLC core: LGPL-2.1-or-later; plugins retain their individual upstream licenses.
+Project and corresponding source: https://www.videolan.org/vlc/download-sources.html
+Windows packaging: https://code.videolan.org/videolan/libvlc-nuget
+Source repository: https://code.videolan.org/videolan/vlc
+
+The included LGPL-2.1.txt applies to the LGPL components. Native library files are
+shipped separately from the application and are not statically linked into it.
+
+.NET 8 runtime — .NET Foundation and contributors; MIT and upstream notices.
+Source and license: https://github.com/dotnet/runtime
+WPF source and license: https://github.com/dotnet/wpf

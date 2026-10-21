@@ -1,0 +1,38 @@
+name: Build Nightwell Music iOS (Recovered)
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  ios:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify recovered sources
+        run: python3 scripts/verify-native-source.py
+      - name: Verify Xcode project inputs
+        run: python3 scripts/verify-ios-build-inputs.py
+      - name: Parse Swift sources
+        run: swiftc -frontend -parse NightwellMusic/*.swift NativeTests/*.swift
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project
+        run: xcodegen generate
+      - name: Build unsigned IPA
+        run: |
+          xcodebuild -project NightwellMusic.xcodeproj -scheme NightwellMusic -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build-device CODE_SIGNING_ALLOWED=NO build
+          mkdir -p output/Payload
+          cp -R build-device/Build/Products/Release-iphoneos/NightwellMusic.app output/Payload/
+          python3 ios/apply_legacy_assets.py output/Payload/NightwellMusic.app
+          cd output
+          zip -qr Nightwell-Music-recovered-unsigned.ipa Payload
+      - name: Record IPA checksum and commit
+        run: python3 scripts/build-provenance.py --platform ios --directory output --output output/build-provenance.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Nightwell-Music-iOS-unsigned
+          path: |
+            output/Nightwell-Music-recovered-unsigned.ipa
+            output/build-provenance.json

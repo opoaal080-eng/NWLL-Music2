@@ -1,0 +1,76 @@
+/* Nightwell Music · Halloween. Artwork is bundled for offline use. */
+:root{--season-orange:#ffa04b;--season-violet:#b881ff;--season-edge:#efc2ff36;--season-panel:rgba(24,13,38,.74)}
+html[data-nw-season=halloween]{background:#0d0715;color-scheme:dark}
+html[data-nw-season=halloween] body{background:#0d0715!important;isolation:isolate;color:#fbf4ff}
+html[data-nw-season=halloween] body::before{content:'';position:fixed;inset:0;z-index:-2;pointer-events:none;background-image:linear-gradient(90deg,#09041133,transparent 65%),var(--season-landscape);background-size:cover;background-position:center;transition:opacity .3s}
+html[data-nw-season=halloween] body::after{content:'';position:fixed;inset:0;z-index:-1;pointer-events:none;background:linear-gradient(180deg,#0c061b38,transparent 45%,#0c061b35);opacity:1}
+html[data-nw-season=halloween] body:not(.wave-home)::before{opacity:.25}
+html[data-nw-season=halloween] .workspace{background:transparent!important}
+html[data-nw-season=halloween] .workspace>header{background:transparent!important;border:0!important;padding:28px 38px 14px!important;position:relative;z-index:20}
+html[data-nw-season=halloween] .brand{color:#fff;text-shadow:0 2px 14px #08020e66;gap:14px}
+html[data-nw-season=halloween] .brand small{letter-spacing:6px;color:#e7d1f9}
+html[data-nw-season=halloween] .header-action{background:#1a0f2e70!important;border:1px solid #d4b0ff40!important;box-shadow:inset 0 1px #ffffff13,0 6px 24px #08020d33;backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px)}
+html[data-nw-season=halloween] #header-menu-toggle[aria-expanded=true]{border-color:#ffad66b3!important;box-shadow:0 0 20px #ff8a3b33}
+html[data-nw-season=halloween] #header-menu{background:linear-gradient(140deg,#3b23439c,#130b25ed)!important;border:1px solid #d9b4f54d;box-shadow:0 15px 55px #08011077,inset 0 1px #ffe0c01c;backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border-radius:23px}
+html[data-nw-season=halloween] #header-menu .nav:hover,html[data-nw-season=halloween] #header-menu .nav.active{background:#a96ae62b;color:#ffcfaa}
+html[data-nw-season=halloween] body.wave-home main{padding-left:38px!important;padding-right:38px!important}
+html[data-nw-season=halloween] body.wave-home .wave-hero{display:flex;align-items:flex-start;justify-content:center;position:relative;text-align:left;padding:10px 2.4vw 32px!important;isolation:auto}
+html[data-nw-season=halloween] .wave-hero::before{display:none!important}
+html[data-nw-season=halloween] .wave-hero .wave-artwork{z-index:-1!important;opacity:.9;mix-blend-mode:screen}
+html[data-nw-season=halloween] body.wave-home .wave-hero h1{font-family:Georgia,'Times New Roman',serif;font-size:clamp(60px,6.5vw,108px)!important;line-height:1.03!important;letter-spacing:-.035em!important;white-space:normal!important;width:68%;max-width:850px;margin:14px 0 18px!important;text-wrap:balance;text-shadow:0 4px 28px #08021188}
+html[data-nw-season=halloween] .season-edition{display:block;font-size:10px;letter-spacing:4.5px;color:#ffb87c;font-weight:650;margin-bottom:2px}
+html[data-nw-season=halloween] .season-tagline{margin:0 0 20px;font-size:11px;letter-spacing:4px;color:#ddc8ed;font-weight:500;text-transform:uppercase}
+html[data-nw-season=halloween] body.wave-home .wave-hero #hero-play{position:absolute!important;top:48%;left:72%;transform:translate(-50%,-50%);width:154px;height:154px;min-height:154px;border-radius:50%!important;border:1.5px solid #ffae62!important;background:radial-gradient(circle at 35% 22%,#352034ed,#170d26f5 72%)!important;box-shadow:0 0 9px #ff9b5e88,0 0 42px #ff8a3c32,inset 0 0 22px #d67d4720!important;color:#ffb05f!important;clip-path:none!important}
+html[data-nw-season=halloween] .wave-hero #hero-play .is-play-icon{border-left-color:#ffb05f!important;filter:drop-shadow(0 0 8px #ff923766)!important}
+html[data-nw-season=halloween] .wave-hero #hero-play .is-paused-icon{background:linear-gradient(to right,#ffb05f 0 10px,transparent 10px 22px,#ffb05f 22px 32px)!important}
+html[data-nw-season=halloween] .wave-hero #hero-play:focus-visible{outline:2px solid #ffe2c2!important;outline-offset:7px}
+html[data-nw-season=halloween] .wave-hero #hero-new-mix{padding:16px 28px;border-radius:999px;color:#211027!important;background:linear-gradient(140deg,#ffbd65,#ff8a36)!important;border:1px solid #ffd48c!important;box-shadow:0 0 22px #ff87323d,inset 0 1px #fff3!important;font-weight:700;font-size:14px;margin:8px 0 0}
+html[data-nw-season=halloween] .wave-hero .ambient-enter{align-self:flex-start;border-radius:999px;padding:11px 22px;margin:14px 0 0;background:#1e102780;color:#dcc8ec;border:1px solid #bb91e64d;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+html[data-nw-season=halloween] #music-dock{bottom:max(22px,env(safe-area-inset-bottom));left:38px;right:38px;width:calc(100% - 76px);max-width:none;transform:none;border-radius:26px;background:linear-gradient(110deg,#35213eab,#170c25d6)!important;border:1px solid #e2c2ff4d!important;box-shadow:0 12px 45px #06020d66,inset 0 1px #ffe9dc26;backdrop-filter:blur(24px) saturate(130%);-webkit-backdrop-filter:blur(24px) saturate(130%)}
+html[data-nw-season=halloween] #music-dock .player{padding:16px 24px;min-height:88px}
+html[data-nw-season=halloween] #music-dock .player::before{background:linear-gradient(100deg,#ba6bea0e,#ff8a3d0a)!important}
+html[data-nw-season=halloween] .mini-cover{border-radius:15px;box-shadow:inset 0 0 0 1px #efd3ff33,0 4px 16px #0004}
+html[data-nw-season=halloween] #music-dock .controls #toggle{border:1px solid #ffa450!important;background:radial-gradient(circle,#ff9c3d16,#1a0d25c4)!important;box-shadow:0 0 18px #ff8f3e30!important;color:#fff}
+html[data-nw-season=halloween] #music-dock .controls .liked,html[data-nw-season=halloween] #full-like.liked{color:#ffa14f!important;filter:drop-shadow(0 0 7px #ff862d55)}
+html[data-nw-season=halloween] input[type=range]{accent-color:#ffa04b}
+html[data-nw-season=halloween] dialog,html[data-nw-season=halloween] #toast{background:linear-gradient(140deg,#34203eef,#140c23f5)!important;border-color:#d5adf54d!important;color:#fff;box-shadow:0 20px 80px #07020e88}
+html[data-nw-season=halloween] dialog::backdrop{background:#07020b99;backdrop-filter:blur(9px);-webkit-backdrop-filter:blur(9px)}
+html[data-nw-season=halloween] .full-player,html[data-nw-season=halloween] #lyrics-fullscreen{background:linear-gradient(180deg,#160d26dd,#130b1eed),var(--season-landscape) center/cover!important}
+html[data-nw-season=halloween] .full-play{background:#ff9e4730;color:#ffc17d;border:1px solid #ffa75488;box-shadow:0 0 25px #ff8e3422}
+html[data-nw-season=halloween] .lyrics-line.is-current{color:#fff5ed;text-shadow:0 0 20px #ff985b35}
+html[data-nw-season=halloween] .search,html[data-nw-season=halloween] .tracklist .row,html[data-nw-season=halloween] .card{background:#271532aa;border-color:#dab6ef24;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+html[data-nw-season=halloween] .section-heading h2{color:#fff5ed}
+html[data-nw-season=halloween] .eyebrow{color:#cfacd9}
+html[data-nw-season=halloween] body.ambient-only::before{opacity:1}
+html[data-nw-season=halloween] #ambient-exit{background:#24122bbf;border:1px solid #edbd8b70;color:#ffd2a4}
+@media(min-width:1000px){html[data-nw-season=halloween] #music-dock .player .progress{display:none!important}html[data-nw-season=halloween] #music-dock .player .transport{display:flex;justify-content:center}}
+@media(max-width:700px){
+ html[data-nw-season=halloween] body::before{background-image:linear-gradient(180deg,#11091b22,transparent 58%,#0c061a44),var(--season-portrait);background-position:center;background-size:cover}
+ html[data-nw-season=halloween] .workspace>header{padding:calc(16px + env(safe-area-inset-top)) 20px 12px!important}
+ html[data-nw-season=halloween] .brand{gap:10px;font-size:23px}
+ html[data-nw-season=halloween] .brand small{font-size:10px;letter-spacing:4px}
+ html[data-nw-season=halloween] .brand .brand-logo{width:40px;height:40px}
+ html[data-nw-season=halloween] .header-action{width:44px;height:44px;min-width:44px}
+ html[data-nw-season=halloween] body.wave-home main{padding-left:24px!important;padding-right:24px!important}
+ html[data-nw-season=halloween] body.wave-home .wave-hero{padding:12px 0!important;display:block}
+ html[data-nw-season=halloween] .season-edition{position:absolute;top:14px;font-size:8px;letter-spacing:3px}
+ html[data-nw-season=halloween] body.wave-home .wave-hero h1{position:absolute;top:44px;left:0;width:92%;font-family:inherit;font-size:clamp(38px,10.8vw,57px)!important;line-height:1.07!important;letter-spacing:-.04em!important;margin:0!important;max-width:350px}
+ html[data-nw-season=halloween] .season-tagline{display:none}
+ html[data-nw-season=halloween] body.wave-home .wave-hero #hero-play{top:58%;left:50%;width:104px;height:104px;min-height:104px}
+ html[data-nw-season=halloween] .wave-hero #hero-new-mix{position:absolute!important;bottom:48px;left:50%;transform:translateX(-50%);white-space:nowrap;padding:13px 24px;font-size:13px;margin:0}
+ html[data-nw-season=halloween] .wave-hero .ambient-enter{position:absolute!important;bottom:5px;left:50%;transform:translateX(-50%);margin:0;padding:7px 16px;background:#180d2180;white-space:nowrap;font-size:11px}
+ html[data-nw-season=halloween] #music-dock{left:12px;right:12px;width:calc(100% - 24px);bottom:max(14px,env(safe-area-inset-bottom));border-radius:25px}
+ html[data-nw-season=halloween] #music-dock .player{padding:12px 13px;min-height:78px;gap:8px}
+ html[data-nw-season=halloween] #music-dock .now{flex:1;min-width:0}
+ html[data-nw-season=halloween] #music-dock .transport{flex:0 0 auto}
+ html[data-nw-season=halloween] #music-dock .controls{gap:4px}
+ html[data-nw-season=halloween] #music-dock .controls #toggle{width:44px;height:44px;min-width:44px}
+ html[data-nw-season=halloween] #music-dock .progress{display:none!important}
+ html[data-nw-season=halloween] .now-title-button{font-size:12px}
+ html[data-nw-season=halloween] #now-artist{font-size:10px}
+ html[data-nw-season=halloween] #music-dock .mini-cover{width:42px;height:42px;min-width:42px}
+ html[data-nw-season=halloween] #header-menu{right:0;max-width:calc(100vw - 32px)}
+}
+@media(max-height:700px) and (max-width:700px){html[data-nw-season=halloween] .season-edition{top:0}html[data-nw-season=halloween] body.wave-home .wave-hero h1{top:22px;font-size:36px!important}html[data-nw-season=halloween] body.wave-home .wave-hero #hero-play{top:56%;width:78px;height:78px;min-height:78px}html[data-nw-season=halloween] .wave-hero #hero-new-mix{bottom:36px;padding:10px 18px}html[data-nw-season=halloween] .wave-hero .ambient-enter{bottom:0;padding:5px 14px}}
+@media(prefers-reduced-transparency:reduce){html[data-nw-season=halloween] #music-dock,html[data-nw-season=halloween] #header-menu{background:#21132ff5!important}}
+@media(prefers-reduced-motion:reduce){html[data-nw-season=halloween] *{scroll-behavior:auto!important}}

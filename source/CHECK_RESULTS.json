@@ -1,0 +1,26 @@
+[
+  {
+    "command": "python scripts/verify-native-source.py",
+    "status": 0,
+    "message": "Native entry point, three popup surfaces and build provenance verified\n"
+  },
+  {
+    "command": "python scripts/validate-app-sources.py --android",
+    "status": 0,
+    "message": "Validated 2 XML/XAML files. Errors: 0\n"
+  },
+  {
+    "command": "python scripts/validate-app-sources.py --windows",
+    "status": 0,
+    "message": "Validated 2 XML/XAML files. Errors: 0\n"
+  },
+  {
+    "command": "bash -lc swiftc -frontend -parse NightwellMusic/*.swift NativeTests/*.swift",
+    "status": 0,
+    "message": ""
+  },
+  {
+    "command": "negative test: missing APK fails",
+    "status": 0
+  }
+]

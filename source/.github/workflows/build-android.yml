@@ -1,0 +1,37 @@
+name: Build Nightwell Music Android (Recovered)
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK platform
+        run: sdkmanager --install "platforms;android-35" "build-tools;35.0.0"
+      - name: Validate Android resources
+        run: python3 ../scripts/validate-app-sources.py --android
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Build debug APK
+        run: gradle --no-daemon :app:assembleDebug
+      - name: Record APK checksum and commit
+        run: python3 ../scripts/build-provenance.py --platform android --directory app/build/outputs/apk/debug --output ../android-build-provenance.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Nightwell-Music-Android-debug
+          path: |
+            android/app/build/outputs/apk/debug/*.apk
+            android-build-provenance.json

@@ -1,0 +1,25 @@
+name: Build Nightwell Music Windows (Recovered)
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Windows XAML
+        run: python scripts/validate-app-sources.py --windows
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Publish Windows app
+        run: dotnet publish windows/Nightwell.Native.csproj -c Release -r win-x64 --self-contained true -o publish
+      - name: Record EXE checksum and commit
+        run: python scripts/build-provenance.py --platform windows --directory publish --output publish/build-provenance.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Nightwell-Music-Windows
+          path: publish/**
