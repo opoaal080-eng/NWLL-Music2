@@ -127,14 +127,14 @@ struct NightwellPopup<Content: View>: View {
                 Color.black.opacity(dimsBackground ? 0.18 : 0.001).ignoresSafeArea()
                     .onTapGesture(perform: close)
                 content
-                    .frame(width: max(0, proxy.size.width - 48))
+                    .frame(width: max(0, proxy.size.width - 64))
                     .frame(maxHeight: min(maxHeight, proxy.size.height * 0.84))
                     .nightwellLiquidGlass(32)
                     .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 32, style: .continuous)
                         .stroke(.white.opacity(0.16), lineWidth: 1))
                     .shadow(color: nightwellViolet.opacity(0.55), radius: 34, y: 14)
-                    .padding(.bottom, 14)
+                    .padding(.bottom, 20)
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
@@ -204,12 +204,12 @@ struct NativeRoot: View {
                         .environmentObject(store)
                 }
             } else if waveSettingsPresented {
-                NightwellPopup(title: "", maxHeight: 560, dimsBackground: false, close: { waveSettingsPresented = false }) {
+                NightwellPopup(title: "", maxHeight: 480, dimsBackground: false, close: { waveSettingsPresented = false }) {
                     NativeWaveSettingsView(close: { waveSettingsPresented = false })
                         .environmentObject(store)
                 }
             } else if settings {
-                NightwellPopup(title: "", close: { settings = false }) {
+                NightwellPopup(title: "", maxHeight: 480, close: { settings = false }) {
                     NativeSettings(close: { settings = false })
                 }
             } else if let playlist = selectedPlaylist {
@@ -288,7 +288,7 @@ struct NativeRoot: View {
             .foregroundStyle(nightwellText)
             .accessibilityLabel("На главную")
             Spacer()
-            Button { if store.screen == .search { store.screen = .home } else { store.screen = .search } } label: { Image(systemName: store.screen == .search ? "xmark" : "magnifyingglass").font(.system(size: 19, weight: .medium)).foregroundStyle(pumpkin).frame(width: 56, height: 56).frostedGlass(28) }.accessibilityLabel(store.screen == .search ? "Закрыть поиск" : "Поиск")
+            Button { if store.screen == .search { store.screen = .home } else { store.screen = .search } } label: { Image(systemName: store.screen == .search ? "xmark" : "magnifyingglass").font(.system(size: 19, weight: .medium)).foregroundStyle(pumpkin).frame(width: 44, height: 44).frostedGlass(22) }.accessibilityLabel(store.screen == .search ? "Закрыть поиск" : "Поиск")
             Menu {
                 ForEach(MusicStore.Screen.allCases, id: \.self) { screen in Button(screen.rawValue) { store.screen = screen } }
                 Divider()
@@ -299,7 +299,7 @@ struct NativeRoot: View {
                 Button("Настройка подборки", systemImage: "slider.horizontal.3") { waveSettingsPresented = true }
                 Button("Обращения и поддержка", systemImage: "envelope") { supportPresented = true }
                 Button(store.account == nil ? "Войти" : "Выйти", systemImage: "person") { if store.account == nil { store.authPresented = true } else { Task { await store.logout() } } }
-            } label: { Image(systemName: "line.3.horizontal").font(.system(size: 19, weight: .medium)).foregroundStyle(pumpkin).frame(width: 56, height: 56).frostedGlass(28) }.accessibilityLabel("Меню").sheet(item: $feature) { PremiumFeatureView(kind: $0).environmentObject(store) }
+            } label: { Image(systemName: "line.3.horizontal").font(.system(size: 19, weight: .medium)).foregroundStyle(pumpkin).frame(width: 44, height: 44).frostedGlass(22) }.accessibilityLabel("Меню").sheet(item: $feature) { PremiumFeatureView(kind: $0).environmentObject(store) }
         }.padding(.horizontal, 20).padding(.top, 8)
     }
     @ViewBuilder private var content: some View {
