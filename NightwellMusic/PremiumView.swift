@@ -116,7 +116,7 @@ struct PremiumView: View {
             VStack(alignment: .leading, spacing: 12) {
                 handle.frame(maxWidth: .infinity)
                 Text("Nightwell Premium").font(.title2.bold())
-                Text("Стоимость и период подписки указаны на странице Lava.top.").font(.headline)
+                Text("Выберите тариф и оформите подписку на странице оплаты.").font(.headline)
                 Text("Музыку можно слушать бесплатно. Premium открывает скачивания, эквалайзер с пресетами, оформление, умные плейлисты и статистику.")
                 Text(message).accessibilityIdentifier("premium-status")
                 DisclosureGroup("Условия Premium") {
@@ -137,10 +137,10 @@ struct PremiumView: View {
                 }
                 .buttonStyle(.plain)
                 .nightwellLiquidGlass(24)
-                Text("Оплата откроется в Lava.top. Автоматическая привязка покупки к аккаунту Nightwell Music пока не настроена.")
+                Text("Оплата откроется в браузере. Автоматическая привязка покупки к аккаунту Nightwell Music пока не настроена.")
                     .font(.footnote)
                     .foregroundStyle(.white.opacity(0.7))
-                Button("Открыть Lava.top") {
+                Button("Оплатить") {
                     guard consent, externalPayments,
                           let url = URL(string: "https://app.lava.top/products/27b2ae8a-0ff9-41ab-8b16-a076421f7dc8/01a9de34-12a7-442c-ab72-7527a4fc3285") else { return }
                     openURL(url) { opened in if !opened { message = "Не удалось открыть браузер. Повторите попытку." } }
