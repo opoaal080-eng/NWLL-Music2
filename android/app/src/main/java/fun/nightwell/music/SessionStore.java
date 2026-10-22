@@ -56,7 +56,8 @@ final class SessionStore {
             JSONObject value=new JSONObject();value.put("origin",origin);value.put("token",token);value.put("expires",System.currentTimeMillis()+LIFETIME);
             Cipher cipher=Cipher.getInstance("AES/GCM/NoPadding");cipher.init(Cipher.ENCRYPT_MODE,key());
             String sealed=Base64.encodeToString(cipher.getIV(),Base64.NO_WRAP)+":"+Base64.encodeToString(cipher.doFinal(value.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8)),Base64.NO_WRAP);
-            prefs.edit().putString("encrypted",sealed).commit();
+            if(!prefs.edit().putString("encrypted",sealed).commit() || read()==null)throw new IllegalStateException("Session encryption unavailable");
+            prefs.edit().remove("fallback").apply();
         }catch(Exception ignored){
             // Android emulators can lack a functional AndroidKeyStore provider.
             // Keep the fallback inside app-private SharedPreferences.
