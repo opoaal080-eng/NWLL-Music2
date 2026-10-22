@@ -112,18 +112,20 @@ struct NightwellPopup<Content: View>: View {
     let title: String
     var maxHeight: CGFloat = 600
     var dimsBackground = true
+    var centered = false
     let close: () -> Void
     let content: Content
-    init(title: String, maxHeight: CGFloat = 560, dimsBackground: Bool = true, close: @escaping () -> Void, @ViewBuilder content: () -> Content) {
+    init(title: String, maxHeight: CGFloat = 560, dimsBackground: Bool = true, centered: Bool = false, close: @escaping () -> Void, @ViewBuilder content: () -> Content) {
         self.title = title
         self.maxHeight = maxHeight
         self.dimsBackground = dimsBackground
+        self.centered = centered
         self.close = close
         self.content = content()
     }
     var body: some View {
         GeometryReader { proxy in
-            ZStack(alignment: .bottom) {
+            ZStack(alignment: centered ? .center : .bottom) {
                 Color.black.opacity(dimsBackground ? 0.18 : 0.001).ignoresSafeArea()
                     .onTapGesture(perform: close)
                 content
@@ -134,7 +136,7 @@ struct NightwellPopup<Content: View>: View {
                     .overlay(RoundedRectangle(cornerRadius: 32, style: .continuous)
                         .stroke(.white.opacity(0.16), lineWidth: 1))
                     .shadow(color: nightwellViolet.opacity(0.55), radius: 34, y: 14)
-                    .padding(.bottom, 20)
+                    .padding(.bottom, centered ? 0 : 20)
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
@@ -204,7 +206,7 @@ struct NativeRoot: View {
                         .environmentObject(store)
                 }
             } else if waveSettingsPresented {
-                NightwellPopup(title: "", maxHeight: 480, dimsBackground: false, close: { waveSettingsPresented = false }) {
+                NightwellPopup(title: "", maxHeight: 490, dimsBackground: false, centered: true, close: { waveSettingsPresented = false }) {
                     NativeWaveSettingsView(close: { waveSettingsPresented = false })
                         .environmentObject(store)
                 }
