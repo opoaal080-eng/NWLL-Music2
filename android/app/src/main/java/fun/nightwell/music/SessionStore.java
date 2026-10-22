@@ -43,7 +43,7 @@ final class SessionStore {
                 String token=value.substring(11);
                 // Session cookies may use URL-safe/base64 or signed dotted values.
                 // Reject whitespace and separators, but do not reject valid signed cookies.
-                if(token.matches("[A-Za-z0-9_~.\\\\+\\\\/=-]{8,2048}"))return token;
+                if(token.matches("[A-Za-z0-9._~+/=-]{8,2048}"))return token;
             }
         }
         return null;
