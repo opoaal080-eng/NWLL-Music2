@@ -21,7 +21,7 @@ final class RibbonView extends View {
  void flash(){flashAt=android.os.SystemClock.uptimeMillis();invalidate();}
  @Override protected void onAttachedToWindow(){super.onAttachedToWindow();if(running)postInvalidateOnAnimation();}
  private static final int[][] PALETTE={{135,87,255},{239,98,193},{255,153,92},{91,189,255}};
- private static final int[][] AUTUMN_PALETTE={{182,105,62},{113,82,110},{201,128,73},{86,79,108}};
+ private static final int[][] AUTUMN_PALETTE={{255,120,62},{195,87,255},{77,182,255},{255,88,183}};
  private int auraColor(double phase){
   int[][] palette=premiumTheme.equals("nightwell")?AUTUMN_PALETTE:PALETTE;
   double wrapped=(phase%4+4)%4;int index=(int)wrapped;
@@ -43,7 +43,7 @@ final class RibbonView extends View {
   energy+=(raw-energy)*(raw>energy?.55:.2);
   long now=android.os.SystemClock.uptimeMillis();
   double delta=lastFrame==0?1.0/30:Math.min(.1,(now-lastFrame)/1000.0);lastFrame=now;
-  phase+=delta*.24*premiumSpeed;
+  phase+=delta*.8*premiumSpeed;
   float density=getResources().getDisplayMetrics().density;
   float burst=Math.max(0,1-(now-flashAt)/700f);
   paint.setStyle(Paint.Style.STROKE);paint.setStrokeCap(Paint.Cap.ROUND);
@@ -51,7 +51,7 @@ final class RibbonView extends View {
   for(int side=0;side<3;side++){
    double dx=side==0?-w*.72:side==1?w*.72:0,dy=side==2?-h*.78:-h*.36;
    double length=Math.hypot(dx,dy);
-   double hue=phase*.4+side*.8+(premiumTheme.equals("aurora")?1:premiumTheme.equals("ocean")?2:premiumTheme.equals("sunset")?3:0);
+   double hue=phase*.9+side*.8+(premiumTheme.equals("aurora")?1:premiumTheme.equals("ocean")?2:premiumTheme.equals("sunset")?3:0);
    paint.setShader(new LinearGradient((float)cx,(float)cy,(float)(cx+dx),(float)(cy+dy),
     new int[]{Color.TRANSPARENT,Color.TRANSPARENT,auraColor(hue),auraColor(hue+.6),auraColor(hue+1.2)},new float[]{0,.08f,.3f,.68f,1},Shader.TileMode.CLAMP));
    for(int band=17;band>=0;band--){
@@ -64,8 +64,8 @@ final class RibbonView extends View {
      double x=cx+dx*u-dy/length*bend,y=cy+dy*u+dx/length*bend;
      if(i==6)path.moveTo((float)x,(float)y);else path.lineTo((float)x,(float)y);
     }
-    int alpha=(int)(255*Math.min(.52,(.11+energy*.20+burst*.12)*(1-Math.abs(lane)*.9)));
-    paint.setAlpha(alpha);paint.setStrokeWidth((float)((8+band*.68+energy*16)*density));
+    int alpha=(int)(255*Math.min(.82,(.24+energy*.30+burst*.16)*(1-Math.abs(lane)*.9)));
+    paint.setAlpha(alpha);paint.setStrokeWidth((float)((9+band*.8+energy*19)*density));
     canvas.drawPath(path,paint);
    }
   }
