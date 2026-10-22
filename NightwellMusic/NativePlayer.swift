@@ -17,11 +17,20 @@ struct NativeTrack {
     var offlineLyrics: [String: Any]? = nil
 }
 
+// Retry activation when iOS makes this playback session eligible for Now Playing.
+private final class NowPlayingEligibilityDelegate: NSObject, MPNowPlayingSessionDelegate {
+    var eligibilityChanged: (() -> Void)?
+    func nowPlayingSessionDidChangeCanBecomeActive(_ nowPlayingSession: MPNowPlayingSession) {
+        DispatchQueue.main.async { [weak self] in self?.eligibilityChanged?() }
+    }
+}
+
 // All state changes and AVPlayer commands run on the main thread.
 final class NativePlayer {
     static let shared = NativePlayer()
     let player = AVPlayer()
     private lazy var nowPlayingSession = MPNowPlayingSession(players: [player])
+    private let nowPlayingEligibility = NowPlayingEligibilityDelegate()
     private var activatingNowPlaying = false
     private var audioMeter = LocalAudioMeter()
     private let enginePlayback = NativeEQPlayback()
@@ -102,6 +111,8 @@ final class NativePlayer {
             })
         fadeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.04, preferredTimescale: 600), queue: .main) { [weak self] _ in self?.updateFade() }
         nowPlayingSession.automaticallyPublishesNowPlayingInfo = false
+        nowPlayingEligibility.eligibilityChanged = { [weak self] in self?.activateNowPlayingSession() }
+        nowPlayingSession.delegate = nowPlayingEligibility
         let center = nowPlayingSession.remoteCommandCenter
         center.skipForwardCommand.isEnabled = false
         center.skipBackwardCommand.isEnabled = false
