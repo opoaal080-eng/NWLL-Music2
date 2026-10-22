@@ -58,27 +58,17 @@ extension View {
 // iOS 26+ system Liquid Glass, with a translucent fallback on older versions.
 extension View {
     @ViewBuilder func nightwellLiquidGlass(_ radius: CGFloat = 30) -> some View {
+        #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             self.glassEffect(.regular, in: .rect(cornerRadius: radius))
         } else {
-            self
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: radius, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [Color.white.opacity(0.12), pumpkin.opacity(0.08), Color.clear],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                )
-                .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).stroke(Color.white.opacity(0.32), lineWidth: 1))
-                .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+            self.glass(radius)
         }
+        #else
+        self.glass(radius)
+        #endif
     }
 }
-
 // Shared with the mini-player: only the background is translucent.
 struct FrostedSurface: View {
     var radius: CGFloat = 30
@@ -129,8 +119,8 @@ struct NightwellPopup<Content: View>: View {
                 Color.black.opacity(dimsBackground ? 0.18 : 0.001).ignoresSafeArea()
                     .onTapGesture(perform: close)
                 content
-                    .frame(width: max(0, proxy.size.width - 64))
-                    .frame(maxHeight: min(maxHeight, proxy.size.height * 0.84))
+                    .frame(width: max(0, proxy.size.width - 40))
+                    .frame(height: min(maxHeight, proxy.size.height * 0.88))
                     .nightwellLiquidGlass(32)
                     .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 32, style: .continuous)
@@ -201,17 +191,17 @@ struct NativeRoot: View {
                     AuthSheet(close: { store.authPresented = false })
                 }
             } else if supportPresented {
-                NightwellPopup(title: "", maxHeight: 625, dimsBackground: false, close: { supportPresented = false }) {
+                NightwellPopup(title: "", maxHeight: 618, dimsBackground: false, centered: true, close: { supportPresented = false }) {
                     NativeSupportView(close: { supportPresented = false })
                         .environmentObject(store)
                 }
             } else if waveSettingsPresented {
-                NightwellPopup(title: "", maxHeight: 490, dimsBackground: false, centered: true, close: { waveSettingsPresented = false }) {
+                NightwellPopup(title: "", maxHeight: 554, dimsBackground: false, centered: true, close: { waveSettingsPresented = false }) {
                     NativeWaveSettingsView(close: { waveSettingsPresented = false })
                         .environmentObject(store)
                 }
             } else if settings {
-                NightwellPopup(title: "", maxHeight: 480, close: { settings = false }) {
+                NightwellPopup(title: "", maxHeight: 554, centered: true, close: { settings = false }) {
                     NativeSettings(close: { settings = false })
                 }
             } else if let playlist = selectedPlaylist {
@@ -232,6 +222,9 @@ struct NativeRoot: View {
             if ProcessInfo.processInfo.arguments.contains("--native-smoke-focus") { backgroundOnly = true }
             if ProcessInfo.processInfo.arguments.contains("--native-smoke-settings") { settings = true }
             if ProcessInfo.processInfo.arguments.contains("--native-smoke-wave-settings") { waveSettingsPresented = true }
+            if ProcessInfo.processInfo.arguments.contains("--native-smoke-support") { supportPresented = true }
+            if ProcessInfo.processInfo.arguments.contains("--native-smoke-premium") { premiumPresented = true }
+            if ProcessInfo.processInfo.arguments.contains("--native-smoke-statistics") { feature = .statistics }
             if ProcessInfo.processInfo.arguments.contains("--native-smoke-auth") { store.authPresented = true }
             if ProcessInfo.processInfo.arguments.contains("--native-smoke-playlist") { selectedPlaylist = Playlist(id: "native-preview", name: "Твоя ночная подборка") }
             #endif

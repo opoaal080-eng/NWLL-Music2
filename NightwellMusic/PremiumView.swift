@@ -16,7 +16,7 @@ struct PremiumView: View {
     @State private var checking = false
     @State private var activeExpiry: Double?
     @State private var showFeatures = false
-    @State private var selectedDetent: PresentationDetent = .height(500)
+    @State private var selectedDetent: PresentationDetent = .height(350)
     private var externalPayments: Bool { Bundle.main.object(forInfoDictionaryKey: "NWExternalPremiumPayments") as? Bool ?? true }
 
     var body: some View {
@@ -32,10 +32,10 @@ struct PremiumView: View {
                 .fill(LinearGradient(colors: [nightwellViolet, Color.black], startPoint: .topLeading, endPoint: .bottomTrailing))
         )
         .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
-        .padding(.horizontal, 10)
+        .padding(.horizontal, 8)
         .preferredColorScheme(.dark)
         .presentationBackground(.clear)
-        .presentationDetents([.height(430), .large], selection: $selectedDetent)
+        .presentationDetents([.height(350), .large], selection: $selectedDetent)
         .presentationDragIndicator(.hidden)
         .task { await refresh() }
         .onChange(of: scenePhase) { _, phase in
@@ -44,41 +44,41 @@ struct PremiumView: View {
     }
 
     private var handle: some View {
-        Capsule().fill(.white.opacity(0.45)).frame(width: 70, height: 5).padding(.top, 10)
+        Capsule().fill(.white.opacity(0.45)).frame(width: 57, height: 4).padding(.top, 10)
     }
 
     @ViewBuilder private func activeSheet(expiry: Double) -> some View {
         VStack(spacing: 0) {
             handle
             ScrollView(showsIndicators: false) {
-                VStack(spacing: 8) {
+                VStack(spacing: 16) {
                     ZStack {
                         Circle()
                             .fill(LinearGradient(colors: [Color(red: 0.34, green: 0.96, blue: 0.52), Color.green], startPoint: .topLeading, endPoint: .bottomTrailing))
-                            .frame(width: 86, height: 86)
+                            .frame(width: 54, height: 54)
                             .shadow(color: Color.green.opacity(0.28), radius: 18, y: 6)
                         Image(systemName: "checkmark")
-                            .font(.system(size: 42, weight: .bold))
+                            .font(.system(size: 32, weight: .bold))
                             .foregroundStyle(.black.opacity(0.78))
                     }
-                    .padding(.top, 10)
+                    .padding(.top, 26)
 
                     VStack(spacing: 6) {
                         Text("Подписка активна")
-                            .font(.system(size: 28, weight: .bold))
+                            .font(.system(size: 26, weight: .bold))
                             .multilineTextAlignment(.center)
                         Text("Активна до " + Date(timeIntervalSince1970: expiry).formatted(.dateTime.day().month(.wide).year().locale(Locale(identifier: "ru_RU"))))
                             .foregroundStyle(.white.opacity(0.62))
-                            .font(.system(size: 18, weight: .medium))
+                            .font(.system(size: 17, weight: .regular))
                     }
 
                     Button {
                         withAnimation(.spring(response: 0.36, dampingFraction: 0.85)) { showFeatures.toggle() }
                     } label: {
                         Label("Функции Premium", systemImage: "square.grid.2x2")
-                            .font(.system(size: 18, weight: .medium))
+                            .font(.system(size: 17, weight: .regular))
                             .foregroundStyle(.white.opacity(0.88))
-                            .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
+                            .frame(maxWidth: .infinity, minHeight: 49, alignment: .leading)
                             .padding(.horizontal, 18)
                     }
                     .buttonStyle(.plain)
@@ -100,12 +100,12 @@ struct PremiumView: View {
                         Task { await refresh() }
                     }
                     .buttonStyle(.plain)
-                    .font(.system(size: 19, weight: .medium))
+                    .font(.system(size: 17, weight: .regular))
                     .foregroundStyle(Color.blue)
                     .disabled(checking)
                     .padding(.bottom, 8)
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, 23)
                 .padding(.bottom, 12)
             }
         }
@@ -180,6 +180,11 @@ struct PremiumView: View {
     }
 
     @MainActor private func refresh() async {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--native-smoke-premium") {
+            activeExpiry = 1824076800; return
+        }
+        #endif
         guard !checking else { return }
         checking = true
         defer { checking = false }

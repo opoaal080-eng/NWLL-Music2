@@ -656,32 +656,40 @@ struct NativeSettings: View {
         return "Nightwell Music \(version) (\(number)) · \(revision)"
     }
     var body: some View {
-        VStack(spacing: 14) {
-            HStack { VStack(alignment: .leading, spacing: 4) { Text("Настройки").font(.system(size: 23, weight: .bold)); Text("Настройки сохраняются в вашем аккаунте.").font(.callout).foregroundStyle(.white.opacity(0.55)) }; Spacer(); Button("Готово") { close() }.font(.system(size: 14, weight: .semibold)).foregroundStyle(pumpkin).padding(.horizontal, 20).frame(height: 44).nightwellLiquidGlass(25) }
-            ScrollView {
+        VStack(spacing: 18) {
+            HStack {
+                Text("Настройки").font(.system(size: 28, weight: .bold))
+                Spacer()
+                Button(action: close) {
+                    Image(systemName: "xmark").font(.system(size: 22, weight: .light))
+                        .foregroundStyle(pumpkin).frame(width: 42, height: 42).nightwellLiquidGlass(24)
+                }.accessibilityLabel("Закрыть настройки")
+            }.padding(.top, 12)
+            ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 18) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Button("Темы и ленты · Premium") { feature = .appearance }.sheet(item: $feature) { PremiumFeatureView(kind: $0).environmentObject(store) }
-                        Label("Последние 90 дней", systemImage: "chart.bar").font(.headline).foregroundStyle(pumpkin)
+                    VStack(alignment: .leading, spacing: 12) {
+                        Button("Темы и ленты · Premium") { feature = .appearance }
+                            .sheet(item: $feature) { PremiumFeatureView(kind: $0).environmentObject(store) }
+                        Label("Оформление", systemImage: "paintbrush").font(.system(size: 18, weight: .semibold)).foregroundStyle(pumpkin)
                         Toggle("Текст вместе с лентами", isOn: $ambientLyrics)
                             .onChange(of: ambientLyrics) { enabled in
                                 if enabled { store.lyrics.select(store.clock.current, api: store.api, origin: store.origin, online: store.account != nil) }
                             }
-                        Text("Строки с таймкодами появляются во время песни.").font(.caption).foregroundStyle(.secondary)
-                    }.padding(16).nightwellLiquidGlass(22)
-                    VStack(alignment: .leading, spacing: 12) {
-                        Label("Воспроизведение", systemImage: "waveform").font(.headline).foregroundStyle(pumpkin)
-                        HStack { Text("Переход между треками"); Spacer(); Text(transition == 0 ? "Выкл." : String(format: "%.1f с", transition)).foregroundStyle(pumpkin) }
+                        Text("Строки с таймкодами появляются во время песни.").font(.system(size: 13)).foregroundStyle(.white.opacity(0.43))
+                    }.padding(16).frame(maxWidth: .infinity, minHeight: 160, alignment: .leading).nightwellLiquidGlass(26)
+                    VStack(alignment: .leading, spacing: 14) {
+                        Label("Воспроизведение", systemImage: "waveform").font(.system(size: 18, weight: .semibold)).foregroundStyle(pumpkin)
+                        HStack { Text("Переход между треками"); Spacer(minLength: 4); Text(transition == 0 ? "Выкл." : String(format: "%.1f с", transition)).foregroundStyle(pumpkin) }
                         GlassSlider(value: $transition, range: 0...5, step: 0.1, accessibilityStep: 0.1, label: "Переход между треками", valueText: String(format: "%.1f с", transition))
+                            .padding(.vertical, 8)
                             .onChange(of: transition) { NativePlayer.shared.transitionDuration($0) }
-                        Text("Плавное затухание и нарастание громкости.").font(.caption).foregroundStyle(.secondary)
-                    }.padding(16).nightwellLiquidGlass(22)
-                    Text(buildCaption).font(.caption2).foregroundStyle(.secondary).frame(maxWidth: .infinity)
-                }.padding(.vertical, 4)
+                        Text("Плавное затухание и нарастание громкости.").font(.system(size: 12)).foregroundStyle(.white.opacity(0.43))
+                    }.padding(16).frame(maxWidth: .infinity, minHeight: 166, alignment: .leading).nightwellLiquidGlass(26)
+                    Text(buildCaption).font(.system(size: 11)).foregroundStyle(.white.opacity(0.4)).frame(maxWidth: .infinity)
+                }.padding(.vertical, 2)
             }
-            .frame(maxHeight: 440)
-        }.padding(20).tint(pumpkin)
-            
+        }.font(.system(size: 17)).padding(20).tint(pumpkin)
+
     }
 }
 

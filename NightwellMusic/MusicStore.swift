@@ -113,7 +113,14 @@ import Combine
             lyrics.trackID = example.id; lyrics.value = Lyrics(status: "found", lines: [.init(time: 0, text: "Музыка этой ночи"), .init(time: 10, text: "Твой ритм растворяется в тумане")], synced: true, source: "Preview")
             return
         }
-        if ProcessInfo.processInfo.arguments.contains("--native-smoke") { return }
+        if ProcessInfo.processInfo.arguments.contains("--native-smoke") {
+            clock.preview = true
+            let track = Track(id: "native_preview", title: "Грустная песня (…", artist: "Егор Крид, THRILL PILL")
+            clock.queue = [track]; clock.id = track.id; clock.playing = true
+            clock.status.id = track.id; clock.status.playing = true
+            account = Account(id: "preview", email: "preview@example.invalid", is_admin: true)
+            return
+        }
         #endif
         await refreshOffline()
         do {

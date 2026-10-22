@@ -92,31 +92,48 @@ struct PremiumPreferences: Codable {
     @State private var soundStatus = "Запустите трек и выберите пресет."
     @State private var showPresetOptions = false
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 7) {
-                Text(premium.note).font(.footnote).foregroundStyle(.secondary).padding(8).frame(maxWidth: .infinity, alignment: .leading).nightwellLiquidGlass(24)
-                Group {
-                    switch kind {
-                    case .sound: sound
-                    case .appearance: appearance
-                    case .smart: smart
-                    case .statistics: stats
-                    }
-                }.disabled(!premium.allowed || busy)
-                }.padding(8)
-            }.background(LinearGradient(colors: [Color(red: 0.18, green: 0.07, blue: 0.30), Color.black], startPoint: .topLeading, endPoint: .bottomTrailing))
-            .navigationTitle(kind.rawValue)
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) { if kind == .sound { Button { showPresetOptions = true } label: { Image(systemName: "ellipsis") }.accessibilityLabel("Дополнительные настройки эквалайзера") } }
-                    ToolbarItem(placement: .confirmationAction) { Button("Готово") { dismiss() } }
+        VStack(spacing: 0) {
+            Capsule().fill(.white.opacity(0.4)).frame(width: 57, height: 4).padding(.top, 6)
+            HStack {
+                Spacer()
+                if kind == .sound {
+                    Button { showPresetOptions = true } label: { Image(systemName: "ellipsis") }
+                        .accessibilityLabel("Дополнительные настройки эквалайзера")
                 }
+                Button("Готово") { dismiss() }.font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(pumpkin).padding(.horizontal, 16).frame(height: 41).nightwellLiquidGlass(24)
+            }.padding(.horizontal, 16).padding(.top, 6)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text(kind.rawValue).font(.system(size: 32, weight: .bold)).padding(.bottom, 12)
+                    Text(premium.note).font(.system(size: 13)).foregroundStyle(.white.opacity(0.4))
+                        .padding(16).frame(maxWidth: .infinity, alignment: .leading).nightwellLiquidGlass(24)
+                    Group {
+                        switch kind {
+                        case .sound: sound
+                        case .appearance: appearance
+                        case .smart: smart
+                        case .statistics: stats
+                        }
+                    }.disabled(!premium.allowed || busy)
+                }.padding(18)
+            }
                 .sheet(isPresented: $showPresetOptions) { NavigationStack { ScrollView { VStack { presetOptions }.padding(20) }.navigationTitle("Настройки эквалайзера").toolbar { Button("Готово") { showPresetOptions = false } } }.presentationDetents([.medium, .large]) }
-                .task(id: store.account?.id) { rules = []; statistics = nil; await premium.refresh(store); if premium.allowed { await load() } }
+                .task(id: store.account?.id) {
+                    #if DEBUG
+                    if ProcessInfo.processInfo.arguments.contains("--native-smoke-statistics") {
+                        premium.allowed = true; premium.note = "Настройки сохраняются в вашем аккаунте."
+                        statistics = PremiumStatistics(seconds: 247740, sessions: 8034, months: [.init(month: "2026-10", seconds: 247740)], artists: [.init(artist: "Три дня дождя", seconds: 31140), .init(artist: "Новая Школа", seconds: 19620)], tracks: [])
+                        return
+                    }
+                    #endif
+                    rules = []; statistics = nil; await premium.refresh(store); if premium.allowed { await load() }
+                }
                 .task { while !Task.isCancelled { soundReady = NativePlayer.shared.premiumSoundAvailable; soundStatus = NativePlayer.shared.premiumSoundStatus; do { try await Task.sleep(nanoseconds: 1_000_000_000) } catch { return } } }
-        }.clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+        }.background(LinearGradient(colors: [Color(red: 0.18, green: 0.07, blue: 0.30), .black], startPoint: .topLeading, endPoint: .bottomTrailing))
+         .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
          .padding(.horizontal, 8)
-         .preferredColorScheme(.dark).presentationBackground(.clear).presentationDetents([.fraction(0.86), .large]).presentationDragIndicator(.visible)
+         .preferredColorScheme(.dark).presentationBackground(.clear).presentationDetents([.fraction(0.72), .large]).presentationDragIndicator(.hidden)
     }
     private var sound: some View {
         Group {
@@ -222,10 +239,10 @@ private struct PremiumGlassSection<Content: View>: View {
         self.title = title; self.content = content()
     }
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title).font(.headline).foregroundStyle(pumpkin)
+        VStack(alignment: .leading, spacing: 16) {
+            Text(title).font(.system(size: 17, weight: .semibold)).foregroundStyle(pumpkin)
             content
-        }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
+        }.font(.system(size: 17)).padding(17).frame(maxWidth: .infinity, alignment: .leading)
             .nightwellLiquidGlass(26)
     }
 }

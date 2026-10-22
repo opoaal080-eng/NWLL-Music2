@@ -34,16 +34,16 @@ struct NativeWaveSettingsView: View {
     @State private var message = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 18) {
             HStack(spacing: 8) {
-                Button("Сброс") { draft = WaveSettings() }
-                    .font(.system(size: 12, weight: .medium))
+                Button("Сбросить") { draft = WaveSettings() }
+                    .font(.system(size: 17, weight: .regular))
                     .foregroundStyle(pumpkin)
-                    .frame(width: 64, height: 40)
+                    .frame(width: 109, height: 42)
                     .nightwellLiquidGlass(20)
                     .disabled(applying)
                 Spacer(minLength: 4)
-                Text("Подборка")
+                Text("Настроить подборку")
                     .font(.system(size: 17, weight: .semibold))
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
@@ -58,16 +58,16 @@ struct NativeWaveSettingsView: View {
                 .disabled(applying)
             }
             Text("Выбери, что хочется услышать сейчас")
-                .font(.system(size: 14, weight: .medium))
+                .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(.white.opacity(0.72))
                 .padding(.horizontal, 2)
 
             ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 16) {
                     ForEach(0..<3, id: \.self) { section in
-                        VStack(alignment: .leading, spacing: 7) {
+                        VStack(alignment: .leading, spacing: 10) {
                             Text(WaveSettings.titles[section])
-                                .font(.system(size: 16, weight: .bold))
+                                .font(.system(size: 18, weight: .bold))
                                 .foregroundStyle(.white)
                             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 9) {
                                 ForEach(WaveSettings.values[section].indices, id: \.self) { option in
@@ -78,7 +78,7 @@ struct NativeWaveSettingsView: View {
                                         HStack(spacing: 8) {
                                             if selected { Image(systemName: "checkmark").font(.system(size: 14, weight: .bold)) }
                                             Text(WaveSettings.labels[section][option])
-                                                .font(.system(size: 14, weight: .medium))
+                                                .font(.system(size: 15, weight: .medium))
                                                 .lineLimit(1)
                                         }
                                         .frame(maxWidth: .infinity, minHeight: 40)
@@ -94,26 +94,12 @@ struct NativeWaveSettingsView: View {
                         }
                     }
 
-                    Text("Настроение и язык определяются по описанию треков и могут совпадать не точно.")
-                        .font(.footnote)
-                        .foregroundStyle(.white.opacity(0.55))
                     if !message.isEmpty {
                         Text(message)
                             .font(.footnote)
                             .foregroundStyle(pumpkin)
                     }
-                }
-            }
-
-        }
-        .padding(.horizontal, 10)
-        .padding(.top, 6)
-        .padding(.bottom, 2)
-        .frame(maxHeight: .infinity, alignment: .top)
-        .background(Color.clear)
-        .onAppear { draft = WaveSettings.read(store.origin, store.account?.id ?? "device") }
-        .safeAreaInset(edge: .bottom) {
-            Button {
+                    Button {
                 applying = true
                 Task {
                     do { try await store.applyWaveSettings(draft); close() }
@@ -131,10 +117,20 @@ struct NativeWaveSettingsView: View {
             }
             .buttonStyle(.plain)
             .nightwellLiquidGlass(28)
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 0)
             .padding(.bottom, 6)
             .disabled(applying || store.loading)
             .background(Color.clear)
+                }
+            }
+
         }
+        .padding(.horizontal, 18)
+        .padding(.top, 10)
+        .padding(.bottom, 2)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .background(Color.clear)
+        .onAppear { draft = WaveSettings.read(store.origin, store.account?.id ?? "device") }
+
     }
 }

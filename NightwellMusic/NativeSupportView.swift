@@ -66,9 +66,19 @@ struct NativeSupportView: View {
         "/api/support/" + (adminMode ? "admin/" : "") + "tickets/" + id
     }
     var body: some View {
-        NavigationStack {
+        VStack(spacing: 24) {
+            HStack {
+                Spacer()
+                Text("Обращения").font(.system(size: 18, weight: .semibold))
+                Spacer()
+            }.overlay(alignment: .trailing) {
+                Button(action: close) {
+                    Image(systemName: "xmark").font(.system(size: 22, weight: .light)).foregroundStyle(pumpkin)
+                        .frame(width: 44, height: 44).nightwellLiquidGlass(25)
+                }.accessibilityLabel("Закрыть обращения")
+            }.frame(height: 52).padding(.horizontal, 16).padding(.top, 8)
             ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 16) {
                     if isAdmin {
                         Picker("Режим", selection: $adminMode) {
                             Text("Мои").tag(false)
@@ -77,7 +87,7 @@ struct NativeSupportView: View {
                     }
                     if !error.isEmpty { Text(error).foregroundStyle(pumpkin) }
                     if let ticket = selected {
-                        Text(ticket.subject).font(.title3.bold()).foregroundStyle(.white)
+                        Text(ticket.subject).font(.system(size: 21, weight: .bold)).foregroundStyle(.white)
                         Text(statusNames[ticket.status] ?? ticket.status).font(.subheadline.weight(.semibold)).foregroundStyle(pumpkin)
                         ForEach(ticket.messages ?? []) { entry in
                             VStack(alignment: .leading, spacing: 5) {
@@ -103,9 +113,9 @@ struct NativeSupportView: View {
                         Button("К списку") { selected = nil }
                     } else {
                         if !adminMode {
-                            Text("Новое обращение").font(.title3.bold()).foregroundStyle(.white)
-                            Text("После создания обращения можно прикрепить изображения и документы до 10 МБ.").font(.caption).foregroundStyle(.secondary)
-                            TextField("Тема", text: $subject).padding().nightwellLiquidGlass(24)
+                            Text("Новое обращение").font(.system(size: 21, weight: .bold)).foregroundStyle(.white)
+                            Text("После создания обращения можно прикрепить изображения и документы до 10 МБ.").font(.system(size: 13)).foregroundStyle(.secondary)
+                            TextField("Тема", text: $subject).padding(16).frame(minHeight: 54).nightwellLiquidGlass(24)
                             Picker("Категория", selection: $kind) {
                                 Text("Вопрос").tag("question")
                                 Text("Ошибка").tag("bug")
@@ -114,11 +124,11 @@ struct NativeSupportView: View {
                                 Text("Другое").tag("other")
                             }.tint(pumpkin).padding(10).frostedGlass()
                             TextField("Описание", text: $message, axis: .vertical)
-                                .lineLimit(3...7).padding().nightwellLiquidGlass(24)
+                                .lineLimit(3...7).padding(16).frame(minHeight: 94, alignment: .top).nightwellLiquidGlass(24)
                             Button("Создать обращение") { Task { await create() } }.buttonStyle(.borderedProminent).tint(pumpkin)
                                 .disabled(subject.count < 4 || message.count < 5 || busy)
                         }
-                        Text(adminMode ? "Все обращения" : "Мои обращения").font(.title3.bold()).foregroundStyle(.white)
+                        Text(adminMode ? "Все обращения" : "Мои обращения").font(.system(size: 21, weight: .bold)).foregroundStyle(.white)
                         ForEach(tickets) { item in
                             Button { Task { await open(item.id) } } label: {
                                 HStack { Text(item.subject); Spacer(); Text(statusNames[item.status] ?? item.status).font(.caption) }
@@ -128,21 +138,7 @@ struct NativeSupportView: View {
                     }
                 }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
             }.background(Color.clear)
-                .navigationTitle("Обращения")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button { close() } label: {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 13, weight: .bold))
-                                 .frame(width: 54, height: 54)
-                                .nightwellLiquidGlass(27)
-                        }.tint(pumpkin)
-                    }
-                }
         }
-                .nightwellLiquidGlass(32)
-        .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
         .sheet(item: $previewItem) { item in
             NavigationStack {
                 SupportFilePreview(url: item.url)
@@ -233,6 +229,12 @@ struct NativeSupportView: View {
         } catch { self.error = error.localizedDescription }
     }
     private func refresh() async {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--native-smoke-support") {
+            tickets = [SupportTicket(id: "preview", subject: "1тмлмьмб", status: "closed", messages: [], attachments: [])]
+            return
+        }
+        #endif
         do {
             let result: TicketList = try await store.api.request("/api/support/" + (adminMode ? "admin/" : "") + "tickets")
             tickets = result.tickets

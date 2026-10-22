@@ -16,23 +16,28 @@ jobs:
         run: swiftc -frontend -parse NightwellMusic/*.swift NativeTests/*.swift
       - name: Install XcodeGen
         run: brew install xcodegen
-      - name: Generate project
-        run: xcodegen generate
-      - name: Apply iOS 18 SDK Liquid Glass compatibility fallback
+      - name: Select latest installed Xcode
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path("NightwellMusic/App.swift")
-          src = p.read_text(encoding="utf-8")
-          target = "self.glassEffect(.regular, in: .rect(cornerRadius: radius))"
-          replacement = "self.background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: radius))"
-          if target not in src:
-              raise SystemExit("Expected glassEffect call not found; review source")
-          p.write_text(src.replace(target, replacement), encoding="utf-8")
-          PY
+          python3 - <<'PYCODE'
+          import glob, subprocess
+          candidates = []
+          for app in glob.glob('/Applications/Xcode*.app'):
+              developer = app + '/Contents/Developer'
+              result = subprocess.run(['env', 'DEVELOPER_DIR=' + developer, 'xcodebuild', '-version'], capture_output=True, text=True)
+              if result.returncode == 0:
+                  version = tuple(int(x) for x in result.stdout.splitlines()[0].split()[1].split('.'))
+                  candidates.append((version, developer))
+          version, developer = max(candidates)
+          subprocess.run(['sudo', 'xcode-select', '-s', developer], check=True)
+          print('Selected Xcode', version)
+          PYCODE
+      - name: Generate project
+        run: |
+          sed -i '' "s/SOURCE_COMMIT/$GITHUB_SHA/" project.yml
+          xcodegen generate
       - name: Build unsigned IPA
         run: |
-          xcodebuild -project NightwellMusic.xcodeproj -scheme NightwellMusic -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build-device CODE_SIGNING_ALLOWED=NO build
+          xcodebuild -project NightwellMusic.xcodeproj -scheme NightwellMusic -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build-device CURRENT_PROJECT_VERSION=$((400 + GITHUB_RUN_NUMBER)) CODE_SIGNING_ALLOWED=NO build
           python3 ios/apply_legacy_assets.py build-device/Build/Products/Release-iphoneos/NightwellMusic.app
           test $(stat -f%z build-device/Build/Products/Release-iphoneos/NightwellMusic.app/Assets.car) -gt 5000000
           mkdir -p output/Payload
@@ -47,3 +52,28 @@ jobs:
           path: |
             output/Nightwell-Music-recovered-unsigned.ipa
             output/build-provenance.json
+
+      - name: Build simulator and capture reference screens
+        run: |
+          xcodebuild -project NightwellMusic.xcodeproj -scheme NightwellMusic -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build-simulator CODE_SIGNING_ALLOWED=NO build > simulator-build.log 2>&1 || { tail -100 simulator-build.log; exit 1; }
+          APP=build-simulator/Build/Products/Debug-iphonesimulator/NightwellMusic.app
+          python3 ios/apply_legacy_assets.py "$APP"
+          DEVICE=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for group in d["devices"].values() for x in group if x["name"] == "iPhone 16"))')
+          xcrun simctl boot "$DEVICE"
+          xcrun simctl bootstatus "$DEVICE" -b
+          xcrun simctl status_bar "$DEVICE" override --time '05:03' --dataNetwork wifi --wifiMode active --wifiBars 3 --batteryState charged --batteryLevel 70
+          xcrun simctl install "$DEVICE" "$APP"
+          mkdir -p output/screenshots
+          for SCREEN in home settings wave-settings support premium statistics; do
+            xcrun simctl terminate "$DEVICE" fun.nightwell.music || true
+            xcrun simctl launch "$DEVICE" fun.nightwell.music --native-smoke "--native-smoke-$SCREEN"
+            sleep 4
+            xcrun simctl io "$DEVICE" screenshot "output/screenshots/$SCREEN.png"
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Nightwell-iPhone-reference-screens
+          path: |
+            output/screenshots
+            simulator-build.log
