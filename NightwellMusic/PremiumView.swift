@@ -27,12 +27,17 @@ struct PremiumView: View {
                 inactiveSheet
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(LinearGradient(colors: [nightwellViolet, Color.black], startPoint: .topLeading, endPoint: .bottomTrailing))
+        .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
+        .background {
+            RoundedRectangle(cornerRadius: 32, style: .continuous)
+                .fill(LinearGradient(colors: [nightwellViolet, Color.black], startPoint: .topLeading, endPoint: .bottomTrailing))
+                .padding(-1)
+        }
+        .padding(.horizontal, 8)
+        .padding(.bottom, 8)
         .ignoresSafeArea(.container, edges: .bottom)
         .preferredColorScheme(.dark)
-        .presentationBackground(LinearGradient(colors: [nightwellViolet, Color.black], startPoint: .topLeading, endPoint: .bottomTrailing))
-        .presentationCornerRadius(32)
+        .presentationBackground(.clear)
         .presentationDetents([.height(362), .large], selection: $selectedDetent)
         .presentationDragIndicator(.hidden)
         .task { await refresh() }

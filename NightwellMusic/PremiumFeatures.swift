@@ -130,9 +130,16 @@ struct PremiumPreferences: Codable {
                     rules = []; statistics = nil; await premium.refresh(store); if premium.allowed { await load() }
                 }
                 .task { while !Task.isCancelled { soundReady = NativePlayer.shared.premiumSoundAvailable; soundStatus = NativePlayer.shared.premiumSoundStatus; do { try await Task.sleep(nanoseconds: 1_000_000_000) } catch { return } } }
-        }.background(LinearGradient(colors: [Color(red: 0.18, green: 0.07, blue: 0.30), .black], startPoint: .topLeading, endPoint: .bottomTrailing))
+        }.clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+         .background {
+             RoundedRectangle(cornerRadius: 30, style: .continuous)
+                 .fill(LinearGradient(colors: [Color(red: 0.18, green: 0.07, blue: 0.30), .black], startPoint: .topLeading, endPoint: .bottomTrailing))
+                 .padding(-1)
+         }
+         .padding(.horizontal, 8)
+        .padding(.bottom, 8)
         .ignoresSafeArea(.container, edges: .bottom)
-         .preferredColorScheme(.dark).presentationBackground(LinearGradient(colors: [Color(red: 0.18, green: 0.07, blue: 0.30), .black], startPoint: .topLeading, endPoint: .bottomTrailing)).presentationCornerRadius(30).presentationDetents([.fraction(0.77), .large]).presentationDragIndicator(.hidden)
+         .preferredColorScheme(.dark).presentationBackground(.clear).presentationDetents([.fraction(0.77), .large]).presentationDragIndicator(.hidden)
     }
     private var sound: some View {
         Group {
