@@ -638,13 +638,15 @@ public final class MainActivity extends Activity {
         feedback.setText(register?"Регистрируем аккаунт…":"Выполняем вход…");feedback.setTextColor(0xffffcf9e);feedback.setVisibility(View.VISIBLE);
         Button accept=dialog.getButton(AlertDialog.BUTTON_POSITIVE),signup=dialog.getButton(AlertDialog.BUTTON_NEUTRAL);
         accept.setEnabled(false);signup.setEnabled(false);
+        final boolean[] pending={true};
+        ui.postDelayed(()->{if(!pending[0]||isDestroyed()||!dialog.isShowing())return;pending[0]=false;accept.setEnabled(true);signup.setEnabled(true);feedback.setTextColor(0xffffb1b1);feedback.setText("Вход не завершился за 35 секунд. Сервер не отвечает приложению. Попробуй снова.");},35000);
         io.execute(()->{
             try{
                 JSONObject response=api.request(register?"api/register":"api/login","POST",
                     new JSONObject().put("email",address).put("password",secret));
                 ui.post(()->{
-                    if(isDestroyed()||!dialog.isShowing())return;
-                    accept.setEnabled(true);signup.setEnabled(true);
+                    if(!pending[0]||isDestroyed()||!dialog.isShowing())return;
+                    pending[0]=false;accept.setEnabled(true);signup.setEnabled(true);
                     api.updateCSRF(response.optString("csrf"));
                     feedback.setText("Вход выполнен. Загружаем аккаунт…");
                     dialog.dismiss();
@@ -652,8 +654,8 @@ public final class MainActivity extends Activity {
                 });
             }catch(Exception error){
                 ui.post(()->{
-                    if(isDestroyed()||!dialog.isShowing())return;
-                    accept.setEnabled(true);signup.setEnabled(true);
+                    if(!pending[0]||isDestroyed()||!dialog.isShowing())return;
+                    pending[0]=false;accept.setEnabled(true);signup.setEnabled(true);
                     feedback.setTextColor(0xffffb1b1);
                     feedback.setText("Не удалось войти: "+friendly(error));
                     feedback.setVisibility(View.VISIBLE);
