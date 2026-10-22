@@ -34,7 +34,7 @@ struct NativeWaveSettingsView: View {
     @State private var message = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Button("Сброс") { draft = WaveSettings() }
                     .font(.system(size: 12, weight: .medium))
@@ -63,7 +63,7 @@ struct NativeWaveSettingsView: View {
                 .padding(.horizontal, 2)
 
             ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 8) {
                     ForEach(0..<3, id: \.self) { section in
                         VStack(alignment: .leading, spacing: 7) {
                             Text(WaveSettings.titles[section])
@@ -81,7 +81,7 @@ struct NativeWaveSettingsView: View {
                                                 .font(.system(size: 14, weight: .medium))
                                                 .lineLimit(1)
                                         }
-                                        .frame(maxWidth: .infinity, minHeight: 46)
+                                        .frame(maxWidth: .infinity, minHeight: 40)
                                         .foregroundStyle(selected ? pumpkin : .white.opacity(0.92))
                                         .background(selected ? pumpkin.opacity(0.08) : Color.clear)
                                         .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(selected ? pumpkin.opacity(0.9) : Color.white.opacity(0.20), lineWidth: 1.2))
@@ -106,9 +106,9 @@ struct NativeWaveSettingsView: View {
             }
 
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 10)
-        .padding(.bottom, 4)
+        .padding(.horizontal, 10)
+        .padding(.top, 6)
+        .padding(.bottom, 2)
         .frame(maxHeight: .infinity, alignment: .top)
         .background(Color.clear)
         .onAppear { draft = WaveSettings.read(store.origin, store.account?.id ?? "device") }
