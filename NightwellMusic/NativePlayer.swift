@@ -541,13 +541,18 @@ final class NativePlayer {
               let reason = AVAudioSession.RouteChangeReason(rawValue: raw) else { publish(); return }
         // Disconnecting headphones still pauses, so audio cannot unexpectedly
         // start on the iPhone speaker. A route change never starts paused music.
-        if reason == .oldDeviceUnavailable { pause() }
+        if reason == .oldDeviceUnavailable {
+            // Pause when headphones disconnect to the phone speaker, but avoid
+            // stopping playback on transient Bluetooth route reconfigurations.
+            let outputs = AVAudioSession.sharedInstance().currentRoute.outputs.map { $0.portType }
+            if outputs.contains(.builtInSpeaker) || outputs.contains(.builtInReceiver) { pause() }
+        }
         if enginePlayback.ready {
             do { try enginePlayback.rebuild(playing: wantsPlay) }
             catch { fallbackFromEngine() }
             publish(); return
         }
-        if reason == .oldDeviceUnavailable { return }
+        if reason == .oldDeviceUnavailable && !wantsPlay { return }
         if wantsPlay && !waitingForReady && !recovery.pending && player.currentItem?.status == .readyToPlay {
             switch reason {
             case .newDeviceAvailable, .override, .routeConfigurationChange:
