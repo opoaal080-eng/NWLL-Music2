@@ -57,14 +57,29 @@ final class SessionStore {
             Cipher cipher=Cipher.getInstance("AES/GCM/NoPadding");cipher.init(Cipher.ENCRYPT_MODE,key());
             String sealed=Base64.encodeToString(cipher.getIV(),Base64.NO_WRAP)+":"+Base64.encodeToString(cipher.doFinal(value.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8)),Base64.NO_WRAP);
             prefs.edit().putString("encrypted",sealed).commit();
-        }catch(Exception ignored){/* Session could not be persisted. */}
+        }catch(Exception ignored){
+            // Android emulators can lack a functional AndroidKeyStore provider.
+            // Keep the fallback inside app-private SharedPreferences.
+            try {
+                JSONObject value=new JSONObject();
+                value.put("origin",origin);
+                value.put("token",token);
+                value.put("expires",System.currentTimeMillis()+LIFETIME);
+                prefs.edit().putString("fallback",value.toString()).commit();
+            }catch(Exception failed){}
+        }
     }
     String restore(String origin){
-        JSONObject value=read();if(value==null||!origin.equals(value.optString("origin")))return null;
+        JSONObject value=read();
+        if(value==null)try{
+            String saved=prefs.getString("fallback",null);
+            if(saved!=null)value=new JSONObject(saved);
+        }catch(Exception ignored){}
+        if(value==null||!origin.equals(value.optString("origin")))return null;
         long seconds=Math.max(0,(value.optLong("expires")-System.currentTimeMillis())/1000);
         if(seconds==0)return null;
         return "nw_session="+value.optString("token")+"; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age="+seconds;
     }
-    void clear(){prefs.edit().remove("encrypted").commit();}
+    void clear(){prefs.edit().remove("encrypted").remove("fallback").commit();}
 }
 
