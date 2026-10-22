@@ -62,7 +62,18 @@ final class NativeAPI {
             if(!method.equals("GET")){byte[] bytes=(body==null?"{}":body.toString()).getBytes(StandardCharsets.UTF_8);c.setRequestProperty("X-CSRF-Token",csrf);c.setRequestProperty("Content-Type","application/json");c.setFixedLengthStreamingMode(bytes.length);c.setDoOutput(true);try(OutputStream out=c.getOutputStream()){out.write(bytes);}}
             JSONObject value=response(c);
             if(path.equals("api/login")||path.equals("api/register")){
-                java.util.Map<String,java.util.List<String>> headers=c.getHeaderFields();for(String key:headers.keySet())if(key!=null&&key.equalsIgnoreCase("Set-Cookie"))for(String entry:headers.get(key))if(SessionStore.token(entry)!=null)new SessionStore(context).save(origin,entry); if(cookie(context,origin).isEmpty())throw new IOException("Сессия не сохранена. Проверь cookie nw_session и Android Keystore.");
+                boolean found=false;
+                java.util.Map<String,java.util.List<String>> headers=c.getHeaderFields();
+                for(java.util.Map.Entry<String,java.util.List<String>> header:headers.entrySet()){
+                    if(header.getKey()==null||!header.getKey().equalsIgnoreCase("Set-Cookie"))continue;
+                    for(String entry:header.getValue()){
+                        if(SessionStore.token(entry)==null)continue;
+                        found=true;
+                        new SessionStore(context).save(origin,entry);
+                    }
+                }
+                if(!found)throw new IOException("В ответе сервера нет подходящего cookie nw_session. Проверь формат Set-Cookie.");
+                if(cookie(context,origin).isEmpty())throw new IOException("Cookie получен, но Android не сохранил сессию. Проверь Android Keystore.");
             }
             return value;
         }finally{c.disconnect();}
