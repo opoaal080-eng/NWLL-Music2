@@ -3,6 +3,12 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+    paths:
+      - 'NightwellMusic/**'
+      - 'NativeTests/**'
+      - 'project.yml'
+      - 'scripts/verify-native-source.py'
+      - '.github/workflows/build-ios.yml'
 permissions:
   contents: read
 jobs:
