@@ -3,6 +3,10 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+    paths:
+      - 'android/**'
+      - 'scripts/validate-app-sources.py'
+      - '.github/workflows/build-android.yml'
 permissions:
   contents: read
 jobs:
