@@ -16,7 +16,7 @@ struct PremiumView: View {
     @State private var checking = false
     @State private var activeExpiry: Double?
     @State private var showFeatures = false
-    @State private var selectedDetent: PresentationDetent = .height(350)
+    @State private var selectedDetent: PresentationDetent = .height(362)
     private var externalPayments: Bool { Bundle.main.object(forInfoDictionaryKey: "NWExternalPremiumPayments") as? Bool ?? true }
 
     var body: some View {
@@ -33,9 +33,11 @@ struct PremiumView: View {
         )
         .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
         .padding(.horizontal, 8)
+        .padding(.bottom, 8)
+        .ignoresSafeArea(.container, edges: .bottom)
         .preferredColorScheme(.dark)
         .presentationBackground(.clear)
-        .presentationDetents([.height(350), .large], selection: $selectedDetent)
+        .presentationDetents([.height(362), .large], selection: $selectedDetent)
         .presentationDragIndicator(.hidden)
         .task { await refresh() }
         .onChange(of: scenePhase) { _, phase in
