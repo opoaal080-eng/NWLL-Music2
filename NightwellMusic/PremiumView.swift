@@ -105,8 +105,8 @@ struct PremiumView: View {
                     .disabled(checking)
                     .padding(.bottom, 8)
                 }
-                .padding(.horizontal, 24)
-                .padding(.bottom, 20)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
