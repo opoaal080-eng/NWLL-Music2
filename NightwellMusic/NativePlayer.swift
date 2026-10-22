@@ -646,14 +646,14 @@ final class NativePlayer {
     // Retry only when the session becomes eligible; an activation callback never
     // starts another attempt when activation failed.
     private func activateNowPlayingSession() {
-        guard current != nil, wantsPlay, !appIsActive, !activatingNowPlaying,
+        guard current != nil, wantsPlay, !activatingNowPlaying,
               !nowPlayingSession.isActive, nowPlayingSession.canBecomeActive else { return }
         activatingNowPlaying = true
         nowPlayingSession.becomeActiveIfPossible { [weak self] activated in
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.activatingNowPlaying = false
-                if activated, self.current != nil, !self.appIsActive { self.publish() }
+                if activated, self.current != nil { self.publish() }
             }
         }
     }
@@ -665,7 +665,7 @@ final class NativePlayer {
         commands.pauseCommand.isEnabled = current != nil
         commands.togglePlayPauseCommand.isEnabled = current != nil
         commands.changePlaybackPositionCommand.isEnabled = current != nil
-        if let current, !appIsActive {
+        if let current {
             let state = snapshot(includeQueue: false)
             var info: [String: Any] = [MPMediaItemPropertyTitle: current.title,
                 MPMediaItemPropertyArtist: current.artist, MPMediaItemPropertyAlbumTitle: current.album,
