@@ -300,7 +300,7 @@ struct NativeRoot: View {
     @ViewBuilder private var content: some View {
         switch store.screen {
         case .home:
-            NativeHome(clock: store.clock)
+            NativeHome(configureWave: { waveSettingsPresented = true }, clock: store.clock)
         case .search:
             VStack(alignment: .leading, spacing: 14) {
                 Text("Поиск").font(.largeTitle.bold())

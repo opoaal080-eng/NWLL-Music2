@@ -15,7 +15,8 @@ assert 'Button("Темы и ленты · Premium")' in views
 assert 'Label("Воспроизведение", systemImage:' in views
 assert '.frostedGlass(26)' in views
 assert 'nightwellLiquidGlass(' in app
-assert 'NativeWaveSettingsView(close:' in views
+assert 'NativeWaveSettingsView(close:' in app
+assert 'configureWave()' in views
 assert '.sheet(isPresented: $waveSettingsPresented)' not in views
 assert 'NWSourceCommit' in views
 for file in (root / 'NightwellMusic').rglob('*.swift'):

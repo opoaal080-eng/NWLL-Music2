@@ -109,7 +109,7 @@ struct RibbonScene: View {
     }
 }
 struct NativeHome: View {
-    @State private var waveSettingsPresented = false
+    let configureWave: () -> Void
     @State private var suppressMixTapUntil = Date.distantPast
     @EnvironmentObject var store: MusicStore
     @ObservedObject var clock: PlaybackClock
@@ -166,10 +166,10 @@ struct NativeHome: View {
                         .disabled(store.loading)
                         .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in
                             suppressMixTapUntil = Date().addingTimeInterval(1)
-                            waveSettingsPresented = true
+                            configureWave()
                         })
                         .accessibilityHint("Удерживай, чтобы настроить подборку")
-                        .accessibilityAction(named: "Настроить подборку") { waveSettingsPresented = true }
+                        .accessibilityAction(named: "Настроить подборку") { configureWave() }
 
 
                     }
@@ -180,19 +180,6 @@ struct NativeHome: View {
             }
             .padding(.horizontal, 24)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        }
-        .overlay {
-            if waveSettingsPresented {
-                NightwellPopup(title: "", maxHeight: 560, dimsBackground: false, close: { waveSettingsPresented = false }) {
-                    NativeWaveSettingsView(close: { waveSettingsPresented = false })
-                        .environmentObject(store)
-                }
-            }
-        }
-        .onAppear {
-            #if DEBUG
-            if ProcessInfo.processInfo.arguments.contains("--native-smoke-wave-settings") { waveSettingsPresented = true }
-            #endif
         }
     }
 }
