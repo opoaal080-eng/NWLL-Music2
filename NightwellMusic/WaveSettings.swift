@@ -63,9 +63,9 @@ struct NativeWaveSettingsView: View {
                 .padding(.horizontal, 2)
 
             ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 12) {
                     ForEach(0..<3, id: \.self) { section in
-                        VStack(alignment: .leading, spacing: 9) {
+                        VStack(alignment: .leading, spacing: 7) {
                             Text(WaveSettings.titles[section])
                                 .font(.system(size: 16, weight: .bold))
                                 .foregroundStyle(.white)
@@ -105,9 +105,11 @@ struct NativeWaveSettingsView: View {
                 }
             }
 
-            HStack { Spacer() }
         }
-        .padding(16)
+        .padding(.horizontal, 16)
+        .padding(.top, 10)
+        .padding(.bottom, 4)
+        .frame(maxHeight: .infinity, alignment: .top)
         .background(Color.clear)
         .onAppear { draft = WaveSettings.read(store.origin, store.account?.id ?? "device") }
         .safeAreaInset(edge: .bottom) {
