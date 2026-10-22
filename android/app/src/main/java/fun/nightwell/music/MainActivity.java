@@ -84,12 +84,18 @@ public final class MainActivity extends Activity {
     LinearLayout column(){LinearLayout v=new LinearLayout(this);v.setOrientation(LinearLayout.VERTICAL);return v;}
     LinearLayout row(){LinearLayout v=new LinearLayout(this);v.setGravity(Gravity.CENTER_VERTICAL);return v;}
     TextView text(String label,int size){TextView v=new TextView(this);v.setText(label);v.setTextSize(size);v.setTextColor(0xfff3f3f5);return v;}
-    GradientDrawable surface(){GradientDrawable d=new GradientDrawable();d.setColor(0xff202228);d.setCornerRadius(dp(18));return d;}
-    android.graphics.drawable.Drawable touchSurface(int color,int corners){GradientDrawable fill=new GradientDrawable();fill.setColor(color);fill.setCornerRadius(dp(corners));GradientDrawable mask=new GradientDrawable();mask.setColor(Color.WHITE);mask.setCornerRadius(dp(corners));return new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x22ffffff),fill,mask);}
-    void styleSheet(AlertDialog dialog){dialog.setOnShowListener(ignored->{android.view.Window window=dialog.getWindow();if(window!=null){window.setBackgroundDrawable(surface());window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);WindowManager.LayoutParams params=window.getAttributes();params.dimAmount=.65f;window.setAttributes(params);int width=Math.min(dp(520),getResources().getDisplayMetrics().widthPixels-dp(34));window.setLayout(width,WindowManager.LayoutParams.WRAP_CONTENT);window.getDecorView().post(()->{int limit=getResources().getDisplayMetrics().heightPixels-dp(80);if(window.getDecorView().getHeight()>limit)window.setLayout(width,limit);});}});}
-    TextView sheetAction(String label,Runnable run){TextView v=action(label,run);v.setTextSize(15);v.setGravity(Gravity.CENTER_VERTICAL);v.setTextColor(0xffeeeef1);v.setBackground(touchSurface(0xff292c33,12));return v;}
-    TextView action(String label,Runnable run){TextView v=NativeIconButton.isIcon(label)?new NativeIconButton(this):text(label,18);v.setText(label);v.setTextColor(0xfff3f3f5);v.setTextSize(18);if(NativeIconButton.isIcon(label))v.setContentDescription(iconLabel(label));v.setGravity(Gravity.CENTER);v.setPadding(dp(14),dp(12),dp(14),dp(12));v.setMinHeight(dp(48));v.setOnClickListener(x->run.run());return v;}
-    TextView iconButton(String label,Runnable run){TextView v=action(label,run);v.setPadding(0,0,0,0);v.setTextSize(23);v.setTextColor(0xffe8e8ed);v.setBackground(touchSurface(0xff202228,14));return v;}
+    GradientDrawable surface(){GradientDrawable d=new GradientDrawable();d.setColor(0xf01b1e25);d.setCornerRadius(dp(24));d.setStroke(dp(1),0x33ffffff);return d;}
+    GradientDrawable fieldSurface(int color,int corners){GradientDrawable fill=new GradientDrawable();fill.setColor(color);fill.setCornerRadius(dp(corners));fill.setStroke(dp(1),0x26ffffff);return fill;}
+    android.graphics.drawable.Drawable touchSurface(int color,int corners){GradientDrawable fill=fieldSurface(color,corners);GradientDrawable mask=new GradientDrawable();mask.setColor(Color.WHITE);mask.setCornerRadius(dp(corners));return new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x30ffffff),fill,mask);}
+    TextView sectionLabel(String label){TextView v=text(label.toUpperCase(java.util.Locale.ROOT),11);v.setLetterSpacing(0.08f);v.setTextColor(0xffd1a46d);v.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);v.setPadding(dp(6),dp(8),dp(6),dp(6));return v;}
+    void styleField(EditText view){view.setTextColor(0xfff4f4f7);view.setHintTextColor(0xff8f95a5);view.setTextSize(15);view.setBackground(fieldSurface(0x88262a33,18));view.setPadding(dp(16),dp(14),dp(16),dp(14));}
+    void styleSwitch(android.widget.Switch view){view.setTextColor(0xfff0f1f6);view.setTextSize(15);view.setPadding(dp(2),dp(10),dp(2),dp(10));}
+    void styleSheet(AlertDialog dialog){dialog.setOnShowListener(ignored->{android.view.Window window=dialog.getWindow();if(window!=null){window.setBackgroundDrawable(surface());window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);WindowManager.LayoutParams params=window.getAttributes();params.dimAmount=.72f;window.setAttributes(params);int width=Math.min(dp(540),getResources().getDisplayMetrics().widthPixels-dp(28));window.setLayout(width,WindowManager.LayoutParams.WRAP_CONTENT);window.getDecorView().setPadding(dp(6),dp(6),dp(6),dp(8));window.getDecorView().post(()->{int limit=getResources().getDisplayMetrics().heightPixels-dp(64);if(window.getDecorView().getHeight()>limit)window.setLayout(width,limit);});}
+        for(int which:new int[]{AlertDialog.BUTTON_POSITIVE,AlertDialog.BUTTON_NEGATIVE,AlertDialog.BUTTON_NEUTRAL}){Button b=dialog.getButton(which);if(b==null)continue;b.setAllCaps(false);b.setTextColor(which==AlertDialog.BUTTON_NEGATIVE?0xffb6bac7:0xffffc58b);b.setTextSize(15);}
+    });}
+    TextView sheetAction(String label,Runnable run){TextView v=action(label,run);v.setTextSize(14);v.setGravity(Gravity.CENTER_VERTICAL);v.setTextColor(0xfff2f2f5);v.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);v.setPadding(dp(16),dp(14),dp(16),dp(14));v.setBackground(touchSurface(0xaa262b34,16));return v;}
+    TextView action(String label,Runnable run){TextView v=NativeIconButton.isIcon(label)?new NativeIconButton(this):text(label,16);v.setText(label);v.setTextColor(0xfff3f3f5);v.setTextSize(NativeIconButton.isIcon(label)?20:16);if(NativeIconButton.isIcon(label))v.setContentDescription(iconLabel(label));v.setGravity(Gravity.CENTER);v.setPadding(dp(14),dp(12),dp(14),dp(12));v.setMinHeight(dp(50));v.setOnClickListener(x->run.run());return v;}
+    TextView iconButton(String label,Runnable run){TextView v=action(label,run);v.setPadding(0,0,0,0);v.setTextSize(20);v.setTextColor(0xfff1f1f6);v.setBackground(touchSurface(0xa61f232c,18));return v;}
     void toggleBackgroundOnly(){backgroundOnly=!backgroundOnly;build();}
     void showQueue(){AlertDialog d=new AlertDialog.Builder(this).setTitle("Очередь воспроизведения").setItems(trackNames(queue),(dialog,index)->play(queue.optJSONObject(index),queue,false)).setNegativeButton("Закрыть",null).create();styleSheet(d);d.show();}
     void build(){
@@ -117,7 +123,9 @@ public final class MainActivity extends Activity {
     void menu(){
         if(navigationPopup!=null)navigationPopup.dismiss();
         View anchor=head.getChildAt(head.getChildCount()-1);
-        LinearLayout entries=column();entries.setPadding(dp(10),dp(10),dp(10),dp(10));
+        LinearLayout entries=column();entries.setPadding(dp(12),dp(12),dp(12),dp(12));
+        TextView menuTitle=text("Меню",20);menuTitle.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);menuTitle.setPadding(dp(8),dp(4),dp(8),dp(2));entries.addView(menuTitle);
+        TextView menuCaption=text("Nightwell Music · быстрый доступ к разделам",13);menuCaption.setTextColor(0xff9fa6b8);menuCaption.setPadding(dp(8),0,dp(8),dp(10));entries.addView(menuCaption);
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(false);scroll.addView(entries);
         int[] location=new int[2];anchor.getLocationOnScreen(location);
         int available=Math.max(dp(96),getResources().getDisplayMetrics().heightPixels-location[1]-anchor.getHeight()-dp(24));
@@ -127,16 +135,19 @@ public final class MainActivity extends Activity {
         popup.setBackgroundDrawable(surface);popup.setElevation(dp(20));popup.setOutsideTouchable(true);
         String[] tabs={"Главная","Поиск","Избранное","Плейлисты","Офлайн",backgroundOnly?"Показать интерфейс":"Только фон","Настройки","Настройка подборки","Nightwell Premium","Моя статистика","Обращения",user.isEmpty()?"Войти":"Выйти"};
         for(int i=0;i<tabs.length;i++){
-            if(i==5||i==8){View divider=new View(this);divider.setBackgroundColor(0xff34363e);LinearLayout.LayoutParams gap=new LinearLayout.LayoutParams(-1,dp(1));gap.setMargins(dp(12),dp(6),dp(12),dp(6));entries.addView(divider,gap);}
+            if(i==0)entries.addView(sectionLabel("Основное"));
+            if(i==5)entries.addView(sectionLabel("Управление"));
+            if(i==8)entries.addView(sectionLabel("Premium и аккаунт"));
             final String tab=tabs[i];boolean selected=tab.equals(screen)||(tab.equals("Плейлисты")&&!selectedPlaylist.isEmpty());
-            TextView item=text(tab,16);item.setGravity(Gravity.CENTER_VERTICAL);item.setPadding(dp(16),0,dp(16),0);
-            item.setTextColor(tab.equals("Выйти")?0xfff0a9b7:selected?0xffffd7ae:0xffd2d3da);
+            TextView item=text(tab,15);item.setGravity(Gravity.CENTER_VERTICAL);item.setPadding(dp(16),0,dp(16),0);
+            item.setTextColor(tab.equals("Выйти")?0xfff2a9b7:selected?0xffffd6a1:0xffe4e5ea);
             if(selected)item.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
             item.setSelected(selected);
-            GradientDrawable fill=new GradientDrawable();fill.setCornerRadius(dp(14));fill.setColor(selected?0xff39332e:Color.TRANSPARENT);
-            GradientDrawable mask=new GradientDrawable();mask.setCornerRadius(dp(14));mask.setColor(Color.WHITE);
-            item.setBackground(new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x44c8a2ed),fill,mask));
-            item.setOnClickListener(v->{popup.dismiss();selectMenu(tab);});entries.addView(item,new LinearLayout.LayoutParams(-1,dp(48)));
+            GradientDrawable fill=new GradientDrawable();fill.setCornerRadius(dp(18));fill.setStroke(dp(1),selected?0x36ffd2a1:0x18ffffff);fill.setColor(selected?0x4837302b:0x12000000);
+            GradientDrawable mask=new GradientDrawable();mask.setCornerRadius(dp(18));mask.setColor(Color.WHITE);
+            item.setBackground(new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x34ffffff),fill,mask));
+            LinearLayout.LayoutParams itemParams=new LinearLayout.LayoutParams(-1,dp(50));itemParams.topMargin=dp(4);
+            item.setOnClickListener(v->{popup.dismiss();selectMenu(tab);});entries.addView(item,itemParams);
         }
         popup.showAsDropDown(anchor,0,dp(8),Gravity.END);
     }
@@ -158,7 +169,7 @@ public final class MainActivity extends Activity {
         TextView stateView=text(state.equals("new")?"Новое":state.equals("in_progress")?"В работе":state.equals("waiting_user")?"Ожидает ответа":state.equals("resolved")?"Решено":"Закрыто",12);
         stateView.setTextColor(0xffffb561);
         card.addView(name);card.addView(stateView);
-        card.setBackground(touchSurface(0xff202228,16));
+        card.setBackground(touchSurface(0xaa252a33,20));
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(0,dp(8),0,dp(8));card.setLayoutParams(lp);card.setOnClickListener(v->click.run());
         return card;
     }
@@ -207,12 +218,12 @@ public final class MainActivity extends Activity {
     void supportCreate(){
         LinearLayout form=column();form.setPadding(dp(16),dp(8),dp(16),dp(8));
         EditText subject=new EditText(this),body=new EditText(this);
-        subject.setHint("Тема");body.setHint("Описание обращения");body.setMinLines(4);
+        subject.setHint("Тема");body.setHint("Описание обращения");body.setMinLines(4);styleField(subject);styleField(body);
         form.addView(subject);
         Spinner kindPicker=new Spinner(this);
         String[] labels={"Вопрос","Ошибка","Предложение","Аккаунт","Другое"};
         String[] values={"question","bug","suggestion","account","other"};
-        kindPicker.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,labels));
+        kindPicker.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,labels));kindPicker.setBackground(fieldSurface(0x88262a33,18));
         form.addView(kindPicker);form.addView(body);
         AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Новое обращение").setView(form).setNegativeButton("Отмена",null).setPositiveButton("Отправить",null).create();
         styleSheet(dialog);dialog.show();
@@ -324,7 +335,7 @@ public final class MainActivity extends Activity {
             LinearLayout intro=column();TextView edition=text("H A L L O W E E N   2 0 2 6",10);edition.setTextColor(0xffffb260);edition.setPadding(0,dp(14),0,dp(18));intro.addView(edition);if(compact)edition.setVisibility(View.GONE);
             TextView theme=text(compact?"В твоём ритме":"В твоём\nритме",compact?30:Math.min(46,getResources().getConfiguration().screenWidthDp/8));theme.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);intro.addView(theme);stage.addView(intro,new android.widget.FrameLayout.LayoutParams(-1,-2,Gravity.TOP));
             homePlay=action("▶",()->{if(currentID.isEmpty())wave();else toggle();});homePlay.setTextColor(0xffffb260);homePlay.setTextSize(40);homePlay.setBackground(null);android.widget.FrameLayout.LayoutParams playParams=new android.widget.FrameLayout.LayoutParams(dp(104),dp(104),Gravity.CENTER);if(compact){playParams.gravity=Gravity.CENTER_VERTICAL|Gravity.RIGHT;playParams.rightMargin=dp(50);}else playParams.topMargin=dp(30);stage.addView(homePlay,playParams);
-            TextView mix=action("Новая подборка",this::wave);mix.setOnLongClickListener(v->{waveSettings();return true;});mix.setContentDescription("Новая подборка. Удерживай, чтобы настроить");mix.setTextSize(14);mix.setBackground(touchSurface(0xffffbc78,14));mix.setTextColor(0xff191a20);mix.setTypeface(null,android.graphics.Typeface.BOLD);android.widget.FrameLayout.LayoutParams mixParams=new android.widget.FrameLayout.LayoutParams(dp(184),dp(44),Gravity.CENTER);stage.addView(mix,mixParams);mix.setTranslationY(dp(compact?82:134));
+            TextView mix=action("Новая подборка",this::wave);mix.setOnLongClickListener(v->{waveSettings();return true;});mix.setContentDescription("Новая подборка. Удерживай, чтобы настроить");mix.setTextSize(14);mix.setBackground(touchSurface(0xffffbc78,14));mix.setTextColor(0xff191a20);mix.setTypeface(null,android.graphics.Typeface.BOLD);android.widget.FrameLayout.LayoutParams mixParams=new android.widget.FrameLayout.LayoutParams(dp(184),dp(44),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL);mixParams.bottomMargin=dp(compact?6:58);stage.addView(mix,mixParams);
             homeLyric=text("",16);homeLyric.setGravity(Gravity.CENTER);homeLyric.setTextColor(0xffffdcc0);homeLyric.setMaxLines(2);homeLyric.setOnClickListener(v->{JSONObject t=current();if(t!=null)showLyrics(t);});android.widget.FrameLayout.LayoutParams lyricParams=new android.widget.FrameLayout.LayoutParams(-1,dp(50),Gravity.BOTTOM);stage.addView(homeLyric,lyricParams);if(compact)homeLyric.setVisibility(View.GONE);
             if(backgroundOnly){intro.setVisibility(View.GONE);mix.setVisibility(View.GONE);TextView restore=iconButton("×",this::toggleBackgroundOnly);stage.addView(restore,new android.widget.FrameLayout.LayoutParams(dp(48),dp(48),Gravity.TOP|Gravity.LEFT));}return;
         }
@@ -351,18 +362,19 @@ public final class MainActivity extends Activity {
         if(user.isEmpty()){auth();return;}
         final String account=user;
         WaveSettings draft=WaveSettings.read(this,origin,account);
-        LinearLayout panel=column();panel.setPadding(dp(20),dp(8),dp(20),dp(12));
-        TextView hint=text("Выбери, что хочется услышать сейчас",14);hint.setTextColor(0xffcbb9df);panel.addView(hint);
+        LinearLayout panel=column();panel.setPadding(dp(20),dp(10),dp(20),dp(14));
+        TextView hint=text("Выбери, что хочется услышать сейчас",15);hint.setTextColor(0xffd8c6ea);hint.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);panel.addView(hint);
+        TextView caption=text("Удерживай «Новая подборка», чтобы быстро открыть это окно прямо с главного экрана.",13);caption.setTextColor(0xff9ea6b9);caption.setPadding(0,dp(4),0,dp(8));panel.addView(caption);
         final Runnable[] render={null};
         render[0]=()->{
             while(panel.getChildCount()>1)panel.removeViewAt(1);
             for(int group=0;group<3;group++){
-                final int section=group;TextView title=text(WaveSettings.TITLES[group],16);title.setPadding(0,dp(18),0,dp(8));panel.addView(title);
+                final int section=group;TextView title=text(WaveSettings.TITLES[group],15);title.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);title.setTextColor(0xfff2f2f6);title.setPadding(0,dp(18),0,dp(8));panel.addView(title);
                 for(int start=0;start<WaveSettings.VALUES[group].length;start+=2){LinearLayout line=row();
                     for(int option=start;option<Math.min(start+2,WaveSettings.VALUES[group].length);option++){
                         final int choice=option;boolean checked=draft.selected[section]==choice;
                         TextView chip=action((checked?"✓  ":"")+WaveSettings.LABELS[section][choice],()->{draft.selected[section]=choice;render[0].run();});
-                        chip.setTextSize(13);chip.setTextColor(checked?0xffffce99:0xffeee2f6);chip.setBackground(new NativeSurfaceDrawable(chip,18));chip.setSelected(checked);
+                        chip.setTextSize(13);chip.setTextColor(checked?0xff201914:0xfff0e7f7);GradientDrawable chipFill=new GradientDrawable();chipFill.setCornerRadius(dp(18));chipFill.setColor(checked?0xffffc287:0xaa282c35);chipFill.setStroke(dp(1),checked?0x4dfff0d0:0x20ffffff);chip.setBackground(chipFill);chip.setSelected(checked);
                         LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(0,dp(44),1);params.setMargins(dp(3),dp(3),dp(3),dp(3));line.addView(chip,params);
                     }panel.addView(line);
                 }
@@ -495,7 +507,7 @@ public final class MainActivity extends Activity {
     void download(JSONArray items){if(items==null)return;if(user.isEmpty()){auth();return;}String account=user;status.setText("Добавляем в фоновую очередь…");task(()->{if(!api.request("api/premium/me").optBoolean("premium"))throw new java.io.IOException("Скачивание доступно с Premium — 150 ₽ за 30 дней.");BackgroundDownloads.enqueue(this,origin,account,items);return new JSONObject();},v->status.setText(BackgroundDownloads.progress(this)));}
     interface InputDone{void run(String value);}
     void input(String title,InputDone done){EditText field=new EditText(this);AlertDialog dialog=new AlertDialog.Builder(this).setTitle(title).setView(field).setPositiveButton("Сохранить",(d,n)->done.run(field.getText().toString())).setNegativeButton("Отмена",null).create();styleSheet(dialog);dialog.show();}
-    void settings(){LinearLayout panel=column();panel.addView(sheetAction("Оформление · Premium",()->feature("appearance")));panel.setPadding(dp(20),dp(16),dp(20),dp(16));TextView label=text("Переход между треками",16);panel.addView(label);SeekBar duration=new SeekBar(this);duration.setMax(50);duration.setProgress((int)(getSharedPreferences("playback",MODE_PRIVATE).getFloat("nw-transition-seconds",.8f)*10));duration.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar b,int p,boolean user){label.setText("Переход: "+p/10.0+" с");if(playback!=null)playback.transitionDuration(p/10.0);}public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}});panel.addView(duration);android.widget.Switch ambient=new android.widget.Switch(this);ambient.setText("Текст вместе с лентами");ambient.setTextColor(Color.WHITE);ambient.setChecked(getSharedPreferences("appearance",MODE_PRIVATE).getBoolean("ambient-lyrics",true));ambient.setOnCheckedChangeListener((button,checked)->getSharedPreferences("appearance",MODE_PRIVATE).edit().putBoolean("ambient-lyrics",checked).apply());panel.addView(ambient);AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Настройки").setView(panel).setPositiveButton("Готово",null).create();styleSheet(dialog);dialog.show();}
+    void settings(){LinearLayout panel=column();panel.setPadding(dp(20),dp(16),dp(20),dp(16));TextView subtitle=text("Оформи приложение под себя и настрой поведение плеера.",14);subtitle.setTextColor(0xff9fa6b8);subtitle.setPadding(0,0,0,dp(10));panel.addView(subtitle);panel.addView(sectionLabel("Оформление"));panel.addView(sheetAction("Темы и ленты · Premium",()->feature("appearance")));panel.addView(sectionLabel("Воспроизведение"));TextView label=text("Переход между треками · 0.8 с",15);label.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);panel.addView(label);SeekBar duration=new SeekBar(this);duration.setMax(50);duration.setProgress((int)(getSharedPreferences("playback",MODE_PRIVATE).getFloat("nw-transition-seconds",.8f)*10));duration.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar b,int p,boolean user){label.setText("Переход между треками · "+p/10.0+" с");if(playback!=null)playback.transitionDuration(p/10.0);}public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}});panel.addView(duration);android.widget.Switch ambient=new android.widget.Switch(this);ambient.setText("Показывать текст рядом с лентами");styleSwitch(ambient);ambient.setChecked(getSharedPreferences("appearance",MODE_PRIVATE).getBoolean("ambient-lyrics",true));ambient.setOnCheckedChangeListener((button,checked)->getSharedPreferences("appearance",MODE_PRIVATE).edit().putBoolean("ambient-lyrics",checked).apply());panel.addView(ambient);AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Настройки").setView(panel).setPositiveButton("Готово",null).create();styleSheet(dialog);dialog.show();}
     private JSONObject premiumPrefs=new JSONObject();private String premiumOwner="";private long premiumUntil,premiumChecked;private boolean premiumLoading;
     boolean premiumAllowed(){return !user.isEmpty()&&user.equals(premiumOwner)&&System.currentTimeMillis()<premiumUntil;}
     void applyPremium(){
@@ -573,7 +585,7 @@ public final class MainActivity extends Activity {
 
     private Runnable premiumRefresh;
     void premium(){
-        LinearLayout panel=column();panel.setPadding(dp(20),dp(12),dp(20),dp(20));
+        LinearLayout panel=column();panel.setPadding(dp(20),dp(14),dp(20),dp(20));
         TextView summary=text("150 ₽ за 30 дней. Без автопродления.\nМузыку можно слушать бесплатно. Premium открывает скачивания, эквалайзер с пресетами, оформление, умные плейлисты и статистику. Эквалайзер — в трёх точках плеера; оформление — в настройках; умные подборки — в плейлистах; статистика — в меню.",16);panel.addView(summary);
         LinearLayout active=column();active.setGravity(Gravity.CENTER_HORIZONTAL);active.setVisibility(View.GONE);panel.addView(active);
         TextView checkmark=text("✓",56);checkmark.setTextColor(0xff42d789);checkmark.setGravity(Gravity.CENTER);active.addView(checkmark);
@@ -604,7 +616,7 @@ public final class MainActivity extends Activity {
         });};
         refresh.setOnClickListener(v->check.run());premiumRefresh=check;dialog.setOnDismissListener(d->{if(premiumRefresh==check)premiumRefresh=null;});dialog.show();check.run();
     }
-    void auth(){LinearLayout form=column();form.setPadding(dp(20),0,dp(20),0);EditText email=new EditText(this),password=new EditText(this);email.setHint("Email");email.setInputType(33);password.setHint("Пароль");password.setInputType(129);form.addView(email);form.addView(password);AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Вход").setView(form).setPositiveButton("Войти",(d,n)->login(email.getText().toString(),password.getText().toString(),false)).setNeutralButton("Регистрация",(d,n)->login(email.getText().toString(),password.getText().toString(),true)).setNegativeButton("Отмена",null).create();styleSheet(dialog);dialog.show();}
+    void auth(){LinearLayout form=column();form.setPadding(dp(20),dp(4),dp(20),dp(8));TextView caption=text("Войди в аккаунт Nightwell Music или создай новый.",14);caption.setTextColor(0xff9fa6b8);caption.setPadding(0,0,0,dp(10));form.addView(caption);EditText email=new EditText(this),password=new EditText(this);email.setHint("Email");email.setInputType(33);password.setHint("Пароль");password.setInputType(129);styleField(email);styleField(password);LinearLayout.LayoutParams field=new LinearLayout.LayoutParams(-1,-2);field.bottomMargin=dp(10);form.addView(email,field);form.addView(password);AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Вход").setView(form).setPositiveButton("Войти",(d,n)->login(email.getText().toString(),password.getText().toString(),false)).setNeutralButton("Регистрация",(d,n)->login(email.getText().toString(),password.getText().toString(),true)).setNegativeButton("Отмена",null).create();styleSheet(dialog);dialog.show();}
     void login(String email,String password,boolean register){task(()->api.request(register?"api/register":"api/login","POST",new JSONObject().put("email",email).put("password",password)),v->{api.updateCSRF(v.optString("csrf"));load();});}
     android.view.GestureDetector gestures(boolean expanded){return new android.view.GestureDetector(this,new android.view.GestureDetector.SimpleOnGestureListener(){public boolean onDown(android.view.MotionEvent e){return true;}public boolean onSingleTapUp(android.view.MotionEvent e){if(expanded){JSONObject track=current();if(track!=null)showLyrics(track);}else openPlayer();return true;}public boolean onFling(android.view.MotionEvent start,android.view.MotionEvent end,float vx,float vy){if(start==null||end==null)return false;float dx=end.getX()-start.getX(),dy=end.getY()-start.getY();if(Math.abs(dx)>dp(65)&&Math.abs(dx)>Math.abs(dy)*1.25f){if(playback==null)return false;if(dx<0)nextTrack();else previous();return true;}if(expanded&&dy>dp(90)&&dy>Math.abs(dx)*1.35f){full=false;build();return true;}return false;}});}
     @Override public void onBackPressed(){if(backgroundOnly){backgroundOnly=false;build();}else if(full){full=false;build();}else if(!screen.equals("Главная"))navigate("Главная");else super.onBackPressed();}
