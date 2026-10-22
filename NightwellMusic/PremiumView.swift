@@ -32,7 +32,7 @@ struct PremiumView: View {
                 .fill(LinearGradient(colors: [nightwellViolet, Color.black], startPoint: .topLeading, endPoint: .bottomTrailing))
         )
         .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 10)
         .preferredColorScheme(.dark)
         .presentationBackground(.clear)
         .presentationDetents([.height(430), .large], selection: $selectedDetent)
@@ -51,7 +51,7 @@ struct PremiumView: View {
         VStack(spacing: 0) {
             handle
             ScrollView(showsIndicators: false) {
-                VStack(spacing: 12) {
+                VStack(spacing: 8) {
                     ZStack {
                         Circle()
                             .fill(LinearGradient(colors: [Color(red: 0.34, green: 0.96, blue: 0.52), Color.green], startPoint: .topLeading, endPoint: .bottomTrailing))
@@ -86,7 +86,7 @@ struct PremiumView: View {
                     .nightwellLiquidGlass(24)
 
                     if showFeatures {
-                        VStack(alignment: .leading, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 8) {
                             featureHint("arrow.down.circle", "Скачивания", "Откройте меню трека и нажмите «Скачать»." )
                             featureHint("slider.horizontal.3", "Эквалайзер", "Откройте три точки в большом плеере.")
                             featureHint("paintpalette", "Оформление", "Откройте «Настройки» в меню приложения.")
@@ -160,7 +160,7 @@ struct PremiumView: View {
                     .foregroundStyle(.blue)
                     .disabled(checking)
             }
-            .padding(16)
+            .padding(10)
         }
         .background(Color.clear)
     }
