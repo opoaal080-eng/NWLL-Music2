@@ -649,7 +649,7 @@ struct NativeSettings: View {
                 Spacer()
                 Button(action: close) {
                     Image(systemName: "xmark").font(.system(size: 22, weight: .light))
-                        .foregroundStyle(pumpkin).frame(width: 42, height: 42).nightwellLiquidGlass(24)
+                        .foregroundStyle(pumpkin).frame(width: 42, height: 42).background(.white.opacity(0.05), in: Circle())
                 }.accessibilityLabel("Закрыть настройки")
             }.padding(.top, 12)
             ScrollView(showsIndicators: false) {
@@ -663,7 +663,7 @@ struct NativeSettings: View {
                                 if enabled { store.lyrics.select(store.clock.current, api: store.api, origin: store.origin, online: store.account != nil) }
                             }
                         Text("Строки с таймкодами появляются во время песни.").font(.system(size: 13)).foregroundStyle(.white.opacity(0.43))
-                    }.padding(16).frame(maxWidth: .infinity, minHeight: 160, alignment: .leading).frostedGlass(26)
+                    }.padding(16).frame(maxWidth: .infinity, minHeight: 160, alignment: .leading).background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
                     VStack(alignment: .leading, spacing: 12) {
                         Label("Воспроизведение", systemImage: "waveform").font(.system(size: 18, weight: .semibold)).foregroundStyle(pumpkin)
                         HStack { Text("Переход между треками"); Spacer(minLength: 4); Text(transition == 0 ? "Выкл." : String(format: "%.1f с", transition)).foregroundStyle(pumpkin) }
@@ -671,7 +671,7 @@ struct NativeSettings: View {
                             .padding(.vertical, 2)
                             .onChange(of: transition) { NativePlayer.shared.transitionDuration($0) }
                         Text("Плавное затухание и нарастание громкости.").font(.system(size: 12)).foregroundStyle(.white.opacity(0.43))
-                    }.padding(16).frame(maxWidth: .infinity, minHeight: 166, alignment: .leading).frostedGlass(26)
+                    }.padding(16).frame(maxWidth: .infinity, minHeight: 166, alignment: .leading).background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
                     Text(buildCaption).font(.system(size: 11)).foregroundStyle(.white.opacity(0.4)).frame(maxWidth: .infinity)
                 }.padding(.vertical, 2)
             }

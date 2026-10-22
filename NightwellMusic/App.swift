@@ -71,18 +71,43 @@ extension View {
 }
 // Shared with the mini-player: only the background is translucent.
 struct NativeBackdropBlur: UIViewRepresentable {
+    var intensity: CGFloat = 1
+    func makeCoordinator() -> Coordinator { Coordinator() }
     func makeUIView(context: Context) -> UIVisualEffectView {
-        let view = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterialDark))
+        let view = UIVisualEffectView(effect: nil)
         view.isUserInteractionEnabled = false
         return view
     }
-    func updateUIView(_ view: UIVisualEffectView, context: Context) {}
+    func updateUIView(_ view: UIVisualEffectView, context: Context) {
+        guard context.coordinator.intensity != intensity else { return }
+        let coordinator = context.coordinator
+        coordinator.intensity = intensity
+        DispatchQueue.main.async { [weak view] in
+            guard let view else { return }
+            coordinator.apply(to: view)
+        }
+    }
+    final class Coordinator {
+        var intensity: CGFloat = -1
+        private var animator: UIViewPropertyAnimator?
+        func apply(to view: UIVisualEffectView) {
+            animator?.stopAnimation(true)
+            let effect = UIBlurEffect(style: .systemUltraThinMaterialDark)
+            guard intensity < 1 else { view.effect = effect; animator = nil; return }
+            view.effect = nil
+            let animation = UIViewPropertyAnimator(duration: 1, curve: .linear) { view.effect = effect }
+            animation.pausesOnCompletion = true
+            animation.fractionComplete = min(1, max(0, intensity))
+            animator = animation
+        }
+        deinit { animator?.stopAnimation(true) }
+    }
 }
-
 struct FrostedSurface: View {
     var radius: CGFloat = 30
+    var intensity: CGFloat = 1
     var body: some View {
-        NativeBackdropBlur()
+        NativeBackdropBlur(intensity: intensity)
             .overlay(
                 LinearGradient(
                     colors: [Color.white.opacity(0.06), nightwellViolet.opacity(0.12), pumpkin.opacity(0.04)],
@@ -95,12 +120,12 @@ struct FrostedSurface: View {
 }
 
 extension View {
-    func frostedGlass(_ radius: CGFloat = 30) -> some View {
+    func frostedGlass(_ radius: CGFloat = 30, bordered: Bool = true, intensity: CGFloat = 1) -> some View {
         self
-            .background { FrostedSurface(radius: radius) }
+            .background { FrostedSurface(radius: radius, intensity: intensity) }
             .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).stroke(
                 LinearGradient(colors: [.white.opacity(0.36), pumpkin.opacity(0.28), .white.opacity(0.14)], startPoint: .topLeading, endPoint: .bottomTrailing),
-                lineWidth: 1
+                lineWidth: bordered ? 1 : 0
             ))
             .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
     }
@@ -111,13 +136,15 @@ struct NightwellPopup<Content: View>: View {
     var maxHeight: CGFloat = 600
     var dimsBackground = true
     var centered = false
+    var transparentSettings = false
     let close: () -> Void
     let content: Content
-    init(title: String, maxHeight: CGFloat = 560, dimsBackground: Bool = true, centered: Bool = false, close: @escaping () -> Void, @ViewBuilder content: () -> Content) {
+    init(title: String, maxHeight: CGFloat = 560, dimsBackground: Bool = true, centered: Bool = false, transparentSettings: Bool = false, close: @escaping () -> Void, @ViewBuilder content: () -> Content) {
         self.title = title
         self.maxHeight = maxHeight
         self.dimsBackground = dimsBackground
         self.centered = centered
+        self.transparentSettings = transparentSettings
         self.close = close
         self.content = content()
     }
@@ -129,10 +156,10 @@ struct NightwellPopup<Content: View>: View {
                 content
                     .frame(width: max(0, proxy.size.width - 40))
                     .frame(height: min(maxHeight, proxy.size.height * 0.88))
-                    .frostedGlass(32)
+                    .frostedGlass(32, bordered: !transparentSettings, intensity: transparentSettings ? 0.72 : 1)
                     .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 32, style: .continuous)
-                        .stroke(.white.opacity(0.16), lineWidth: 1))
+                        .stroke(.white.opacity(transparentSettings ? 0 : 0.16), lineWidth: 1))
                     .shadow(color: nightwellViolet.opacity(0.55), radius: 34, y: 14)
                     .padding(.bottom, centered ? 0 : 20)
             }
@@ -209,7 +236,7 @@ struct NativeRoot: View {
                         .environmentObject(store)
                 }
             } else if settings {
-                NightwellPopup(title: "", maxHeight: 554, centered: true, close: { settings = false }) {
+                NightwellPopup(title: "", maxHeight: 554, dimsBackground: false, centered: true, transparentSettings: true, close: { settings = false }) {
                     NativeSettings(close: { settings = false })
                 }
             } else if let playlist = selectedPlaylist {

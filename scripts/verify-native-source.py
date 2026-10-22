@@ -13,7 +13,7 @@ assert '.sheet(isPresented: $store.authPresented)' not in app
 assert 'struct NativeSettings: View' in views
 assert 'Button("Темы и ленты · Premium")' in views
 assert 'Label("Воспроизведение", systemImage:' in views
-assert '.frostedGlass(26)' in views
+assert '.white.opacity(0.035)' in views
 assert 'nightwellLiquidGlass(' in app
 assert 'NativeWaveSettingsView(close:' in app
 assert 'configureWave()' in views
