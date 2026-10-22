@@ -35,7 +35,7 @@ struct PremiumView: View {
         .padding(.horizontal, 16)
         .preferredColorScheme(.dark)
         .presentationBackground(.clear)
-        .presentationDetents([.height(500), .large], selection: $selectedDetent)
+        .presentationDetents([.height(430), .large], selection: $selectedDetent)
         .presentationDragIndicator(.hidden)
         .task { await refresh() }
         .onChange(of: scenePhase) { _, phase in
@@ -51,7 +51,7 @@ struct PremiumView: View {
         VStack(spacing: 0) {
             handle
             ScrollView(showsIndicators: false) {
-                VStack(spacing: 18) {
+                VStack(spacing: 12) {
                     ZStack {
                         Circle()
                             .fill(LinearGradient(colors: [Color(red: 0.34, green: 0.96, blue: 0.52), Color.green], startPoint: .topLeading, endPoint: .bottomTrailing))
@@ -63,7 +63,7 @@ struct PremiumView: View {
                     }
                     .padding(.top, 10)
 
-                    VStack(spacing: 10) {
+                    VStack(spacing: 6) {
                         Text("Подписка активна")
                             .font(.system(size: 28, weight: .bold))
                             .multilineTextAlignment(.center)
@@ -117,7 +117,7 @@ struct PremiumView: View {
 
     private var inactiveSheet: some View {
         ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 12) {
                 handle.frame(maxWidth: .infinity)
                 Text("Nightwell Premium").font(.title2.bold())
                 Text("150 ₽ за 30 дней. Без автопродления.").font(.headline)
@@ -160,7 +160,7 @@ struct PremiumView: View {
                     .foregroundStyle(.blue)
                     .disabled(checking)
             }
-            .padding(24)
+            .padding(16)
         }
         .background(Color.clear)
     }
