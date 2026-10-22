@@ -116,16 +116,14 @@ struct PremiumView: View {
             VStack(alignment: .leading, spacing: 12) {
                 handle.frame(maxWidth: .infinity)
                 Text("Nightwell Premium").font(.title2.bold())
-                Text("150 ₽ за 30 дней. Без автопродления.").font(.headline)
+                Text("Стоимость и период подписки указаны на странице Lava.top.").font(.headline)
                 Text("Музыку можно слушать бесплатно. Premium открывает скачивания, эквалайзер с пресетами, оформление, умные плейлисты и статистику.")
                 Text(message).accessibilityIdentifier("premium-status")
-                DisclosureGroup("Условия Premium и реквизиты") {
+                DisclosureGroup("Условия Premium") {
                     Text(PremiumTerms.text).textSelection(.enabled).padding(.top, 10)
                 }
                 .padding(16)
                 .nightwellLiquidGlass(24)
-                Text("Колосов Михаил Владимирович\nИНН 780626105592\nnightwell.music@gmail.com")
-                    .foregroundStyle(.white.opacity(0.82))
                 Button {
                     consent.toggle()
                 } label: {
@@ -139,13 +137,12 @@ struct PremiumView: View {
                 }
                 .buttonStyle(.plain)
                 .nightwellLiquidGlass(24)
-                Text("Оплата откроется на сайте в браузере. Войдите там в тот же аккаунт, что и в приложении, и подтвердите актуальные условия.")
+                Text("Оплата откроется в Lava.top. Автоматическая привязка покупки к аккаунту Nightwell Music пока не настроена.")
                     .font(.footnote)
                     .foregroundStyle(.white.opacity(0.7))
-                Button("Перейти к оплате на сайте") {
-                    let origin = api.origin
-                    guard consent, externalPayments, origin.scheme == "https",
-                          let url = URL(string: "/premium.html", relativeTo: origin)?.absoluteURL else { return }
+                Button("Открыть Lava.top") {
+                    guard consent, externalPayments,
+                          let url = URL(string: "https://app.lava.top/products/27b2ae8a-0ff9-41ab-8b16-a076421f7dc8/01a9de34-12a7-442c-ab72-7527a4fc3285") else { return }
                     openURL(url) { opened in if !opened { message = "Не удалось открыть браузер. Повторите попытку." } }
                 }
                 .buttonStyle(.borderedProminent)
