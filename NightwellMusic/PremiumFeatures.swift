@@ -222,7 +222,7 @@ private struct PremiumGlassSection<Content: View>: View {
         self.title = title; self.content = content()
     }
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 10) {
             Text(title).font(.headline).foregroundStyle(pumpkin)
             content
         }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
