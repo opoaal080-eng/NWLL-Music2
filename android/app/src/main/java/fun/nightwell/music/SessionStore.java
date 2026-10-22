@@ -33,9 +33,9 @@ final class SessionStore {
             Cipher cipher=Cipher.getInstance("AES/GCM/NoPadding");
             cipher.init(Cipher.DECRYPT_MODE,key(),new GCMParameterSpec(128,Base64.decode(pieces[0],Base64.NO_WRAP)));
             JSONObject result=new JSONObject(new String(cipher.doFinal(Base64.decode(pieces[1],Base64.NO_WRAP)),java.nio.charset.StandardCharsets.UTF_8));
-            if(result.getLong("expires")<=System.currentTimeMillis()){clear();return null;}
+            if(result.getLong("expires")<=System.currentTimeMillis()){prefs.edit().remove("encrypted").commit();return null;}
             return result;
-        }catch(Exception ignored){clear();return null;}
+        }catch(Exception ignored){prefs.edit().remove("encrypted").commit();return null;}
     }
     static String token(String cookies){
         if(cookies!=null)for(String part:cookies.split(";")){
