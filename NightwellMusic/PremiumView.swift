@@ -27,12 +27,7 @@ struct PremiumView: View {
                 inactiveSheet
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
-        .background {
-            RoundedRectangle(cornerRadius: 32, style: .continuous)
-                .fill(LinearGradient(colors: [nightwellViolet, Color.black], startPoint: .topLeading, endPoint: .bottomTrailing))
-                .padding(-1)
-        }
+        .modifier(NightwellSheetSurface(gradient: LinearGradient(colors: [nightwellViolet, Color.black], startPoint: .topLeading, endPoint: .bottomTrailing)))
         .padding(.horizontal, 8)
         .padding(.bottom, 8)
         .ignoresSafeArea(.container, edges: .bottom)
