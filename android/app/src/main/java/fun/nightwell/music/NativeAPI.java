@@ -62,7 +62,7 @@ final class NativeAPI {
             if(!method.equals("GET")){byte[] bytes=(body==null?"{}":body.toString()).getBytes(StandardCharsets.UTF_8);c.setRequestProperty("X-CSRF-Token",csrf);c.setRequestProperty("Content-Type","application/json");c.setFixedLengthStreamingMode(bytes.length);c.setDoOutput(true);try(OutputStream out=c.getOutputStream()){out.write(bytes);}}
             JSONObject value=response(c);
             if(path.equals("api/login")||path.equals("api/register")){
-                java.util.Map<String,java.util.List<String>> headers=c.getHeaderFields();for(String key:headers.keySet())if(key!=null&&key.equalsIgnoreCase("Set-Cookie"))for(String entry:headers.get(key))if(SessionStore.token(entry)!=null)new SessionStore(context).save(origin,entry);
+                java.util.Map<String,java.util.List<String>> headers=c.getHeaderFields();for(String key:headers.keySet())if(key!=null&&key.equalsIgnoreCase("Set-Cookie"))for(String entry:headers.get(key))if(SessionStore.token(entry)!=null)new SessionStore(context).save(origin,entry); if(cookie(context,origin).isEmpty())throw new IOException("Сессия не сохранена. Проверь cookie nw_session и Android Keystore.");
             }
             return value;
         }finally{c.disconnect();}
@@ -80,7 +80,7 @@ final class NativeAPI {
     HttpURLConnection connection(String path) throws Exception {
         if(closed)throw new InterruptedIOException("Запрос отменён");
         URL url=new URL(new URL(origin),path);if(!ServerAddress.sameOrigin(origin,url.toString()))throw new IOException("Некорректный адрес");
-        HttpURLConnection c=(HttpURLConnection)url.openConnection();c.setInstanceFollowRedirects(false);c.setConnectTimeout(15000);c.setReadTimeout(25000);c.setRequestProperty("Cookie",cookie(context,origin));return c;
+        HttpURLConnection c=(HttpURLConnection)url.openConnection();c.setInstanceFollowRedirects(false);c.setConnectTimeout(10000);c.setReadTimeout(15000);c.setRequestProperty("Cookie",cookie(context,origin));return c;
     }
     byte[] export(String id)throws Exception{HttpURLConnection c=connection("api/offline-export/"+id);c.setReadTimeout(180000);try{if(c.getResponseCode()!=200)throw new IOException("Не удалось скачать трек");return read(c.getInputStream(),OfflineStore.LIMIT);}finally{c.disconnect();}}
     static byte[] read(InputStream input,int limit)throws Exception{if(input==null)throw new IOException("Пустой ответ сервера");try(InputStream in=input;ByteArrayOutputStream out=new ByteArrayOutputStream()){byte[] b=new byte[16384];int count;while((count=in.read(b))!=-1){if(out.size()+count>limit)throw new IOException("Слишком большой файл");out.write(b,0,count);}return out.toByteArray();}}
