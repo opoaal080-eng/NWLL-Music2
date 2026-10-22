@@ -41,7 +41,9 @@ final class SessionStore {
         if(cookies!=null)for(String part:cookies.split(";")){
             String value=part.trim();if(value.startsWith("nw_session=")){
                 String token=value.substring(11);
-                if(token.matches("[A-Za-z0-9_-]{20,512}"))return token;
+                // Session cookies may use URL-safe/base64 or signed dotted values.
+                // Reject whitespace and separators, but do not reject valid signed cookies.
+                if(token.matches("[A-Za-z0-9_~.\\\\+\\\\/=-]{8,2048}"))return token;
             }
         }
         return null;
