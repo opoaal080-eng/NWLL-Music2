@@ -133,7 +133,7 @@ struct PremiumPreferences: Codable {
         }.background(LinearGradient(colors: [Color(red: 0.18, green: 0.07, blue: 0.30), .black], startPoint: .topLeading, endPoint: .bottomTrailing))
          .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
          .padding(.horizontal, 8)
-         .preferredColorScheme(.dark).presentationBackground(.clear).presentationDetents([.fraction(0.72), .large]).presentationDragIndicator(.hidden)
+         .preferredColorScheme(.dark).presentationBackground(.clear).presentationDetents([.fraction(0.77), .large]).presentationDragIndicator(.hidden)
     }
     private var sound: some View {
         Group {

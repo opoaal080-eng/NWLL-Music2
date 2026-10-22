@@ -55,7 +55,7 @@ jobs:
 
       - name: Build simulator and capture reference screens
         run: |
-          xcodebuild -project NightwellMusic.xcodeproj -scheme NightwellMusic -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build-simulator CODE_SIGNING_ALLOWED=NO build > simulator-build.log 2>&1 || { tail -100 simulator-build.log; exit 1; }
+          xcodebuild -project NightwellMusic.xcodeproj -scheme NightwellMusic -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build-simulator ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CURRENT_PROJECT_VERSION=$((400 + GITHUB_RUN_NUMBER)) CODE_SIGNING_ALLOWED=NO build > simulator-build.log 2>&1 || { tail -100 simulator-build.log; exit 1; }
           APP=build-simulator/Build/Products/Debug-iphonesimulator/NightwellMusic.app
           python3 ios/apply_legacy_assets.py "$APP"
           DEVICE=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for group in d["devices"].values() for x in group if x["name"] == "iPhone 16"))')
@@ -66,7 +66,7 @@ jobs:
           mkdir -p output/screenshots
           for SCREEN in home settings wave-settings support premium statistics; do
             xcrun simctl terminate "$DEVICE" fun.nightwell.music || true
-            xcrun simctl launch "$DEVICE" fun.nightwell.music --native-smoke "--native-smoke-$SCREEN"
+            xcrun simctl launch "$DEVICE" fun.nightwell.music --native-smoke "--native-smoke-$SCREEN" -AppleLanguages '(ru)' -AppleLocale ru_RU
             sleep 4
             xcrun simctl io "$DEVICE" screenshot "output/screenshots/$SCREEN.png"
           done

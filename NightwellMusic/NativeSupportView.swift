@@ -66,7 +66,7 @@ struct NativeSupportView: View {
         "/api/support/" + (adminMode ? "admin/" : "") + "tickets/" + id
     }
     var body: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: 8) {
             HStack {
                 Spacer()
                 Text("Обращения").font(.system(size: 18, weight: .semibold))
@@ -78,7 +78,7 @@ struct NativeSupportView: View {
                 }.accessibilityLabel("Закрыть обращения")
             }.frame(height: 52).padding(.horizontal, 16).padding(.top, 8)
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 14) {
                     if isAdmin {
                         Picker("Режим", selection: $adminMode) {
                             Text("Мои").tag(false)
@@ -122,10 +122,14 @@ struct NativeSupportView: View {
                                 Text("Предложение").tag("suggestion")
                                 Text("Аккаунт").tag("account")
                                 Text("Другое").tag("other")
-                            }.tint(pumpkin).padding(10).frostedGlass()
+                            }.tint(.white).padding(10).frostedGlass()
                             TextField("Описание", text: $message, axis: .vertical)
                                 .lineLimit(3...7).padding(16).frame(minHeight: 94, alignment: .top).nightwellLiquidGlass(24)
-                            Button("Создать обращение") { Task { await create() } }.buttonStyle(.borderedProminent).tint(pumpkin)
+                            Button { Task { await create() } } label: {
+                                Text("Создать обращение").padding(.horizontal, 14).frame(height: 35)
+                                    .foregroundStyle(subject.count < 4 || message.count < 5 ? .white.opacity(0.22) : pumpkin)
+                                    .background(.black.opacity(0.78), in: Capsule())
+                            }.buttonStyle(.plain)
                                 .disabled(subject.count < 4 || message.count < 5 || busy)
                         }
                         Text(adminMode ? "Все обращения" : "Мои обращения").font(.system(size: 21, weight: .bold)).foregroundStyle(.white)
@@ -136,7 +140,7 @@ struct NativeSupportView: View {
                             }.buttonStyle(.plain)
                         }
                     }
-                }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
+                }.padding(.horizontal, 20).padding(.vertical, 12).frame(maxWidth: .infinity, alignment: .leading)
             }.background(Color.clear)
         }
         .sheet(item: $previewItem) { item in
@@ -216,7 +220,6 @@ struct NativeSupportView: View {
             }
         }
         .background(Color.clear)
-        .nightwellLiquidGlass(32)
         .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
         .task { await refresh() }
     }

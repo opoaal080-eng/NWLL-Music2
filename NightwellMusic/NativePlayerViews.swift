@@ -210,7 +210,7 @@ struct MiniPlayer: View {
             HStack(spacing: compact ? 8 : 12) {
                 Button(action: open) {
                     HStack(spacing: 7) {
-                        Cover(track: clock.current, origin: store.origin).frame(width: compact ? 44 : 48, height: compact ? 44 : 48).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        Cover(track: clock.current, origin: store.origin).frame(width: compact ? 42 : 42, height: compact ? 42 : 42).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                         VStack(alignment: .leading, spacing: 4) {
                             Text(clock.current?.title ?? "Выбери трек").font(.system(size: compact ? 12 : 14, weight: .semibold)).lineLimit(1)
                             Text(clock.current?.artist ?? "Nightwell Music").font(.system(size: compact ? 10 : 12)).foregroundStyle(.white.opacity(0.65)).lineLimit(1)
@@ -230,10 +230,10 @@ struct MiniPlayer: View {
                 })
                 HStack(spacing: compact ? 2 : 5) {
                     if let track = clock.current {
-                        Button { Task { await store.like(track) } } label: { Image(systemName: store.likes.contains(track.id) ? "heart.fill" : "heart").font(.system(size: 16)).foregroundStyle(pumpkin).frame(width: compact ? 26 : 29, height: 44) }.accessibilityLabel("Избранное")
+                        Button { Task { await store.like(track) } } label: { Image(systemName: store.likes.contains(track.id) ? "heart.fill" : "heart").font(.system(size: 19)).foregroundStyle(pumpkin).frame(width: compact ? 26 : 29, height: 44) }.accessibilityLabel("Избранное")
                     }
                     Button { changeTrack(-1) } label: { Image(systemName: "backward.end").font(.system(size: 15)).frame(width: compact ? 24 : 28, height: 44) }.accessibilityLabel("Предыдущий трек")
-                    Button { clock.toggle() } label: { Image(systemName: clock.playing ? "pause" : "play.fill").font(.system(size: 17, weight: .light)).frame(width: compact ? 44 : 48, height: compact ? 44 : 48).background(Circle().fill(Color.black.opacity(0.16))).overlay(Circle().stroke(pumpkin.opacity(0.95), lineWidth: 1.5)) }.accessibilityLabel(clock.playing ? "Пауза" : "Воспроизвести")
+                    Button { clock.toggle() } label: { Image(systemName: clock.playing ? "pause" : "play.fill").font(.system(size: 17, weight: .light)).frame(width: compact ? 42 : 42, height: compact ? 42 : 42).background(Circle().fill(Color.black.opacity(0.16))).overlay(Circle().stroke(pumpkin.opacity(0.95), lineWidth: 1.5)) }.accessibilityLabel(clock.playing ? "Пауза" : "Воспроизвести")
                     Button { changeTrack(1) } label: { Image(systemName: "forward.end").font(.system(size: 15)).frame(width: compact ? 24 : 28, height: 44) }.accessibilityLabel("Следующий трек")
                 }.buttonStyle(.plain)
             }.foregroundStyle(.white) .padding(.horizontal, 14).frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -646,7 +646,7 @@ struct NativeSettings: View {
     let close: () -> Void
     @EnvironmentObject var store: MusicStore
     @Environment(\.dismiss) private var dismiss
-    @AppStorage("nw-transition-seconds") private var transition = 0.8
+    @AppStorage("nw-transition-seconds") private var transition = 1.5
     @AppStorage("nw-ambient-lyrics") private var ambientLyrics = true
     private var buildCaption: String {
         let info = Bundle.main.infoDictionary ?? [:]
@@ -667,7 +667,7 @@ struct NativeSettings: View {
             }.padding(.top, 12)
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 18) {
-                    VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 8) {
                         Button("Темы и ленты · Premium") { feature = .appearance }
                             .sheet(item: $feature) { PremiumFeatureView(kind: $0).environmentObject(store) }
                         Label("Оформление", systemImage: "paintbrush").font(.system(size: 18, weight: .semibold)).foregroundStyle(pumpkin)
@@ -676,15 +676,15 @@ struct NativeSettings: View {
                                 if enabled { store.lyrics.select(store.clock.current, api: store.api, origin: store.origin, online: store.account != nil) }
                             }
                         Text("Строки с таймкодами появляются во время песни.").font(.system(size: 13)).foregroundStyle(.white.opacity(0.43))
-                    }.padding(16).frame(maxWidth: .infinity, minHeight: 160, alignment: .leading).nightwellLiquidGlass(26)
-                    VStack(alignment: .leading, spacing: 14) {
+                    }.padding(16).frame(maxWidth: .infinity, minHeight: 160, alignment: .leading).frostedGlass(26)
+                    VStack(alignment: .leading, spacing: 12) {
                         Label("Воспроизведение", systemImage: "waveform").font(.system(size: 18, weight: .semibold)).foregroundStyle(pumpkin)
                         HStack { Text("Переход между треками"); Spacer(minLength: 4); Text(transition == 0 ? "Выкл." : String(format: "%.1f с", transition)).foregroundStyle(pumpkin) }
                         GlassSlider(value: $transition, range: 0...5, step: 0.1, accessibilityStep: 0.1, label: "Переход между треками", valueText: String(format: "%.1f с", transition))
-                            .padding(.vertical, 8)
+                            .padding(.vertical, 2)
                             .onChange(of: transition) { NativePlayer.shared.transitionDuration($0) }
                         Text("Плавное затухание и нарастание громкости.").font(.system(size: 12)).foregroundStyle(.white.opacity(0.43))
-                    }.padding(16).frame(maxWidth: .infinity, minHeight: 166, alignment: .leading).nightwellLiquidGlass(26)
+                    }.padding(16).frame(maxWidth: .infinity, minHeight: 166, alignment: .leading).frostedGlass(26)
                     Text(buildCaption).font(.system(size: 11)).foregroundStyle(.white.opacity(0.4)).frame(maxWidth: .infinity)
                 }.padding(.vertical, 2)
             }

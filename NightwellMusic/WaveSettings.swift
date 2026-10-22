@@ -83,11 +83,11 @@ struct NativeWaveSettingsView: View {
                                         }
                                         .frame(maxWidth: .infinity, minHeight: 40)
                                         .foregroundStyle(selected ? pumpkin : .white.opacity(0.92))
-                                        .background(selected ? pumpkin.opacity(0.08) : Color.clear)
+                                        .background(Color(red: 0.07, green: 0.04, blue: 0.11).opacity(0.65), in: Capsule())
                                         .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(selected ? pumpkin.opacity(0.9) : Color.white.opacity(0.20), lineWidth: 1.2))
                                     }
                                     .buttonStyle(.plain)
-                                    .nightwellLiquidGlass(22)
+
                                     .accessibilityAddTraits(selected ? .isSelected : [])
                                 }
                             }

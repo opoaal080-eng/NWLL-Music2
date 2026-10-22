@@ -121,7 +121,7 @@ struct NightwellPopup<Content: View>: View {
                 content
                     .frame(width: max(0, proxy.size.width - 40))
                     .frame(height: min(maxHeight, proxy.size.height * 0.88))
-                    .nightwellLiquidGlass(32)
+                    .frostedGlass(32)
                     .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 32, style: .continuous)
                         .stroke(.white.opacity(0.16), lineWidth: 1))
@@ -274,7 +274,7 @@ struct NativeRoot: View {
                 HStack(spacing: 9) {
                     Image("BrandLogo").resizable().scaledToFit().frame(width: 42, height: 42)
                     VStack(alignment: .leading, spacing: 1) {
-                        Text("Nightwell").font(.system(size: 23, weight: .bold))
+                        Text("Nightwell").font(.system(size: 25, weight: .bold))
                         Text("M U S I C").font(.caption).foregroundStyle(.secondary)
                     }
                 }.contentShape(Rectangle())
