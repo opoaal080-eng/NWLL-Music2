@@ -9,7 +9,8 @@ final class RibbonView extends View {
  private final Path path=new Path();
  private boolean running,playing;
  private long flashAt,lastFrame;
- private double phase,energy;
+ private double phase,colorPhase,energy;
+ double colorSpeed=1;
  private boolean auraVoice=true,auraLow=true,auraMid=true,auraHigh=true;
  void setAuraResponse(boolean voice,boolean low,boolean mid,boolean high){auraVoice=voice;auraLow=low;auraMid=mid;auraHigh=high;invalidate();}
  double premiumSpeed=1,premiumIntensity=1;String premiumTheme="nightwell";
@@ -44,6 +45,7 @@ final class RibbonView extends View {
   long now=android.os.SystemClock.uptimeMillis();
   double delta=lastFrame==0?1.0/30:Math.min(.1,(now-lastFrame)/1000.0);lastFrame=now;
   phase+=delta*.8*premiumSpeed;
+  colorPhase+=delta*.9*colorSpeed;
   float density=getResources().getDisplayMetrics().density;
   float burst=Math.max(0,1-(now-flashAt)/700f);
   paint.setStyle(Paint.Style.STROKE);paint.setStrokeCap(Paint.Cap.ROUND);
@@ -51,7 +53,7 @@ final class RibbonView extends View {
   for(int side=0;side<3;side++){
    double dx=side==0?-w*.72:side==1?w*.72:0,dy=side==2?-h*.78:-h*.36;
    double length=Math.hypot(dx,dy);
-   double hue=phase*.9+side*.8+(premiumTheme.equals("aurora")?1:premiumTheme.equals("ocean")?2:premiumTheme.equals("sunset")?3:0);
+   double hue=colorPhase+side*.8+(premiumTheme.equals("aurora")?1:premiumTheme.equals("ocean")?2:premiumTheme.equals("sunset")?3:0);
    paint.setShader(new LinearGradient((float)cx,(float)cy,(float)(cx+dx),(float)(cy+dy),
     new int[]{Color.TRANSPARENT,Color.TRANSPARENT,auraColor(hue),auraColor(hue+.6),auraColor(hue+1.2)},new float[]{0,.08f,.3f,.68f,1},Shader.TileMode.CLAMP));
    for(int band=17;band>=0;band--){
