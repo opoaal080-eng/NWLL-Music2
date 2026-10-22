@@ -3,6 +3,11 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+    paths:
+      - 'windows/**'
+      - 'scripts/validate-app-sources.py'
+      - 'scripts/build-provenance.py'
+      - '.github/workflows/build-windows.yml'
 permissions:
   contents: read
 jobs:
