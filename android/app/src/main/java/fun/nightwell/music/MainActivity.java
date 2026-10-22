@@ -522,7 +522,32 @@ public final class MainActivity extends Activity {
         if(!lyricsPollID.equals(id)){lyricsPollID=id;lyricsRound=0;}
         if(lyricsPending(value)&&lyricsRound++<20){int round=lyricsRound;ui.postDelayed(()->{if(!currentID.equals(id)||round!=lyricsRound)return;task(()->cachedLyrics(id),next->acceptLyrics(id,next));},Math.max(2000,Math.min(60000,value.optLong("retry_after",3)*1000)));}
     }
-    void syncHomeLyrics(double position){if(homeLyric==null)return;String line="";if(getSharedPreferences("appearance",MODE_PRIVATE).getBoolean("ambient-lyrics",true)&&playback!=null&&playback.player.isPlaying()&&activeLyrics!=null&&activeLyrics.optBoolean("synced")){JSONArray lines=activeLyrics.optJSONArray("lines");if(lines!=null)for(int i=0;i<lines.length();i++)if(lines.optJSONObject(i).optDouble("time")<=position)line=lines.optJSONObject(i).optString("text");}if(!line.equals(homeLine)){homeLine=line;homeLyric.setText(line);homeLyric.setAlpha(0);homeLyric.setTranslationY(dp(8));homeLyric.animate().alpha(1).translationY(0).setDuration(300);}}
+    void syncHomeLyrics(double position){
+        if(homeLyric==null)return;
+        String line="";double start=-1;
+        if(getSharedPreferences("appearance",MODE_PRIVATE).getBoolean("ambient-lyrics",true)
+            &&playback!=null&&playback.player.isPlaying()&&activeLyrics!=null&&activeLyrics.optBoolean("synced")){
+            JSONArray lines=activeLyrics.optJSONArray("lines");
+            if(lines!=null)for(int i=0;i<lines.length();i++){
+                JSONObject entry=lines.optJSONObject(i);
+                if(entry!=null&&entry.optDouble("time")<=position){
+                    line=entry.optString("text");start=entry.optDouble("time");
+                }else break;
+            }
+        }
+        // Leave each line visible briefly, then fade it out until the next timed line.
+        if(start>=0&&position-start>4.5)line="";
+        if(!line.equals(homeLine)){
+            homeLine=line;
+            homeLyric.animate().cancel();
+            if(line.isEmpty()){
+                homeLyric.animate().alpha(0).translationY(-dp(6)).setDuration(550).start();
+            }else{
+                homeLyric.setText(line);homeLyric.setAlpha(0);homeLyric.setTranslationY(dp(8));
+                homeLyric.animate().alpha(1).translationY(0).setDuration(350).start();
+            }
+        }
+    }
     void showLyrics(JSONObject track){String id=track.optString("id");status.setText("Ищем текст…");task(()->cachedLyrics(id),v->{
         if(!currentID.equals(id))return;acceptLyrics(id,v);lyricLines=v.optBoolean("synced")?v.optJSONArray("lines"):null;lyricsTrack=id;activeLyric=-2;
         lyricsScroll=new android.widget.ScrollView(this);lyricsText=text("",26);lyricsText.setGravity(Gravity.CENTER);lyricsText.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);lyricsText.setPadding(dp(22),dp(28),dp(22),dp(28));lyricsText.setLineSpacing(dp(16),1);lyricsScroll.addView(lyricsText);
