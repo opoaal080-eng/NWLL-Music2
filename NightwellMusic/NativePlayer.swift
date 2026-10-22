@@ -684,7 +684,7 @@ final class NativePlayer {
         commands.pauseCommand.isEnabled = current != nil
         commands.togglePlayPauseCommand.isEnabled = current != nil
         commands.changePlaybackPositionCommand.isEnabled = current != nil
-        if let current {
+        if let current, !appIsActive {
             let state = snapshot(includeQueue: false)
             var info: [String: Any] = [MPMediaItemPropertyTitle: current.title,
                 MPMediaItemPropertyArtist: current.artist, MPMediaItemPropertyAlbumTitle: current.album,
