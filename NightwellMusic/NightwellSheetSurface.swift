@@ -8,12 +8,13 @@ struct NightwellSheetSurface: ViewModifier {
         #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             content
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .clipShape(ConcentricRectangle(corners: .concentric, isUniform: true))
                 .background {
                     ConcentricRectangle(corners: .concentric, isUniform: true)
                         .fill(gradient)
-                        .padding(-1)
                 }
+                .presentationBackground(gradient)
         } else {
             legacySurface(content)
         }
@@ -30,5 +31,8 @@ struct NightwellSheetSurface: ViewModifier {
                     .fill(gradient)
                     .padding(-1)
             }
+            .padding(.horizontal, 8)
+            .padding(.bottom, 8)
+            .presentationBackground(.clear)
     }
 }

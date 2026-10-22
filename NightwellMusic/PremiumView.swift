@@ -28,11 +28,9 @@ struct PremiumView: View {
             }
         }
         .modifier(NightwellSheetSurface(gradient: LinearGradient(colors: [nightwellViolet, Color.black], startPoint: .topLeading, endPoint: .bottomTrailing)))
-        .padding(.horizontal, 8)
-        .padding(.bottom, 8)
         .ignoresSafeArea(.container, edges: .bottom)
         .preferredColorScheme(.dark)
-        .presentationBackground(.clear)
+        
         .presentationDetents([.height(362), .large], selection: $selectedDetent)
         .presentationDragIndicator(.hidden)
         .task { await refresh() }

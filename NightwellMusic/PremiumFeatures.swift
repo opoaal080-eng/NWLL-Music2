@@ -131,10 +131,8 @@ struct PremiumPreferences: Codable {
                 }
                 .task { while !Task.isCancelled { soundReady = NativePlayer.shared.premiumSoundAvailable; soundStatus = NativePlayer.shared.premiumSoundStatus; do { try await Task.sleep(nanoseconds: 1_000_000_000) } catch { return } } }
         }.modifier(NightwellSheetSurface(gradient: LinearGradient(colors: [Color(red: 0.18, green: 0.07, blue: 0.30), .black], startPoint: .topLeading, endPoint: .bottomTrailing)))
-         .padding(.horizontal, 8)
-        .padding(.bottom, 8)
         .ignoresSafeArea(.container, edges: .bottom)
-         .preferredColorScheme(.dark).presentationBackground(.clear).presentationDetents([.fraction(0.77), .large]).presentationDragIndicator(.hidden)
+         .preferredColorScheme(.dark).presentationDetents([.fraction(0.77), .large]).presentationDragIndicator(.hidden)
     }
     private var sound: some View {
         Group {
