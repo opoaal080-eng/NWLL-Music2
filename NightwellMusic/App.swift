@@ -70,22 +70,30 @@ extension View {
     }
 }
 // Shared with the mini-player: only the background is translucent.
+struct NativeBackdropBlur: UIViewRepresentable {
+    func makeUIView(context: Context) -> UIVisualEffectView {
+        let view = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterialDark))
+        view.isUserInteractionEnabled = false
+        return view
+    }
+    func updateUIView(_ view: UIVisualEffectView, context: Context) {}
+}
+
 struct FrostedSurface: View {
     var radius: CGFloat = 30
     var body: some View {
-        RoundedRectangle(cornerRadius: radius, style: .continuous)
-            .fill(.ultraThinMaterial)
+        NativeBackdropBlur()
             .overlay(
                 LinearGradient(
-                    colors: [Color.white.opacity(0.12), pumpkin.opacity(0.10), Color.clear],
+                    colors: [Color.white.opacity(0.06), nightwellViolet.opacity(0.12), pumpkin.opacity(0.04)],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
-                .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
             )
-            .opacity(0.72)
+            .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
     }
 }
+
 extension View {
     func frostedGlass(_ radius: CGFloat = 30) -> some View {
         self
