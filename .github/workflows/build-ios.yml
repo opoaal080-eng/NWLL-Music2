@@ -64,7 +64,9 @@ jobs:
           xcodebuild -project NightwellMusic.xcodeproj -scheme NightwellMusic -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build-simulator ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CURRENT_PROJECT_VERSION=$((400 + GITHUB_RUN_NUMBER)) CODE_SIGNING_ALLOWED=NO build > simulator-build.log 2>&1 || { tail -100 simulator-build.log; exit 1; }
           APP=build-simulator/Build/Products/Debug-iphonesimulator/NightwellMusic.app
           python3 ios/apply_legacy_assets.py "$APP"
-          DEVICE=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for group in d["devices"].values() for x in group if x["name"] == "iPhone 16"))')
+          RUNTIME=$(xcrun simctl list runtimes -j | python3 -c 'import json,sys; r=[x for x in json.load(sys.stdin)["runtimes"] if x.get("isAvailable") and ".iOS-" in x["identifier"]]; print(max(r,key=lambda x:tuple(map(int,x["version"].split("."))))["identifier"])')
+          echo "Reference runtime: $RUNTIME"
+          DEVICE=$(xcrun simctl create "Nightwell iPhone 16 Reference" com.apple.CoreSimulator.SimDeviceType.iPhone-16 "$RUNTIME")
           xcrun simctl boot "$DEVICE"
           xcrun simctl bootstatus "$DEVICE" -b
           xcrun simctl status_bar "$DEVICE" override --time '05:03' --dataNetwork wifi --wifiMode active --wifiBars 3 --batteryState charged --batteryLevel 70
