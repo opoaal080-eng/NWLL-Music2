@@ -94,8 +94,8 @@ struct PremiumPreferences: Codable {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 10) {
-                Text(premium.note).font(.footnote).foregroundStyle(.secondary).padding(12).frame(maxWidth: .infinity, alignment: .leading).nightwellLiquidGlass(24)
+                VStack(alignment: .leading, spacing: 7) {
+                Text(premium.note).font(.footnote).foregroundStyle(.secondary).padding(8).frame(maxWidth: .infinity, alignment: .leading).nightwellLiquidGlass(24)
                 Group {
                     switch kind {
                     case .sound: sound
@@ -104,7 +104,7 @@ struct PremiumPreferences: Codable {
                     case .statistics: stats
                     }
                 }.disabled(!premium.allowed || busy)
-                }.padding(12)
+                }.padding(8)
             }.background(LinearGradient(colors: [Color(red: 0.18, green: 0.07, blue: 0.30), Color.black], startPoint: .topLeading, endPoint: .bottomTrailing))
             .navigationTitle(kind.rawValue)
                 .toolbar {
@@ -115,7 +115,7 @@ struct PremiumPreferences: Codable {
                 .task(id: store.account?.id) { rules = []; statistics = nil; await premium.refresh(store); if premium.allowed { await load() } }
                 .task { while !Task.isCancelled { soundReady = NativePlayer.shared.premiumSoundAvailable; soundStatus = NativePlayer.shared.premiumSoundStatus; do { try await Task.sleep(nanoseconds: 1_000_000_000) } catch { return } } }
         }.clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
-         .padding(.horizontal, 14)
+         .padding(.horizontal, 8)
          .preferredColorScheme(.dark).presentationBackground(.clear).presentationDetents([.fraction(0.86), .large]).presentationDragIndicator(.visible)
     }
     private var sound: some View {
