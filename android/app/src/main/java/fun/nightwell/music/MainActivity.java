@@ -616,8 +616,51 @@ public final class MainActivity extends Activity {
         });};
         refresh.setOnClickListener(v->check.run());premiumRefresh=check;dialog.setOnDismissListener(d->{if(premiumRefresh==check)premiumRefresh=null;});dialog.show();check.run();
     }
-    void auth(){LinearLayout form=column();form.setPadding(dp(20),dp(4),dp(20),dp(8));TextView caption=text("Войди в аккаунт Nightwell Music или создай новый.",14);caption.setTextColor(0xff9fa6b8);caption.setPadding(0,0,0,dp(10));form.addView(caption);EditText email=new EditText(this),password=new EditText(this);email.setHint("Email");email.setInputType(33);password.setHint("Пароль");password.setInputType(129);styleField(email);styleField(password);LinearLayout.LayoutParams field=new LinearLayout.LayoutParams(-1,-2);field.bottomMargin=dp(10);form.addView(email,field);form.addView(password);AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Вход").setView(form).setPositiveButton("Войти",(d,n)->login(email.getText().toString(),password.getText().toString(),false)).setNeutralButton("Регистрация",(d,n)->login(email.getText().toString(),password.getText().toString(),true)).setNegativeButton("Отмена",null).create();styleSheet(dialog);dialog.show();}
-    void login(String email,String password,boolean register){task(()->api.request(register?"api/register":"api/login","POST",new JSONObject().put("email",email).put("password",password)),v->{api.updateCSRF(v.optString("csrf"));load();});}
+    void auth(){
+        LinearLayout form=column();form.setPadding(dp(20),dp(4),dp(20),dp(8));
+        TextView caption=text("Войди в аккаунт Nightwell Music или создай новый.",14);caption.setTextColor(0xff9fa6b8);caption.setPadding(0,0,0,dp(10));form.addView(caption);
+        EditText email=new EditText(this),password=new EditText(this);
+        email.setHint("Email");email.setInputType(33);password.setHint("Пароль");password.setInputType(129);
+        styleField(email);styleField(password);
+        LinearLayout.LayoutParams field=new LinearLayout.LayoutParams(-1,-2);field.bottomMargin=dp(10);
+        form.addView(email,field);form.addView(password);
+        TextView feedback=text("",13);feedback.setTextColor(0xffffb1b1);feedback.setPadding(0,dp(8),0,dp(4));feedback.setVisibility(View.GONE);form.addView(feedback);
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Вход").setView(form)
+            .setPositiveButton("Войти",null).setNeutralButton("Регистрация",null)
+            .setNegativeButton("Отмена",null).create();
+        styleSheet(dialog);dialog.show();
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->loginFromDialog(dialog,email,password,feedback,false));
+        dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v->loginFromDialog(dialog,email,password,feedback,true));
+    }
+    void loginFromDialog(AlertDialog dialog,EditText email,EditText password,TextView feedback,boolean register){
+        String address=email.getText().toString().trim(),secret=password.getText().toString();
+        if(address.isEmpty()||secret.isEmpty()){feedback.setText("Введи email и пароль.");feedback.setVisibility(View.VISIBLE);return;}
+        feedback.setText(register?"Регистрируем аккаунт…":"Выполняем вход…");feedback.setTextColor(0xffffcf9e);feedback.setVisibility(View.VISIBLE);
+        Button accept=dialog.getButton(AlertDialog.BUTTON_POSITIVE),signup=dialog.getButton(AlertDialog.BUTTON_NEUTRAL);
+        accept.setEnabled(false);signup.setEnabled(false);
+        io.execute(()->{
+            try{
+                JSONObject response=api.request(register?"api/register":"api/login","POST",
+                    new JSONObject().put("email",address).put("password",secret));
+                ui.post(()->{
+                    if(isDestroyed()||!dialog.isShowing())return;
+                    accept.setEnabled(true);signup.setEnabled(true);
+                    api.updateCSRF(response.optString("csrf"));
+                    feedback.setText("Вход выполнен. Загружаем аккаунт…");
+                    dialog.dismiss();
+                    load();
+                });
+            }catch(Exception error){
+                ui.post(()->{
+                    if(isDestroyed()||!dialog.isShowing())return;
+                    accept.setEnabled(true);signup.setEnabled(true);
+                    feedback.setTextColor(0xffffb1b1);
+                    feedback.setText("Не удалось войти: "+friendly(error));
+                    feedback.setVisibility(View.VISIBLE);
+                });
+            }
+        });
+    }
     android.view.GestureDetector gestures(boolean expanded){return new android.view.GestureDetector(this,new android.view.GestureDetector.SimpleOnGestureListener(){public boolean onDown(android.view.MotionEvent e){return true;}public boolean onSingleTapUp(android.view.MotionEvent e){if(expanded){JSONObject track=current();if(track!=null)showLyrics(track);}else openPlayer();return true;}public boolean onFling(android.view.MotionEvent start,android.view.MotionEvent end,float vx,float vy){if(start==null||end==null)return false;float dx=end.getX()-start.getX(),dy=end.getY()-start.getY();if(Math.abs(dx)>dp(65)&&Math.abs(dx)>Math.abs(dy)*1.25f){if(playback==null)return false;if(dx<0)nextTrack();else previous();return true;}if(expanded&&dy>dp(90)&&dy>Math.abs(dx)*1.35f){full=false;build();return true;}return false;}});}
     @Override public void onBackPressed(){if(backgroundOnly){backgroundOnly=false;build();}else if(full){full=false;build();}else if(!screen.equals("Главная"))navigate("Главная");else super.onBackPressed();}
     void importFiles(){Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("audio/*").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true);startActivityForResult(i,72);}
