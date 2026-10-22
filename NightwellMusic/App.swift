@@ -123,10 +123,14 @@ extension View {
     func frostedGlass(_ radius: CGFloat = 30, bordered: Bool = true, intensity: CGFloat = 1) -> some View {
         self
             .background { FrostedSurface(radius: radius, intensity: intensity) }
-            .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).stroke(
-                LinearGradient(colors: [.white.opacity(0.36), pumpkin.opacity(0.28), .white.opacity(0.14)], startPoint: .topLeading, endPoint: .bottomTrailing),
-                lineWidth: bordered ? 1 : 0
-            ))
+            .overlay {
+                if bordered {
+                    RoundedRectangle(cornerRadius: radius, style: .continuous).stroke(
+                        LinearGradient(colors: [.white.opacity(0.36), pumpkin.opacity(0.28), .white.opacity(0.14)], startPoint: .topLeading, endPoint: .bottomTrailing),
+                        lineWidth: 1
+                    )
+                }
+            }
             .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
     }
 }
@@ -156,11 +160,15 @@ struct NightwellPopup<Content: View>: View {
                 content
                     .frame(width: max(0, proxy.size.width - 40))
                     .frame(height: min(maxHeight, proxy.size.height * 0.88))
-                    .frostedGlass(32, bordered: !transparentSettings, intensity: transparentSettings ? 0.72 : 1)
+                    .frostedGlass(32, bordered: !transparentSettings, intensity: transparentSettings ? 0.28 : 1)
                     .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 32, style: .continuous)
-                        .stroke(.white.opacity(transparentSettings ? 0 : 0.16), lineWidth: 1))
-                    .shadow(color: nightwellViolet.opacity(0.55), radius: 34, y: 14)
+                    .overlay {
+                        if !transparentSettings {
+                            RoundedRectangle(cornerRadius: 32, style: .continuous)
+                                .stroke(.white.opacity(0.16), lineWidth: 1)
+                        }
+                    }
+                    .shadow(color: nightwellViolet.opacity(transparentSettings ? 0 : 0.55), radius: 34, y: 14)
                     .padding(.bottom, centered ? 0 : 20)
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
