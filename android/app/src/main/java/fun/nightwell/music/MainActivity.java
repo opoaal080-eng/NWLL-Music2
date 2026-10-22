@@ -614,13 +614,13 @@ public final class MainActivity extends Activity {
         card.addView(sectionLabel("Реакция ауры"));
         TextView explanation=text("Выбери, на какие составляющие музыки будет реагировать аура. Можно включить несколько сразу.",13);
         explanation.setTextColor(0xffa9aec0);explanation.setPadding(0,dp(4),0,dp(8));card.addView(explanation);
-        String[] titles={"Голос","Низкие частоты","Средние частоты","Высокие частоты"};
+        String[] auraLabels={"Голос","Низкие частоты","Средние частоты","Высокие частоты"};
         String[] names={"aura_voice","aura_low","aura_mid","aura_high"};
         android.content.SharedPreferences appearance=getSharedPreferences("aura-response",MODE_PRIVATE);
         for(int i=0;i<names.length;i++){
             final String name=names[i];
             android.widget.Switch toggle=new android.widget.Switch(this);
-            toggle.setText(titles[i]);styleSwitch(toggle);
+            toggle.setText(auraLabels[i]);styleSwitch(toggle);
             toggle.setChecked(appearance.getBoolean(user+"|"+name,true));
             toggle.setOnCheckedChangeListener((button,enabled)->{
                 appearance.edit().putBoolean(user+"|"+name,enabled).apply();
