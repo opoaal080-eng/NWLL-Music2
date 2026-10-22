@@ -1,4 +1,4 @@
-﻿import AVFoundation
+import AVFoundation
 import MediaToolbox
 
 /// One PCM tap for the visualizer and optional Premium sound processing.
@@ -50,14 +50,23 @@ final class LocalAudioMeter {
                 let meter = Unmanaged<LocalAudioMeter>.fromOpaque(MTAudioProcessingTapGetStorage(tap)).takeUnretainedValue()
                 meter.consume(buffers, frames: Int(produced.pointee))
             })
+        #if compiler(>=6.2)
+        var result: MTAudioProcessingTap?
+        #else
         var result: Unmanaged<MTAudioProcessingTap>?
+        #endif
         let status = MTAudioProcessingTapCreate(kCFAllocatorDefault, &callbacks,
             kMTAudioProcessingTapCreationFlag_PostEffects, &result)
-        guard status == noErr, let result = result?.takeRetainedValue() else {
+        #if compiler(>=6.2)
+        let tap = result
+        #else
+        let tap = result?.takeRetainedValue()
+        #endif
+        guard status == noErr, let tap else {
             Unmanaged<LocalAudioMeter>.fromOpaque(callbacks.clientInfo!).release(); return
         }
         let parameters = AVMutableAudioMixInputParameters(track: track)
-        parameters.audioTapProcessor = result
+        parameters.audioTapProcessor = tap
         let mix = AVMutableAudioMix(); mix.inputParameters = [parameters]
         item.audioMix = mix; attached = true
     }
