@@ -489,6 +489,7 @@ private struct NightwellNativeTransfer: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showingFile = false
     @State private var name = "Перенос музыки"
+    @FocusState private var nameFieldFocused: Bool
     @State private var contents = ""
     @State private var selectedFilename = ""
     @State private var mode = "balanced"
@@ -510,7 +511,7 @@ private struct NightwellNativeTransfer: View {
                 VStack(alignment: .leading, spacing: 18) {
                     Text("Перенести музыку").font(.largeTitle.bold())
                     Text("Поиск выполняется на сервере, файл читается на устройстве.").foregroundStyle(.secondary)
-                    TextField("Название плейлиста", text: $name).padding(14).nightwellLiquidGlass(18)
+                    TextField("Название плейлиста", text: $name).focused($nameFieldFocused).submitLabel(.done).onSubmit { nameFieldFocused = false }.padding(14).nightwellLiquidGlass(18)
                     Picker("Режим поиска", selection: $mode) {
                         Text("Точный").tag("safe")
                         Text("Умный").tag("balanced")
@@ -542,7 +543,7 @@ private struct NightwellNativeTransfer: View {
             .background(Color(red: 0.07, green: 0.04, blue: 0.12))
             .navigationTitle("Перенос")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Закрыть") { dismiss() } } }
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Закрыть") { dismiss() } }; ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("Скрыть клавиатуру") { nameFieldFocused = false } } }
             .sheet(isPresented: $showingFile) {
                 NightwellImportFilePicker { result in
                     switch result {
