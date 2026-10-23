@@ -20,6 +20,10 @@ jobs:
         run: python3 scripts/verify-native-source.py
       - name: Parse Swift sources
         run: swiftc -frontend -parse NightwellMusic/*.swift NativeTests/*.swift
+      - name: Test Premium payment confirmation
+        run: |
+          swiftc NightwellMusic/PremiumPaymentPolicy.swift scripts/test-premium-payment.swift -o /tmp/test-premium-payment
+          /tmp/test-premium-payment
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Select latest installed Xcode
@@ -85,3 +89,4 @@ jobs:
           path: |
             output/screenshots
             simulator-build.log
+

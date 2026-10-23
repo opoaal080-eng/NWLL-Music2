@@ -1,4 +1,5 @@
 import SwiftUI
+import SafariServices
 
 private struct PremiumStatus: Decodable {
     let premium: Bool
@@ -9,12 +10,12 @@ private struct PremiumStatus: Decodable {
 // External website checkout for direct IPA distribution, not an App Store build.
 struct PremiumView: View {
     let api: MusicAPI
-    @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
     @State private var message = "Проверяем подписку…"
     @State private var consent = false
     @State private var checking = false
     @State private var paying = false
+    @State private var payment: PremiumPaymentSession?
     @State private var activeExpiry: Double?
     @State private var showFeatures = false
     @State private var selectedDetent: PresentationDetent = .height(362)
@@ -35,6 +36,14 @@ struct PremiumView: View {
         .presentationDetents([.height(362), .large], selection: $selectedDetent)
         .presentationDragIndicator(.hidden)
         .task { await refresh() }
+        .sheet(item: $payment, onDismiss: { Task { await refresh() } }) { session in
+            PremiumPaymentBrowser(url: session.url) { payment = nil }
+                .ignoresSafeArea()
+                .presentationDetents([.large])
+        }
+        .task(id: payment?.id) {
+            if let session = payment { await watchPayment(session) }
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await refresh() } }
         }
@@ -138,7 +147,7 @@ struct PremiumView: View {
                 }
                 .buttonStyle(.plain)
                 .nightwellLiquidGlass(24)
-                Text("30 дней за 150 ₽. Оплата откроется в браузере, после подтверждения Lava Premium включится в этом аккаунте.")
+                Text("30 дней за 150 ₽. Оплата откроется в приложении. После подтверждения платежа окно закроется автоматически.")
                     .font(.footnote)
                     .foregroundStyle(.white.opacity(0.7))
                 Button(paying ? "Создаём счёт…" : "Оплатить") {
@@ -179,6 +188,7 @@ struct PremiumView: View {
             let identity: Identity = try await api.request("api/me")
             guard identity.user != nil else { throw APIError(message: "Войди в аккаунт перед оплатой.") }
             await api.setCSRF(identity.csrf)
+            let before: PremiumStatus = try await api.request("api/premium/me")
             struct Checkout: Decodable { let confirmation_url: String }
             let result: Checkout = try await api.request("api/premium/lava/checkout", method: "POST")
             guard let url = URL(string: result.confirmation_url), url.scheme == "https",
@@ -186,12 +196,60 @@ struct PremiumView: View {
                   url.user == nil, url.password == nil else {
                 throw APIError(message: "Сервер вернул неверную ссылку оплаты.")
             }
-            message = "Счёт создан. После оплаты вернись в приложение."
-            openURL(url) { opened in
-                if !opened { message = "Не удалось открыть браузер. Повтори попытку, откроется тот же счёт." }
-            }
+            guard let owner = identity.user?.id else { return }
+            message = "Ожидаем подтверждения оплаты."
+            payment = PremiumPaymentSession(url: url, accountID: owner,
+                                            previousExpiry: before.premium ? (before.expires_at ?? 0) : 0)
         } catch {
             message = error.localizedDescription
+        }
+    }
+
+    @MainActor private func watchPayment(_ session: PremiumPaymentSession) async {
+        // Only the authenticated Nightwell API can confirm payment. Browser URLs,
+        // page text and a manually closed sheet are never payment confirmation.
+        while !Task.isCancelled, payment?.id == session.id {
+            if scenePhase == .active {
+                do {
+                    let identity: Identity = try await api.request("api/me")
+                    guard !Task.isCancelled, payment?.id == session.id else { return }
+                    guard identity.user?.id == session.accountID else {
+                        payment = nil
+                        activeExpiry = nil
+                        message = "Аккаунт изменился. Открой Premium заново."
+                        return
+                    }
+                    await api.setCSRF(identity.csrf)
+                    struct Verified: Decodable { let expires_at: Double? }
+                    let _: Verified? = try? await api.request("api/premium/lava/verify", method: "POST")
+                    try Task.checkCancellation()
+                    let current: PremiumStatus = try await api.request("api/premium/me")
+                    guard !Task.isCancelled, payment?.id == session.id else { return }
+                    let after: Identity = try await api.request("api/me")
+                    guard !Task.isCancelled, payment?.id == session.id else { return }
+                    guard after.user?.id == session.accountID else {
+                        payment = nil
+                        activeExpiry = nil
+                        message = "Аккаунт изменился. Открой Premium заново."
+                        return
+                    }
+                    if PremiumPaymentPolicy.shouldClose(expectedAccount: session.accountID,
+                            currentAccount: after.user?.id, premium: current.premium,
+                            expiry: current.expires_at, previousExpiry: session.previousExpiry,
+                            now: Date().timeIntervalSince1970) {
+                        activeExpiry = current.expires_at
+                        message = "Оплата подтверждена. Premium активен."
+                        payment = nil
+                        return
+                    }
+                } catch is CancellationError {
+                    return
+                } catch {
+                    // A slow webhook or a network failure must leave checkout open.
+                }
+            }
+            do { try await Task.sleep(for: .seconds(4)) }
+            catch { return }
         }
     }
 
@@ -227,3 +285,35 @@ struct PremiumView: View {
     }
 }
 
+
+private struct PremiumPaymentSession: Identifiable {
+    let id = UUID()
+    let url: URL
+    let accountID: String
+    let previousExpiry: Double
+}
+
+private struct PremiumPaymentBrowser: UIViewControllerRepresentable {
+    let url: URL
+    let onClose: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(onClose: onClose) }
+
+    func makeUIViewController(context: Context) -> SFSafariViewController {
+        let configuration = SFSafariViewController.Configuration()
+        configuration.entersReaderIfAvailable = false
+        let controller = SFSafariViewController(url: url, configuration: configuration)
+        controller.delegate = context.coordinator
+        controller.dismissButtonStyle = .close
+        controller.preferredControlTintColor = .systemOrange
+        return controller
+    }
+
+    func updateUIViewController(_ controller: SFSafariViewController, context: Context) {}
+
+    final class Coordinator: NSObject, SFSafariViewControllerDelegate {
+        let onClose: () -> Void
+        init(onClose: @escaping () -> Void) { self.onClose = onClose }
+        func safariViewControllerDidFinish(_ controller: SFSafariViewController) { onClose() }
+    }
+}
