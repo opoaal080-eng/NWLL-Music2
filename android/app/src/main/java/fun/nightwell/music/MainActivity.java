@@ -218,6 +218,10 @@ public final class MainActivity extends Activity {
                 while((n=input.read(chunk))!=-1){if(buffer.size()+n>10*1024*1024)throw new java.io.IOException("Максимум 10 МБ");buffer.write(chunk,0,n);}
                 bytes=buffer.toByteArray();
             }
+            if(name==null||name.trim().isEmpty()){
+                String mime=getContentResolver().getType(uri);
+                name=(mime!=null&&mime.startsWith("image/"))?"photo."+android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(mime):"attachment";
+            }
             return api.uploadSupportAttachment(id,name,bytes);
         },uploadResult->supportDetail(id,adminMode));
     }
