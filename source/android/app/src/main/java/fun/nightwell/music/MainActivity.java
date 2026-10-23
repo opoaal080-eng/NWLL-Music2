@@ -181,7 +181,7 @@ public final class MainActivity extends Activity {
         else if(tab.equals("Обращения"))supportTickets(false);
         else if(tab.equals("Только фон")||tab.equals("Показать интерфейс"))toggleBackgroundOnly();
         else if(tab.equals("Войти"))auth();
-        else if(tab.equals("Выйти")){cancelMix();accountRequest.cancel();task(()->{api.request("api/logout","POST",null);new SessionStore(this).clear();return new JSONObject();},v->{user="";sessionReady=true;api.updateCSRF("");getSharedPreferences("native-api",MODE_PRIVATE).edit().putString("account","").apply();catalog=new JSONArray();shown=new JSONArray();likes.clear();if(playback!=null)playback.stop();navigate("Главная");});}
+        else if(tab.equals("Выйти")){cancelMix();accountRequest.cancel();task(()->{api.request("api/logout","POST",null);new SessionStore(this).clear();return new JSONObject();},v->{libraryGeneration++;user="";playlists=new JSONArray();selectedPlaylist="";sessionReady=true;api.updateCSRF("");getSharedPreferences("native-api",MODE_PRIVATE).edit().putString("account","").apply();catalog=new JSONArray();shown=new JSONArray();likes.clear();if(playback!=null)playback.stop();navigate("Главная");});}
         else navigate(tab);
     }
 
@@ -427,7 +427,12 @@ public final class MainActivity extends Activity {
                     if(isDestroyed()||!accountRequest.complete(ticket))return;
                     api.updateCSRF(me.optString("csrf",""));
                     JSONObject account=me.optJSONObject("user");
-                    user=account==null?"":account.optString("id");
+                    String nextAccount=account==null?"":account.optString("id");
+                    if(!nextAccount.equals(user)){
+                        libraryGeneration++;catalog=new JSONArray();shown=new JSONArray();playlists=new JSONArray();likes.clear();selectedPlaylist="";
+                        if(playback!=null)playback.stop();
+                    }
+                    user=nextAccount;
                     getSharedPreferences("native-api",MODE_PRIVATE).edit().putString("account",user).apply();
                     sessionReady=true;
                     if(playback!=null&&pendingDeepLinkTrack.isEmpty())playback.restorePlayback(origin,user);
