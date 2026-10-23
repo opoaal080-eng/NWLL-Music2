@@ -327,7 +327,7 @@ import Network
         let client = api, server = origin, generation = sessionGeneration
         await libraryRefresh.run { [weak self] in
             guard let self else { return }
-            func current() -> Bool {
+            @MainActor func current() -> Bool {
                 !Task.isCancelled && self.sessionGeneration == generation &&
                     self.account?.id == owner && self.origin == server
             }
