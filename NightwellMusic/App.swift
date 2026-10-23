@@ -497,6 +497,7 @@ private struct NightwellNativeTransfer: View {
     @State private var errorText = ""
     @State private var busy = false
     @State private var history: [ImportJob] = []
+    @State private var historyExpanded = false
     @State private var historyError = ""
     @State private var observingJobID: String?
     private let activeStates: Set<String> = ["reading", "matching", "saving"]
@@ -527,33 +528,8 @@ private struct NightwellNativeTransfer: View {
                         .fixedSize(horizontal: false, vertical: true)
                     Button { showingFile = true } label: { Label(selectedFilename.isEmpty ? "Выбрать JSON, CSV или TXT" : selectedFilename, systemImage: "doc.badge.plus").frame(maxWidth: .infinity).padding(16) }
                         .nightwellLiquidGlass(20)
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            Text("История переносов").font(.headline)
-                            Spacer()
-                            Button { Task { await refreshHistory() } } label: { Image(systemName: "arrow.clockwise") }
-                                .accessibilityLabel("Обновить переносы")
-                        }
-                        if !historyError.isEmpty { Text(historyError).font(.caption).foregroundStyle(.orange) }
-                        if history.isEmpty { Text("Переносов пока нет").font(.caption).foregroundStyle(.secondary) }
-                        ForEach(history, id: \.id) { entry in
-                            Button {
-                                job = entry
-                                if activeStates.contains(entry.state) { Task { await poll(entry.id) } }
-                            } label: {
-                                VStack(alignment: .leading, spacing: 5) {
-                                    HStack {
-                                        Text(entry.name ?? "Перенос музыки").font(.subheadline.weight(.semibold))
-                                        Spacer()
-                                        Text(statusName(entry.state)).font(.caption).foregroundStyle(.secondary)
-                                    }
-                                    ProgressView(value: Double(entry.progress), total: Double(max(1, entry.total)))
-                                    Text("Проверено \(entry.progress)/\(entry.total) · Найдено \(entry.matched)")
-                                        .font(.caption).foregroundStyle(.secondary)
-                                }.padding(12).nightwellLiquidGlass(18)
-                            }.buttonStyle(.plain)
-                        }
-                    }
+                    Button(busy ? "Обрабатываем…" : "Найти треки") { Task { await start() } }
+                        .buttonStyle(.borderedProminent).disabled(contents.isEmpty || busy)
                     if let job {
                         VStack(alignment: .leading, spacing: 12) {
                             Text(job.message ?? "Поиск").font(.headline)
@@ -579,9 +555,49 @@ private struct NightwellNativeTransfer: View {
                             }
                         }.padding(18).nightwellLiquidGlass(24)
                     }
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(spacing: 12) {
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.22)) { historyExpanded.toggle() }
+                            } label: {
+                                HStack {
+                                    Text("История переносов").font(.headline)
+                                    Spacer()
+                                    Text("\(history.filter { !activeStates.contains($0.state) }.count)")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                    Image(systemName: historyExpanded ? "chevron.up" : "chevron.down")
+                                        .foregroundStyle(.secondary)
+                                }
+                                .contentShape(Rectangle())
+                            }.buttonStyle(.plain)
+                            Button { Task { await refreshHistory() } } label: {
+                                Image(systemName: "arrow.clockwise")
+                            }.accessibilityLabel("Обновить переносы")
+                        }
+                        if historyExpanded {
+                            if !historyError.isEmpty {
+                                Text(historyError).font(.caption).foregroundStyle(.orange)
+                            }
+                            let previous = history.filter { !activeStates.contains($0.state) && $0.id != job?.id }
+                            if previous.isEmpty { Text("История пуста").font(.caption).foregroundStyle(.secondary) }
+                            ForEach(previous, id: \.id) { entry in
+                                Button { job = entry } label: {
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        HStack {
+                                            Text(entry.name ?? "Перенос музыки").font(.subheadline.weight(.semibold))
+                                            Spacer()
+                                            Text(statusName(entry.state)).font(.caption).foregroundStyle(.secondary)
+                                        }
+                                        ProgressView(value: Double(entry.progress), total: Double(max(1, entry.total)))
+                                        Text("Проверено \(entry.progress)/\(entry.total) · Найдено \(entry.matched)")
+                                            .font(.caption).foregroundStyle(.secondary)
+                                    }.padding(12).nightwellLiquidGlass(18)
+                                }.buttonStyle(.plain)
+                            }
+                        }
+                    }
                     if !errorText.isEmpty { Text(errorText).foregroundStyle(.orange).font(.caption) }
-                    Button(busy ? "Обрабатываем…" : "Найти треки") { Task { await start() } }
-                        .buttonStyle(.borderedProminent).disabled(contents.isEmpty || busy)
+
                 }.padding(20)
             }
             .background(Color(red: 0.07, green: 0.04, blue: 0.12))
