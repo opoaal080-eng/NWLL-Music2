@@ -21,6 +21,8 @@ public final class MainActivity extends Activity {
     private TextView homeLyric;private JSONObject activeLyrics;private String homeLine="";private boolean lastPlaying,mixing;private final java.util.ArrayDeque<String> mixRecent=new java.util.ArrayDeque<>();
     private NativeAPI api;
     private String supportUploadTicket="";private boolean supportUploadAdmin;
+    private EditText transferFileInput;
+    private TextView transferFileStatus;
     private PlaybackService playback;
     private boolean bindingRegistered,visible,full,lyricsOpen,downloads,backgroundOnly;
     private String user="",screen="Главная",selectedPlaylist="",query="",currentID="",origin;
@@ -199,6 +201,31 @@ public final class MainActivity extends Activity {
     @Override protected void onActivityResult(int request,int result,Intent data){
         super.onActivityResult(request,result,data);
         if(request==72){handleAudioImportResult(request,result,data);return;}
+        if(request==633){
+            if(result!=RESULT_OK||data==null||data.getData()==null)return;
+            final Uri selected=data.getData();
+            final EditText target=transferFileInput;
+            final TextView label=transferFileStatus;
+            if(target==null)return;
+            if(label!=null)label.setText("Читаем файл…");
+            io.execute(()->{
+                try(java.io.InputStream input=getContentResolver().openInputStream(selected);
+                    java.io.ByteArrayOutputStream buffer=new java.io.ByteArrayOutputStream()){
+                    if(input==null)throw new java.io.IOException("Файл не открывается");
+                    byte[] chunk=new byte[8192];int n;
+                    while((n=input.read(chunk))!=-1){
+                        if(buffer.size()+n>1024*1024)throw new java.io.IOException("Файл больше 1 МБ");
+                        buffer.write(chunk,0,n);
+                    }
+                    String content=new String(buffer.toByteArray(),java.nio.charset.StandardCharsets.UTF_8);
+                    ui.post(()->{if(!isDestroyed()&&target==transferFileInput){
+                        target.setText(content);
+                        if(label!=null)label.setText("Файл добавлен. Нажми «Найти треки».");
+                    }});
+                }catch(Exception ex){ui.post(()->{if(!isDestroyed()&&label!=null)label.setText("Ошибка файла: "+ex.getMessage());});}
+            });
+            return;
+        }
         if(request!=631&&request!=632)return;
         if(result!=RESULT_OK||data==null||data.getData()==null||supportUploadTicket.isEmpty()){
             supportUploadTicket="";return;
@@ -888,6 +915,19 @@ public final class MainActivity extends Activity {
         Spinner modes=new Spinner(this);String[] modeNames={"Точный","Умный","Максимальный"};modes.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,modeNames));modes.setSelection(1);panel.addView(modes);
         TextView info=text("Вставь JSON, CSV или TXT. Файл будет обработан на устройстве.",13);panel.addView(info);
         EditText input=new EditText(this);input.setMinLines(5);input.setMaxLines(9);input.setGravity(Gravity.TOP);input.setHint("Список треков");panel.addView(input);
+        Button fileButton=new Button(this);fileButton.setText("＋ Добавить файл");
+        panel.addView(fileButton);
+        TextView fileStatus=text("Можно выбрать JSON, CSV или TXT из файлов устройства",12);
+        panel.addView(fileStatus);
+        transferFileInput=input;transferFileStatus=fileStatus;
+        fileButton.setOnClickListener(v->{
+            Intent picker=new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            picker.setType("*/*");picker.addCategory(Intent.CATEGORY_OPENABLE);
+            picker.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            picker.putExtra(Intent.EXTRA_MIME_TYPES,new String[]{"application/json","text/plain","text/csv","application/octet-stream","text/comma-separated-values"});
+            try{startActivityForResult(picker,633);}
+            catch(android.content.ActivityNotFoundException ex){fileStatus.setText("На устройстве нет приложения для выбора файлов");}
+        });
         TextView result=text("",13);panel.addView(result);
         AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Перенести музыку").setView(panel).setNegativeButton("Закрыть",null).setPositiveButton("Найти треки",null).create();
         dialog.setOnShowListener(unused->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
@@ -901,6 +941,7 @@ public final class MainActivity extends Activity {
                 if(!key.isEmpty())pollTransfer(key,result,dialog);
             });
         }));
+        dialog.setOnDismissListener(d->{if(transferFileInput==input){transferFileInput=null;transferFileStatus=null;}});
         dialog.show();
     }
     private void pollTransfer(String key,TextView label,AlertDialog dialog){
