@@ -82,12 +82,42 @@ import Combine
     private var previousPlaying = false
     private var listeningDuration = 0.0, listeningPosition = 0.0
     private var mixRecentIDs: [String] = []
+    private struct SessionSnapshot: Codable {
+        let savedAt: Date
+        let tracks: [Track]
+        let likes: [String]
+        let playlists: [Playlist]
+        let wave: [Track]
+    }
+    private var lastWave: [Track] = []
+    private var sessionCacheKey: String? {
+        guard let id = account?.id else { return nil }
+        return "nw-session-v1-" + (origin.host ?? "server") + "-" + id
+    }
+    private func restoreSessionSnapshot() {
+        guard let key = sessionCacheKey,
+              let data = UserDefaults.standard.data(forKey: key),
+              let cache = try? JSONDecoder().decode(SessionSnapshot.self, from: data) else { return }
+        catalog = cache.tracks
+        likes = Set(cache.likes)
+        playlists = cache.playlists
+        lastWave = cache.wave
+    }
+    private func saveSessionSnapshot() {
+        guard let key = sessionCacheKey else { return }
+        let snapshot = SessionSnapshot(savedAt: Date(), tracks: Array(catalog.prefix(1500)),
+                                       likes: Array(likes), playlists: playlists,
+                                       wave: Array(lastWave.prefix(90)))
+        guard let data = try? JSONEncoder().encode(snapshot), data.count < 2_000_000 else { return }
+        UserDefaults.standard.set(data, forKey: key)
+    }
     private var observers: [NSObjectProtocol] = []
     init() {
         let saved = "https://music.nightwell.fun/"
         origin = ServerAddress.validated(saved) ?? URL(string: "https://music.nightwell.fun/")!
         api = MusicAPI(origin: origin)
         if let bytes = UserDefaults.standard.data(forKey: "native.account") { account = try? JSONDecoder().decode(Account.self, from: bytes) }
+        restoreSessionSnapshot()
         clock.onTick = { [weak self] value in self?.playbackTick(value) }
         observers.append(NotificationCenter.default.addObserver(forName: BackgroundDownloads.changed, object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
@@ -124,12 +154,16 @@ import Combine
         }
         #endif
         await refreshOffline()
+        restorePlayback()
         do {
             let identity: Identity = try await api.request("/api/me")
             account = identity.user; cacheAccount(); await api.setCSRF(identity.csrf)
             if account != nil { await refresh() }
             restorePlayback()
-        } catch { restorePlayback(offlineOnly: true); if !offline.isEmpty { screen = .offline } }
+        } catch {
+            // Cached metadata stays visible during connection failures; playback still requires server access.
+            if catalog.isEmpty { restorePlayback(offlineOnly: true); if !offline.isEmpty { screen = .offline } }
+        }
         sessionReady = true
         if let id = pendingSharedTrackID { pendingSharedTrackID = nil; await openSharedTrack(id) }
     }
@@ -202,6 +236,7 @@ import Combine
             async let lists: PlaylistResult = api.request("/api/playlists")
             let values = try await (all, liked, lists)
             catalog = values.0.tracks; likes = Set(values.1.ids); playlists = values.2.playlists
+            saveSessionSnapshot()
         } catch { self.error = error.localizedDescription }
     }
     private func finishAuthentication(_ response: EmailAuthResponse) async throws -> Bool {
@@ -214,6 +249,7 @@ import Combine
         emailChallenge = nil
         cacheAccount()
         await api.setCSRF(response.csrf)
+        restoreSessionSnapshot()
         authPresented = false
         await refresh()
         restorePlayback()
@@ -358,9 +394,14 @@ import Combine
             }
             guard account?.id == mixAccount else { return }
             let fresh = RecommendationOrder.arrange(result.tracks, recent: Set(mixRecentIDs.suffix(20)), current: clock.id, identity: { $0.id }, title: { $0.title }, artist: { $0.artist })
-            if let first = fresh.first { play(first, in: fresh, wave: true) }
+            if let first = fresh.first { lastWave = fresh; saveSessionSnapshot(); play(first, in: fresh, wave: true) }
             else { error = result.message ?? "Нет подходящих треков. Измени настройки или попробуй позже." }
-        } catch { self.error = error.localizedDescription }
+        } catch {
+            if let first = lastWave.first(where: { $0.id != clock.id }) {
+                let cached = lastWave.filter { $0.id != clock.id }
+                play(first, in: cached, wave: true)
+            } else { self.error = error.localizedDescription }
+        }
     }
     private var likesInFlight: Set<String> = []
     func like(_ track: Track) async {
@@ -386,6 +427,7 @@ import Combine
             let response: LikeResult = try await api.request("/api/likes")
             guard account?.id == owner else { return }
             likes = Set(response.ids)
+            saveSessionSnapshot()
             if likes.contains(track.id) == desired { return }
             self.error = failure?.localizedDescription ?? "Не удалось обновить избранное. Попробуйте ещё раз."
         } catch {
@@ -453,7 +495,7 @@ import Combine
     func changeServer(_ value: String) async {
         guard let url = ServerAddress.validated(value) else { error = "Нужен HTTPS-адрес без пути и параметров"; return }
         NativePlayer.shared.stop(); preloadTask?.cancel(); preloadTask = nil; lastPreloadIDs = []; lastPreloadAt = .distantPast; leaveSearch(); catalog = []; results = []; playlists = []; likes = []; account = nil; searchCache = [:]
-        origin = url; api = MusicAPI(origin: url); UserDefaults.standard.set(url.absoluteString, forKey: "nightwell.server"); await start()
+        origin = url; api = MusicAPI(origin: url); lastWave = []; UserDefaults.standard.set(url.absoluteString, forKey: "nightwell.server"); await start()
     }
 }
 
