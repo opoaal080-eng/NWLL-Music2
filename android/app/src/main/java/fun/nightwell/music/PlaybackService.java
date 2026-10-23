@@ -70,7 +70,14 @@ public final class PlaybackService extends MediaSessionService {
         tickListening();persistPlayback(false);refillWave();waveHandler.postDelayed(this,5000);
     }};
     private final Runnable fadeTick = new Runnable() { public void run() {
-        if(player!=null && player.isPlaying()){updateFade();waveHandler.postDelayed(this,40);}
+        if(player==null || !player.isPlaying())return;
+        updateFade();
+        long remaining=player.getDuration()-player.getCurrentPosition();
+        boolean nearTransition=fadeInActive || (transitionSeconds>0 &&
+                player.getDuration()>0 && player.getDuration()!=C.TIME_UNSET &&
+                remaining<=Math.max(1500,(long)(transitionSeconds*1000)+500));
+        // Avoid 25 volume updates a second while playing the middle of a song.
+        waveHandler.postDelayed(this,nearTransition?50:500);
     }};
     private void updateFade() {
         if(player==null)return;
