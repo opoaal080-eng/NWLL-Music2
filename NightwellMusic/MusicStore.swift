@@ -60,6 +60,7 @@ import Combine
     @Published var searchMessage = ""
     @Published var error: String?
     @Published var loading = false
+    @Published private(set) var connectionStatus = "Загрузка…"
     @Published var downloadMessage = ""
     @Published var downloading = false
     @Published var authPresented = false
@@ -134,6 +135,7 @@ import Combine
     }
     private var sessionReady = false
     func start() async {
+        connectionStatus = "Загрузка…"
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--native-smoke-lyrics") {
             clock.preview = true
@@ -158,9 +160,11 @@ import Combine
         do {
             let identity: Identity = try await api.request("/api/me")
             account = identity.user; cacheAccount(); await api.setCSRF(identity.csrf)
+            connectionStatus = "Онлайн"
             if account != nil { await refresh() }
             restorePlayback()
         } catch {
+            connectionStatus = "Оффлайн"
             // Cached metadata stays visible during connection failures; playback still requires server access.
             if catalog.isEmpty { restorePlayback(offlineOnly: true); if !offline.isEmpty { screen = .offline } }
         }
@@ -229,7 +233,9 @@ import Combine
         previousPlaying = clock.playing; listeningDuration = clock.duration; listeningPosition = clock.position
     }
     func refresh() async {
-        loading = true; defer { loading = false }
+        loading = true
+        connectionStatus = "Загрузка…"
+        defer { loading = false }
         do {
             async let all: TrackResult = api.request("/api/tracks")
             async let liked: LikeResult = api.request("/api/likes")
@@ -237,7 +243,8 @@ import Combine
             let values = try await (all, liked, lists)
             catalog = values.0.tracks; likes = Set(values.1.ids); playlists = values.2.playlists
             saveSessionSnapshot()
-        } catch { self.error = error.localizedDescription }
+            connectionStatus = "Онлайн"
+        } catch { connectionStatus = "Оффлайн"; self.error = error.localizedDescription }
     }
     private func finishAuthentication(_ response: EmailAuthResponse) async throws -> Bool {
         if let challenge = response.challenge {
