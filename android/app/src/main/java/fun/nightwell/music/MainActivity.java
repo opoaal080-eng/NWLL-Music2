@@ -207,7 +207,7 @@ public final class MainActivity extends Activity {
         supportUploadTicket="";
         final Uri uri=data.getData();
         task(()->{
-            String name="attachment";
+            String name="";
             try(android.database.Cursor cursor=getContentResolver().query(uri,new String[]{android.provider.OpenableColumns.DISPLAY_NAME},null,null,null)){
                 if(cursor!=null&&cursor.moveToFirst())name=cursor.getString(0);
             }
@@ -220,7 +220,8 @@ public final class MainActivity extends Activity {
             }
             if(name==null||name.trim().isEmpty()){
                 String mime=getContentResolver().getType(uri);
-                name=(mime!=null&&mime.startsWith("image/"))?"photo."+android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(mime):"attachment";
+                String extension=mime==null?null:android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(mime);
+                name=(extension!=null&&!extension.isEmpty())?"attachment."+extension:"attachment";
             }
             return api.uploadSupportAttachment(id,name,bytes);
         },uploadResult->supportDetail(id,adminMode));
