@@ -338,8 +338,9 @@ import Network
             lyrics.select(clock.current, api: api, origin: origin, online: account != nil)
             preloadTask?.cancel()
             preloadTask = nil
-            if let at = clock.queue.firstIndex(where: { $0.id == clock.id }), account != nil {
-                let upcoming = Array(clock.queue.dropFirst(at + 1).prefix(60))
+            if let at = clock.queue.firstIndex(where: { $0.id == clock.id }), account != nil, hasNetworkPath {
+                // Warm only the nearest tracks; a large queue must not trigger 60 server fetches.
+                let upcoming = Array(clock.queue.dropFirst(at + 1).prefix(8))
                 let api = api, origin = origin
                 let ids = upcoming.map(\.id)
                 let shouldPreload = ids != lastPreloadIDs || Date().timeIntervalSince(lastPreloadAt) > 45
