@@ -1,6 +1,11 @@
 import SwiftUI
 import SafariServices
 
+private struct PremiumRenewal: Decodable {
+    let auto_renewal: String
+    let has_lava_subscription: Bool
+}
+
 private struct PremiumStatus: Decodable {
     let premium: Bool
     let test_premium: Bool
@@ -18,6 +23,10 @@ struct PremiumView: View {
     @State private var payment: PremiumPaymentSession?
     @State private var activeExpiry: Double?
     @State private var showFeatures = false
+    @State private var renewal: PremiumRenewal?
+    @State private var cancellingRenewal = false
+    @State private var confirmCancellation = false
+    @State private var renewalMessage = ""
     @State private var selectedDetent: PresentationDetent = .height(362)
     private var externalPayments: Bool { Bundle.main.object(forInfoDictionaryKey: "NWExternalPremiumPayments") as? Bool ?? true }
 
@@ -36,6 +45,14 @@ struct PremiumView: View {
         .presentationDetents([.height(362), .large], selection: $selectedDetent)
         .presentationDragIndicator(.hidden)
         .task { await refresh() }
+        .confirmationDialog("Отключить автопродление?", isPresented: $confirmCancellation) {
+            Button("Отключить автопродление", role: .destructive) {
+                Task { await cancelRenewal() }
+            }
+            Button("Оставить включённым", role: .cancel) {}
+        } message: {
+            Text("Premium останется доступен до конца оплаченного периода.")
+        }
         .sheet(item: $payment, onDismiss: { Task { await refresh() } }) { session in
             PremiumPaymentBrowser(url: session.url) { payment = nil }
                 .ignoresSafeArea()
@@ -102,6 +119,26 @@ struct PremiumView: View {
                         .transition(.opacity.combined(with: .move(edge: .top)))
                     }
 
+                    if let renewal {
+                        VStack(spacing: 10) {
+                            Text(renewal.auto_renewal == "disabled" ? "Автопродление отключено" : "Статус автопродления не подтверждён")
+                                .font(.subheadline)
+                                .foregroundStyle(.white.opacity(0.72))
+                            if renewal.has_lava_subscription && renewal.auto_renewal != "disabled" {
+                                Button(cancellingRenewal ? "Отключаем…" : "Отключить автопродление") {
+                                    confirmCancellation = true
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(cancellingRenewal || checking)
+                            }
+                            if !renewalMessage.isEmpty {
+                                Text(renewalMessage).font(.footnote).foregroundStyle(.white.opacity(0.75))
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(14)
+                        .nightwellLiquidGlass(24)
+                    }
                     Button(checking ? "Проверяем…" : "Обновить статус") {
                         Task { await refresh() }
                     }
@@ -253,6 +290,24 @@ struct PremiumView: View {
         }
     }
 
+    @MainActor private func cancelRenewal() async {
+        guard !cancellingRenewal, renewal?.has_lava_subscription == true else { return }
+        cancellingRenewal = true
+        defer { cancellingRenewal = false }
+        do {
+            let identity: Identity = try await api.request("api/me")
+            await api.setCSRF(identity.csrf)
+            struct Cancelled: Decodable { let auto_renewal: String }
+            let response: Cancelled = try await api.request("api/premium/lava/cancel-renewal", method: "POST")
+            guard response.auto_renewal == "disabled" else { throw CancellationError() }
+            renewalMessage = "Будущие списания отключены. Оплаченный период сохранён."
+            let status: PremiumRenewal = try await api.request("api/premium/lava/renewal")
+            renewal = status
+        } catch {
+            renewalMessage = "Отмена не подтверждена. Проверьте подключение и попробуйте снова."
+        }
+    }
+
     @MainActor private func refresh() async {
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--native-smoke-premium") {
@@ -271,6 +326,7 @@ struct PremiumView: View {
             }
             let status: PremiumStatus = try await api.request("api/premium/me")
             activeExpiry = status.premium ? status.expires_at : nil
+            renewal = status.premium ? (try? await api.request("api/premium/lava/renewal")) : nil
             if status.premium, let expiry = status.expires_at {
                 message = "Premium активен до " + Date(timeIntervalSince1970: expiry).formatted(date: .abbreviated, time: .omitted)
             } else if status.test_premium {
@@ -280,6 +336,7 @@ struct PremiumView: View {
             }
         } catch {
             activeExpiry = nil
+            renewal = nil
             message = "Статус недоступен. Войдите в аккаунт и проверьте соединение."
         }
     }
