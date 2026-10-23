@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 import AVFoundation
 import Combine
+import Network
 
 @MainActor final class TrackStatus: ObservableObject {
     @Published var id = ""
@@ -112,6 +113,69 @@ import Combine
         guard let data = try? JSONEncoder().encode(snapshot), data.count < 2_000_000 else { return }
         UserDefaults.standard.set(data, forKey: key)
     }
+    private let connectionMonitor = NWPathMonitor()
+    private let connectionQueue = DispatchQueue(label: "fun.nightwell.connection")
+    private var connectionWatcher: Task<Void, Never>?
+    private var connectionCheck: Task<Void, Never>?
+    private var hasNetworkPath = true
+    private var lastConnectionRefresh = Date.distantPast
+
+    private func checkConnection() {
+        connectionCheck?.cancel()
+        guard hasNetworkPath else { connectionStatus = "Оффлайн"; return }
+        connectionCheck = Task { [weak self] in
+            guard let self else { return }
+            // The internet connection alone does not prove Nightwell is reachable.
+            let url = self.origin.appendingPathComponent("api/me")
+            var request = URLRequest(url: url)
+            request.httpMethod = "GET"
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            request.timeoutInterval = 8
+            let config = URLSessionConfiguration.ephemeral
+            config.timeoutIntervalForRequest = 8
+            let session = URLSession(configuration: config)
+            defer { session.invalidateAndCancel() }
+            do {
+                let (_, response) = try await session.data(for: request)
+                guard !Task.isCancelled else { return }
+                let http = response as? HTTPURLResponse
+                let reachable = http.map { (200..<500).contains($0.statusCode) } ?? false
+                let wasOffline = self.connectionStatus == "Оффлайн"
+                self.connectionStatus = reachable ? "Онлайн" : "Оффлайн"
+                if reachable && wasOffline && self.account != nil &&
+                    Date().timeIntervalSince(self.lastConnectionRefresh) > 30 {
+                    self.lastConnectionRefresh = Date()
+                    await self.refresh()
+                }
+            } catch {
+                if !Task.isCancelled { self.connectionStatus = "Оффлайн" }
+            }
+        }
+    }
+
+    private func startConnectionWatcher() {
+        connectionMonitor.pathUpdateHandler = { [weak self] path in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.hasNetworkPath = path.status == .satisfied
+                if self.hasNetworkPath {
+                    self.connectionStatus = "Загрузка…"
+                    self.checkConnection()
+                } else {
+                    self.connectionCheck?.cancel()
+                    self.connectionStatus = "Оффлайн"
+                }
+            }
+        }
+        connectionMonitor.start(queue: connectionQueue)
+        connectionWatcher = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 15_000_000_000)
+                guard !Task.isCancelled else { return }
+                self?.checkConnection()
+            }
+        }
+    }
     private var observers: [NSObjectProtocol] = []
     init() {
         let saved = "https://music.nightwell.fun/"
@@ -119,6 +183,7 @@ import Combine
         api = MusicAPI(origin: origin)
         if let bytes = UserDefaults.standard.data(forKey: "native.account") { account = try? JSONDecoder().decode(Account.self, from: bytes) }
         restoreSessionSnapshot()
+        startConnectionWatcher()
         clock.onTick = { [weak self] value in self?.playbackTick(value) }
         observers.append(NotificationCenter.default.addObserver(forName: BackgroundDownloads.changed, object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
@@ -131,6 +196,9 @@ import Combine
         downloading = progress.active; downloadMessage = progress.message
 
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in self?.savePlayback(force: true) })
+        observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.checkConnection()
+        })
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in self?.savePlayback(force: true) })
     }
     private var sessionReady = false
