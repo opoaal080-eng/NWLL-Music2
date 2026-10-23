@@ -48,9 +48,11 @@ try:
     values=capture('document-picker');assert any('documentsui' in n.get('package','') for n in values),'System picker did not open'
     # Storage Access Framework may start in Recent; use Downloads if needed.
     if find('nightwell-playlist.csv') is None:
-        drawer=find('Show roots') or find('Open navigation drawer')
+        drawer=find('Show roots')
+        if drawer is None:drawer=find('Open navigation drawer')
         if drawer is not None:tap(drawer)
-        download=find('Downloads') or find('Download')
+        download=find('Downloads')
+        if download is None:download=find('Download')
         if download is not None:tap(download)
     click('nightwell-playlist.csv');time.sleep(2)
     values=capture('transfer-file-loaded')
