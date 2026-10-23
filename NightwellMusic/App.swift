@@ -496,6 +496,10 @@ private struct NightwellNativeTransfer: View {
     @State private var job: ImportJob?
     @State private var errorText = ""
     @State private var busy = false
+    @State private var history: [ImportJob] = []
+    @State private var historyError = ""
+    @State private var observingJobID: String?
+    private let activeStates: Set<String> = ["reading", "matching", "saving"]
     struct ImportJob: Decodable {
         let id: String
         let state: String
@@ -504,6 +508,7 @@ private struct NightwellNativeTransfer: View {
         let matched: Int
         let saved: Int
         let message: String?
+        let name: String?
     }
     var body: some View {
         NavigationStack {
@@ -522,15 +527,42 @@ private struct NightwellNativeTransfer: View {
                         .fixedSize(horizontal: false, vertical: true)
                     Button { showingFile = true } label: { Label(selectedFilename.isEmpty ? "Выбрать JSON, CSV или TXT" : selectedFilename, systemImage: "doc.badge.plus").frame(maxWidth: .infinity).padding(16) }
                         .nightwellLiquidGlass(20)
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Text("История переносов").font(.headline)
+                            Spacer()
+                            Button { Task { await refreshHistory() } } label: { Image(systemName: "arrow.clockwise") }
+                                .accessibilityLabel("Обновить переносы")
+                        }
+                        if !historyError.isEmpty { Text(historyError).font(.caption).foregroundStyle(.orange) }
+                        if history.isEmpty { Text("Переносов пока нет").font(.caption).foregroundStyle(.secondary) }
+                        ForEach(history, id: \.id) { entry in
+                            Button {
+                                job = entry
+                                if activeStates.contains(entry.state) { Task { await poll(entry.id) } }
+                            } label: {
+                                VStack(alignment: .leading, spacing: 5) {
+                                    HStack {
+                                        Text(entry.name ?? "Перенос музыки").font(.subheadline.weight(.semibold))
+                                        Spacer()
+                                        Text(statusName(entry.state)).font(.caption).foregroundStyle(.secondary)
+                                    }
+                                    ProgressView(value: Double(entry.progress), total: Double(max(1, entry.total)))
+                                    Text("Проверено \(entry.progress)/\(entry.total) · Найдено \(entry.matched)")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }.padding(12).nightwellLiquidGlass(18)
+                            }.buttonStyle(.plain)
+                        }
+                    }
                     if let job {
                         VStack(alignment: .leading, spacing: 12) {
                             Text(job.message ?? "Поиск").font(.headline)
                             ProgressView(value: Double(job.progress), total: Double(max(1, job.total)))
                             Text("Проверено: \(job.progress) / \(job.total) · Найдено: \(job.matched)").font(.caption).foregroundStyle(.secondary)
-                            if job.state == "ready" || job.state == "error" {
+                            if (job.state == "ready" || job.state == "error") && job.matched > 0 {
                                 Button("Добавить найденные треки") { Task { await commit() } }.buttonStyle(.borderedProminent)
                             }
-                            if ["reading","matching","saving"].contains(job.state) {
+                            if activeStates.contains(job.state) {
                                 Button("Остановить") { Task { await cancel() } }.tint(.orange)
                             }
                         }.padding(18).nightwellLiquidGlass(24)
@@ -541,6 +573,7 @@ private struct NightwellNativeTransfer: View {
                 }.padding(20)
             }
             .background(Color(red: 0.07, green: 0.04, blue: 0.12))
+            .task { await refreshHistory(); if let current = history.first(where: { activeStates.contains($0.state) }) { job = current; await poll(current.id) } }
             .navigationTitle("Перенос")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Закрыть") { dismiss() } }; ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("Скрыть клавиатуру") { nameFieldFocused = false } } }
@@ -567,31 +600,54 @@ private struct NightwellNativeTransfer: View {
             }
         }.preferredColorScheme(.dark)
     }
+    private func statusName(_ status: String) -> String {
+        switch status {
+        case "reading": return "Чтение"
+        case "matching": return "Поиск"
+        case "saving": return "Сохранение"
+        case "ready": return "Найдено"
+        case "done": return "Готово"
+        case "cancelled": return "Отменено"
+        case "error": return "Ошибка"
+        default: return status
+        }
+    }
+    private func refreshHistory() async {
+        struct Response: Decodable { let jobs: [ImportJob] }
+        do {
+            let response: Response = try await store.api.request("api/imports")
+            history = response.jobs
+            historyError = ""
+        } catch { historyError = "Не удалось загрузить историю: " + error.localizedDescription }
+    }
     private func start() async {
         busy = true; defer { busy = false }
         do {
             let result: ImportJob = try await store.api.request("api/imports", method: "POST", body: ["provider":"yandex","name":name,"url":"","text":contents,"mode":mode])
-            job = result; errorText = ""; await poll(result.id)
+            job = result; errorText = ""; await refreshHistory(); await poll(result.id)
         } catch { errorText = error.localizedDescription }
     }
     private func poll(_ id: String) async {
-        while !Task.isCancelled {
+        guard observingJobID != id else { return }
+        observingJobID = id
+        defer { if observingJobID == id { observingJobID = nil } }
+        while !Task.isCancelled && observingJobID == id {
             do {
                 let next: ImportJob = try await store.api.request("api/imports/" + id)
-                job = next
-                if !["reading","matching","saving"].contains(next.state) { return }
-                try await Task.sleep(nanoseconds: 1_800_000_000)
+                if job?.id == id { job = next }
+                if !activeStates.contains(next.state) { await refreshHistory(); return }
+                try await Task.sleep(nanoseconds: 2_500_000_000)
             } catch { errorText = error.localizedDescription; return }
         }
     }
     private func commit() async {
         guard let job else { return }
-        do { let next: ImportJob = try await store.api.request("api/imports/" + job.id + "/commit",method:"POST",body:[:]); self.job = next; await poll(job.id) }
+        do { let next: ImportJob = try await store.api.request("api/imports/" + job.id + "/commit",method:"POST",body:[:]); self.job = next; await refreshHistory(); await poll(job.id) }
         catch { errorText = error.localizedDescription }
     }
     private func cancel() async {
         guard let job else { return }
-        do { let next: ImportJob = try await store.api.request("api/imports/" + job.id + "/cancel",method:"POST",body:[:]); self.job = next }
+        do { let next: ImportJob = try await store.api.request("api/imports/" + job.id + "/cancel",method:"POST",body:[:]); self.job = next; await refreshHistory() }
         catch { errorText = error.localizedDescription }
     }
 }
