@@ -134,7 +134,7 @@ public final class MainActivity extends Activity {
         GradientDrawable surface=surface();
         navigationPopup=popup;popup.setOnDismissListener(()->{if(navigationPopup==popup)navigationPopup=null;});
         popup.setBackgroundDrawable(surface);popup.setElevation(dp(20));popup.setOutsideTouchable(true);
-        String[] tabs={"Главная","Поиск","Избранное","Плейлисты","Офлайн",backgroundOnly?"Показать интерфейс":"Только фон","Настройки","Настройка подборки","Nightwell Premium","Моя статистика","Обращения",user.isEmpty()?"Войти":"Выйти"};
+        String[] tabs={"Главная","Поиск","Избранное","Плейлисты","Перенести музыку","Офлайн",backgroundOnly?"Показать интерфейс":"Только фон","Настройки","Настройка подборки","Nightwell Premium","Моя статистика","Обращения",user.isEmpty()?"Войти":"Выйти"};
         for(int i=0;i<tabs.length;i++){
             if(i==0)entries.addView(sectionLabel("Основное"));
             if(i==5)entries.addView(sectionLabel("Управление"));
@@ -153,7 +153,8 @@ public final class MainActivity extends Activity {
         popup.showAsDropDown(anchor,0,dp(8),Gravity.END);
     }
     void selectMenu(String tab){
-        if(tab.equals("Моя статистика")){feature("stats");return;}
+        if(tab.equals("Перенести музыку")){nativeTransfer();return;}
+         if(tab.equals("Моя статистика")){feature("stats");return;}
         if(tab.equals("Nightwell Premium")){premium();return;}
         if(tab.equals("Настройки"))settings();
         else if(tab.equals("Настройка подборки"))waveSettings();
@@ -774,6 +775,42 @@ public final class MainActivity extends Activity {
         public int getCount(){return shown.length();}public Object getItem(int p){return shown.optJSONObject(p);}public long getItemId(int p){return p;}
         public View getView(int position,View recycled,ViewGroup parent){LinearLayout r;TextView title,artist,more;if(recycled==null){r=row();r.setPadding(dp(12),dp(12),dp(8),dp(12));LinearLayout labels=column();title=text("",16);title.setMaxLines(2);artist=text("",12);artist.setMaxLines(1);labels.addView(title);labels.addView(artist);r.addView(labels,new LinearLayout.LayoutParams(0,-2,1));r.addView(new PlayingIndicator(MainActivity.this),new LinearLayout.LayoutParams(dp(20),dp(20)));more=action("⋯",()->{});r.addView(more);r.setTag(new TextView[]{title,artist,more});}else r=(LinearLayout)recycled;TextView[] holder=(TextView[])r.getTag();JSONObject t=shown.optJSONObject(position);holder[0].setText(t.optString("title"));PlayingIndicator indicator=(PlayingIndicator)r.getChildAt(1);indicator.setVisibility(currentID.equals(t.optString("id"))?View.VISIBLE:View.GONE);indicator.playing(lastPlaying);holder[1].setText(t.optString("artist"));holder[2].setOnClickListener(v->trackMenu(t));r.setBackgroundColor(currentID.equals(t.optString("id"))?0x22ffb260:Color.TRANSPARENT);return r;}
     }
+    private void nativeTransfer(){
+        LinearLayout panel=column();panel.setPadding(dp(20),dp(16),dp(20),dp(12));
+        EditText title=new EditText(this);title.setSingleLine(true);title.setText("Перенос музыки");title.setHint("Название плейлиста");panel.addView(title);
+        Spinner modes=new Spinner(this);String[] modeNames={"Точный","Умный","Максимальный"};modes.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,modeNames));modes.setSelection(1);panel.addView(modes);
+        TextView info=text("Вставь JSON, CSV или TXT. Файл будет обработан на устройстве.",13);panel.addView(info);
+        EditText input=new EditText(this);input.setMinLines(5);input.setMaxLines(9);input.setGravity(Gravity.TOP);input.setHint("Список треков");panel.addView(input);
+        TextView result=text("",13);panel.addView(result);
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Перенести музыку").setView(panel).setNegativeButton("Закрыть",null).setPositiveButton("Найти треки",null).create();
+        dialog.setOnShowListener(unused->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+            String raw=input.getText().toString();if(raw.isBlank()){result.setText("Добавь список треков");return;}
+            if(raw.getBytes(java.nio.charset.StandardCharsets.UTF_8).length>1024*1024){result.setText("Максимальный размер 1 МБ");return;}
+            String[] codes={"safe","balanced","wide"};JSONObject body=new JSONObject();
+            try{body.put("provider","yandex").put("name",title.getText().toString()).put("text",raw).put("url","").put("mode",codes[modes.getSelectedItemPosition()]);}catch(Exception ex){result.setText(ex.getMessage());return;}
+            result.setText("Начинаем поиск…");
+            task(()->api.request("api/imports","POST",body), response->{
+                String key=response.optString("id");result.setText("Поиск запущен. ID: "+key);
+                if(!key.isEmpty())pollTransfer(key,result,dialog);
+            });
+        }));
+        dialog.show();
+    }
+    private void pollTransfer(String key,TextView label,AlertDialog dialog){
+        if(!dialog.isShowing())return;
+        task(()->api.request("api/imports/"+key),response->{
+            if(!dialog.isShowing())return;
+            String state=response.optString("state");
+            label.setText(response.optString("message","Поиск")+"\nПроверено "+response.optInt("progress")+"/"+response.optInt("total")+" · Найдено "+response.optInt("matched"));
+            if(state.equals("ready")||state.equals("error")){
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setText("Сохранить найденное");
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->task(()->api.request("api/imports/"+key+"/commit","POST",new JSONObject()),x->pollTransfer(key,label,dialog)));
+            } else if(state.equals("matching")||state.equals("reading")||state.equals("saving")){
+                ui.postDelayed(()->pollTransfer(key,label,dialog),1800);
+            }
+        });
+    }
+
 }
 
 
