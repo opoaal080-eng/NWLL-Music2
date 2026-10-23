@@ -625,7 +625,14 @@ private struct NightwellNativeTransfer: View {
         do {
             let result: ImportJob = try await store.api.request("api/imports", method: "POST", body: ["provider":"yandex","name":name,"url":"","text":contents,"mode":mode])
             job = result; errorText = ""; await refreshHistory(); await poll(result.id)
-        } catch { errorText = error.localizedDescription }
+        } catch {
+            errorText = error.localizedDescription
+            await refreshHistory()
+            if let current = history.first(where: { activeStates.contains($0.state) }) {
+                job = current
+                await poll(current.id)
+            }
+        }
     }
     private func poll(_ id: String) async {
         guard observingJobID != id else { return }
