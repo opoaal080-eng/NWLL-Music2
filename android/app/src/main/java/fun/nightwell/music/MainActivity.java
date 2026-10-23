@@ -443,7 +443,22 @@ public final class MainActivity extends Activity {
             }catch(Exception ex){
                 ui.post(()->{
                     if(isDestroyed()||!accountRequest.complete(ticket))return;
-                    // A network failure is not evidence that the cached account logged out.
+                    // Only an explicit unauthenticated response invalidates the local session.
+                    // Temporary network failures must never discard saved account or music.
+                    if(ex instanceof NetworkRetry.HttpFailure && ((NetworkRetry.HttpFailure)ex).status==401){
+                        new SessionStore(this).clear();
+                        api.updateCSRF("");
+                        libraryGeneration++;
+                        user="";
+                        catalog=new JSONArray();
+                        shown=new JSONArray();
+                        playlists=new JSONArray();
+                        likes.clear();
+                        selectedPlaylist="";
+                        getSharedPreferences("native-api",MODE_PRIVATE).edit().putString("account","").apply();
+                        if(playback!=null)playback.stop();
+                        if(!full&&!screen.equals("Поиск"))showScreen();
+                    }
                     sessionReady=true;
                     status.setText(friendly(ex));
                 });
