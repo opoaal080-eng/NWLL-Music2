@@ -490,6 +490,7 @@ private struct NightwellNativeTransfer: View {
     @State private var showingFile = false
     @State private var name = "Перенос музыки"
     @State private var contents = ""
+    @State private var selectedFilename = ""
     @State private var mode = "balanced"
     @State private var job: ImportJob?
     @State private var errorText = ""
@@ -515,7 +516,10 @@ private struct NightwellNativeTransfer: View {
                         Text("Умный").tag("balanced")
                         Text("Максимальный").tag("wide")
                     }.pickerStyle(.segmented)
-                    Button { showingFile = true } label: { Label(contents.isEmpty ? "Выбрать JSON, CSV или TXT" : "Файл выбран", systemImage: "doc.badge.plus").frame(maxWidth: .infinity).padding(16) }
+                    Text(mode == "safe" ? "Точный: оригинальная запись, строгое совпадение названия, исполнителя и длительности." : mode == "balanced" ? "Умный: разные варианты написания и поиск исполнителя в названии или поле артиста. Сомнительные записи отсекаются." : "Максимальный: больше поисковых запросов и вариантов названий. Неподтверждённые совпадения требуют проверки.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button { showingFile = true } label: { Label(selectedFilename.isEmpty ? "Выбрать JSON, CSV или TXT" : selectedFilename, systemImage: "doc.badge.plus").frame(maxWidth: .infinity).padding(16) }
                         .nightwellLiquidGlass(20)
                     if let job {
                         VStack(alignment: .leading, spacing: 12) {
@@ -539,14 +543,34 @@ private struct NightwellNativeTransfer: View {
             .navigationTitle("Перенос")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Закрыть") { dismiss() } } }
-            .fileImporter(isPresented: $showingFile, allowedContentTypes: [.json,.commaSeparatedText,.plainText]) { result in
+            .fileImporter(isPresented: $showingFile, allowedContentTypes: [.item, .data], allowsMultipleSelection: false) { result in
                 switch result {
-                case .success(let url):
+                case .success(let urls):
+                    guard let url = urls.first else { errorText = "Файл не выбран"; return }
+                    guard ["json", "csv", "txt"].contains(url.pathExtension.lowercased()) else {
+                        errorText = "Поддерживаются только JSON, CSV и TXT"; return
+                    }
                     let access = url.startAccessingSecurityScopedResource()
                     defer { if access { url.stopAccessingSecurityScopedResource() } }
-                    do { let data = try Data(contentsOf: url); guard data.count <= 1024*1024 else { errorText = "Файл больше 1 МБ"; return }; contents = String(data: data, encoding: .utf8) ?? ""; errorText = contents.isEmpty ? "Не удалось прочитать UTF-8" : "" }
-                    catch { errorText = error.localizedDescription }
-                case .failure(let failure): errorText = failure.localizedDescription
+                    var readError: NSError?
+                    var fileData: Data?
+                    NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &readError) { coordinatedURL in
+                        fileData = try? Data(contentsOf: coordinatedURL)
+                    }
+                    if let readError { errorText = readError.localizedDescription; return }
+                    guard let data = fileData else {
+                        errorText = "Не удалось прочитать файл. Сохрани его в «Файлы» на iPhone."; return
+                    }
+                    guard data.count <= 1024 * 1024 else { errorText = "Размер файла больше 1 МБ"; return }
+                    guard let text = String(data: data, encoding: .utf8),
+                          !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                        errorText = "Файл пустой или не в UTF-8"; return
+                    }
+                    contents = text
+                    selectedFilename = url.lastPathComponent
+                    errorText = ""
+                case .failure(let failure):
+                    errorText = failure.localizedDescription
                 }
             }
         }.preferredColorScheme(.dark)
