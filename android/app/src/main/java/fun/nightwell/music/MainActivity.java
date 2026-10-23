@@ -291,7 +291,7 @@ public final class MainActivity extends Activity {
                 ready.put(android.provider.MediaStore.Downloads.IS_PENDING,0);
                 getContentResolver().update(saved,ready,null,null);
                 ui.post(()->{
-                    Intent view=new Intent(Intent.ACTION_VIEW).setDataAndType(saved,mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    Intent view=new Intent(Intent.ACTION_VIEW).setDataAndType(saved,contentType).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
                     try{startActivity(view);}catch(android.content.ActivityNotFoundException ex){Toast.makeText(this,"Сохранено в Загрузки/Nightwell Music",Toast.LENGTH_LONG).show();}
                 });
             }catch(Exception ex){
