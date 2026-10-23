@@ -246,8 +246,14 @@ import Network
             connectionStatus = "Онлайн"
             sessionReady = true
             if let id = pendingSharedTrackID { pendingSharedTrackID = nil; await openSharedTrack(id) }
-            if account != nil { await refresh() }
             restorePlayback()
+            // Cached library is already visible. Refresh from the server without holding up startup.
+            if account != nil {
+                Task { [weak self] in
+                    guard let self, self.sessionGeneration == generation else { return }
+                    await self.refresh()
+                }
+            }
         } catch {
             guard generation == sessionGeneration, !Task.isCancelled else { return }
             connectionStatus = "Оффлайн"
