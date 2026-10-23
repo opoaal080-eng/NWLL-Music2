@@ -394,8 +394,13 @@ import Network
         await api.setCSRF(response.csrf)
         restoreSessionSnapshot()
         authPresented = false
-        await refresh()
         restorePlayback()
+        // Present the authenticated session immediately while the library refreshes.
+        let generation = sessionGeneration
+        Task { [weak self] in
+            guard let self, self.sessionGeneration == generation else { return }
+            await self.refresh()
+        }
         if let id = pendingSharedTrackID {
             pendingSharedTrackID = nil
             await openSharedTrack(id)
