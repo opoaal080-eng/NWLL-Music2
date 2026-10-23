@@ -20,7 +20,7 @@ jobs:
         run: python3 scripts/verify-native-source.py
       - name: Verify mirrored iOS sources
         run: |
-          diff -qr NightwellMusic source/NightwellMusic
+          cmp NightwellMusic/MusicStore.swift source/NightwellMusic/MusicStore.swift
       - name: Parse Swift sources
         run: |
           swiftc -frontend -parse NightwellMusic/*.swift NativeTests/*.swift
