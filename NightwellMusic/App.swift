@@ -1,6 +1,5 @@
 import SwiftUI
 import UniformTypeIdentifiers
-import SafariServices
 
 @main struct NightwellMusicApp: App {
     @UIApplicationDelegateAdaptor(DownloadAppDelegate.self) private var appDelegate
@@ -293,7 +292,7 @@ struct NativeRoot: View {
         }
         .fullScreenCover(isPresented: $fullPlayer) { FullPlayer(clock: store.clock) }
         
-        .sheet(isPresented: $transferPresented) { NightwellTransferBrowser(url: URL(string: "https://music.nightwell.fun/#transfer")!) }
+        .sheet(isPresented: $transferPresented) { NightwellNativeTransfer().environmentObject(store) }
         .sheet(isPresented: $showShare) { if let shareURL { ShareSheet(items: [shareURL]) } }
         .fileImporter(isPresented: $importFiles, allowedContentTypes: [.audio], allowsMultipleSelection: true) { result in
             if case let .success(urls) = result { Task { await store.importFiles(urls) } }
@@ -484,8 +483,99 @@ struct ShareSheet: UIViewControllerRepresentable {
 }
 
 
-private struct NightwellTransferBrowser: UIViewControllerRepresentable {
-    let url: URL
-    func makeUIViewController(context: Context) -> SFSafariViewController { SFSafariViewController(url: url) }
-    func updateUIViewController(_ controller: SFSafariViewController, context: Context) {}
+
+private struct NightwellNativeTransfer: View {
+    @EnvironmentObject private var store: MusicStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var showingFile = false
+    @State private var name = "Перенос музыки"
+    @State private var contents = ""
+    @State private var mode = "balanced"
+    @State private var job: ImportJob?
+    @State private var errorText = ""
+    @State private var busy = false
+    struct ImportJob: Decodable {
+        let id: String
+        let state: String
+        let total: Int
+        let progress: Int
+        let matched: Int
+        let saved: Int
+        let message: String?
+    }
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    Text("Перенести музыку").font(.largeTitle.bold())
+                    Text("Поиск выполняется на сервере, файл читается на устройстве.").foregroundStyle(.secondary)
+                    TextField("Название плейлиста", text: $name).padding(14).nightwellLiquidGlass(18)
+                    Picker("Режим поиска", selection: $mode) {
+                        Text("Точный").tag("safe")
+                        Text("Умный").tag("balanced")
+                        Text("Максимальный").tag("wide")
+                    }.pickerStyle(.segmented)
+                    Button { showingFile = true } label: { Label(contents.isEmpty ? "Выбрать JSON, CSV или TXT" : "Файл выбран", systemImage: "doc.badge.plus").frame(maxWidth: .infinity).padding(16) }
+                        .nightwellLiquidGlass(20)
+                    if let job {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text(job.message ?? "Поиск").font(.headline)
+                            ProgressView(value: Double(job.progress), total: Double(max(1, job.total)))
+                            Text("Проверено: \(job.progress) / \(job.total) · Найдено: \(job.matched)").font(.caption).foregroundStyle(.secondary)
+                            if job.state == "ready" || job.state == "error" {
+                                Button("Добавить найденные треки") { Task { await commit() } }.buttonStyle(.borderedProminent)
+                            }
+                            if ["reading","matching","saving"].contains(job.state) {
+                                Button("Остановить") { Task { await cancel() } }.tint(.orange)
+                            }
+                        }.padding(18).nightwellLiquidGlass(24)
+                    }
+                    if !errorText.isEmpty { Text(errorText).foregroundStyle(.orange).font(.caption) }
+                    Button(busy ? "Обрабатываем…" : "Найти треки") { Task { await start() } }
+                        .buttonStyle(.borderedProminent).disabled(contents.isEmpty || busy)
+                }.padding(20)
+            }
+            .background(Color(red: 0.07, green: 0.04, blue: 0.12))
+            .navigationTitle("Перенос")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Закрыть") { dismiss() } } }
+            .fileImporter(isPresented: $showingFile, allowedContentTypes: [.json,.commaSeparatedText,.plainText]) { result in
+                switch result {
+                case .success(let url):
+                    let access = url.startAccessingSecurityScopedResource()
+                    defer { if access { url.stopAccessingSecurityScopedResource() } }
+                    do { let data = try Data(contentsOf: url); guard data.count <= 1024*1024 else { errorText = "Файл больше 1 МБ"; return }; contents = String(data: data, encoding: .utf8) ?? ""; errorText = contents.isEmpty ? "Не удалось прочитать UTF-8" : "" }
+                    catch { errorText = error.localizedDescription }
+                case .failure(let failure): errorText = failure.localizedDescription
+                }
+            }
+        }.preferredColorScheme(.dark)
+    }
+    private func start() async {
+        busy = true; defer { busy = false }
+        do {
+            let result: ImportJob = try await store.api.request("api/imports", method: "POST", body: ["provider":"yandex","name":name,"url":"","text":contents,"mode":mode])
+            job = result; errorText = ""; await poll(result.id)
+        } catch { errorText = error.localizedDescription }
+    }
+    private func poll(_ id: String) async {
+        while !Task.isCancelled {
+            do {
+                let next: ImportJob = try await store.api.request("api/imports/" + id)
+                job = next
+                if !["reading","matching","saving"].contains(next.state) { return }
+                try await Task.sleep(nanoseconds: 1_800_000_000)
+            } catch { errorText = error.localizedDescription; return }
+        }
+    }
+    private func commit() async {
+        guard let job else { return }
+        do { let next: ImportJob = try await store.api.request("api/imports/" + job.id + "/commit",method:"POST",body:[:]); self.job = next; await poll(job.id) }
+        catch { errorText = error.localizedDescription }
+    }
+    private func cancel() async {
+        guard let job else { return }
+        do { let next: ImportJob = try await store.api.request("api/imports/" + job.id + "/cancel",method:"POST",body:[:]); self.job = next }
+        catch { errorText = error.localizedDescription }
+    }
 }
