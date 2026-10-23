@@ -48,10 +48,11 @@ public partial class MainWindow:Window {
   choose.Click+=(_,_)=>{var picker=new OpenFileDialog{Filter="Плейлисты|*.json;*.csv;*.txt|Все файлы|*.*"};if(picker.ShowDialog(window)==true){var data=File.ReadAllBytes(picker.FileName);if(data.Length>1024*1024){MessageBox.Show(window,"Максимальный размер файла 1 МБ");return;}input.Text=System.Text.Encoding.UTF8.GetString(data);}};
   panel.Children.Add(choose);panel.Children.Add(input);
   var progress=new TextBlock{Foreground=Brushes.White,Margin=new Thickness(0,14,0,12),TextWrapping=TextWrapping.Wrap};panel.Children.Add(progress);
-  var start=new Button{Content="Найти треки",Padding=new Thickness(12)};panel.Children.Add(start);
+  var start=new Button{Content="Найти треки",Padding=new Thickness(12)};panel.Children.Add(start);string readyKey="";
   start.Click+=async(_,_)=>{
    start.IsEnabled=false;
    try{
+    if(readyKey.Length>0){await api.Request("api/imports/"+readyKey+"/commit","POST",new{});progress.Text="Сохраняем плейлист…";return;}
     string[] codes={"safe","balanced","wide"};progress.Text="Запускаем поиск…";
     var response=await api.Request("api/imports","POST",new{provider="yandex",name=name.Text,url="",text=input.Text,mode=codes[mode.SelectedIndex]});
     string key=response.GetProperty("id").GetString()??"";
@@ -60,10 +61,7 @@ public partial class MainWindow:Window {
      var state=status.GetProperty("state").GetString()??"";
      progress.Text=$"Проверено: {status.GetProperty("progress").GetInt32()} / {status.GetProperty("total").GetInt32()} · Найдено: {status.GetProperty("matched").GetInt32()}";
      if(state=="ready"||state=="error"){
-      start.Content="Добавить найденные треки";
-      start.IsEnabled=true;
-      start.Click-=null;
-      start.Click+=async(_,_)=>{start.IsEnabled=false;await Guard(async()=>{await api.Request("api/imports/"+key+"/commit","POST",new{});progress.Text="Сохраняем плейлист…";});};
+      readyKey=key;start.Content="Добавить найденные треки";start.IsEnabled=true;
       break;
      }
      if(state=="done"||state=="cancelled")break;
