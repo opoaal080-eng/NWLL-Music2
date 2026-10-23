@@ -100,8 +100,13 @@ import Network
     }
     private func restoreSessionSnapshot() {
         guard let key = sessionCacheKey,
-              let data = UserDefaults.standard.data(forKey: key),
-              let cache = try? JSONDecoder().decode(SessionSnapshot.self, from: data) else { return }
+              let data = UserDefaults.standard.data(forKey: key) else { return }
+        guard let cache = try? JSONDecoder().decode(SessionSnapshot.self, from: data),
+              cache.savedAt.timeIntervalSinceNow > -14 * 24 * 60 * 60,
+              cache.savedAt.timeIntervalSinceNow < 5 * 60 else {
+            UserDefaults.standard.removeObject(forKey: key)
+            return
+        }
         catalog = cache.tracks
         likes = Set(cache.likes)
         playlists = cache.playlists
