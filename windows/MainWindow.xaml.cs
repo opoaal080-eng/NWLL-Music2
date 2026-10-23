@@ -34,7 +34,47 @@ public partial class MainWindow:Window {
  void Show(string next){searchCancellation?.Cancel();screen=next;Home.Visibility=next=="Главная"?Visibility.Visible:Visibility.Collapsed;Library.Visibility=next=="Главная"?Visibility.Collapsed:Visibility.Visible;PlayerPage.Visibility=Visibility.Collapsed;Heading.Text=next;SearchBox.Visibility=next=="Поиск"?Visibility.Visible:Visibility.Collapsed;CollectionActions.Visibility=next=="Поиск"?Visibility.Collapsed:Visibility.Visible;if(next=="Поиск"){SearchBox.Focus();shown=[];}else if(next=="Избранное")shown=catalog.Where(t=>likes.Contains(t.id)).ToList();else if(next=="Офлайн")shown=ReadOffline();Tracks.ItemsSource=shown;if(next=="Плейлисты")ShowPlaylists();}
  void SearchClick(object sender,RoutedEventArgs e)=>Show("Поиск");
  async void SearchChanged(object sender,TextChangedEventArgs e){if(screen!="Поиск")return;searchCancellation?.Cancel();searchCancellation=new();var cancellation=searchCancellation.Token;string query=SearchBox.Text.Trim();if(query.Length==0){Tracks.ItemsSource=new List<Track>();return;}await Guard(async()=>{await Task.Delay(300,cancellation);var local=await Task.Run(()=>catalog.Where(t=>(t.title+" "+t.artist).Contains(query,StringComparison.OrdinalIgnoreCase)).ToList(),cancellation);cancellation.ThrowIfCancellationRequested();shown=local;Tracks.ItemsSource=shown;Status.Text="Ищем полные версии…";for(int i=0;i<30;i++){var result=await api.Request("api/tracks?q="+Uri.EscapeDataString(query),cancellation:cancellation);cancellation.ThrowIfCancellationRequested();shown=ParseTracks(result);Tracks.ItemsSource=shown;Status.Text=result.TryGetProperty("search_message",out var message)?message.GetString():"";if(!result.TryGetProperty("search_pending",out var pending)||!pending.GetBoolean())break;await Task.Delay(2000,cancellation);}});}
- void MenuClick(object sender,RoutedEventArgs e){var menu=new ContextMenu();foreach(var name in new[]{"Главная","Поиск","Избранное","Плейлисты","Офлайн","Настройки",account.Length==0?"Войти":"Выйти"}){var value=name;var item=new MenuItem{Header=value};item.Click+=async(_,_)=>{if(value=="Настройки")Settings();else if(value=="Войти")Login();else if(value=="Выйти")await Guard(async()=>{await api.Request("api/logout","POST");api.Clear();player.Stop();queue=[];catalog=[];likes=[];playlists=[];account="";Show("Главная");});else Show(value);};menu.Items.Add(item);}menu.PlacementTarget=(UIElement)sender;menu.IsOpen=true;}
+
+ void NativeTransfer(){
+  var window=new Window{Title="Nightwell · Перенести музыку",Width=570,Height=620,WindowStartupLocation=WindowStartupLocation.CenterOwner,Owner=this,Background=new SolidColorBrush(Color.FromRgb(26,20,39))};
+  var panel=new StackPanel{Margin=new Thickness(22)};
+  TextBlock Label(string value){return new TextBlock{Text=value,Foreground=Brushes.White,Margin=new Thickness(0,10,0,7),FontSize=15};}
+  panel.Children.Add(Label("Перенести музыку"));
+  var name=new TextBox{Text="Перенос музыки",Padding=new Thickness(10)};panel.Children.Add(name);
+  panel.Children.Add(Label("Режим поиска"));
+  var mode=new ComboBox{ItemsSource=new[]{"Точный","Умный","Максимальный"},SelectedIndex=1};panel.Children.Add(mode);
+  var choose=new Button{Content="Открыть JSON, CSV или TXT",Margin=new Thickness(0,12,0,8),Padding=new Thickness(8)};
+  var input=new TextBox{AcceptsReturn=true,TextWrapping=TextWrapping.Wrap,VerticalScrollBarVisibility=ScrollBarVisibility.Auto,Height=175};
+  choose.Click+=(_,_)=>{var picker=new OpenFileDialog{Filter="Плейлисты|*.json;*.csv;*.txt|Все файлы|*.*"};if(picker.ShowDialog(window)==true){var data=File.ReadAllBytes(picker.FileName);if(data.Length>1024*1024){MessageBox.Show(window,"Максимальный размер файла 1 МБ");return;}input.Text=System.Text.Encoding.UTF8.GetString(data);}};
+  panel.Children.Add(choose);panel.Children.Add(input);
+  var progress=new TextBlock{Foreground=Brushes.White,Margin=new Thickness(0,14,0,12),TextWrapping=TextWrapping.Wrap};panel.Children.Add(progress);
+  var start=new Button{Content="Найти треки",Padding=new Thickness(12)};panel.Children.Add(start);
+  start.Click+=async(_,_)=>{
+   start.IsEnabled=false;
+   try{
+    string[] codes={"safe","balanced","wide"};progress.Text="Запускаем поиск…";
+    var response=await api.Request("api/imports","POST",new{provider="yandex",name=name.Text,url="",text=input.Text,mode=codes[mode.SelectedIndex]});
+    string key=response.GetProperty("id").GetString()??"";
+    while(window.IsVisible){
+     var status=await api.Request("api/imports/"+key);
+     var state=status.GetProperty("state").GetString()??"";
+     progress.Text=$"Проверено: {status.GetProperty("progress").GetInt32()} / {status.GetProperty("total").GetInt32()} · Найдено: {status.GetProperty("matched").GetInt32()}";
+     if(state=="ready"||state=="error"){
+      start.Content="Добавить найденные треки";
+      start.IsEnabled=true;
+      start.Click-=null;
+      start.Click+=async(_,_)=>{start.IsEnabled=false;await Guard(async()=>{await api.Request("api/imports/"+key+"/commit","POST",new{});progress.Text="Сохраняем плейлист…";});};
+      break;
+     }
+     if(state=="done"||state=="cancelled")break;
+     await Task.Delay(1800);
+    }
+   }catch(Exception ex){progress.Text=ex.Message;start.IsEnabled=true;}
+  };
+  window.Content=new ScrollViewer{Content=panel,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};window.Show();
+ }
+
+ void MenuClick(object sender,RoutedEventArgs e){var menu=new ContextMenu();foreach(var name in new[]{"Главная","Поиск","Избранное","Плейлисты","Перенести музыку","Офлайн","Настройки",account.Length==0?"Войти":"Выйти"}){var value=name;var item=new MenuItem{Header=value};item.Click+=async(_,_)=>{if(value=="Перенести музыку")NativeTransfer();else if(value=="Настройки")Settings();else if(value=="Войти")Login();else if(value=="Выйти")await Guard(async()=>{await api.Request("api/logout","POST");api.Clear();player.Stop();queue=[];catalog=[];likes=[];playlists=[];account="";Show("Главная");});else Show(value);};menu.Items.Add(item);}menu.PlacementTarget=(UIElement)sender;menu.IsOpen=true;}
  async void WaveClick(object sender,RoutedEventArgs e)=>await NewWave();
  async Task NewWave(){if(mixing)return;if(account.Length==0){Login();return;}mixing=true;Status.Text="Подбираем…";try{await Guard(async()=>{var exclude=mixRecent.Concat(queue.Take(8).Select(t=>t.id)).Append(currentID).Where(id=>id.Length>0).Distinct().TakeLast(200);string nonce=Guid.NewGuid().ToString("N");var result=await api.Request("api/wave?mix="+nonce+"&exclude="+Uri.EscapeDataString(string.Join(',',exclude)));var next=ParseTracks(result).Where(t=>t.id!=currentID).ToList();if(next.Count==0&&currentID.Length>0)next=ParseTracks(await api.Request("api/wave?mix="+nonce+"&exclude="+currentID)).Where(t=>t.id!=currentID).ToList();if(next.Count==0){Status.Text="Новых треков пока нет. Попробуй чуть позже.";return;}queue=next;index=0;wave=true;PlayCurrent();Status.Text="";});}finally{mixing=false;}}
 
