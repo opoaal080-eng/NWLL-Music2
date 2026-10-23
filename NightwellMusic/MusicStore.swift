@@ -126,6 +126,7 @@ import Network
     private let connectionQueue = DispatchQueue(label: "fun.nightwell.connection")
     private var connectionWatcher: Task<Void, Never>?
     private var connectionCheck: Task<Void, Never>?
+    private var connectionCheckGeneration = UUID()
     private var hasNetworkPath = true
     private var lastConnectionRefresh = Date.distantPast
 
@@ -134,13 +135,18 @@ import Network
         guard hasNetworkPath else { connectionStatus = "Оффлайн"; return }
         let server = origin
         let client = api
+        let session = sessionGeneration
+        let checkID = UUID()
+        connectionCheckGeneration = checkID
         connectionCheck = Task { [weak self] in
             guard let self else { return }
-            defer { self.connectionCheck = nil }
+            defer {
+                if self.connectionCheckGeneration == checkID { self.connectionCheck = nil }
+            }
             do {
                 // Reuse the authenticated connection instead of negotiating a new TLS session.
                 let _: Identity = try await client.request("/api/me", timeout: 8)
-                guard !Task.isCancelled, self.origin == server else { return }
+                guard !Task.isCancelled, self.origin == server, self.sessionGeneration == session, self.connectionCheckGeneration == checkID else { return }
                 let wasOffline = self.connectionStatus == "Оффлайн"
                 self.connectionStatus = "Онлайн"
                 if wasOffline && self.account != nil &&
@@ -149,7 +155,7 @@ import Network
                     await self.refresh()
                 }
             } catch {
-                if !Task.isCancelled, self.origin == server { self.connectionStatus = "Оффлайн" }
+                if !Task.isCancelled, self.origin == server, self.sessionGeneration == session, self.connectionCheckGeneration == checkID { self.connectionStatus = "Оффлайн" }
             }
         }
     }
@@ -163,6 +169,8 @@ import Network
                     self.checkConnection()
                 } else {
                     self.connectionCheck?.cancel()
+                    self.connectionCheck = nil
+                    self.connectionCheckGeneration = UUID()
                     self.connectionStatus = "Оффлайн"
                 }
             }
@@ -389,6 +397,7 @@ import Network
         libraryRefresh.cancel()
         connectionCheck?.cancel()
         connectionCheck = nil
+        connectionCheckGeneration = UUID()
         if account?.id != user.id {
             NativePlayer.shared.stop()
             catalog = []; likes = []; playlists = []; lastWave = []; results = []
@@ -452,7 +461,7 @@ import Network
             let _: OK = try await api.request("/api/logout", method: "POST")
             NativePlayer.shared.stop(); preloadTask?.cancel(); preloadTask = nil; lastPreloadIDs = []; lastPreloadAt = .distantPast; searchTask?.cancel(); searchGeneration = UUID(); searchCache = [:]
             sessionGeneration = UUID(); starting = false; snapshotSaveTask?.cancel(); libraryRefresh.cancel()
-            connectionCheck?.cancel(); connectionCheck = nil; sessionReady = false
+            connectionCheck?.cancel(); connectionCheck = nil; connectionCheckGeneration = UUID(); sessionReady = false
             account = nil; cacheAccount(); catalog = []; results = []; likes = []; playlists = []; lastWave = []; query = ""; await api.setCSRF(nil)
         } catch { self.error = error.localizedDescription }
     }
@@ -652,7 +661,7 @@ import Network
     func changeServer(_ value: String) async {
         guard let url = ServerAddress.validated(value) else { error = "Нужен HTTPS-адрес без пути и параметров"; return }
         NativePlayer.shared.stop(); preloadTask?.cancel(); preloadTask = nil; lastPreloadIDs = []; lastPreloadAt = .distantPast; leaveSearch(); catalog = []; results = []; playlists = []; likes = []; account = nil; searchCache = [:]
-        sessionGeneration = UUID(); starting = false; snapshotSaveTask?.cancel(); libraryRefresh.cancel(); connectionCheck?.cancel(); connectionCheck = nil; sessionReady = false
+        sessionGeneration = UUID(); starting = false; snapshotSaveTask?.cancel(); libraryRefresh.cancel(); connectionCheck?.cancel(); connectionCheck = nil; connectionCheckGeneration = UUID(); sessionReady = false
         origin = url; api = MusicAPI(origin: url); lastWave = []; cacheAccount(); await api.setCSRF(nil); UserDefaults.standard.set(url.absoluteString, forKey: "nightwell.server"); await start()
     }
 }
