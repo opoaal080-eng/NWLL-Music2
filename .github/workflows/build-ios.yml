@@ -8,6 +8,7 @@ on:
       - 'NativeTests/**'
       - 'project.yml'
       - 'scripts/verify-native-source.py'
+      - 'scripts/test-*.swift'
       - '.github/workflows/build-ios.yml'
 permissions:
   contents: read
