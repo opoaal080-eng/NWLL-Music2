@@ -14,6 +14,7 @@ struct PremiumView: View {
     @State private var message = "Проверяем подписку…"
     @State private var consent = false
     @State private var checking = false
+    @State private var paying = false
     @State private var activeExpiry: Double?
     @State private var showFeatures = false
     @State private var selectedDetent: PresentationDetent = .height(362)
@@ -137,17 +138,15 @@ struct PremiumView: View {
                 }
                 .buttonStyle(.plain)
                 .nightwellLiquidGlass(24)
-                Text("Оплата откроется в браузере. Автоматическая привязка покупки к аккаунту Nightwell Music пока не настроена.")
+                Text("30 дней за 150 ₽. Оплата откроется в браузере, после подтверждения Lava Premium включится в этом аккаунте.")
                     .font(.footnote)
                     .foregroundStyle(.white.opacity(0.7))
-                Button("Оплатить") {
-                    guard consent, externalPayments,
-                          let url = URL(string: "https://app.lava.top/products/27b2ae8a-0ff9-41ab-8b16-a076421f7dc8/01a9de34-12a7-442c-ab72-7527a4fc3285") else { return }
-                    openURL(url) { opened in if !opened { message = "Не удалось открыть браузер. Повторите попытку." } }
+                Button(paying ? "Создаём счёт…" : "Оплатить") {
+                    Task { await checkout() }
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(pumpkin)
-                .disabled(!consent || !externalPayments)
+                .disabled(!consent || !externalPayments || paying || checking)
                 Button(checking ? "Проверяем…" : "Проверить оплату") { Task { await refresh() } }
                     .buttonStyle(.plain)
                     .foregroundStyle(.blue)
@@ -172,6 +171,30 @@ struct PremiumView: View {
         .nightwellLiquidGlass(24)
     }
 
+    @MainActor private func checkout() async {
+        guard consent, externalPayments, !paying, !checking else { return }
+        paying = true
+        defer { paying = false }
+        do {
+            let identity: Identity = try await api.request("api/me")
+            guard identity.user != nil else { throw APIError(message: "Войди в аккаунт перед оплатой.") }
+            await api.setCSRF(identity.csrf)
+            struct Checkout: Decodable { let confirmation_url: String }
+            let result: Checkout = try await api.request("api/premium/lava/checkout", method: "POST")
+            guard let url = URL(string: result.confirmation_url), url.scheme == "https",
+                  let host = url.host, ["lava.top", "app.lava.top", "gate.lava.top"].contains(host),
+                  url.user == nil, url.password == nil else {
+                throw APIError(message: "Сервер вернул неверную ссылку оплаты.")
+            }
+            message = "Счёт создан. После оплаты вернись в приложение."
+            openURL(url) { opened in
+                if !opened { message = "Не удалось открыть браузер. Повтори попытку, откроется тот же счёт." }
+            }
+        } catch {
+            message = error.localizedDescription
+        }
+    }
+
     @MainActor private func refresh() async {
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--native-smoke-premium") {
@@ -182,6 +205,12 @@ struct PremiumView: View {
         checking = true
         defer { checking = false }
         do {
+            let identity: Identity = try await api.request("api/me")
+            await api.setCSRF(identity.csrf)
+            if identity.user != nil {
+                struct Verified: Decodable { let expires_at: Double? }
+                let _: Verified? = try? await api.request("api/premium/lava/verify", method: "POST")
+            }
             let status: PremiumStatus = try await api.request("api/premium/me")
             activeExpiry = status.premium ? status.expires_at : nil
             if status.premium, let expiry = status.expires_at {
@@ -197,3 +226,4 @@ struct PremiumView: View {
         }
     }
 }
+

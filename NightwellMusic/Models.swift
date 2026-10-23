@@ -76,7 +76,8 @@ actor MusicAPI: LyricsService {
         let (data, response) = try await session.data(for: request)
         try Task.checkCancellation()
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            let message = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String
+            let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            let message = payload?["error"] as? String ?? payload?["detail"] as? String
             throw APIError(message: message ?? "Сервер недоступен. Повтори попытку.")
         }
         return try JSONDecoder().decode(T.self, from: data)
@@ -122,4 +123,5 @@ actor MusicAPI: LyricsService {
         return try Data(contentsOf: file)
     }
 }
+
 

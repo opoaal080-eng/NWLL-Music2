@@ -14,106 +14,216 @@ struct PremiumView: View {
     @State private var message = "Проверяем подписку…"
     @State private var consent = false
     @State private var checking = false
+    @State private var paying = false
     @State private var activeExpiry: Double?
     @State private var showFeatures = false
-    @State private var selectedDetent: PresentationDetent = .height(370)
+    @State private var selectedDetent: PresentationDetent = .height(362)
     private var externalPayments: Bool { Bundle.main.object(forInfoDictionaryKey: "NWExternalPremiumPayments") as? Bool ?? true }
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                if let expiry = activeExpiry, expiry > Date().timeIntervalSince1970 {
-                    activeContent(expiry: expiry)
-                } else {
-                Text("Nightwell Premium").font(.title2.bold())
-                Text("150 ₽ за 30 дней. Без автопродления.").font(.headline)
-                Text("Музыку можно слушать бесплатно. Premium открывает скачивания, эквалайзер с пресетами, оформление, умные плейлисты и статистику. Эквалайзер — в трёх точках плеера; оформление — в настройках; умные подборки — в плейлистах; статистика — в меню.")
-                Text(message).accessibilityIdentifier("premium-status")
-                DisclosureGroup("Условия Premium и реквизиты") {
-                    Text(PremiumTerms.text).textSelection(.enabled).padding(.top, 10)
-                }
-                Text("Колосов Михаил Владимирович\nИНН 780626105592\nnightwell.music@gmail.com")
-                Button { consent.toggle() } label: {
-                    HStack(alignment: .top, spacing: 10) {
-                        Image(systemName: consent ? "checkmark.square.fill" : "square").font(.title3)
-                        Text("Я ознакомился с условиями Premium и согласен с оплатой на указанный срок").multilineTextAlignment(.leading)
-                    }.frame(minHeight: 44)
-                }.buttonStyle(.plain).accessibilityIdentifier("premium-consent")
-                    .accessibilityValue(consent ? "Отмечено" : "Не отмечено")
-                Text("Оплата откроется на сайте в браузере. Войдите там в тот же аккаунт, что и в приложении, и подтвердите актуальные условия. Доступность оплаты проверяется на сайте.").font(.footnote)
-                Button("Перейти к оплате на сайте") {
-                    let origin = api.origin
-                    guard consent, externalPayments, origin.scheme == "https",
-                          let url = URL(string: "/premium.html", relativeTo: origin)?.absoluteURL else { return }
-                    openURL(url) { opened in
-                        if !opened { message = "Не удалось открыть браузер. Повторите попытку." }
-                    }
-                }.disabled(!consent || !externalPayments).accessibilityIdentifier("premium-pay")
-                if !externalPayments { Text("Внешняя оплата отключена в этой сборке.").font(.footnote) }
-                Button(checking ? "Проверяем…" : "Проверить оплату") { Task { await refresh() } }
-                    .disabled(checking)
-                Text("Возврат из браузера сам по себе не подтверждает оплату. Статус проверяет сервер.").font(.footnote)
-                }
-            }.padding(24)
-        }.background(LinearGradient(colors: [nightwellViolet, Color.black], startPoint: .topLeading, endPoint: .bottomTrailing))
+        Group {
+            if let expiry = activeExpiry, expiry > Date().timeIntervalSince1970 {
+                activeSheet(expiry: expiry)
+            } else {
+                inactiveSheet
+            }
+        }
+        .modifier(NightwellSheetSurface(gradient: LinearGradient(colors: [nightwellViolet, Color.black], startPoint: .topLeading, endPoint: .bottomTrailing)))
+        .ignoresSafeArea(.container, edges: .bottom)
         .preferredColorScheme(.dark)
-        .presentationDetents([.height(370), .height(620), .large], selection: $selectedDetent)
-        .onChange(of: activeExpiry) { _, expiry in selectedDetent = expiry == nil ? .large : .height(370) }
-        .onChange(of: showFeatures) { _, expanded in if activeExpiry != nil { selectedDetent = .height(expanded ? 620 : 370) } }
-        .presentationDragIndicator(.visible)
+        
+        .presentationDetents([.height(362), .large], selection: $selectedDetent)
+        .presentationDragIndicator(.hidden)
         .task { await refresh() }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await refresh() } }
         }
     }
-    @ViewBuilder private func activeContent(expiry: Double) -> some View {
-        VStack(spacing: 12) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 56, weight: .medium))
-                .foregroundStyle(.green)
-                .symbolEffect(.bounce, value: activeExpiry)
-                .accessibilityLabel("Подписка подтверждена")
-            Text("Подписка активна").font(.title.bold()).multilineTextAlignment(.center)
-            Text("Активна до " + Date(timeIntervalSince1970: expiry).formatted(.dateTime.day().month(.wide).year().locale(Locale(identifier: "ru_RU"))))
-                .foregroundStyle(.secondary)
-            Button { withAnimation(.spring(response: 0.38, dampingFraction: 0.85)) { showFeatures.toggle() } } label: {
-                Label("Функции Premium", systemImage: "square.grid.2x2")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }.buttonStyle(.plain).padding(16).nightwellLiquidGlass(24)
-            if showFeatures {
-                VStack(alignment: .leading, spacing: 12) {
-                    featureHint("arrow.down.circle", "Скачивания", "Откройте меню трека и нажмите «Скачать».")
-                    featureHint("slider.horizontal.3", "Эквалайзер", "Откройте три точки в большом плеере.")
-                    featureHint("paintpalette", "Оформление", "Откройте «Настройки» в меню приложения.")
-                    featureHint("music.note.list", "Умные плейлисты", "Откройте раздел «Плейлисты» и выберите «Умные плейлисты».")
-                    featureHint("chart.bar", "Статистика", "Откройте «Моя статистика» в меню приложения.")
-                }.transition(.opacity.combined(with: .move(edge: .top)))
-            }
-            Button(checking ? "Проверяем…" : "Обновить статус") { Task { await refresh() } }.disabled(checking)
-        }.frame(maxWidth: .infinity).padding(.vertical, 8)
+
+    private var handle: some View {
+        Capsule().fill(.white.opacity(0.45)).frame(width: 57, height: 4).padding(.top, 10)
     }
+
+    @ViewBuilder private func activeSheet(expiry: Double) -> some View {
+        VStack(spacing: 0) {
+            handle
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 16) {
+                    ZStack {
+                        Circle()
+                            .fill(LinearGradient(colors: [Color(red: 0.34, green: 0.96, blue: 0.52), Color.green], startPoint: .topLeading, endPoint: .bottomTrailing))
+                            .frame(width: 54, height: 54)
+                            .shadow(color: Color.green.opacity(0.28), radius: 18, y: 6)
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 32, weight: .bold))
+                            .foregroundStyle(.black.opacity(0.78))
+                    }
+                    .padding(.top, 26)
+
+                    VStack(spacing: 6) {
+                        Text("Подписка активна")
+                            .font(.system(size: 26, weight: .bold))
+                            .multilineTextAlignment(.center)
+                        Text("Активна до " + Date(timeIntervalSince1970: expiry).formatted(.dateTime.day().month(.wide).year().locale(Locale(identifier: "ru_RU"))))
+                            .foregroundStyle(.white.opacity(0.62))
+                            .font(.system(size: 17, weight: .regular))
+                    }
+
+                    Button {
+                        withAnimation(.spring(response: 0.36, dampingFraction: 0.85)) { showFeatures.toggle() }
+                    } label: {
+                        Label("Функции Premium", systemImage: "square.grid.2x2")
+                            .font(.system(size: 17, weight: .regular))
+                            .foregroundStyle(.white.opacity(0.88))
+                            .frame(maxWidth: .infinity, minHeight: 49, alignment: .leading)
+                            .padding(.horizontal, 18)
+                    }
+                    .buttonStyle(.plain)
+                    .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+                    .nightwellLiquidGlass(24)
+
+                    if showFeatures {
+                        VStack(alignment: .leading, spacing: 8) {
+                            featureHint("arrow.down.circle", "Скачивания", "Откройте меню трека и нажмите «Скачать»." )
+                            featureHint("slider.horizontal.3", "Эквалайзер", "Откройте три точки в большом плеере.")
+                            featureHint("paintpalette", "Оформление", "Откройте «Настройки» в меню приложения.")
+                            featureHint("music.note.list", "Умные плейлисты", "Откройте раздел «Плейлисты» и выберите «Умные плейлисты»." )
+                            featureHint("chart.bar", "Статистика", "Откройте «Моя статистика» в меню приложения.")
+                        }
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
+
+                    Button(checking ? "Проверяем…" : "Обновить статус") {
+                        Task { await refresh() }
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 17, weight: .regular))
+                    .foregroundStyle(Color.blue)
+                    .disabled(checking)
+                    .padding(.bottom, 8)
+                }
+                .padding(.horizontal, 23)
+                .padding(.bottom, 12)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(
+            LinearGradient(colors: [Color(red: 0.24, green: 0.10, blue: 0.40).opacity(0.92), Color.black.opacity(0.95)], startPoint: .topLeading, endPoint: .bottomTrailing)
+        )
+    }
+
+    private var inactiveSheet: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 12) {
+                handle.frame(maxWidth: .infinity)
+                Text("Nightwell Premium").font(.title2.bold())
+                Text("Выберите тариф и оформите подписку на странице оплаты.").font(.headline)
+                Text("Музыку можно слушать бесплатно. Premium открывает скачивания, эквалайзер с пресетами, оформление, умные плейлисты и статистику.")
+                Text(message).accessibilityIdentifier("premium-status")
+                DisclosureGroup("Условия Premium") {
+                    Text(PremiumTerms.text).textSelection(.enabled).padding(.top, 10)
+                }
+                .padding(16)
+                .nightwellLiquidGlass(24)
+                Button {
+                    consent.toggle()
+                } label: {
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: consent ? "checkmark.square.fill" : "square").font(.title3)
+                        Text("Я ознакомился с условиями Premium и согласен с оплатой на указанный срок").multilineTextAlignment(.leading)
+                    }
+                    .frame(minHeight: 44)
+                    .padding(16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .nightwellLiquidGlass(24)
+                Text("30 дней за 150 ₽. Оплата откроется в браузере, после подтверждения Lava Premium включится в этом аккаунте.")
+                    .font(.footnote)
+                    .foregroundStyle(.white.opacity(0.7))
+                Button(paying ? "Создаём счёт…" : "Оплатить") {
+                    Task { await checkout() }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(pumpkin)
+                .disabled(!consent || !externalPayments || paying || checking)
+                Button(checking ? "Проверяем…" : "Проверить оплату") { Task { await refresh() } }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.blue)
+                    .disabled(checking)
+            }
+            .padding(10)
+        }
+        .background(Color.clear)
+    }
+
     @ViewBuilder private func featureHint(_ icon: String, _ title: String, _ hint: String) -> some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: icon).frame(width: 24).foregroundStyle(.tint)
+            Image(systemName: icon).frame(width: 24).foregroundStyle(pumpkin)
             VStack(alignment: .leading, spacing: 4) {
                 Text(title).font(.headline)
                 Text(hint).font(.footnote).foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
-        }.padding(16).frame(maxWidth: .infinity, alignment: .leading).nightwellLiquidGlass(24)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .nightwellLiquidGlass(24)
     }
+
+    @MainActor private func checkout() async {
+        guard consent, externalPayments, !paying, !checking else { return }
+        paying = true
+        defer { paying = false }
+        do {
+            let identity: Identity = try await api.request("api/me")
+            guard identity.user != nil else { throw APIError(message: "Войди в аккаунт перед оплатой.") }
+            await api.setCSRF(identity.csrf)
+            struct Checkout: Decodable { let confirmation_url: String }
+            let result: Checkout = try await api.request("api/premium/lava/checkout", method: "POST")
+            guard let url = URL(string: result.confirmation_url), url.scheme == "https",
+                  let host = url.host, ["lava.top", "app.lava.top", "gate.lava.top"].contains(host),
+                  url.user == nil, url.password == nil else {
+                throw APIError(message: "Сервер вернул неверную ссылку оплаты.")
+            }
+            message = "Счёт создан. После оплаты вернись в приложение."
+            openURL(url) { opened in
+                if !opened { message = "Не удалось открыть браузер. Повтори попытку, откроется тот же счёт." }
+            }
+        } catch {
+            message = error.localizedDescription
+        }
+    }
+
     @MainActor private func refresh() async {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--native-smoke-premium") {
+            activeExpiry = 1824076800; return
+        }
+        #endif
         guard !checking else { return }
         checking = true
         defer { checking = false }
         do {
+            let identity: Identity = try await api.request("api/me")
+            await api.setCSRF(identity.csrf)
+            if identity.user != nil {
+                struct Verified: Decodable { let expires_at: Double? }
+                let _: Verified? = try? await api.request("api/premium/lava/verify", method: "POST")
+            }
             let status: PremiumStatus = try await api.request("api/premium/me")
             activeExpiry = status.premium ? status.expires_at : nil
-            selectedDetent = activeExpiry == nil ? .large : .height(showFeatures ? 620 : 370)
             if status.premium, let expiry = status.expires_at {
                 message = "Premium активен до " + Date(timeIntervalSince1970: expiry).formatted(date: .abbreviated, time: .omitted)
             } else if status.test_premium {
                 message = "Тестовый платёж подтверждён. Платная подписка не активирована."
-            } else { message = "Активной подписки нет." }
-        } catch { activeExpiry = nil; message = "Статус недоступен. Войдите в аккаунт и проверьте соединение." }
+            } else {
+                message = "Активной подписки нет."
+            }
+        } catch {
+            activeExpiry = nil
+            message = "Статус недоступен. Войдите в аккаунт и проверьте соединение."
+        }
     }
 }
+
