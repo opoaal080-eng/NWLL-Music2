@@ -33,7 +33,13 @@ try:
     adb('shell','input','keyevent','82')
     for width,height,density in [(1080,1920,420),(720,1280,320)]:
         adb('shell','wm','size',f'{width}x{height}');adb('shell','wm','density',str(density));launch('menu')
-        values=capture('menu-'+str(width));assert find('Главная',values) is not None
+        # The popup is posted to the UI thread; emulator startup can outlast
+        # the fixed two-second launch delay under a busy CI runner.
+        for attempt in range(8):
+            values=capture('menu-'+str(width))
+            if find('Главная',values) is not None:break
+            time.sleep(1)
+        assert find('Главная',values) is not None,'Menu popup did not become visible'
         scroll=next(n for n in values if n.get('scrollable')=='true')
         l,t,r,b=map(int,re.findall(r'\d+',scroll.get('bounds')))
         for _ in range(4):
