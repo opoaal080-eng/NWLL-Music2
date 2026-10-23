@@ -396,7 +396,64 @@ public final class MainActivity extends Activity {
         list=new ListView(this);list.setDivider(null);list.setCacheColorHint(Color.TRANSPARENT);adapter=new TrackAdapter();list.setAdapter(adapter);body.addView(list,new LinearLayout.LayoutParams(-1,0,1));list.setOnItemClickListener((p,v,pos,id)->play(shown.optJSONObject(pos),shown,false));list.setOnItemLongClickListener((p,v,pos,id)->{trackMenu(shown.optJSONObject(pos));return true;});
     }
     void updateList(){if(shown==null)shown=new JSONArray();if(adapter!=null)adapter.notifyDataSetChanged();}
-    void load(){final long ticket=accountRequest.start(()->{});task(()->{JSONObject me=api.request("api/me");JSONObject u=me.optJSONObject("user");if(u==null)return me;JSONObject out=new JSONObject().put("user",u).put("csrf",me.optString("csrf",""));out.put("catalog",api.request("api/tracks").getJSONArray("tracks"));out.put("likes",api.request("api/likes").getJSONArray("ids"));out.put("playlists",api.request("api/playlists").getJSONArray("playlists"));return out;},v->{if(!accountRequest.complete(ticket))return;api.updateCSRF(v.optString("csrf",""));JSONObject u=v.optJSONObject("user");user=u==null?"":u.optString("id");getSharedPreferences("native-api",MODE_PRIVATE).edit().putString("account",user).apply();sessionReady=true;if(playback!=null&&pendingDeepLinkTrack.isEmpty())playback.restorePlayback(origin,user);catalog=v.optJSONArray("catalog");if(catalog==null)catalog=new JSONArray();playlists=v.optJSONArray("playlists");if(playlists==null)playlists=new JSONArray();likes.clear();JSONArray ids=v.optJSONArray("likes");if(ids!=null)for(int i=0;i<ids.length();i++)likes.add(ids.optString(i));if(!full&&!screen.equals("Поиск"))showScreen();openPendingTrack();});}
+    void load(){
+        final long ticket=accountRequest.start(()->{});
+        io.execute(()->{
+            try {
+                JSONObject me=api.request("api/me");
+                ui.post(()->{
+                    if(isDestroyed()||!accountRequest.complete(ticket))return;
+                    api.updateCSRF(me.optString("csrf",""));
+                    JSONObject account=me.optJSONObject("user");
+                    user=account==null?"":account.optString("id");
+                    getSharedPreferences("native-api",MODE_PRIVATE).edit().putString("account",user).apply();
+                    sessionReady=true;
+                    if(playback!=null&&pendingDeepLinkTrack.isEmpty())playback.restorePlayback(origin,user);
+                    if(!full&&!screen.equals("Поиск"))showScreen();
+                    openPendingTrack();
+                    if(!user.isEmpty())loadLibrary(user);
+                });
+            }catch(Exception ex){
+                ui.post(()->{
+                    if(isDestroyed())return;
+                    // A network failure is not evidence that the cached account logged out.
+                    sessionReady=true;
+                    status.setText(friendly(ex));
+                });
+            }
+        });
+    }
+    void loadLibrary(String account){
+        final NativeAPI client=api;
+        io.execute(()->{
+            try{
+                JSONObject value=client.request("api/tracks");
+                JSONArray tracks=value.optJSONArray("tracks");
+                ui.post(()->{if(!isDestroyed()&&client==api&&account.equals(user)&&tracks!=null){
+                    catalog=tracks;if(!full&&!screen.equals("Поиск"))showScreen();
+                }});
+            }catch(Exception ex){ui.post(()->{if(!isDestroyed())status.setText(friendly(ex));});}
+        });
+        io.execute(()->{
+            try{
+                JSONObject value=client.request("api/likes");
+                JSONArray ids=value.optJSONArray("ids");
+                ui.post(()->{if(!isDestroyed()&&client==api&&account.equals(user)&&ids!=null){
+                    likes.clear();for(int i=0;i<ids.length();i++)likes.add(ids.optString(i));
+                    if(!full&&screen.equals("Избранное"))showScreen();
+                }});
+            }catch(Exception ignored){}
+        });
+        io.execute(()->{
+            try{
+                JSONObject value=client.request("api/playlists");
+                JSONArray items=value.optJSONArray("playlists");
+                ui.post(()->{if(!isDestroyed()&&client==api&&account.equals(user)&&items!=null){
+                    playlists=items;if(!full&&screen.equals("Плейлисты"))showScreen();
+                }});
+            }catch(Exception ignored){}
+        });
+    }
     void smokeFixture(String page){try{user="smoke";catalog=new JSONArray();for(int i=0;i<24;i++)catalog.put(new JSONObject().put("id",String.format(java.util.Locale.ROOT,"%032x",i+1)).put("title",i==0?"Очень длинное название трека, которое должно аккуратно поместиться":"Трек "+(i+1)).put("artist","Nightwell Music · Исполнитель"));queue=catalog;playlists=new JSONArray();for(int i=0;i<16;i++)playlists.put(new JSONObject().put("id","fixture"+i).put("name","Мой плейлист "+(i+1)));for(int i=0;i<catalog.length();i++)likes.add(catalog.getJSONObject(i).getString("id"));currentID=catalog.getJSONObject(0).getString("id");miniTitle.setText(catalog.getJSONObject(0).getString("title"));miniArtist.setText("Nightwell Music");if("menu".equals(page)){head.post(this::menu);}else if("player".equals(page))openPlayer();else if("settings".equals(page))settings();else if("premium-sound".equals(page)||"premium-appearance".equals(page)){premiumOwner=user;premiumUntil=System.currentTimeMillis()+3600000;premiumChecked=System.currentTimeMillis();premiumPrefs=new JSONObject().put("bands",new JSONArray("[0,0,0,0,0]")).put("presets",new JSONObject()).put("theme","nightwell").put("ribbon_speed",1).put("ribbon_intensity",1);if("premium-sound".equals(page))equalizerPanel();else appearancePanel();}else if("wave-settings".equals(page))waveSettings();else if("auth".equals(page))auth();else if("queue".equals(page))showQueue();else if(page!=null)navigate(page);}catch(JSONException e){throw new IllegalStateException(e);}}
     String friendly(Exception error){if(error instanceof java.net.UnknownHostException||error instanceof java.net.ConnectException||error instanceof java.net.SocketTimeoutException)return "Нет соединения. Офлайн-файлы доступны в меню.";String message=error.getMessage();return message!=null&&!message.startsWith("Unable")&&message.length()<180?message:"Не удалось выполнить действие. Повтори попытку.";}
     interface Work{JSONObject run()throws Exception;} interface Done{void run(JSONObject value);}
@@ -751,7 +808,9 @@ public final class MainActivity extends Activity {
         });};
         refresh.setOnClickListener(v->check.run());premiumRefresh=check;dialog.setOnDismissListener(d->{if(premiumRefresh==check)premiumRefresh=null;});dialog.show();check.run();
     }
+    private AlertDialog activeAuthDialog;
     void auth(){
+        if(activeAuthDialog!=null&&activeAuthDialog.isShowing())return;
         LinearLayout form=column();form.setPadding(dp(20),dp(4),dp(20),dp(8));
         TextView caption=text("Войди в аккаунт Nightwell Music или создай новый.",14);caption.setTextColor(0xff9fa6b8);caption.setPadding(0,0,0,dp(10));form.addView(caption);
         EditText email=new EditText(this),password=new EditText(this);
@@ -763,7 +822,8 @@ public final class MainActivity extends Activity {
         AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Вход").setView(form)
             .setPositiveButton("Войти",null).setNeutralButton("Регистрация",null)
             .setNegativeButton("Отмена",null).create();
-        styleSheet(dialog);dialog.show();
+        styleSheet(dialog);dialog.setOnDismissListener(d->{if(activeAuthDialog==dialog)activeAuthDialog=null;});
+        activeAuthDialog=dialog;dialog.show();
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->loginFromDialog(dialog,email,password,feedback,false));
         dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v->loginFromDialog(dialog,email,password,feedback,true));
     }
