@@ -146,13 +146,19 @@ import Network
             do {
                 // Reuse the authenticated connection instead of negotiating a new TLS session.
                 let _: Identity = try await client.request("/api/me", timeout: 8)
-                guard !Task.isCancelled, self.origin == server, self.sessionGeneration == session, self.connectionCheckGeneration == checkID else { return }
+                guard !Task.isCancelled, self.hasNetworkPath, self.origin == server,
+                      self.sessionGeneration == session, self.connectionCheckGeneration == checkID else { return }
                 let wasOffline = self.connectionStatus == "Оффлайн"
                 self.connectionStatus = "Онлайн"
                 if wasOffline && self.account != nil &&
                     Date().timeIntervalSince(self.lastConnectionRefresh) > 30 {
                     self.lastConnectionRefresh = Date()
-                    await self.refresh()
+                    // Keep the connectivity checker free while the library reloads.
+                    Task { [weak self] in
+                        guard let self, self.sessionGeneration == session, self.origin == server,
+                              self.hasNetworkPath else { return }
+                        await self.refresh()
+                    }
                 }
             } catch {
                 if !Task.isCancelled, self.origin == server, self.sessionGeneration == session, self.connectionCheckGeneration == checkID { self.connectionStatus = "Оффлайн" }
