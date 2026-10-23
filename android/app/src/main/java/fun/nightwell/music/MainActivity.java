@@ -123,7 +123,7 @@ public final class MainActivity extends Activity {
         android.widget.FrameLayout scene=new android.widget.FrameLayout(this);
         scene.setBackground(new NativeSceneryDrawable(this));
         atmosphere=new HalloweenAtmosphere(this);scene.addView(atmosphere,new android.widget.FrameLayout.LayoutParams(-1,-1));
-        ribbon=new RibbonView(this);ui.post(this::applyPremium);ribbon.meter(()->playback==null?0:playback.level());
+        ribbon=new RibbonView(this);ui.post(this::applyPremium);ribbon.meter(()->playback==null?0:playback.level());ribbon.bands(index->playback==null?0:playback.bandLevel(index));
         ribbon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         scene.addView(ribbon,new android.widget.FrameLayout.LayoutParams(-1,-1));
         root=column();root.setPadding(dp(18),dp(10),dp(18),dp(8));
