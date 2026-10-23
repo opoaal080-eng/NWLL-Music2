@@ -32,6 +32,10 @@ final class RibbonView extends View {
   int[] a=palette[index],b=palette[(index+1)%4];
   return Color.rgb((int)(a[0]+(b[0]-a[0])*blend),(int)(a[1]+(b[1]-a[1])*blend),(int)(a[2]+(b[2]-a[2])*blend));
  }
+ private double deltaForSmoothing(){
+  long now=android.os.SystemClock.uptimeMillis();
+  return lastFrame==0?1.0/30:Math.max(0.001,Math.min(.1,(now-lastFrame)/1000.0));
+ }
  @Override protected void onDraw(Canvas canvas){
   super.onDraw(canvas);
   final float w=getWidth(),h=getHeight();if(w<1||h<1)return;
@@ -46,7 +50,12 @@ final class RibbonView extends View {
    if(Double.isFinite(value)){selected+=Math.max(0,Math.min(1,value));enabled++;}
   }
   raw=playing&&enabled>0?Math.min(1,selected/enabled*premiumIntensity):0;
-  energy+=(raw-energy)*(raw>energy?.55:.2);
+  // Gentle dynamic range compression makes quiet tracks visible without
+  // forcing loud tracks to remain at maximum brightness.
+  raw=Math.pow(raw,0.72);
+  double rise=1-Math.exp(-deltaForSmoothing()*13.0);
+  double fall=1-Math.exp(-deltaForSmoothing()*5.0);
+  energy+=(raw-energy)*(raw>energy?rise:fall);
   long now=android.os.SystemClock.uptimeMillis();
   double delta=lastFrame==0?1.0/30:Math.min(.1,(now-lastFrame)/1000.0);lastFrame=now;
   phase+=delta*.8*premiumSpeed;
