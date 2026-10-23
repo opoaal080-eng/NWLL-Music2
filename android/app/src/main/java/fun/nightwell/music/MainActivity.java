@@ -199,8 +199,12 @@ public final class MainActivity extends Activity {
     @Override protected void onActivityResult(int request,int result,Intent data){
         super.onActivityResult(request,result,data);
         if(request==72){handleAudioImportResult(request,result,data);return;}
-        if(request!=631||result!=RESULT_OK||data==null||data.getData()==null||supportUploadTicket.isEmpty())return;
+        if(request!=631&&request!=632)return;
+        if(result!=RESULT_OK||data==null||data.getData()==null||supportUploadTicket.isEmpty()){
+            supportUploadTicket="";return;
+        }
         final String id=supportUploadTicket;final boolean adminMode=supportUploadAdmin;
+        supportUploadTicket="";
         final Uri uri=data.getData();
         task(()->{
             String name="attachment";
@@ -216,6 +220,19 @@ public final class MainActivity extends Activity {
             }
             return api.uploadSupportAttachment(id,name,bytes);
         },uploadResult->supportDetail(id,adminMode));
+    }
+    void chooseSupportAttachment(){
+        new AlertDialog.Builder(this).setTitle("Прикрепить вложение")
+            .setItems(new String[]{"Файлы","Галерея"},(dialog,which)->{
+                Intent choose=new Intent(which==0?Intent.ACTION_OPEN_DOCUMENT:Intent.ACTION_GET_CONTENT);
+                choose.setType(which==0?"*/*":"image/*");
+                choose.addCategory(Intent.CATEGORY_OPENABLE);
+                try{startActivityForResult(choose,which==0?631:632);}
+                catch(android.content.ActivityNotFoundException ex){
+                    supportUploadTicket="";
+                    Toast.makeText(this,"Нет приложения для выбора вложения",Toast.LENGTH_LONG).show();
+                }
+            }).setNegativeButton("Отмена",(dialog,which)->supportUploadTicket="").show();
     }
     void supportCreate(){
         LinearLayout form=column();form.setPadding(dp(16),dp(8),dp(16),dp(8));
@@ -297,7 +314,7 @@ public final class MainActivity extends Activity {
             }
             ScrollView scroll=new ScrollView(this);scroll.addView(panel);
             AlertDialog dialog=new AlertDialog.Builder(this).setTitle(data.optString("subject")).setView(scroll).setNegativeButton("Закрыть",null).create();
-            if(!data.optString("status").equals("closed"))panel.addView(action("Прикрепить файл до 10 МБ",()->{supportUploadTicket=id;supportUploadAdmin=adminMode;Intent choose=new Intent(Intent.ACTION_OPEN_DOCUMENT);choose.setType("*/*");choose.addCategory(Intent.CATEGORY_OPENABLE);startActivityForResult(choose,631);dialog.dismiss();}));
+            if(!data.optString("status").equals("closed"))panel.addView(action("Прикрепить файл до 10 МБ",()->{supportUploadTicket=id;supportUploadAdmin=adminMode;dialog.dismiss();chooseSupportAttachment();}));
             if(!data.optString("status").equals("closed"))panel.addView(action(adminMode?"Ответить":"Дополнить",()->{
                 EditText reply=new EditText(this);reply.setMinLines(3);
                 new AlertDialog.Builder(this).setTitle("Сообщение").setView(reply).setNegativeButton("Отмена",null).setPositiveButton("Отправить",(d,n)->task(()->api.request((adminMode?"api/support/admin/tickets/":"api/support/tickets/")+id+"/messages","POST",new JSONObject().put("body",reply.getText().toString())),result->{dialog.dismiss();supportDetail(id,adminMode);})).show();
