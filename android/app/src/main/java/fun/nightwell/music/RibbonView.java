@@ -15,8 +15,10 @@ final class RibbonView extends View {
  void setAuraResponse(boolean voice,boolean low,boolean mid,boolean high){auraVoice=voice;auraLow=low;auraMid=mid;auraHigh=high;invalidate();}
  double premiumSpeed=1,premiumIntensity=1;String premiumTheme="nightwell";
  private java.util.function.DoubleSupplier meter=()->0;
+ private java.util.function.IntToDoubleFunction bands=i->0;
  RibbonView(Context c){super(c);setLayerType(View.LAYER_TYPE_HARDWARE,null);}
  void meter(java.util.function.DoubleSupplier m){meter=m;}
+ void bands(java.util.function.IntToDoubleFunction b){bands=b;}
  void running(boolean value){running=value;lastFrame=0;if(value)postInvalidateOnAnimation();}
  void playing(boolean value){playing=value;if(running)postInvalidateOnAnimation();}
  void flash(){flashAt=android.os.SystemClock.uptimeMillis();invalidate();}
@@ -36,11 +38,14 @@ final class RibbonView extends View {
   double raw=0;try{raw=meter.getAsDouble();}catch(RuntimeException ignored){}
   if(!Double.isFinite(raw))raw=0;
   raw=playing?Math.max(0,Math.min(1,raw*premiumIntensity)):0;
-  // The playback meter currently provides aggregate volume, not separate FFT bands.
-  // Keep the toggles functional as a broad aura-sensitivity control while an FFT
-  // provider is not available; do not synthesize or claim frequency isolation.
-  int enabled=(auraVoice?1:0)+(auraLow?1:0)+(auraMid?1:0)+(auraHigh?1:0);
-  raw*=enabled/4.0;
+  // Use independently measured PCM envelopes; combine any enabled ranges.
+  double selected=0;int enabled=0;
+  boolean[] choices={auraVoice,auraLow,auraMid,auraHigh};
+  for(int i=0;i<4;i++)if(choices[i]){
+   double value=0;try{value=bands.applyAsDouble(i);}catch(RuntimeException ignored){}
+   if(Double.isFinite(value)){selected+=Math.max(0,Math.min(1,value));enabled++;}
+  }
+  raw=playing&&enabled>0?Math.min(1,selected/enabled*premiumIntensity):0;
   energy+=(raw-energy)*(raw>energy?.55:.2);
   long now=android.os.SystemClock.uptimeMillis();
   double delta=lastFrame==0?1.0/30:Math.min(.1,(now-lastFrame)/1000.0);lastFrame=now;
