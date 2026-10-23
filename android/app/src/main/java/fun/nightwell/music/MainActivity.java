@@ -263,6 +263,8 @@ public final class MainActivity extends Activity {
                 if(bytes.length>10*1024*1024)throw new java.io.IOException("Файл больше 10 МБ");
                 String name=attachment.optString("name","attachment").replace("/","_").replace("\\","_");
                 String mime=attachment.optString("mime","application/octet-stream");
+                if(mime==null||mime.trim().isEmpty())mime="application/octet-stream";
+                final String contentType=mime;
                 if(android.os.Build.VERSION.SDK_INT<29){
                     java.io.File folder=new java.io.File(getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS),"Nightwell Music");
                     if(!folder.exists()&&!folder.mkdirs())throw new java.io.IOException("Не удалось создать папку");
@@ -273,14 +275,21 @@ public final class MainActivity extends Activity {
                 }
                 android.content.ContentValues values=new android.content.ContentValues();
                 values.put(android.provider.MediaStore.Downloads.DISPLAY_NAME,name);
-                values.put(android.provider.MediaStore.Downloads.MIME_TYPE,mime);
+                values.put(android.provider.MediaStore.Downloads.MIME_TYPE,contentType);
+                values.put(android.provider.MediaStore.Downloads.IS_PENDING,1);
                 values.put(android.provider.MediaStore.Downloads.RELATIVE_PATH,android.os.Environment.DIRECTORY_DOWNLOADS+"/Nightwell Music");
                 Uri saved=getContentResolver().insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI,values);
                 if(saved==null)throw new java.io.IOException("Не удалось сохранить файл");
                 try(java.io.OutputStream out=getContentResolver().openOutputStream(saved)){
                     if(out==null)throw new java.io.IOException("Файл недоступен");
                     out.write(bytes);
+                }catch(Exception writeError){
+                    getContentResolver().delete(saved,null,null);
+                    throw writeError;
                 }
+                android.content.ContentValues ready=new android.content.ContentValues();
+                ready.put(android.provider.MediaStore.Downloads.IS_PENDING,0);
+                getContentResolver().update(saved,ready,null,null);
                 ui.post(()->{
                     Intent view=new Intent(Intent.ACTION_VIEW).setDataAndType(saved,mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
                     try{startActivity(view);}catch(android.content.ActivityNotFoundException ex){Toast.makeText(this,"Сохранено в Загрузки/Nightwell Music",Toast.LENGTH_LONG).show();}
