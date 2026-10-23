@@ -387,7 +387,13 @@ import Network
         starting = false
         snapshotSaveTask?.cancel()
         libraryRefresh.cancel()
-        if account?.id != user.id { catalog = []; likes = []; playlists = []; lastWave = []; results = [] }
+        connectionCheck?.cancel()
+        connectionCheck = nil
+        if account?.id != user.id {
+            NativePlayer.shared.stop()
+            catalog = []; likes = []; playlists = []; lastWave = []; results = []
+            searchTask?.cancel(); searchGeneration = UUID(); searchCache = [:]
+        }
         account = user
         emailChallenge = nil
         cacheAccount()
@@ -446,6 +452,7 @@ import Network
             let _: OK = try await api.request("/api/logout", method: "POST")
             NativePlayer.shared.stop(); preloadTask?.cancel(); preloadTask = nil; lastPreloadIDs = []; lastPreloadAt = .distantPast; searchTask?.cancel(); searchGeneration = UUID(); searchCache = [:]
             sessionGeneration = UUID(); starting = false; snapshotSaveTask?.cancel(); libraryRefresh.cancel()
+            connectionCheck?.cancel(); connectionCheck = nil; sessionReady = false
             account = nil; cacheAccount(); catalog = []; results = []; likes = []; playlists = []; lastWave = []; query = ""; await api.setCSRF(nil)
         } catch { self.error = error.localizedDescription }
     }
@@ -645,7 +652,7 @@ import Network
     func changeServer(_ value: String) async {
         guard let url = ServerAddress.validated(value) else { error = "Нужен HTTPS-адрес без пути и параметров"; return }
         NativePlayer.shared.stop(); preloadTask?.cancel(); preloadTask = nil; lastPreloadIDs = []; lastPreloadAt = .distantPast; leaveSearch(); catalog = []; results = []; playlists = []; likes = []; account = nil; searchCache = [:]
-        sessionGeneration = UUID(); starting = false; snapshotSaveTask?.cancel(); libraryRefresh.cancel(); connectionCheck?.cancel(); sessionReady = false
+        sessionGeneration = UUID(); starting = false; snapshotSaveTask?.cancel(); libraryRefresh.cancel(); connectionCheck?.cancel(); connectionCheck = nil; sessionReady = false
         origin = url; api = MusicAPI(origin: url); lastWave = []; cacheAccount(); await api.setCSRF(nil); UserDefaults.standard.set(url.absoluteString, forKey: "nightwell.server"); await start()
     }
 }
