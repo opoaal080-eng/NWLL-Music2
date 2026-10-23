@@ -7,18 +7,21 @@ final class IndependentAudioMeter {
     private(set) var key = ""
     private(set) var envelope: TrackEnvelope?
     private var generation = UUID()
+    private var preparation = AuraPreparationPolicy()
     private var download: EnvelopeDownload?
     private var worker: Task<Void, Never>?
     private let cache = NSCache<NSString, NSData>()
     init() { cache.totalCostLimit = 2 * 1024 * 1024; cache.countLimit = 24 }
 
     func cancel(keepingEnvelope: Bool = false) {
+        preparation = AuraPreparationPolicy()
         generation = UUID(); download?.cancel(); download = nil; worker?.cancel(); worker = nil
         if !keepingEnvelope || envelope == nil { envelope = nil; key = "" }
     }
     func prepare(key: String, local: URL?, request: URLRequest?, origin: URL) {
-        guard self.key != key else { return }
-        cancel(); self.key = key
+        if self.key != key { cancel(); self.key = key }
+        guard envelope == nil, worker == nil, download == nil,
+              preparation.begin(now: ProcessInfo.processInfo.systemUptime) else { return }
         if let data = cache.object(forKey: key as NSString) as Data?,
            let value = try? JSONDecoder().decode(TrackEnvelope.self, from: data), value.valid { envelope = value; return }
         let expected = generation
@@ -31,7 +34,7 @@ final class IndependentAudioMeter {
                 self.worker = nil
                 if let cached { self.accept(cached, key: key); return }
                 if let local { self.analyse(local, temporary: false, expected: expected); return }
-                guard let request else { return }
+                guard let request else { self.failed(expected: expected); return }
                 let download = EnvelopeDownload(origin: origin)
                 self.download = download
                 download.start(request) { [weak self] result in
@@ -41,7 +44,10 @@ final class IndependentAudioMeter {
                             return
                         }
                         self.download = nil
-                        if case let .success(file) = result { self.analyse(file, temporary: true, expected: expected) }
+                        switch result {
+                        case let .success(file): self.analyse(file, temporary: true, expected: expected)
+                        case .failure: self.failed(expected: expected)
+                        }
                     }
                 }
             }
@@ -51,13 +57,21 @@ final class IndependentAudioMeter {
         let currentKey = key
         worker = Task.detached(priority: .utility) { [weak self] in
             defer { if temporary { try? FileManager.default.removeItem(at: file) } }
-            guard let value = try? TrackEnvelope.analyse(file, cancelled: { Task.isCancelled }), !Task.isCancelled else { return }
+            guard let value = try? TrackEnvelope.analyse(file, cancelled: { Task.isCancelled }), !Task.isCancelled else {
+                await MainActor.run { self?.failed(expected: expected) }
+                return
+            }
             EnvelopeCache.write(value, key: currentKey)
             await MainActor.run {
                 guard let self, self.generation == expected else { return }
                 self.worker = nil; self.accept(value, key: currentKey)
             }
         }
+    }
+    private func failed(expected: UUID) {
+        guard generation == expected else { return }
+        worker = nil; download = nil
+        preparation.failed(now: ProcessInfo.processInfo.systemUptime)
     }
     private func accept(_ value: TrackEnvelope, key: String) {
         envelope = value
@@ -141,8 +155,8 @@ final class EnvelopeDownload: NSObject, URLSessionDownloadDelegate {
                   size > 256, size <= OfflineStore.limit else { throw URLError(.badServerResponse) }
             let input = try FileHandle(forReadingFrom: location); defer { try? input.close() }
             let header = try input.read(upToCount: 12) ?? Data()
-            guard header.count >= 8, String(data: header[4..<8], encoding: .ascii) == "ftyp" else { throw URLError(.cannotDecodeContentData) }
-            let target = FileManager.default.temporaryDirectory.appendingPathComponent("aura-" + UUID().uuidString + ".m4a")
+            guard let fileExtension = AuraAudioContainer.fileExtension(header) else { throw URLError(.cannotDecodeContentData) }
+            let target = FileManager.default.temporaryDirectory.appendingPathComponent("aura-" + UUID().uuidString + "." + fileExtension)
             try FileManager.default.moveItem(at: location, to: target); finish(.success(target))
         } catch { finish(.failure(error)) }
     }
@@ -158,3 +172,4 @@ final class EnvelopeDownload: NSObject, URLSessionDownloadDelegate {
         completionHandler(request.url.map { ServerAddress.sameOrigin(origin, $0) } == true ? request : nil)
     }
 }
+

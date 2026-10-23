@@ -28,6 +28,10 @@ jobs:
         run: |
           swiftc NightwellMusic/LibraryRefreshCoordinator.swift scripts/test-library-refresh.swift -o /tmp/test-library-refresh
           /tmp/test-library-refresh
+      - name: Test aura preparation
+        run: |
+          swiftc NightwellMusic/AuraPreparationPolicy.swift scripts/test-aura-preparation.swift -o /tmp/test-aura-preparation
+          /tmp/test-aura-preparation
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Select latest installed Xcode

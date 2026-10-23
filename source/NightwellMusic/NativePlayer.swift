@@ -17,11 +17,20 @@ struct NativeTrack {
     var offlineLyrics: [String: Any]? = nil
 }
 
+// Retry activation when iOS makes this playback session eligible for Now Playing.
+private final class NowPlayingEligibilityDelegate: NSObject, MPNowPlayingSessionDelegate {
+    var eligibilityChanged: (() -> Void)?
+    func nowPlayingSessionDidChangeCanBecomeActive(_ nowPlayingSession: MPNowPlayingSession) {
+        DispatchQueue.main.async { [weak self] in self?.eligibilityChanged?() }
+    }
+}
+
 // All state changes and AVPlayer commands run on the main thread.
 final class NativePlayer {
     static let shared = NativePlayer()
     let player = AVPlayer()
     private lazy var nowPlayingSession = MPNowPlayingSession(players: [player])
+    private let nowPlayingEligibility = NowPlayingEligibilityDelegate()
     private var activatingNowPlaying = false
     private var audioMeter = LocalAudioMeter()
     private let enginePlayback = NativeEQPlayback()
@@ -94,7 +103,7 @@ final class NativePlayer {
         }
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification,
             object: nil, queue: .main) { [weak self] _ in
-                self?.appIsActive = true; self?.publish()
+                self?.appIsActive = true; self?.refreshIndependentMeter(); self?.publish()
             })
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.willResignActiveNotification,
             object: nil, queue: .main) { [weak self] _ in
@@ -102,6 +111,8 @@ final class NativePlayer {
             })
         fadeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.04, preferredTimescale: 600), queue: .main) { [weak self] _ in self?.updateFade() }
         nowPlayingSession.automaticallyPublishesNowPlayingInfo = false
+        nowPlayingEligibility.eligibilityChanged = { [weak self] in self?.activateNowPlayingSession() }
+        nowPlayingSession.delegate = nowPlayingEligibility
         let center = nowPlayingSession.remoteCommandCenter
         center.skipForwardCommand.isEnabled = false
         center.skipBackwardCommand.isEnabled = false
@@ -527,7 +538,6 @@ final class NativePlayer {
         guard appIsActive, audible,
               let current, let origin, !AVAudioSession.sharedInstance().currentRoute.outputs.isEmpty else { return }
         let key = origin.absoluteString + "|" + offlineAccount + "|" + current.offlineAccount + "|" + current.id
-        guard independentMeter.key != key else { return }
         let local = OfflineStore.audio(origin: origin, account: current.offlineAccount.isEmpty ? offlineAccount : current.offlineAccount, id: current.id)
         var request = URLRequest(url: origin.appendingPathComponent("api/offline-export/" + current.id))
         request.url = URL(string: "api/offline-export/" + current.id + "?download=true&wait=true", relativeTo: origin)
@@ -541,13 +551,26 @@ final class NativePlayer {
               let reason = AVAudioSession.RouteChangeReason(rawValue: raw) else { publish(); return }
         // Disconnecting headphones still pauses, so audio cannot unexpectedly
         // start on the iPhone speaker. A route change never starts paused music.
-        if reason == .oldDeviceUnavailable { pause() }
+        if reason == .oldDeviceUnavailable {
+            // Compare the previous output against the new output. Only pause when
+            // personal listening ends on the built-in speaker/receiver.
+            let previous = (note.userInfo?[AVAudioSessionRouteChangePreviousRouteKey] as? AVAudioSessionRouteDescription)?
+                .outputs.map { $0.portType } ?? []
+            let headphonePorts: Set<AVAudioSession.Port> = [.headphones, .bluetoothA2DP, .bluetoothHFP, .bluetoothLE, .usbAudio]
+            let wasHeadphones = previous.contains { headphonePorts.contains($0) }
+            let outputs = AVAudioSession.sharedInstance().currentRoute.outputs.map { $0.portType }
+            let nowOnSpeaker = outputs.contains(.builtInSpeaker) || outputs.contains(.builtInReceiver)
+            if wasHeadphones && nowOnSpeaker {
+                pause()
+                return
+            }
+        }
         if enginePlayback.ready {
             do { try enginePlayback.rebuild(playing: wantsPlay) }
             catch { fallbackFromEngine() }
             publish(); return
         }
-        if reason == .oldDeviceUnavailable { return }
+        if reason == .oldDeviceUnavailable && !wantsPlay { return }
         if wantsPlay && !waitingForReady && !recovery.pending && player.currentItem?.status == .readyToPlay {
             switch reason {
             case .newDeviceAvailable, .override, .routeConfigurationChange:
@@ -613,7 +636,7 @@ final class NativePlayer {
         return usesLiveMeter && audioMeter.processing ? audioMeter.level(playing: playing) : independentMeter.level(at: playbackPosition, playing: playing)
     }
     func meterState() -> [String: Any] {
-        ["id": current?.id ?? "", "level": audioLevel(), "ready": usesLiveMeter ? audioMeter.attached : independentMeter.envelope != nil]
+        ["id": current?.id ?? "", "level": audioLevel(), "ready": (usesLiveMeter && audioMeter.processing) || independentMeter.envelope != nil]
     }
     func snapshot(includeQueue: Bool = true) -> [String: Any] {
         let duration = player.currentItem?.duration.seconds ?? 0
@@ -641,14 +664,14 @@ final class NativePlayer {
     // Retry only when the session becomes eligible; an activation callback never
     // starts another attempt when activation failed.
     private func activateNowPlayingSession() {
-        guard current != nil, wantsPlay, !appIsActive, !activatingNowPlaying,
+        guard current != nil, wantsPlay, !activatingNowPlaying,
               !nowPlayingSession.isActive, nowPlayingSession.canBecomeActive else { return }
         activatingNowPlaying = true
         nowPlayingSession.becomeActiveIfPossible { [weak self] activated in
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.activatingNowPlaying = false
-                if activated, self.current != nil, !self.appIsActive { self.publish() }
+                if activated, self.current != nil { self.publish() }
             }
         }
     }
@@ -679,6 +702,7 @@ final class NativePlayer {
         onChange?()
     }
 }
+
 
 
 

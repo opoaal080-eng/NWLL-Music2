@@ -103,7 +103,7 @@ final class NativePlayer {
         }
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification,
             object: nil, queue: .main) { [weak self] _ in
-                self?.appIsActive = true; self?.publish()
+                self?.appIsActive = true; self?.refreshIndependentMeter(); self?.publish()
             })
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.willResignActiveNotification,
             object: nil, queue: .main) { [weak self] _ in
@@ -538,7 +538,6 @@ final class NativePlayer {
         guard appIsActive, audible,
               let current, let origin, !AVAudioSession.sharedInstance().currentRoute.outputs.isEmpty else { return }
         let key = origin.absoluteString + "|" + offlineAccount + "|" + current.offlineAccount + "|" + current.id
-        guard independentMeter.key != key else { return }
         let local = OfflineStore.audio(origin: origin, account: current.offlineAccount.isEmpty ? offlineAccount : current.offlineAccount, id: current.id)
         var request = URLRequest(url: origin.appendingPathComponent("api/offline-export/" + current.id))
         request.url = URL(string: "api/offline-export/" + current.id + "?download=true&wait=true", relativeTo: origin)
@@ -637,7 +636,7 @@ final class NativePlayer {
         return usesLiveMeter && audioMeter.processing ? audioMeter.level(playing: playing) : independentMeter.level(at: playbackPosition, playing: playing)
     }
     func meterState() -> [String: Any] {
-        ["id": current?.id ?? "", "level": audioLevel(), "ready": usesLiveMeter ? audioMeter.attached : independentMeter.envelope != nil]
+        ["id": current?.id ?? "", "level": audioLevel(), "ready": (usesLiveMeter && audioMeter.processing) || independentMeter.envelope != nil]
     }
     func snapshot(includeQueue: Bool = true) -> [String: Any] {
         let duration = player.currentItem?.duration.seconds ?? 0
@@ -703,6 +702,7 @@ final class NativePlayer {
         onChange?()
     }
 }
+
 
 
 
