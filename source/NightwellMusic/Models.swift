@@ -74,14 +74,18 @@ actor MusicAPI: LyricsService {
             request.setValue(csrf, forHTTPHeaderField: "X-CSRF-Token")
             request.httpBody = try JSONSerialization.data(withJSONObject: body ?? [:])
         }
-        let (data, response) = try await session.data(for: request)
-        try Task.checkCancellation()
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-            let message = payload?["error"] as? String ?? payload?["detail"] as? String
-            throw APIError(message: message ?? "Сервер недоступен. Повтори попытку.")
+        return try await RequestRetry.run(readOnly: method == "GET") {
+            let (data, response) = try await self.session.data(for: request)
+            try Task.checkCancellation()
+            guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+            guard (200..<300).contains(http.statusCode) else {
+                let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+                let message = payload?["error"] as? String ?? payload?["detail"] as? String
+                throw RequestRetry.HTTPFailure(status: http.statusCode,
+                    message: message ?? "Сервер недоступен. Повтори попытку.")
+            }
+            return try JSONDecoder().decode(T.self, from: data)
         }
-        return try JSONDecoder().decode(T.self, from: data)
     }
     func downloadSupportAttachment(ticketID: String, attachmentID: String) async throws -> URL {
         guard let url = URL(string: "api/support/tickets/" + ticketID + "/attachments/" + attachmentID, relativeTo: origin) else { throw URLError(.badURL) }
@@ -140,4 +144,5 @@ struct EmailAuthResponse: Decodable {
     let csrf: String?
     let challenge: EmailChallenge?
 }
+
 

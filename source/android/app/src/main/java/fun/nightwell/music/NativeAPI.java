@@ -12,6 +12,7 @@ final class NativeAPI {
     private HttpURLConnection activeSearch;
     private long searchGeneration;
     private volatile boolean closed;
+    private final java.util.Set<HttpURLConnection> activeConnections=java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>());
     NativeAPI(Context context,String origin){this.context=context.getApplicationContext();this.origin=origin;csrf=this.context.getSharedPreferences("native-api",Context.MODE_PRIVATE).getString("csrf|"+origin,"");}
     void updateCSRF(String value){csrf=value;context.getSharedPreferences("native-api",Context.MODE_PRIVATE).edit().putString("csrf|"+origin,value).apply();}
     static String cookie(Context context,String origin){String value=new SessionStore(context).restore(origin);String token=SessionStore.token(value);return token==null?"":"nw_session="+token;}
@@ -39,7 +40,12 @@ final class NativeAPI {
         } finally { c.disconnect(); }
     }
     JSONObject request(String path) throws Exception{return request(path,"GET",null);}
-    void close(){closed=true;cancelSearch();}
+    void close(){
+        HttpURLConnection[] pending;
+        synchronized(activeConnections){closed=true;pending=activeConnections.toArray(new HttpURLConnection[0]);activeConnections.clear();}
+        cancelSearch();
+        for(HttpURLConnection connection:pending)connection.disconnect();
+    }
     synchronized void cancelSearch(){searchGeneration++;HttpURLConnection value=activeSearch;activeSearch=null;if(value!=null)value.disconnect();}
     private synchronized boolean searchCancelled(long generation){return closed||searchGeneration!=generation;}
     JSONObject search(String path)throws Exception {
@@ -62,7 +68,18 @@ final class NativeAPI {
             if(!method.equals("GET")){byte[] bytes=(body==null?"{}":body.toString()).getBytes(StandardCharsets.UTF_8);c.setRequestProperty("X-CSRF-Token",csrf);c.setRequestProperty("Content-Type","application/json");c.setFixedLengthStreamingMode(bytes.length);c.setDoOutput(true);try(OutputStream out=c.getOutputStream()){out.write(bytes);}}
             JSONObject value=response(c);
             if(path.equals("api/login")||path.equals("api/register")){
-                java.util.Map<String,java.util.List<String>> headers=c.getHeaderFields();for(String key:headers.keySet())if(key!=null&&key.equalsIgnoreCase("Set-Cookie"))for(String entry:headers.get(key))if(SessionStore.token(entry)!=null)new SessionStore(context).save(origin,entry);
+                boolean found=false;
+                java.util.Map<String,java.util.List<String>> headers=c.getHeaderFields();
+                for(java.util.Map.Entry<String,java.util.List<String>> header:headers.entrySet()){
+                    if(header.getKey()==null||!header.getKey().equalsIgnoreCase("Set-Cookie"))continue;
+                    for(String entry:header.getValue()){
+                        if(SessionStore.token(entry)==null)continue;
+                        found=true;
+                        new SessionStore(context).save(origin,entry);
+                    }
+                }
+                if(!found)throw new IOException("В ответе сервера нет подходящего cookie nw_session. Проверь формат Set-Cookie.");
+                if(cookie(context,origin).isEmpty())throw new IOException("Cookie получен, но Android не сохранил сессию. Проверь Android Keystore.");
             }
             return value;
         }finally{c.disconnect();}
@@ -75,14 +92,18 @@ final class NativeAPI {
             catch(Exception ignored){} // HTML/empty error bodies must retain the HTTP status.
             throw new NetworkRetry.HttpFailure(code,message);
         }
-        return new JSONObject(new String(read(c.getInputStream(),4*1024*1024),StandardCharsets.UTF_8));
+        int limit=c.getURL().getPath().equals("/api/tracks")?32*1024*1024:4*1024*1024;
+        return new JSONObject(new String(read(c.getInputStream(),limit),StandardCharsets.UTF_8));
     }
     HttpURLConnection connection(String path) throws Exception {
         if(closed)throw new InterruptedIOException("Запрос отменён");
         URL url=new URL(new URL(origin),path);if(!ServerAddress.sameOrigin(origin,url.toString()))throw new IOException("Некорректный адрес");
-        HttpURLConnection c=(HttpURLConnection)url.openConnection();c.setInstanceFollowRedirects(false);c.setConnectTimeout(15000);c.setReadTimeout(25000);c.setRequestProperty("Cookie",cookie(context,origin));return c;
+        HttpURLConnection c=(HttpURLConnection)url.openConnection();c.setInstanceFollowRedirects(false);c.setConnectTimeout(10000);c.setReadTimeout(15000);c.setRequestProperty("Cookie",cookie(context,origin));
+        synchronized(activeConnections){if(closed){c.disconnect();throw new InterruptedIOException("Запрос отменён");}activeConnections.add(c);}
+        return c;
     }
     byte[] export(String id)throws Exception{HttpURLConnection c=connection("api/offline-export/"+id);c.setReadTimeout(180000);try{if(c.getResponseCode()!=200)throw new IOException("Не удалось скачать трек");return read(c.getInputStream(),OfflineStore.LIMIT);}finally{c.disconnect();}}
     static byte[] read(InputStream input,int limit)throws Exception{if(input==null)throw new IOException("Пустой ответ сервера");try(InputStream in=input;ByteArrayOutputStream out=new ByteArrayOutputStream()){byte[] b=new byte[16384];int count;while((count=in.read(b))!=-1){if(out.size()+count>limit)throw new IOException("Слишком большой файл");out.write(b,0,count);}return out.toByteArray();}}
 }
+
 

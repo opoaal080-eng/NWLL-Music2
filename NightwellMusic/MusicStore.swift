@@ -127,12 +127,13 @@ import Network
     private var connectionWatcher: Task<Void, Never>?
     private var connectionCheck: Task<Void, Never>?
     private var connectionCheckGeneration = UUID()
+    private var applicationIsActive = UIApplication.shared.applicationState == .active
     private var hasNetworkPath = true
     private var networkGeneration = UUID()
     private var lastConnectionRefresh = Date.distantPast
 
     private func checkConnection() {
-        guard sessionReady, !starting, connectionCheck == nil else { return }
+        guard applicationIsActive, sessionReady, !starting, connectionCheck == nil else { return }
         guard hasNetworkPath else { connectionStatus = "Оффлайн"; return }
         let server = origin
         let client = api
@@ -215,8 +216,15 @@ import Network
         let progress = BackgroundDownloads.shared.progress
         downloading = progress.active; downloadMessage = progress.message
 
-        observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in self?.savePlayback(force: true) })
+        observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
+            guard let self else { return }
+            self.applicationIsActive = false
+            self.connectionCheck?.cancel(); self.connectionCheck = nil
+            self.connectionCheckGeneration = UUID()
+            self.savePlayback(force: true)
+        })
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.applicationIsActive = true
             self?.checkConnection()
         })
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in self?.savePlayback(force: true) })
@@ -679,6 +687,7 @@ import Network
         origin = url; api = MusicAPI(origin: url); lastWave = []; cacheAccount(); await api.setCSRF(nil); UserDefaults.standard.set(url.absoluteString, forKey: "nightwell.server"); await start()
     }
 }
+
 
 
 

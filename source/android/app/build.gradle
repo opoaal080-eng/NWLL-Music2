@@ -6,8 +6,8 @@ android {
         applicationId 'fun.nightwell.music'
         minSdk 26
         targetSdk 35
-        versionCode 37
-        versionName '1.1.6-autumn'
+        versionCode 38
+        versionName '1.1.7-import-menu'
         // Direct APK builds enable website checkout. Disable for store builds until regional routing is configured.
         buildConfigField 'boolean', 'EXTERNAL_PREMIUM_PAYMENTS', providers.gradleProperty('nightwellExternalPayments').getOrElse('true') == 'true' ? 'true' : 'false'
     }
@@ -33,4 +33,5 @@ dependencies {
     implementation 'androidx.media3:media3-exoplayer-hls:1.6.1'
     implementation 'androidx.media3:media3-session:1.6.1'
 }
+
 

@@ -21,8 +21,6 @@ public final class MainActivity extends Activity {
     private TextView homeLyric;private JSONObject activeLyrics;private String homeLine="";private boolean lastPlaying,mixing;private final java.util.ArrayDeque<String> mixRecent=new java.util.ArrayDeque<>();
     private NativeAPI api;
     private String supportUploadTicket="";private boolean supportUploadAdmin;
-    private EditText transferFileInput;
-    private TextView transferFileStatus;
     private PlaybackService playback;
     private boolean bindingRegistered,visible,full,lyricsOpen,downloads,backgroundOnly;
     private String user="",screen="Главная",selectedPlaylist="",query="",currentID="",origin;
@@ -44,6 +42,13 @@ public final class MainActivity extends Activity {
     private HalloweenAtmosphere atmosphere;
     private Runnable pendingSearch;
     private PopupWindow navigationPopup;
+    private static final int PLAYLIST_DOCUMENT = 633;
+    private AlertDialog transferDialog;
+    private EditText transferInput,transferTitle;
+    private Spinner transferMode;
+    private TextView transferNote;
+    private int transferReadGeneration;
+    private long libraryGeneration,lastResumeRefresh;
     private String downloadProgress="";
     private String pendingDeepLinkTrack="";
     private boolean sessionReady,smokeMode;
@@ -79,8 +84,19 @@ public final class MainActivity extends Activity {
         @Override public void onMediaItemTransition(androidx.media3.common.MediaItem item,int reason){if(mixing)cancelMix();}
     };
     private final ServiceConnection connection=new ServiceConnection(){public void onServiceConnected(ComponentName n,IBinder b){playback=((PlaybackService.LocalBinder)b).getService();playback.player.addListener(playbackIntentObserver);if(!smokeMode&&pendingDeepLinkTrack.isEmpty())playback.restorePlayback(origin,user);updatePlayback();openPendingTrack();}public void onServiceDisconnected(ComponentName n){playback=null;}};
-    @Override public void onCreate(Bundle saved){super.onCreate(saved);smokeMode=(getApplicationInfo().flags&android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE)!=0&&getIntent().getBooleanExtra("nativeSmoke",false);origin="https://music.nightwell.fun/";user=getSharedPreferences("native-api",MODE_PRIVATE).getString("account","");api=new NativeAPI(this,origin);if(Build.VERSION.SDK_INT>=30)getWindow().setDecorFitsSystemWindows(false);else getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE|View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);if(Build.VERSION.SDK_INT>=28){WindowManager.LayoutParams windowParams=getWindow().getAttributes();windowParams.layoutInDisplayCutoutMode=WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;getWindow().setAttributes(windowParams);}getWindow().setStatusBarColor(Color.TRANSPARENT);getWindow().setNavigationBarColor(Color.TRANSPARENT);getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);bindingRegistered=bindService(new Intent(this,PlaybackService.class).setAction("nightwell.local"),connection,BIND_AUTO_CREATE);build();if(smokeMode){smokeFixture(getIntent().getStringExtra("screen"));}else{acceptDeepLink(getIntent());load();}}
-    @Override protected void onResume(){super.onResume();visible=true;if(premiumRefresh!=null)premiumRefresh.run();BackgroundDownloads.reconcile(this);if(ribbon!=null)ribbon.running(!smokeMode&&!full&&screen.equals("Главная"));ui.removeCallbacks(tick);if(!smokeMode)ui.post(tick);}
+    @Override public void onCreate(Bundle saved){super.onCreate(saved);smokeMode=(getApplicationInfo().flags&android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE)!=0&&getIntent().getBooleanExtra("nativeSmoke",false);origin="https://music.nightwell.fun/";user=getSharedPreferences("native-api",MODE_PRIVATE).getString("account","");api=new NativeAPI(this,origin);if(Build.VERSION.SDK_INT>=30)getWindow().setDecorFitsSystemWindows(false);else getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE|View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);if(Build.VERSION.SDK_INT>=28){WindowManager.LayoutParams windowParams=getWindow().getAttributes();windowParams.layoutInDisplayCutoutMode=WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;getWindow().setAttributes(windowParams);}getWindow().setStatusBarColor(Color.TRANSPARENT);getWindow().setNavigationBarColor(Color.TRANSPARENT);getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);bindingRegistered=bindService(new Intent(this,PlaybackService.class).setAction("nightwell.local"),connection,BIND_AUTO_CREATE);build();if(smokeMode){smokeFixture(getIntent().getStringExtra("screen"));}else{acceptDeepLink(getIntent());load();}
+        if(saved!=null&&saved.getBoolean("transfer.open",false)){nativeTransfer();transferTitle.setText(saved.getString("transfer.title","Перенос музыки"));transferInput.setText(getSharedPreferences("transfer-draft",MODE_PRIVATE).getString("text",""));transferMode.setSelection(saved.getInt("transfer.mode",1));}
+    }
+    @Override protected void onSaveInstanceState(Bundle saved){
+        if(transferDialog!=null&&transferDialog.isShowing()){
+            saved.putBoolean("transfer.open",true);saved.putString("transfer.title",transferTitle.getText().toString());saved.putInt("transfer.mode",transferMode.getSelectedItemPosition());
+            // Keep a potentially 1 MB document out of the Activity/Binder state bundle.
+            getSharedPreferences("transfer-draft",MODE_PRIVATE).edit().putString("text",transferInput.getText().toString()).apply();
+        }
+        super.onSaveInstanceState(saved);
+    }
+
+    @Override protected void onResume(){super.onResume();visible=true;if(!smokeMode&&sessionReady&&SystemClock.elapsedRealtime()-lastResumeRefresh>30000)load();if(premiumRefresh!=null)premiumRefresh.run();BackgroundDownloads.reconcile(this);if(ribbon!=null)ribbon.running(!smokeMode&&!full&&screen.equals("Главная"));ui.removeCallbacks(tick);if(!smokeMode)ui.post(tick);}
     @Override protected void onPause(){super.onPause();if(navigationPopup!=null)navigationPopup.dismiss();if(playback!=null)playback.persistPlayback(true);visible=false;if(ribbon!=null)ribbon.running(false);ui.removeCallbacks(tick);}
     @Override protected void onDestroy(){generation++;cancelMix();accountRequest.cancel();if(api!=null)api.close();ui.removeCallbacksAndMessages(null);io.shutdownNow();prefetch.shutdownNow();if(playback!=null)playback.player.removeListener(playbackIntentObserver);if(bindingRegistered){unbindService(connection);bindingRegistered=false;}super.onDestroy();}
     int dp(float n){return (int)(n*getResources().getDisplayMetrics().density+.5f);}
@@ -126,33 +142,35 @@ public final class MainActivity extends Activity {
     void menu(){
         if(navigationPopup!=null)navigationPopup.dismiss();
         View anchor=head.getChildAt(head.getChildCount()-1);
-        LinearLayout entries=column();entries.setPadding(dp(12),dp(12),dp(12),dp(12));
-        TextView menuTitle=text("Меню",20);menuTitle.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);menuTitle.setPadding(dp(8),dp(4),dp(8),dp(2));entries.addView(menuTitle);
-        TextView menuCaption=text("Nightwell Music · быстрый доступ к разделам",13);menuCaption.setTextColor(0xff9fa6b8);menuCaption.setPadding(dp(8),0,dp(8),dp(10));entries.addView(menuCaption);
-        ScrollView scroll=new ScrollView(this);scroll.setFillViewport(false);scroll.addView(entries);
-        int[] location=new int[2];anchor.getLocationOnScreen(location);
-        int available=Math.max(dp(96),getResources().getDisplayMetrics().heightPixels-location[1]-anchor.getHeight()-dp(24));
-        PopupWindow popup=new PopupWindow(scroll,Math.min(dp(280),getResources().getDisplayMetrics().widthPixels-dp(36)),Math.min(dp(432),available),true);
-        GradientDrawable surface=surface();
+        LinearLayout entries=column();entries.setPadding(0,dp(6),0,dp(6));
+        TextView connectionHeading=text("Состояние подключения",12);connectionHeading.setTextColor(0xffa6a4af);connectionHeading.setPadding(dp(16),dp(8),dp(16),dp(4));entries.addView(connectionHeading);
+        TextView connectionState=text("Проверка…",15);connectionState.setPadding(dp(16),0,dp(16),dp(12));entries.addView(connectionState);
+        ScrollView scroll=new ScrollView(this);scroll.setFillViewport(false);scroll.setVerticalScrollBarEnabled(false);scroll.addView(entries);
+        android.graphics.Rect frame=new android.graphics.Rect();anchor.getWindowVisibleDisplayFrame(frame);int[] location=new int[2];anchor.getLocationOnScreen(location);
+        int available=Math.max(dp(96),frame.bottom-location[1]-anchor.getHeight()-dp(12));
+        int width=Math.min(dp(294),frame.width()-dp(32));
+        PopupWindow popup=new PopupWindow(scroll,width,WindowManager.LayoutParams.WRAP_CONTENT,true);
         navigationPopup=popup;popup.setOnDismissListener(()->{if(navigationPopup==popup)navigationPopup=null;});
-        popup.setBackgroundDrawable(surface);popup.setElevation(dp(20));popup.setOutsideTouchable(true);
-        String[] tabs={"Главная","Поиск","Избранное","Плейлисты","Перенести музыку","Офлайн",backgroundOnly?"Показать интерфейс":"Только фон","Настройки","Настройка подборки","Nightwell Premium","Моя статистика","Обращения",user.isEmpty()?"Войти":"Выйти"};
+        GradientDrawable glass=new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0xf2322b40,0xf222202b});glass.setCornerRadius(dp(22));glass.setStroke(dp(1),0x30ffffff);
+        popup.setBackgroundDrawable(glass);popup.setElevation(dp(24));popup.setOutsideTouchable(true);popup.setInputMethodMode(PopupWindow.INPUT_METHOD_NOT_NEEDED);scroll.setClipToOutline(true);scroll.setBackground(glass);
+        String[] tabs={"Главная","Поиск","Избранное","Плейлисты","Офлайн",backgroundOnly?"Показать интерфейс":"Только фон","Моя статистика","Nightwell Premium","Перенести музыку","Настройки","Настройка подборки","Обращения",user.isEmpty()?"Войти":"Выйти"};
+        String[] icons={"home","search","heart","list","download","sparkles","stats","star","download","settings","sliders","mail","person"};
         for(int i=0;i<tabs.length;i++){
-            if(i==0)entries.addView(sectionLabel("Основное"));
-            if(i==5)entries.addView(sectionLabel("Управление"));
-            if(i==8)entries.addView(sectionLabel("Premium и аккаунт"));
+            View divider=new View(this);divider.setBackgroundColor(i==0||i==5||i==12?0x44000000:0x20ffffff);entries.addView(divider,new LinearLayout.LayoutParams(-1,dp(i==0||i==5||i==12?7:1)));
             final String tab=tabs[i];boolean selected=tab.equals(screen)||(tab.equals("Плейлисты")&&!selectedPlaylist.isEmpty());
-            TextView item=text(tab,15);item.setGravity(Gravity.CENTER_VERTICAL);item.setPadding(dp(16),0,dp(16),0);
-            item.setTextColor(tab.equals("Выйти")?0xfff2a9b7:selected?0xffffd6a1:0xffe4e5ea);
-            if(selected)item.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
-            item.setSelected(selected);
-            GradientDrawable fill=new GradientDrawable();fill.setCornerRadius(dp(24));fill.setStroke(dp(1),selected?0x36ffd2a1:0x18ffffff);fill.setColor(selected?0x4837302b:0x12000000);
-            GradientDrawable mask=new GradientDrawable();mask.setCornerRadius(dp(24));mask.setColor(Color.WHITE);
-            item.setBackground(new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x34ffffff),fill,mask));
-            LinearLayout.LayoutParams itemParams=new LinearLayout.LayoutParams(-1,dp(50));itemParams.topMargin=dp(4);
-            item.setOnClickListener(v->{popup.dismiss();selectMenu(tab);});entries.addView(item,itemParams);
+            int color=tab.equals("Выйти")?0xffff6b76:0xfff4f1f7;
+            LinearLayout item=row();item.setPadding(dp(16),0,dp(16),0);item.setMinimumHeight(dp(48));item.setSelected(selected);
+            TextView label=text(tab.equals("Обращения")?"Обращения и поддержка":tab,16);label.setTextColor(color);if(selected)label.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
+            item.addView(label,new LinearLayout.LayoutParams(0,-2,1));
+            if(selected){TextView mark=text("✓",17);mark.setTextColor(0xffffbc78);item.addView(mark,new LinearLayout.LayoutParams(dp(26),-2));}
+            item.addView(new NavigationMenuIcon(this,icons[i],color),new LinearLayout.LayoutParams(dp(22),dp(22)));
+            item.setBackground(new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x30ffffff),new android.graphics.drawable.ColorDrawable(selected?0x18ffffff:Color.TRANSPARENT),null));
+            item.setContentDescription(label.getText());item.setOnClickListener(v->{popup.dismiss();selectMenu(tab);});entries.addView(item,new LinearLayout.LayoutParams(-1,-2));
         }
-        popup.showAsDropDown(anchor,0,dp(8),Gravity.END);
+        entries.measure(View.MeasureSpec.makeMeasureSpec(width,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(0,View.MeasureSpec.UNSPECIFIED));popup.setHeight(Math.min(entries.getMeasuredHeight()+dp(12),available));
+        popup.showAsDropDown(anchor,0,dp(6),Gravity.END);
+        if(smokeMode){connectionState.setText("Онлайн");connectionState.setTextColor(0xff64d98b);}
+        else {final NativeAPI client=api;io.execute(()->{boolean online;try{client.request("api/me");online=true;}catch(Exception ignored){online=false;}final boolean connected=online;ui.post(()->{if(popup.isShowing()){connectionState.setText(connected?"Онлайн":"Оффлайн");connectionState.setTextColor(connected?0xff64d98b:0xffff787f);}});});}
     }
     void selectMenu(String tab){
         if(tab.equals("Перенести музыку")){nativeTransfer();return;}
@@ -201,31 +219,7 @@ public final class MainActivity extends Activity {
     @Override protected void onActivityResult(int request,int result,Intent data){
         super.onActivityResult(request,result,data);
         if(request==72){handleAudioImportResult(request,result,data);return;}
-        if(request==633){
-            if(result!=RESULT_OK||data==null||data.getData()==null)return;
-            final Uri selected=data.getData();
-            final EditText target=transferFileInput;
-            final TextView label=transferFileStatus;
-            if(target==null)return;
-            if(label!=null)label.setText("Читаем файл…");
-            io.execute(()->{
-                try(java.io.InputStream input=getContentResolver().openInputStream(selected);
-                    java.io.ByteArrayOutputStream buffer=new java.io.ByteArrayOutputStream()){
-                    if(input==null)throw new java.io.IOException("Файл не открывается");
-                    byte[] chunk=new byte[8192];int n;
-                    while((n=input.read(chunk))!=-1){
-                        if(buffer.size()+n>1024*1024)throw new java.io.IOException("Файл больше 1 МБ");
-                        buffer.write(chunk,0,n);
-                    }
-                    String content=new String(buffer.toByteArray(),java.nio.charset.StandardCharsets.UTF_8);
-                    ui.post(()->{if(!isDestroyed()&&target==transferFileInput){
-                        target.setText(content);
-                        if(label!=null)label.setText("Файл добавлен. Нажми «Найти треки».");
-                    }});
-                }catch(Exception ex){ui.post(()->{if(!isDestroyed()&&label!=null)label.setText("Ошибка файла: "+ex.getMessage());});}
-            });
-            return;
-        }
+        if(request==PLAYLIST_DOCUMENT){handlePlaylistDocument(result,data);return;}
         if(request!=631&&request!=632)return;
         if(result!=RESULT_OK||data==null||data.getData()==null||supportUploadTicket.isEmpty()){
             supportUploadTicket="";return;
@@ -424,6 +418,7 @@ public final class MainActivity extends Activity {
     }
     void updateList(){if(shown==null)shown=new JSONArray();if(adapter!=null)adapter.notifyDataSetChanged();}
     void load(){
+        lastResumeRefresh=SystemClock.elapsedRealtime();
         final long ticket=accountRequest.start(()->{});
         io.execute(()->{
             try {
@@ -442,7 +437,7 @@ public final class MainActivity extends Activity {
                 });
             }catch(Exception ex){
                 ui.post(()->{
-                    if(isDestroyed())return;
+                    if(isDestroyed()||!accountRequest.complete(ticket))return;
                     // A network failure is not evidence that the cached account logged out.
                     sessionReady=true;
                     status.setText(friendly(ex));
@@ -451,21 +446,22 @@ public final class MainActivity extends Activity {
         });
     }
     void loadLibrary(String account){
+        final long revision=++libraryGeneration;
         final NativeAPI client=api;
         io.execute(()->{
             try{
                 JSONObject value=client.request("api/tracks");
                 JSONArray tracks=value.optJSONArray("tracks");
-                ui.post(()->{if(!isDestroyed()&&client==api&&account.equals(user)&&tracks!=null){
+                ui.post(()->{if(!isDestroyed()&&client==api&&revision==libraryGeneration&&account.equals(user)&&tracks!=null){
                     catalog=tracks;if(!full&&!screen.equals("Поиск"))showScreen();
                 }});
-            }catch(Exception ex){ui.post(()->{if(!isDestroyed())status.setText(friendly(ex));});}
+            }catch(Exception ex){ui.post(()->{if(!isDestroyed()&&client==api&&revision==libraryGeneration&&account.equals(user))status.setText(friendly(ex));});}
         });
         io.execute(()->{
             try{
                 JSONObject value=client.request("api/likes");
                 JSONArray ids=value.optJSONArray("ids");
-                ui.post(()->{if(!isDestroyed()&&client==api&&account.equals(user)&&ids!=null){
+                ui.post(()->{if(!isDestroyed()&&client==api&&revision==libraryGeneration&&account.equals(user)&&ids!=null){
                     likes.clear();for(int i=0;i<ids.length();i++)likes.add(ids.optString(i));
                     if(!full&&screen.equals("Избранное"))showScreen();
                 }});
@@ -475,13 +471,13 @@ public final class MainActivity extends Activity {
             try{
                 JSONObject value=client.request("api/playlists");
                 JSONArray items=value.optJSONArray("playlists");
-                ui.post(()->{if(!isDestroyed()&&client==api&&account.equals(user)&&items!=null){
+                ui.post(()->{if(!isDestroyed()&&client==api&&revision==libraryGeneration&&account.equals(user)&&items!=null){
                     playlists=items;if(!full&&screen.equals("Плейлисты"))showScreen();
                 }});
             }catch(Exception ignored){}
         });
     }
-    void smokeFixture(String page){try{user="smoke";catalog=new JSONArray();for(int i=0;i<24;i++)catalog.put(new JSONObject().put("id",String.format(java.util.Locale.ROOT,"%032x",i+1)).put("title",i==0?"Очень длинное название трека, которое должно аккуратно поместиться":"Трек "+(i+1)).put("artist","Nightwell Music · Исполнитель"));queue=catalog;playlists=new JSONArray();for(int i=0;i<16;i++)playlists.put(new JSONObject().put("id","fixture"+i).put("name","Мой плейлист "+(i+1)));for(int i=0;i<catalog.length();i++)likes.add(catalog.getJSONObject(i).getString("id"));currentID=catalog.getJSONObject(0).getString("id");miniTitle.setText(catalog.getJSONObject(0).getString("title"));miniArtist.setText("Nightwell Music");if("menu".equals(page)){head.post(this::menu);}else if("player".equals(page))openPlayer();else if("settings".equals(page))settings();else if("premium-sound".equals(page)||"premium-appearance".equals(page)){premiumOwner=user;premiumUntil=System.currentTimeMillis()+3600000;premiumChecked=System.currentTimeMillis();premiumPrefs=new JSONObject().put("bands",new JSONArray("[0,0,0,0,0]")).put("presets",new JSONObject()).put("theme","nightwell").put("ribbon_speed",1).put("ribbon_intensity",1);if("premium-sound".equals(page))equalizerPanel();else appearancePanel();}else if("wave-settings".equals(page))waveSettings();else if("auth".equals(page))auth();else if("queue".equals(page))showQueue();else if(page!=null)navigate(page);}catch(JSONException e){throw new IllegalStateException(e);}}
+    void smokeFixture(String page){try{user="smoke";catalog=new JSONArray();for(int i=0;i<24;i++)catalog.put(new JSONObject().put("id",String.format(java.util.Locale.ROOT,"%032x",i+1)).put("title",i==0?"Очень длинное название трека, которое должно аккуратно поместиться":"Трек "+(i+1)).put("artist","Nightwell Music · Исполнитель"));queue=catalog;playlists=new JSONArray();for(int i=0;i<16;i++)playlists.put(new JSONObject().put("id","fixture"+i).put("name","Мой плейлист "+(i+1)));for(int i=0;i<catalog.length();i++)likes.add(catalog.getJSONObject(i).getString("id"));currentID=catalog.getJSONObject(0).getString("id");miniTitle.setText(catalog.getJSONObject(0).getString("title"));miniArtist.setText("Nightwell Music");if("transfer".equals(page)){nativeTransfer();}else if("menu".equals(page)){head.post(this::menu);}else if("player".equals(page))openPlayer();else if("settings".equals(page))settings();else if("premium-sound".equals(page)||"premium-appearance".equals(page)){premiumOwner=user;premiumUntil=System.currentTimeMillis()+3600000;premiumChecked=System.currentTimeMillis();premiumPrefs=new JSONObject().put("bands",new JSONArray("[0,0,0,0,0]")).put("presets",new JSONObject()).put("theme","nightwell").put("ribbon_speed",1).put("ribbon_intensity",1);if("premium-sound".equals(page))equalizerPanel();else appearancePanel();}else if("wave-settings".equals(page))waveSettings();else if("auth".equals(page))auth();else if("queue".equals(page))showQueue();else if(page!=null)navigate(page);}catch(JSONException e){throw new IllegalStateException(e);}}
     String friendly(Exception error){if(error instanceof java.net.UnknownHostException||error instanceof java.net.ConnectException||error instanceof java.net.SocketTimeoutException)return "Нет соединения. Офлайн-файлы доступны в меню.";String message=error.getMessage();return message!=null&&!message.startsWith("Unable")&&message.length()<180?message:"Не удалось выполнить действие. Повтори попытку.";}
     interface Work{JSONObject run()throws Exception;} interface Done{void run(JSONObject value);}
     void task(Work work,Done done){io.execute(()->{try{JSONObject value=work.run();ui.post(()->{if(!isDestroyed())done.run(value);});}catch(Exception ex){ui.post(()->{if(!isDestroyed())status.setText(friendly(ex));});}});}
@@ -909,29 +905,40 @@ public final class MainActivity extends Activity {
         result.sort((a,b)->java.text.Collator.getInstance(new java.util.Locale("ru")).compare(a.optString(column),b.optString(column)));
         JSONArray sorted=new JSONArray();for(JSONObject item:result)sorted.put(item);return sorted;
     }
-    void nativeTransfer(){
-        LinearLayout panel=column();panel.setPadding(dp(20),dp(16),dp(20),dp(12));
-        EditText title=new EditText(this);title.setSingleLine(true);title.setText("Перенос музыки");title.setHint("Название плейлиста");panel.addView(title);
-        Spinner modes=new Spinner(this);String[] modeNames={"Точный","Умный","Максимальный"};modes.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,modeNames));modes.setSelection(1);panel.addView(modes);
-        TextView info=text("Вставь JSON, CSV или TXT. Файл будет обработан на устройстве.",13);panel.addView(info);
-        EditText input=new EditText(this);input.setMinLines(5);input.setMaxLines(9);input.setGravity(Gravity.TOP);input.setHint("Список треков");panel.addView(input);
-        Button fileButton=new Button(this);fileButton.setText("＋ Добавить файл");
-        panel.addView(fileButton);
-        TextView fileStatus=text("Можно выбрать JSON, CSV или TXT из файлов устройства",12);
-        panel.addView(fileStatus);
-        transferFileInput=input;transferFileStatus=fileStatus;
-        fileButton.setOnClickListener(v->{
-            Intent picker=new Intent(Intent.ACTION_OPEN_DOCUMENT);
-            picker.setType("*/*");picker.addCategory(Intent.CATEGORY_OPENABLE);
-            picker.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            picker.putExtra(Intent.EXTRA_MIME_TYPES,new String[]{"application/json","text/plain","text/csv","application/octet-stream","text/comma-separated-values"});
-            try{startActivityForResult(picker,633);}
-            catch(android.content.ActivityNotFoundException ex){fileStatus.setText("На устройстве нет приложения для выбора файлов");}
+    void choosePlaylistDocument(){
+        Intent choose=new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        try{startActivityForResult(choose,PLAYLIST_DOCUMENT);}catch(ActivityNotFoundException ex){if(transferNote!=null)transferNote.setText("На устройстве недоступен выбор файлов. Можно вставить список треков в поле ниже.");}
+    }
+    void handlePlaylistDocument(int result,Intent data){
+        if(result!=RESULT_OK||data==null||data.getData()==null||transferDialog==null||!transferDialog.isShowing())return;
+        final Uri uri=data.getData();final AlertDialog dialog=transferDialog;final EditText target=transferInput;final TextView note=transferNote;final int ticket=++transferReadGeneration;
+        note.setText("Читаем файл…");dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);
+        io.execute(()->{
+            try{
+                String name="Список треков";
+                try(android.database.Cursor cursor=getContentResolver().query(uri,new String[]{android.provider.OpenableColumns.DISPLAY_NAME},null,null,null)){if(cursor!=null&&cursor.moveToFirst()&&!cursor.isNull(0))name=cursor.getString(0);}
+                final String fileName=name;final String text;
+                try(java.io.InputStream stream=getContentResolver().openInputStream(uri)){text=PlaylistImportFile.read(stream);}
+                ui.post(()->{if(transferDialog!=dialog||!dialog.isShowing()||ticket!=transferReadGeneration)return;target.setText(text);note.setText("Выбран файл: "+fileName);dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);});
+            }catch(Exception ex){ui.post(()->{if(transferDialog!=dialog||!dialog.isShowing()||ticket!=transferReadGeneration)return;note.setText(ex.getMessage()==null?"Не удалось прочитать файл":ex.getMessage());dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);});}
         });
-        TextView result=text("",13);panel.addView(result);
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Перенести музыку").setView(panel).setNegativeButton("Закрыть",null).setPositiveButton("Найти треки",null).create();
-        dialog.setOnShowListener(unused->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
-            String raw=input.getText().toString();if(raw.isBlank()){result.setText("Добавь список треков");return;}
+    }
+    void nativeTransfer(){
+        if(transferDialog!=null&&transferDialog.isShowing()){transferDialog.dismiss();}
+        LinearLayout panel=column();panel.setPadding(dp(20),dp(16),dp(20),dp(12));
+        EditText title=new EditText(this);title.setSingleLine(true);title.setText("Перенос музыки");title.setHint("Название плейлиста");styleField(title);panel.addView(title);transferTitle=title;
+        Spinner modes=new Spinner(this);String[] modeNames={"Точный","Умный","Максимальный"};modes.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,modeNames));modes.setSelection(1);panel.addView(modes);transferMode=modes;
+        TextView info=text("Выбери файл JSON, CSV или TXT либо вставь список треков. Максимум 1 МБ.",13);info.setPadding(0,dp(12),0,dp(12));panel.addView(info);panel.addView(sheetAction("Выбрать файл",this::choosePlaylistDocument));
+        EditText input=new EditText(this);input.setMinLines(5);input.setMaxLines(9);input.setGravity(Gravity.TOP);input.setHint("Список треков");styleField(input);input.setSaveEnabled(false);panel.addView(input);transferInput=input;
+        TextView result=text("",13);panel.addView(result);transferNote=result;
+        ScrollView form=new ScrollView(this);form.addView(panel);
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Перенести музыку").setView(form).setNegativeButton("Закрыть",null).setPositiveButton("Найти треки",null).create();
+        transferDialog=dialog;
+        dialog.setOnDismissListener(ignored->{if(transferDialog==dialog){transferReadGeneration++;transferDialog=null;transferInput=null;transferTitle=null;transferMode=null;transferNote=null;getSharedPreferences("transfer-draft",MODE_PRIVATE).edit().clear().apply();}});
+        styleSheet(dialog);
+        dialog.show();
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+            String raw=input.getText().toString();if(raw.trim().isEmpty()){result.setText("Добавь список треков");return;}
             if(raw.getBytes(java.nio.charset.StandardCharsets.UTF_8).length>1024*1024){result.setText("Максимальный размер 1 МБ");return;}
             String[] codes={"safe","balanced","wide"};JSONObject body=new JSONObject();
             try{body.put("provider","yandex").put("name",title.getText().toString()).put("text",raw).put("url","").put("mode",codes[modes.getSelectedItemPosition()]);}catch(Exception ex){result.setText(ex.getMessage());return;}
@@ -940,9 +947,7 @@ public final class MainActivity extends Activity {
                 String key=response.optString("id");result.setText("Поиск запущен. ID: "+key);
                 if(!key.isEmpty())pollTransfer(key,result,dialog);
             });
-        }));
-        dialog.setOnDismissListener(d->{if(transferFileInput==input){transferFileInput=null;transferFileStatus=null;}});
-        dialog.show();
+        });
     }
     private void pollTransfer(String key,TextView label,AlertDialog dialog){
         if(!dialog.isShowing())return;
@@ -960,5 +965,6 @@ public final class MainActivity extends Activity {
     }
 
 }
+
 
 
