@@ -332,6 +332,12 @@ struct NativeRoot: View {
             Spacer()
             Button { if store.screen == .search { store.screen = .home } else { store.screen = .search } } label: { Image(systemName: store.screen == .search ? "xmark" : "magnifyingglass").font(.system(size: 19, weight: .medium)).foregroundStyle(pumpkin).frame(width: 44, height: 44).frostedGlass(22) }.accessibilityLabel(store.screen == .search ? "Закрыть поиск" : "Поиск")
             Menu {
+                Section {
+                    Label(store.connectionStatus, systemImage: store.connectionStatus == "Онлайн" ? "wifi" : store.connectionStatus == "Загрузка…" ? "arrow.triangle.2.circlepath" : "wifi.slash")
+                        .foregroundStyle(store.connectionStatus == "Онлайн" ? .green : store.connectionStatus == "Загрузка…" ? .orange : .red)
+                } header: {
+                    Text("Состояние подключения")
+                }
                 ForEach(MusicStore.Screen.allCases, id: \.self) { screen in Button(screen.rawValue) { store.screen = screen } }
                 Divider()
                 Button("Только фон", systemImage: "sparkles") { withAnimation(.easeInOut(duration: 0.22)) { backgroundOnly = true } }
