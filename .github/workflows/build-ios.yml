@@ -24,6 +24,10 @@ jobs:
         run: |
           swiftc NightwellMusic/PremiumPaymentPolicy.swift scripts/test-premium-payment.swift -o /tmp/test-premium-payment
           /tmp/test-premium-payment
+      - name: Test progressive library loading
+        run: |
+          swiftc NightwellMusic/LibraryRefreshCoordinator.swift scripts/test-library-refresh.swift -o /tmp/test-library-refresh
+          /tmp/test-library-refresh
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Select latest installed Xcode

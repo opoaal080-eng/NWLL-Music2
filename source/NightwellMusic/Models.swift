@@ -64,10 +64,11 @@ actor MusicAPI: LyricsService {
         session = URLSession(configuration: config)
     }
     func setCSRF(_ value: String?) { csrf = value ?? "" }
-    func request<T: Decodable>(_ path: String, method: String = "GET", body: [String: Any]? = nil) async throws -> T {
+    func request<T: Decodable>(_ path: String, method: String = "GET", body: [String: Any]? = nil, timeout: TimeInterval? = nil) async throws -> T {
         guard let url = URL(string: path, relativeTo: origin), url.host == origin.host, url.scheme == "https" else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
         request.httpMethod = method
+        if let timeout { request.timeoutInterval = timeout }
         if method != "GET" {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.setValue(csrf, forHTTPHeaderField: "X-CSRF-Token")
@@ -139,3 +140,4 @@ struct EmailAuthResponse: Decodable {
     let csrf: String?
     let challenge: EmailChallenge?
 }
+

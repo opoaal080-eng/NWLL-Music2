@@ -72,7 +72,9 @@ import Network
     private var searchTask: Task<Void, Never>?
     private var searchGeneration = UUID()
     private var searchCache: [String: [Track]] = [:]
-    private var bootstrapTask: Task<Void, Never>?
+    private var starting = false
+    private let libraryRefresh = LibraryRefreshCoordinator()
+    private var sessionGeneration = UUID()
     private var preloadTask: Task<Void, Never>?
     private var lastPreloadIDs: [String] = []
     private var lastPreloadAt = Date.distantPast
@@ -105,13 +107,20 @@ import Network
         playlists = cache.playlists
         lastWave = cache.wave
     }
+    private var snapshotSaveTask: Task<Void, Never>?
     private func saveSessionSnapshot() {
-        guard let key = sessionCacheKey else { return }
-        let snapshot = SessionSnapshot(savedAt: Date(), tracks: Array(catalog.prefix(1500)),
-                                       likes: Array(likes), playlists: playlists,
-                                       wave: Array(lastWave.prefix(90)))
-        guard let data = try? JSONEncoder().encode(snapshot), data.count < 2_000_000 else { return }
-        UserDefaults.standard.set(data, forKey: key)
+        snapshotSaveTask?.cancel()
+        snapshotSaveTask = Task { [weak self] in
+            do { try await Task.sleep(nanoseconds: 250_000_000) } catch { return }
+            guard let self, let key = self.sessionCacheKey else { return }
+            let snapshot = SessionSnapshot(savedAt: Date(), tracks: Array(self.catalog.prefix(1500)),
+                                           likes: Array(self.likes), playlists: self.playlists,
+                                           wave: Array(self.lastWave.prefix(90)))
+            let data = await Task.detached(priority: .utility) { try? JSONEncoder().encode(snapshot) }.value
+            guard !Task.isCancelled, self.sessionCacheKey == key,
+                  let data, data.count < 2_000_000 else { return }
+            UserDefaults.standard.set(data, forKey: key)
+        }
     }
     private let connectionMonitor = NWPathMonitor()
     private let connectionQueue = DispatchQueue(label: "fun.nightwell.connection")
@@ -121,34 +130,26 @@ import Network
     private var lastConnectionRefresh = Date.distantPast
 
     private func checkConnection() {
-        connectionCheck?.cancel()
+        guard sessionReady, !starting, connectionCheck == nil else { return }
         guard hasNetworkPath else { connectionStatus = "Оффлайн"; return }
+        let server = origin
+        let client = api
         connectionCheck = Task { [weak self] in
             guard let self else { return }
-            // The internet connection alone does not prove Nightwell is reachable.
-            let url = self.origin.appendingPathComponent("api/me")
-            var request = URLRequest(url: url)
-            request.httpMethod = "GET"
-            request.cachePolicy = .reloadIgnoringLocalCacheData
-            request.timeoutInterval = 8
-            let config = URLSessionConfiguration.ephemeral
-            config.timeoutIntervalForRequest = 8
-            let session = URLSession(configuration: config)
-            defer { session.invalidateAndCancel() }
+            defer { self.connectionCheck = nil }
             do {
-                let (_, response) = try await session.data(for: request)
-                guard !Task.isCancelled else { return }
-                let http = response as? HTTPURLResponse
-                let reachable = http.map { (200..<500).contains($0.statusCode) } ?? false
+                // Reuse the authenticated connection instead of negotiating a new TLS session.
+                let _: Identity = try await client.request("/api/me", timeout: 8)
+                guard !Task.isCancelled, self.origin == server else { return }
                 let wasOffline = self.connectionStatus == "Оффлайн"
-                self.connectionStatus = reachable ? "Онлайн" : "Оффлайн"
-                if reachable && wasOffline && self.account != nil &&
+                self.connectionStatus = "Онлайн"
+                if wasOffline && self.account != nil &&
                     Date().timeIntervalSince(self.lastConnectionRefresh) > 30 {
                     self.lastConnectionRefresh = Date()
                     await self.refresh()
                 }
             } catch {
-                if !Task.isCancelled { self.connectionStatus = "Оффлайн" }
+                if !Task.isCancelled, self.origin == server { self.connectionStatus = "Оффлайн" }
             }
         }
     }
@@ -159,7 +160,6 @@ import Network
                 guard let self else { return }
                 self.hasNetworkPath = path.status == .satisfied
                 if self.hasNetworkPath {
-                    self.connectionStatus = "Загрузка…"
                     self.checkConnection()
                 } else {
                     self.connectionCheck?.cancel()
@@ -203,6 +203,11 @@ import Network
     }
     private var sessionReady = false
     func start() async {
+        guard !starting else { return }
+        starting = true
+        let generation = sessionGeneration
+        defer { if generation == sessionGeneration { starting = false } }
+        let client = api
         connectionStatus = "Загрузка…"
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--native-smoke-lyrics") {
@@ -223,22 +228,39 @@ import Network
             return
         }
         #endif
-        await refreshOffline()
+        // Disk scanning and the session request are independent.
+        async let localFiles: Void = refreshOffline()
         restorePlayback()
         do {
-            let identity: Identity = try await api.request("/api/me")
-            account = identity.user; cacheAccount(); await api.setCSRF(identity.csrf)
+            let identity: Identity = try await client.request("/api/me", timeout: 10)
+            guard generation == sessionGeneration, !Task.isCancelled else { return }
+            if account?.id != identity.user?.id {
+                libraryRefresh.cancel()
+                catalog = []; likes = []; playlists = []; lastWave = []; results = []
+                NativePlayer.shared.stop()
+            }
+            account = identity.user
+            cacheAccount()
+            await client.setCSRF(identity.csrf)
+            restoreSessionSnapshot()
             connectionStatus = "Онлайн"
+            sessionReady = true
+            if let id = pendingSharedTrackID { pendingSharedTrackID = nil; await openSharedTrack(id) }
             if account != nil { await refresh() }
             restorePlayback()
         } catch {
+            guard generation == sessionGeneration, !Task.isCancelled else { return }
             connectionStatus = "Оффлайн"
-            // Cached metadata stays visible during connection failures; playback still requires server access.
-            if catalog.isEmpty { restorePlayback(offlineOnly: true); if !offline.isEmpty { screen = .offline } }
+            sessionReady = true
         }
-        sessionReady = true
-        if let id = pendingSharedTrackID { pendingSharedTrackID = nil; await openSharedTrack(id) }
+        await localFiles
+        guard generation == sessionGeneration else { return }
+        if connectionStatus == "Оффлайн", catalog.isEmpty {
+            restorePlayback(offlineOnly: true)
+            if !offline.isEmpty { screen = .offline }
+        }
     }
+
     private func cacheAccount() {
         if let account, let bytes = try? JSONEncoder().encode(account) { UserDefaults.standard.set(bytes, forKey: "native.account") }
         else { UserDefaults.standard.removeObject(forKey: "native.account") }
@@ -301,18 +323,53 @@ import Network
         previousPlaying = clock.playing; listeningDuration = clock.duration; listeningPosition = clock.position
     }
     func refresh() async {
-        loading = true
-        connectionStatus = "Загрузка…"
-        defer { loading = false }
-        do {
-            async let all: TrackResult = api.request("/api/tracks")
-            async let liked: LikeResult = api.request("/api/likes")
-            async let lists: PlaylistResult = api.request("/api/playlists")
-            let values = try await (all, liked, lists)
-            catalog = values.0.tracks; likes = Set(values.1.ids); playlists = values.2.playlists
-            saveSessionSnapshot()
-            connectionStatus = "Онлайн"
-        } catch { connectionStatus = "Оффлайн"; self.error = error.localizedDescription }
+        guard let owner = account?.id else { return }
+        let client = api, server = origin, generation = sessionGeneration
+        await libraryRefresh.run { [weak self] in
+            guard let self else { return }
+            func current() -> Bool {
+                !Task.isCancelled && self.sessionGeneration == generation &&
+                    self.account?.id == owner && self.origin == server
+            }
+            guard current() else { return }
+            var successes = 0
+            var failures: [String] = []
+            // Each response updates its own section immediately; a slow catalogue
+            // must not hold back favourites or playlists.
+            await LibraryRefreshCoordinator.load(tracks: {
+                do {
+                    let value: TrackResult = try await client.request("/api/tracks", timeout: 15)
+                    guard current() else { return }
+                    self.catalog = value.tracks
+                    successes += 1
+                    self.connectionStatus = "Онлайн"
+                    self.saveSessionSnapshot()
+                } catch { if current() { failures.append(error.localizedDescription) } }
+            }, likes: {
+                do {
+                    let value: LikeResult = try await client.request("/api/likes", timeout: 10)
+                    guard current() else { return }
+                    self.likes = Set(value.ids)
+                    successes += 1
+                    self.connectionStatus = "Онлайн"
+                    self.saveSessionSnapshot()
+                } catch { if current() { failures.append(error.localizedDescription) } }
+            }, playlists: {
+                do {
+                    let value: PlaylistResult = try await client.request("/api/playlists", timeout: 10)
+                    guard current() else { return }
+                    self.playlists = value.playlists
+                    successes += 1
+                    self.connectionStatus = "Онлайн"
+                    self.saveSessionSnapshot()
+                } catch { if current() { failures.append(error.localizedDescription) } }
+            })
+            guard current() else { return }
+            if successes == 0 {
+                self.connectionStatus = "Оффлайн"
+                if self.catalog.isEmpty { self.error = failures.first }
+            }
+        }
     }
     private func finishAuthentication(_ response: EmailAuthResponse) async throws -> Bool {
         if let challenge = response.challenge {
@@ -320,6 +377,11 @@ import Network
             return false
         }
         guard let user = response.user else { throw APIError(message: "Сервер не подтвердил вход") }
+        sessionGeneration = UUID()
+        starting = false
+        snapshotSaveTask?.cancel()
+        libraryRefresh.cancel()
+        if account?.id != user.id { catalog = []; likes = []; playlists = []; lastWave = []; results = [] }
         account = user
         emailChallenge = nil
         cacheAccount()
@@ -372,6 +434,7 @@ import Network
         do {
             let _: OK = try await api.request("/api/logout", method: "POST")
             NativePlayer.shared.stop(); preloadTask?.cancel(); preloadTask = nil; lastPreloadIDs = []; lastPreloadAt = .distantPast; searchTask?.cancel(); searchGeneration = UUID(); searchCache = [:]
+            sessionGeneration = UUID(); starting = false; snapshotSaveTask?.cancel(); libraryRefresh.cancel()
             account = nil; cacheAccount(); catalog = []; results = []; likes = []; playlists = []; query = ""; await api.setCSRF(nil)
         } catch { self.error = error.localizedDescription }
     }
@@ -534,6 +597,7 @@ import Network
     func refreshOffline() async {
         let server = origin
         let value = await Task.detached { try? OfflineStore.operation(["op": "listAll"], origin: server) }.value
+        guard origin == server else { return }
         if let value, let data = try? JSONSerialization.data(withJSONObject: value["tracks"] ?? []), let tracks = try? JSONDecoder().decode([Track].self, from: data) { offline = tracks }
     }
     func download(_ list: [Track]) async {
@@ -570,8 +634,10 @@ import Network
     func changeServer(_ value: String) async {
         guard let url = ServerAddress.validated(value) else { error = "Нужен HTTPS-адрес без пути и параметров"; return }
         NativePlayer.shared.stop(); preloadTask?.cancel(); preloadTask = nil; lastPreloadIDs = []; lastPreloadAt = .distantPast; leaveSearch(); catalog = []; results = []; playlists = []; likes = []; account = nil; searchCache = [:]
+        sessionGeneration = UUID(); starting = false; snapshotSaveTask?.cancel(); libraryRefresh.cancel(); connectionCheck?.cancel(); sessionReady = false
         origin = url; api = MusicAPI(origin: url); lastWave = []; UserDefaults.standard.set(url.absoluteString, forKey: "nightwell.server"); await start()
     }
 }
+
 
 
