@@ -30,76 +30,146 @@ let pumpkin = Color(red: 1, green: 0.72, blue: 0.43)
 let nightwellViolet = Color(red: 0.19, green: 0.10, blue: 0.29)
 let nightwellText = Color(red: 0.94, green: 0.88, blue: 0.97)
 extension View {
-    func glass(_ radius: CGFloat = 24) -> some View {
-        self.background {
-            RoundedRectangle(cornerRadius: radius)
-                .fill(nightwellViolet.opacity(0.56))
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: radius))
-        }
-            .overlay(RoundedRectangle(cornerRadius: radius).stroke(
-                LinearGradient(colors: [pumpkin.opacity(0.33), .white.opacity(0.13), nightwellText.opacity(0.15)], startPoint: .topLeading, endPoint: .bottomTrailing),
-                lineWidth: 1
-            ))
+    func glass(_ radius: CGFloat = 30) -> some View {
+        self
+            .padding(.horizontal, 0)
+            .background {
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .fill(.ultraThinMaterial)
+                    .overlay(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.18), pumpkin.opacity(0.12), nightwellViolet.opacity(0.20)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+                    )
+            }
+            .overlay(
+                RoundedRectangle(cornerRadius: radius, style: .continuous).stroke(
+                    LinearGradient(colors: [Color.white.opacity(0.45), pumpkin.opacity(0.30), nightwellText.opacity(0.18)], startPoint: .topLeading, endPoint: .bottomTrailing),
+                    lineWidth: 1
+                )
+            )
+            .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
     }
 }
 
 // iOS 26+ system Liquid Glass, with a translucent fallback on older versions.
 extension View {
-    @ViewBuilder func nightwellLiquidGlass(_ radius: CGFloat = 24) -> some View {
+    @ViewBuilder func nightwellLiquidGlass(_ radius: CGFloat = 30) -> some View {
+        #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             self.glassEffect(.regular, in: .rect(cornerRadius: radius))
         } else {
-            self.background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: radius))
-                .overlay(RoundedRectangle(cornerRadius: radius).stroke(Color.white.opacity(0.30), lineWidth: 1))
+            self.glass(radius)
         }
+        #else
+        self.glass(radius)
+        #endif
+    }
+}
+// Shared with the mini-player: only the background is translucent.
+struct NativeBackdropBlur: UIViewRepresentable {
+    var intensity: CGFloat = 1
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeUIView(context: Context) -> UIVisualEffectView {
+        let view = UIVisualEffectView(effect: nil)
+        view.isUserInteractionEnabled = false
+        return view
+    }
+    func updateUIView(_ view: UIVisualEffectView, context: Context) {
+        guard context.coordinator.intensity != intensity else { return }
+        let coordinator = context.coordinator
+        coordinator.intensity = intensity
+        DispatchQueue.main.async { [weak view] in
+            guard let view else { return }
+            coordinator.apply(to: view)
+        }
+    }
+    final class Coordinator {
+        var intensity: CGFloat = -1
+        private var animator: UIViewPropertyAnimator?
+        func apply(to view: UIVisualEffectView) {
+            animator?.stopAnimation(true)
+            let effect = UIBlurEffect(style: .systemUltraThinMaterialDark)
+            guard intensity < 1 else { view.effect = effect; animator = nil; return }
+            view.effect = nil
+            let animation = UIViewPropertyAnimator(duration: 1, curve: .linear) { view.effect = effect }
+            animation.pausesOnCompletion = true
+            animation.fractionComplete = min(1, max(0, intensity))
+            animator = animation
+        }
+        deinit { animator?.stopAnimation(true) }
+    }
+}
+struct FrostedSurface: View {
+    var radius: CGFloat = 30
+    var intensity: CGFloat = 1
+    var body: some View {
+        NativeBackdropBlur(intensity: intensity)
+            .overlay(
+                LinearGradient(
+                    colors: [Color.white.opacity(0.06), nightwellViolet.opacity(0.12), pumpkin.opacity(0.04)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
     }
 }
 
-// Shared with the mini-player: only the background is translucent.
-struct FrostedSurface: View {
-    var radius: CGFloat = 24
-    var body: some View {
-        RoundedRectangle(cornerRadius: radius)
-            .fill(.ultraThinMaterial)
-            .opacity(0.43)
-    }
-}
 extension View {
-    func frostedGlass(_ radius: CGFloat = 24) -> some View {
-        self.background { FrostedSurface(radius: radius) }
-            .overlay(RoundedRectangle(cornerRadius: radius).stroke(
-                LinearGradient(colors: [.white.opacity(0.32), pumpkin.opacity(0.26), .white.opacity(0.13)], startPoint: .topLeading, endPoint: .bottomTrailing),
-                lineWidth: 1
-            ))
-            .clipShape(RoundedRectangle(cornerRadius: radius))
+    func frostedGlass(_ radius: CGFloat = 30, bordered: Bool = true, intensity: CGFloat = 1) -> some View {
+        self
+            .background { FrostedSurface(radius: radius, intensity: intensity) }
+            .overlay {
+                if bordered {
+                    RoundedRectangle(cornerRadius: radius, style: .continuous).stroke(
+                        LinearGradient(colors: [.white.opacity(0.36), pumpkin.opacity(0.28), .white.opacity(0.14)], startPoint: .topLeading, endPoint: .bottomTrailing),
+                        lineWidth: 1
+                    )
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
     }
 }
 
 struct NightwellPopup<Content: View>: View {
     let title: String
-    var maxHeight: CGFloat = 560
+    var maxHeight: CGFloat = 600
     var dimsBackground = true
+    var centered = false
+    var transparentSettings = false
     let close: () -> Void
     let content: Content
-    init(title: String, maxHeight: CGFloat = 560, dimsBackground: Bool = true, close: @escaping () -> Void, @ViewBuilder content: () -> Content) {
+    init(title: String, maxHeight: CGFloat = 560, dimsBackground: Bool = true, centered: Bool = false, transparentSettings: Bool = false, close: @escaping () -> Void, @ViewBuilder content: () -> Content) {
         self.title = title
         self.maxHeight = maxHeight
         self.dimsBackground = dimsBackground
+        self.centered = centered
+        self.transparentSettings = transparentSettings
         self.close = close
         self.content = content()
     }
     var body: some View {
         GeometryReader { proxy in
-            ZStack {
-                Color.black.opacity(dimsBackground ? 0.28 : 0.001).ignoresSafeArea()
+            ZStack(alignment: centered ? .center : .bottom) {
+                Color.black.opacity(dimsBackground ? 0.18 : 0.001).ignoresSafeArea()
                     .onTapGesture(perform: close)
                 content
-                    .frame(maxWidth: .infinity)
-                    .frame(maxHeight: min(maxHeight, proxy.size.height * 0.84))
-                    .nightwellLiquidGlass(30)
-                    .clipShape(RoundedRectangle(cornerRadius: 30))
-                    .padding(.horizontal, 20)
-                    .shadow(color: nightwellViolet.opacity(0.65), radius: 28, y: 12)
+                    .frame(width: max(0, proxy.size.width - 40))
+                    .frame(height: min(maxHeight, proxy.size.height * 0.88))
+                    .frostedGlass(32, bordered: !transparentSettings, intensity: transparentSettings ? 0.28 : 1)
+                    .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
+                    .overlay {
+                        if !transparentSettings {
+                            RoundedRectangle(cornerRadius: 32, style: .continuous)
+                                .stroke(.white.opacity(0.16), lineWidth: 1)
+                        }
+                    }
+                    .shadow(color: nightwellViolet.opacity(transparentSettings ? 0 : 0.55), radius: 34, y: 14)
+                    .padding(.bottom, centered ? 0 : 20)
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
@@ -115,6 +185,9 @@ struct NativeRoot: View {
     @State private var waveSettingsPresented = false
     @State private var supportPresented = false
     @State private var premiumPresented = false
+    @State private var transferPresented = false
+    @State private var favoriteSort = "recent"
+    @ObservedObject private var favoritePremium = PremiumFeatureState.shared
     @State private var fullPlayer = false
     @State private var sharedLinkID: String?
     @State private var backgroundOnly = false
@@ -150,7 +223,7 @@ struct NativeRoot: View {
                         .overlay(alignment: .bottom) {
                             if store.screen == .home {
                                 HomeLyricLine(model: store.lyrics, clock: store.clock)
-                                    .frame(height: 70)
+                                    .frame(height: 60)
                                     .padding(.horizontal, 24)
                                     .offset(y: -85)
                             }
@@ -164,21 +237,21 @@ struct NativeRoot: View {
                     AuthSheet(close: { store.authPresented = false })
                 }
             } else if supportPresented {
-                NightwellPopup(title: "", maxHeight: 625, dimsBackground: false, close: { supportPresented = false }) {
+                NightwellPopup(title: "", maxHeight: 618, dimsBackground: false, centered: true, close: { supportPresented = false }) {
                     NativeSupportView(close: { supportPresented = false })
                         .environmentObject(store)
                 }
             } else if waveSettingsPresented {
-                NightwellPopup(title: "", maxHeight: 560, dimsBackground: false, close: { waveSettingsPresented = false }) {
+                NightwellPopup(title: "", maxHeight: 554, dimsBackground: false, centered: true, close: { waveSettingsPresented = false }) {
                     NativeWaveSettingsView(close: { waveSettingsPresented = false })
                         .environmentObject(store)
                 }
             } else if settings {
-                NightwellPopup(title: "", close: { settings = false }) {
+                NightwellPopup(title: "", maxHeight: 554, dimsBackground: false, centered: true, transparentSettings: true, close: { settings = false }) {
                     NativeSettings(close: { settings = false })
                 }
             } else if let playlist = selectedPlaylist {
-                NightwellPopup(title: "", maxHeight: 610, close: { selectedPlaylist = nil }) {
+                NightwellPopup(title: "", maxHeight: 618, dimsBackground: false, centered: true, transparentSettings: true, close: { selectedPlaylist = nil }) {
                     PlaylistScreen(close: { selectedPlaylist = nil }, playlist: playlist)
                         .id(playlist.id)
                 }
@@ -195,6 +268,9 @@ struct NativeRoot: View {
             if ProcessInfo.processInfo.arguments.contains("--native-smoke-focus") { backgroundOnly = true }
             if ProcessInfo.processInfo.arguments.contains("--native-smoke-settings") { settings = true }
             if ProcessInfo.processInfo.arguments.contains("--native-smoke-wave-settings") { waveSettingsPresented = true }
+            if ProcessInfo.processInfo.arguments.contains("--native-smoke-support") { supportPresented = true }
+            if ProcessInfo.processInfo.arguments.contains("--native-smoke-premium") { premiumPresented = true }
+            if ProcessInfo.processInfo.arguments.contains("--native-smoke-statistics") { feature = .statistics }
             if ProcessInfo.processInfo.arguments.contains("--native-smoke-auth") { store.authPresented = true }
             if ProcessInfo.processInfo.arguments.contains("--native-smoke-playlist") { selectedPlaylist = Playlist(id: "native-preview", name: "Твоя ночная подборка") }
             #endif
@@ -216,6 +292,7 @@ struct NativeRoot: View {
         }
         .fullScreenCover(isPresented: $fullPlayer) { FullPlayer(clock: store.clock) }
         
+        .sheet(isPresented: $transferPresented) { NightwellNativeTransfer().environmentObject(store) }
         .sheet(isPresented: $showShare) { if let shareURL { ShareSheet(items: [shareURL]) } }
         .fileImporter(isPresented: $importFiles, allowedContentTypes: [.audio], allowsMultipleSelection: true) { result in
             if case let .success(urls) = result { Task { await store.importFiles(urls) } }
@@ -244,7 +321,7 @@ struct NativeRoot: View {
                 HStack(spacing: 9) {
                     Image("BrandLogo").resizable().scaledToFit().frame(width: 42, height: 42)
                     VStack(alignment: .leading, spacing: 1) {
-                        Text("Nightwell").font(.system(size: 27, weight: .bold))
+                        Text("Nightwell").font(.system(size: 25, weight: .bold))
                         Text("M U S I C").font(.caption).foregroundStyle(.secondary)
                     }
                 }.contentShape(Rectangle())
@@ -253,24 +330,38 @@ struct NativeRoot: View {
             .foregroundStyle(nightwellText)
             .accessibilityLabel("На главную")
             Spacer()
-            Button { if store.screen == .search { store.screen = .home } else { store.screen = .search } } label: { Image(systemName: store.screen == .search ? "xmark" : "magnifyingglass").font(.system(size: 19, weight: .medium)).frame(width: 44, height: 44).frostedGlass(22) }.accessibilityLabel(store.screen == .search ? "Закрыть поиск" : "Поиск")
+            Button { if store.screen == .search { store.screen = .home } else { store.screen = .search } } label: { Image(systemName: store.screen == .search ? "xmark" : "magnifyingglass").font(.system(size: 19, weight: .medium)).foregroundStyle(pumpkin).frame(width: 44, height: 44).frostedGlass(22) }.accessibilityLabel(store.screen == .search ? "Закрыть поиск" : "Поиск")
             Menu {
+                Section {
+                    Label(store.connectionStatus, systemImage: store.connectionStatus == "Онлайн" ? "wifi" : store.connectionStatus == "Загрузка…" ? "arrow.triangle.2.circlepath" : "wifi.slash")
+                        .foregroundStyle(store.connectionStatus == "Онлайн" ? .green : store.connectionStatus == "Загрузка…" ? .orange : .red)
+                } header: {
+                    Text("Состояние подключения")
+                }
                 ForEach(MusicStore.Screen.allCases, id: \.self) { screen in Button(screen.rawValue) { store.screen = screen } }
                 Divider()
                 Button("Только фон", systemImage: "sparkles") { withAnimation(.easeInOut(duration: 0.22)) { backgroundOnly = true } }
                 Button("Моя статистика", systemImage: "chart.bar") { feature = .statistics }
                 Button("Nightwell Premium", systemImage: "star") { premiumPresented = true }
+                Button("Перенести музыку", systemImage: "square.and.arrow.down") { transferPresented = true }
                 Button("Настройки", systemImage: "gearshape") { settings = true }
                 Button("Настройка подборки", systemImage: "slider.horizontal.3") { waveSettingsPresented = true }
                 Button("Обращения и поддержка", systemImage: "envelope") { supportPresented = true }
                 Button(store.account == nil ? "Войти" : "Выйти", systemImage: "person") { if store.account == nil { store.authPresented = true } else { Task { await store.logout() } } }
-            } label: { Image(systemName: "line.3.horizontal").font(.system(size: 19, weight: .medium)).frame(width: 44, height: 44).frostedGlass(22) }.accessibilityLabel("Меню").sheet(item: $feature) { PremiumFeatureView(kind: $0).environmentObject(store) }
+            } label: { Image(systemName: "line.3.horizontal").font(.system(size: 19, weight: .medium)).foregroundStyle(pumpkin).frame(width: 44, height: 44).frostedGlass(22) }.accessibilityLabel("Меню").sheet(item: $feature) { PremiumFeatureView(kind: $0).environmentObject(store) }
         }.padding(.horizontal, 20).padding(.top, 8)
+    }
+    private var favoriteTracks: [Track] {
+        let entries = store.catalog.filter { store.likes.contains($0.id) }
+        guard favoritePremium.allowed else { return entries }
+        if favoriteSort == "title" { return entries.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending } }
+        if favoriteSort == "artist" { return entries.sorted { $0.artist.localizedStandardCompare($1.artist) == .orderedAscending } }
+        return entries
     }
     @ViewBuilder private var content: some View {
         switch store.screen {
         case .home:
-            NativeHome(clock: store.clock)
+            NativeHome(configureWave: { waveSettingsPresented = true }, clock: store.clock)
         case .search:
             VStack(alignment: .leading, spacing: 14) {
                 Text("Поиск").font(.largeTitle.bold())
@@ -281,7 +372,7 @@ struct NativeRoot: View {
                 TrackList(tracks: store.results)
             }.padding(.horizontal, 20)
         case .likes:
-            VStack(alignment: .leading) { collectionHeading("Избранное", tracks: store.catalog.filter { store.likes.contains($0.id) }, kind: "likes"); TrackList(tracks: store.catalog.filter { store.likes.contains($0.id) }) }.padding(.horizontal, 20)
+            VStack(alignment: .leading) { HStack { collectionHeading("Избранное", tracks: favoriteTracks, kind: "likes"); Spacer(); Menu { if favoritePremium.allowed { Button("Недавние") { favoriteSort = "recent" }; Button("По названию") { favoriteSort = "title" }; Button("По исполнителю") { favoriteSort = "artist" } } else { Button("Оформить Premium") { premiumPresented = true } } } label: { Label("Сортировка · Premium", systemImage: "arrow.up.arrow.down").font(.caption) } }; TrackList(tracks: favoriteTracks) }.padding(.horizontal, 20)
         case .playlists:
             VStack(alignment: .leading, spacing: 16) {
                 Button("Умные плейлисты · Premium") { feature = .smart }
@@ -331,7 +422,7 @@ struct NativeTrackRow: View {
             Button { store.play(track, in: queue) } label: {
                 HStack(spacing: 12) {
                     Cover(track: track, origin: store.origin).frame(width: 46, height: 46).clipShape(RoundedRectangle(cornerRadius: 12))
-                    VStack(alignment: .leading, spacing: 5) { Text(track.title).font(.subheadline.weight(.semibold)).lineLimit(2); Text(track.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                    VStack(alignment: .leading, spacing: 5) { Text(track.title).font(.subheadline.weight(.semibold)).lineLimit(2); Text(track.artist).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
                     Spacer(minLength: 0)
                     if status.id == track.id { PlayingIndicator(playing: status.playing).frame(width: 20, height: 20) }
                 }.contentShape(Rectangle())
@@ -370,17 +461,30 @@ struct PlaylistScreen: View {
     @State private var tracks: [Track] = []
     @Environment(\.dismiss) private var dismiss
     var body: some View {
-        ZStack {
-            VStack(spacing: 18) {
-                HStack {
-                    Button { close() } label: { Image(systemName: "xmark").frame(width: 44, height: 44).glass(24) }
-                    Spacer()
-                    Button { Task { await store.download(tracks) } } label: { Image(systemName: "arrow.down.to.line").frame(width: 44, height: 44).glass(24) }
-                }
-                HStack { Text(playlist.name).font(.largeTitle.bold()); Spacer() }
-                TrackList(tracks: tracks, playlist: playlist)
-            }.padding(.horizontal, 20).padding(.top, 12)
-        }.tint(pumpkin).task {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(playlist.name)
+                    .font(.title2.bold())
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Button { Task { await store.download(tracks) } } label: {
+                    Image(systemName: "arrow.down.to.line").frame(width: 42, height: 42).frostedGlass(20)
+                }.accessibilityLabel("Скачать плейлист")
+                Button(action: close) {
+                    Image(systemName: "xmark").frame(width: 42, height: 42).frostedGlass(20)
+                }.accessibilityLabel("Закрыть плейлист")
+            }
+            .padding(.top, 18)
+            Text("Треки плейлиста · \\(tracks.count)")
+                .font(.caption).foregroundStyle(.secondary)
+            TrackList(tracks: tracks, playlist: playlist)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipped()
+        }
+        .padding(.horizontal, 18)
+        .padding(.bottom, 16)
+        .tint(pumpkin)
+        .task {
             #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("--native-smoke-playlist") {
                 tracks = [Track(id: "preview-one", title: "Музыка этой ночи", artist: "Nightwell Music"), Track(id: "preview-two", title: "Твой тёмный ритм", artist: "Nightwell Music")]
@@ -395,5 +499,260 @@ struct ShareSheet: UIViewControllerRepresentable {
     let items: [Any]
     func makeUIViewController(context: Context) -> UIActivityViewController { UIActivityViewController(activityItems: items, applicationActivities: nil) }
     func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
+}
+
+
+
+private struct NightwellNativeTransfer: View {
+    @EnvironmentObject private var store: MusicStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var showingFile = false
+    @State private var name = "Перенос музыки"
+    @FocusState private var nameFieldFocused: Bool
+    @State private var contents = ""
+    @State private var selectedFilename = ""
+    @State private var mode = "wide"
+    @State private var etaStage = ""
+    @State private var etaStart = Date()
+    @State private var etaProgress = 0
+    @State private var etaText = ""
+    @State private var saving = false
+    @State private var job: ImportJob?
+    @State private var errorText = ""
+    @State private var busy = false
+    @State private var history: [ImportJob] = []
+    @State private var historyExpanded = false
+    @State private var historyError = ""
+    @State private var observingJobID: String?
+    private let activeStates: Set<String> = ["reading", "matching", "saving"]
+    struct ImportJob: Decodable {
+        let id: String
+        let state: String
+        let total: Int
+        let progress: Int
+        let matched: Int
+        let saved: Int
+        let message: String?
+        let name: String?
+    }
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    Text("Перенести музыку").font(.largeTitle.bold())
+                    Text("Разбор списка, удаление дублей и расчёт времени выполняются на устройстве. Поиск продолжится на сервере даже после закрытия приложения.").foregroundStyle(.secondary)
+                    TextField("Название плейлиста", text: $name).focused($nameFieldFocused).submitLabel(.done).onSubmit { nameFieldFocused = false }.padding(14).nightwellLiquidGlass(18)
+                    Picker("Режим поиска", selection: $mode) {
+                        Text("Точный").tag("safe")
+                        Text("Умный").tag("balanced")
+                        Text("Максимальный").tag("wide")
+                    }.pickerStyle(.segmented)
+                    Text(mode == "safe" ? "Точный: оригинальная запись, строгое совпадение названия, исполнителя и длительности." : mode == "balanced" ? "Умный: разные варианты написания и поиск исполнителя в названии или поле артиста. Сомнительные записи отсекаются." : "Максимальный: больше поисковых запросов и вариантов названий. Неподтверждённые совпадения требуют проверки.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button { showingFile = true } label: { Label(selectedFilename.isEmpty ? "Выбрать JSON, CSV или TXT" : selectedFilename, systemImage: "doc.badge.plus").frame(maxWidth: .infinity).padding(16) }
+                        .nightwellLiquidGlass(20)
+                    Button(busy ? "Обрабатываем…" : "Найти треки") { Task { await start() } }
+                        .buttonStyle(.borderedProminent).disabled(contents.isEmpty || busy)
+                    if let job {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text(job.message ?? "Поиск").font(.headline)
+                            ProgressView(value: Double(job.progress), total: Double(max(1, job.total)))
+                            HStack(spacing: 12) {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text("\(job.progress) / \(job.total)").font(.title3.bold()).monospacedDigit()
+                                    Text("Проверено").font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                VStack(alignment: .trailing, spacing: 3) {
+                                    Text("\(job.matched)").font(.title3.bold()).foregroundStyle(pumpkin).monospacedDigit()
+                                    Text("Найдено").font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                            Text(job.total > 0 ? "Обработано \(Int(Double(job.progress) / Double(job.total) * 100))% списка" : "Подготовка поиска")
+                                .font(.caption).foregroundStyle(.secondary)
+                            if !etaText.isEmpty { Text(etaText).font(.caption).foregroundStyle(.secondary) }
+                            if (job.state == "ready" || job.state == "error") && job.matched > 0 {
+                                Button(saving ? "Добавляем…" : "Добавить") { Task { await commit() } }.buttonStyle(.borderedProminent).disabled(saving)
+                            }
+                            if activeStates.contains(job.state) {
+                                Button("Остановить") { Task { await cancel() } }.tint(.orange)
+                            }
+                        }.padding(18).nightwellLiquidGlass(24)
+                    }
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(spacing: 12) {
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.22)) { historyExpanded.toggle() }
+                            } label: {
+                                HStack {
+                                    Text("История переносов").font(.headline)
+                                    Spacer()
+                                    Text("\(history.filter { !activeStates.contains($0.state) }.count)")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                    Image(systemName: historyExpanded ? "chevron.up" : "chevron.down")
+                                        .foregroundStyle(.secondary)
+                                }
+                                .contentShape(Rectangle())
+                            }.buttonStyle(.plain)
+                            Button { Task { await refreshHistory() } } label: {
+                                Image(systemName: "arrow.clockwise")
+                            }.accessibilityLabel("Обновить переносы")
+                        }
+                        if historyExpanded {
+                            if !historyError.isEmpty {
+                                Text(historyError).font(.caption).foregroundStyle(.orange)
+                            }
+                            let previous = history.filter { !activeStates.contains($0.state) && $0.id != job?.id }
+                            if previous.isEmpty { Text("История пуста").font(.caption).foregroundStyle(.secondary) }
+                            ForEach(previous, id: \.id) { entry in
+                                Button { job = entry; etaText = ""; etaStage = "" } label: {
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        HStack {
+                                            Text(entry.name ?? "Перенос музыки").font(.subheadline.weight(.semibold))
+                                            Spacer()
+                                            Text(statusName(entry.state)).font(.caption).foregroundStyle(.secondary)
+                                        }
+                                        ProgressView(value: Double(entry.progress), total: Double(max(1, entry.total)))
+                                        Text("Проверено \(entry.progress)/\(entry.total) · Найдено \(entry.matched)")
+                                            .font(.caption).foregroundStyle(.secondary)
+                                    }.padding(12).nightwellLiquidGlass(18)
+                                }.buttonStyle(.plain)
+                            }
+                        }
+                    }
+                    if !errorText.isEmpty { Text(errorText).foregroundStyle(.orange).font(.caption) }
+
+                }.padding(20)
+            }
+            .background(Color(red: 0.07, green: 0.04, blue: 0.12))
+            .task { await refreshHistory(); if let current = history.first(where: { activeStates.contains($0.state) }) { job = current; await poll(current.id) } }
+            .navigationTitle("Перенос")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Закрыть") { dismiss() } }; ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("Скрыть клавиатуру") { nameFieldFocused = false } } }
+            .sheet(isPresented: $showingFile) {
+                NightwellImportFilePicker { result in
+                    switch result {
+                    case .success(let url):
+                        do {
+                            let data = try Data(contentsOf: url)
+                            guard data.count <= 1024 * 1024 else { errorText = "Размер файла больше 1 МБ"; return }
+                            guard let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .utf16),
+                                  !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                                errorText = "Файл пустой или имеет неподдерживаемую кодировку"; return
+                            }
+                            contents = text
+                            selectedFilename = url.lastPathComponent
+                            errorText = ""
+                        } catch { errorText = "Ошибка чтения файла: " + error.localizedDescription }
+                    case .failure(let error):
+                        errorText = error.localizedDescription
+                    }
+                }
+                .ignoresSafeArea()
+            }
+        }.preferredColorScheme(.dark)
+    }
+    private func updateETA(_ job: ImportJob) {
+        let progress = job.state == "saving" ? job.saved : job.progress
+        let total = job.state == "saving" ? job.matched : job.total
+        if etaStage != job.state || progress < etaProgress { etaStage = job.state; etaStart = Date(); etaProgress = progress }
+        guard job.state == "matching" || job.state == "saving" else { etaText = ""; return }
+        let elapsed = Date().timeIntervalSince(etaStart), delta = progress - etaProgress
+        guard delta >= 2, elapsed >= 3 else { etaText = "Оцениваем оставшееся время…"; return }
+        let seconds = max(1, elapsed / Double(delta) * Double(max(0, total - progress)))
+        etaText = seconds < 60 ? "Осталось примерно меньше минуты" : "Осталось примерно \(Int(ceil(seconds / 60))) мин"
+    }
+    private func statusName(_ status: String) -> String {
+        switch status {
+        case "reading": return "Чтение"
+        case "matching": return "Поиск"
+        case "saving": return "Сохранение"
+        case "ready": return "Найдено"
+        case "done": return "Готово"
+        case "cancelled": return "Отменено"
+        case "error": return "Ошибка"
+        default: return status
+        }
+    }
+    private func refreshHistory() async {
+        struct Response: Decodable { let jobs: [ImportJob] }
+        do {
+            let response: Response = try await store.api.request("api/imports")
+            history = response.jobs
+            historyError = ""
+        } catch { historyError = "Не удалось загрузить историю: " + error.localizedDescription }
+    }
+    private func start() async {
+        busy = true; defer { busy = false }
+        do {
+            let raw = contents
+            let prepared = try await Task.detached(priority: .userInitiated) { try TransferPreparation.prepare(raw) }.value
+            etaStage = ""
+            let result: ImportJob = try await store.api.request("api/imports", method: "POST", body: ["provider":"yandex","name":name,"url":"","text":prepared,"mode":mode])
+            job = result; errorText = ""; await refreshHistory(); await poll(result.id)
+        } catch {
+            errorText = error.localizedDescription
+            await refreshHistory()
+            if let current = history.first(where: { activeStates.contains($0.state) }) {
+                job = current
+                await poll(current.id)
+            }
+        }
+    }
+    private func poll(_ id: String) async {
+        guard observingJobID != id else { return }
+        observingJobID = id
+        defer { if observingJobID == id { observingJobID = nil } }
+        while !Task.isCancelled && observingJobID == id {
+            do {
+                let next: ImportJob = try await store.api.request("api/imports/" + id)
+                if job?.id == id { job = next; updateETA(next) }
+                if next.state == "done" { await store.refresh() }
+                if !activeStates.contains(next.state) { await refreshHistory(); return }
+                try await Task.sleep(nanoseconds: 2_500_000_000)
+            } catch { errorText = error.localizedDescription; return }
+        }
+    }
+    private func commit() async {
+        guard let job, !saving else { return }
+        saving = true; defer { saving = false }
+        do { let next: ImportJob = try await store.api.request("api/imports/" + job.id + "/commit",method:"POST",body:[:]); self.job = next; await refreshHistory(); await poll(job.id) }
+        catch { errorText = error.localizedDescription }
+    }
+    private func cancel() async {
+        guard let job else { return }
+        do { let next: ImportJob = try await store.api.request("api/imports/" + job.id + "/cancel",method:"POST",body:[:]); self.job = next; await refreshHistory() }
+        catch { errorText = error.localizedDescription }
+    }
+}
+
+private struct NightwellImportFilePicker: UIViewControllerRepresentable {
+    let completion: (Result<URL, Error>) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(completion: completion) }
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.item], asCopy: true)
+        picker.allowsMultipleSelection = false
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) {}
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let completion: (Result<URL, Error>) -> Void
+        init(completion: @escaping (Result<URL, Error>) -> Void) { self.completion = completion }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            guard let url = urls.first else { return }
+            guard ["json", "csv", "txt"].contains(url.pathExtension.lowercased()) else {
+                completion(.failure(NSError(domain: "NightwellImport", code: 1, userInfo: [NSLocalizedDescriptionKey: "Поддерживаются JSON, CSV и TXT"])))
+                return
+            }
+            completion(.success(url))
+        }
+    }
 }
 

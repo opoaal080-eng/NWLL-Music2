@@ -38,6 +38,8 @@ jobs:
         run: |
           javac -d /tmp/playlist-import-test app/src/main/java/fun/nightwell/music/PlaylistImportFile.java tests/PlaylistImportFileTest.java
           java -cp /tmp/playlist-import-test fun.nightwell.music.PlaylistImportFileTest
+      - name: Test playlist parsing on device
+        run: gradle --no-daemon :app:testDebugUnitTest
       - name: Build debug APK
         run: gradle --no-daemon :app:assembleDebug
       - name: Record APK checksum and commit

@@ -85,7 +85,7 @@ public final class MainActivity extends Activity {
     };
     private final ServiceConnection connection=new ServiceConnection(){public void onServiceConnected(ComponentName n,IBinder b){playback=((PlaybackService.LocalBinder)b).getService();playback.player.addListener(playbackIntentObserver);if(!smokeMode&&pendingDeepLinkTrack.isEmpty())playback.restorePlayback(origin,user);updatePlayback();openPendingTrack();}public void onServiceDisconnected(ComponentName n){playback=null;}};
     @Override public void onCreate(Bundle saved){super.onCreate(saved);smokeMode=(getApplicationInfo().flags&android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE)!=0&&getIntent().getBooleanExtra("nativeSmoke",false);origin="https://music.nightwell.fun/";user=getSharedPreferences("native-api",MODE_PRIVATE).getString("account","");api=new NativeAPI(this,origin);if(Build.VERSION.SDK_INT>=30)getWindow().setDecorFitsSystemWindows(false);else getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE|View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);if(Build.VERSION.SDK_INT>=28){WindowManager.LayoutParams windowParams=getWindow().getAttributes();windowParams.layoutInDisplayCutoutMode=WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;getWindow().setAttributes(windowParams);}getWindow().setStatusBarColor(Color.TRANSPARENT);getWindow().setNavigationBarColor(Color.TRANSPARENT);getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);bindingRegistered=bindService(new Intent(this,PlaybackService.class).setAction("nightwell.local"),connection,BIND_AUTO_CREATE);build();if(smokeMode){smokeFixture(getIntent().getStringExtra("screen"));}else{acceptDeepLink(getIntent());load();}
-        if(saved!=null&&saved.getBoolean("transfer.open",false)){nativeTransfer();transferTitle.setText(saved.getString("transfer.title","Перенос музыки"));transferInput.setText(getSharedPreferences("transfer-draft",MODE_PRIVATE).getString("text",""));transferMode.setSelection(saved.getInt("transfer.mode",1));}
+        if(saved!=null&&saved.getBoolean("transfer.open",false)){nativeTransfer();transferTitle.setText(saved.getString("transfer.title","Перенос музыки"));transferInput.setText(getSharedPreferences("transfer-draft",MODE_PRIVATE).getString("text",""));transferMode.setSelection(saved.getInt("transfer.mode",2));}
     }
     @Override protected void onSaveInstanceState(Bundle saved){
         if(transferDialog!=null&&transferDialog.isShowing()){
@@ -143,12 +143,12 @@ public final class MainActivity extends Activity {
         if(navigationPopup!=null)navigationPopup.dismiss();
         View anchor=head.getChildAt(head.getChildCount()-1);
         LinearLayout entries=column();entries.setPadding(0,dp(6),0,dp(6));
-        TextView connectionHeading=text("Состояние подключения",12);connectionHeading.setTextColor(0xffa6a4af);connectionHeading.setPadding(dp(16),dp(8),dp(16),dp(4));entries.addView(connectionHeading);
-        TextView connectionState=text("Проверка…",15);connectionState.setPadding(dp(16),0,dp(16),dp(12));entries.addView(connectionState);
+        TextView connectionHeading=text("Подключение",11);connectionHeading.setTextColor(0xffa6a4af);connectionHeading.setPadding(dp(14),dp(4),dp(14),dp(2));entries.addView(connectionHeading);
+        TextView connectionState=text("Проверка…",15);connectionState.setPadding(dp(14),0,dp(14),dp(6));entries.addView(connectionState);
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(false);scroll.setVerticalScrollBarEnabled(false);scroll.addView(entries);
         android.graphics.Rect frame=new android.graphics.Rect();anchor.getWindowVisibleDisplayFrame(frame);int[] location=new int[2];anchor.getLocationOnScreen(location);
         int available=Math.max(dp(96),frame.bottom-location[1]-anchor.getHeight()-dp(12));
-        int width=Math.min(dp(294),frame.width()-dp(32));
+        int width=Math.min(dp(278),frame.width()-dp(32));
         PopupWindow popup=new PopupWindow(scroll,width,WindowManager.LayoutParams.WRAP_CONTENT,true);
         navigationPopup=popup;popup.setOnDismissListener(()->{if(navigationPopup==popup)navigationPopup=null;});
         GradientDrawable glass=new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0xf2322b40,0xf222202b});glass.setCornerRadius(dp(22));glass.setStroke(dp(1),0x30ffffff);
@@ -156,14 +156,14 @@ public final class MainActivity extends Activity {
         String[] tabs={"Главная","Поиск","Избранное","Плейлисты","Офлайн",backgroundOnly?"Показать интерфейс":"Только фон","Моя статистика","Nightwell Premium","Перенести музыку","Настройки","Настройка подборки","Обращения",user.isEmpty()?"Войти":"Выйти"};
         String[] icons={"home","search","heart","list","download","sparkles","stats","star","download","settings","sliders","mail","person"};
         for(int i=0;i<tabs.length;i++){
-            View divider=new View(this);divider.setBackgroundColor(i==0||i==5||i==12?0x44000000:0x20ffffff);entries.addView(divider,new LinearLayout.LayoutParams(-1,dp(i==0||i==5||i==12?7:1)));
+            View divider=new View(this);divider.setBackgroundColor(i==0||i==5||i==12?0x44000000:0x20ffffff);entries.addView(divider,new LinearLayout.LayoutParams(-1,dp(i==0||i==5||i==12?4:1)));
             final String tab=tabs[i];boolean selected=tab.equals(screen)||(tab.equals("Плейлисты")&&!selectedPlaylist.isEmpty());
             int color=tab.equals("Выйти")?0xffff6b76:0xfff4f1f7;
             LinearLayout item=row();item.setPadding(dp(16),0,dp(16),0);item.setMinimumHeight(dp(48));item.setSelected(selected);
-            TextView label=text(tab.equals("Обращения")?"Обращения и поддержка":tab,16);label.setTextColor(color);if(selected)label.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
+            TextView label=text(tab.equals("Обращения")?"Обращения и поддержка":tab,15);label.setTextColor(color);if(selected)label.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
             item.addView(label,new LinearLayout.LayoutParams(0,-2,1));
             if(selected){TextView mark=text("✓",17);mark.setTextColor(0xffffbc78);item.addView(mark,new LinearLayout.LayoutParams(dp(26),-2));}
-            item.addView(new NavigationMenuIcon(this,icons[i],color),new LinearLayout.LayoutParams(dp(22),dp(22)));
+            item.addView(new NavigationMenuIcon(this,icons[i],color),new LinearLayout.LayoutParams(dp(20),dp(20)));
             item.setBackground(new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x30ffffff),new android.graphics.drawable.ColorDrawable(selected?0x18ffffff:Color.TRANSPARENT),null));
             item.setContentDescription(label.getText());item.setOnClickListener(v->{popup.dismiss();selectMenu(tab);});entries.addView(item,new LinearLayout.LayoutParams(-1,-2));
         }
@@ -917,59 +917,80 @@ public final class MainActivity extends Activity {
     void handlePlaylistDocument(int result,Intent data){
         if(result!=RESULT_OK||data==null||data.getData()==null||transferDialog==null||!transferDialog.isShowing())return;
         final Uri uri=data.getData();final AlertDialog dialog=transferDialog;final EditText target=transferInput;final TextView note=transferNote;final int ticket=++transferReadGeneration;
-        note.setText("Читаем файл…");dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);
+        note.setText("Читаем файл…");dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setEnabled(false);
         io.execute(()->{
             try{
                 String name="Список треков";
                 try(android.database.Cursor cursor=getContentResolver().query(uri,new String[]{android.provider.OpenableColumns.DISPLAY_NAME},null,null,null)){if(cursor!=null&&cursor.moveToFirst()&&!cursor.isNull(0))name=cursor.getString(0);}
                 final String fileName=name;final String text;
                 try(java.io.InputStream stream=getContentResolver().openInputStream(uri)){text=PlaylistImportFile.read(stream);}
-                ui.post(()->{if(transferDialog!=dialog||!dialog.isShowing()||ticket!=transferReadGeneration)return;target.setText(text);note.setText("Выбран файл: "+fileName);dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);});
-            }catch(Exception ex){ui.post(()->{if(transferDialog!=dialog||!dialog.isShowing()||ticket!=transferReadGeneration)return;note.setText(ex.getMessage()==null?"Не удалось прочитать файл":ex.getMessage());dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);});}
+                ui.post(()->{if(transferDialog!=dialog||!dialog.isShowing()||ticket!=transferReadGeneration)return;target.setText(text);note.setText("Выбран файл: "+fileName);dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setEnabled(true);});
+            }catch(Exception ex){ui.post(()->{if(transferDialog!=dialog||!dialog.isShowing()||ticket!=transferReadGeneration)return;note.setText(ex.getMessage()==null?"Не удалось прочитать файл":ex.getMessage());dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setEnabled(true);});}
         });
+    }
+    private String transferKey="",transferStage="";
+    private long transferSampleAt;
+    private int transferSampleProgress;
+    private boolean transferBusy;
+    void transferRequest(Work work,Done done,TextView label,AlertDialog dialog){
+        final String owner=user;final NativeAPI client=api;
+        io.execute(()->{try{JSONObject value=work.run();ui.post(()->{if(!isDestroyed()&&dialog.isShowing()&&transferDialog==dialog&&owner.equals(user)&&client==api)done.run(value);});}
+            catch(Exception ex){ui.post(()->{if(dialog.isShowing()&&transferDialog==dialog){transferBusy=false;label.setText(friendly(ex)+"\nНажми «Обновить», чтобы проверить состояние переноса.");dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setEnabled(true);dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setText("Обновить");dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v->{if(transferKey.isEmpty()){transferRequest(()->client.request("api/imports"),r->{JSONArray jobs=r.optJSONArray("jobs");if(jobs!=null&&jobs.length()>0){transferKey=jobs.optJSONObject(0).optString("id");pollTransfer(transferKey,label,dialog);}else{label.setText("Перенос не запущен. Проверь список и повтори поиск.");dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setText("Найти треки");dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener((View.OnClickListener)dialog.getButton(AlertDialog.BUTTON_NEUTRAL).getTag());}},label,dialog);}else pollTransfer(transferKey,label,dialog);});}});}});
     }
     void nativeTransfer(){
-        if(transferDialog!=null&&transferDialog.isShowing()){transferDialog.dismiss();}
-        LinearLayout panel=column();panel.setPadding(dp(20),dp(16),dp(20),dp(12));
-        EditText title=new EditText(this);title.setSingleLine(true);title.setText("Перенос музыки");title.setHint("Название плейлиста");styleField(title);panel.addView(title);transferTitle=title;
-        Spinner modes=new Spinner(this);String[] modeNames={"Точный","Умный","Максимальный"};modes.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,modeNames));modes.setSelection(1);panel.addView(modes);transferMode=modes;
-        TextView info=text("Выбери файл JSON, CSV или TXT либо вставь список треков. Максимум 1 МБ.",13);info.setPadding(0,dp(12),0,dp(12));panel.addView(info);panel.addView(sheetAction("Выбрать файл",this::choosePlaylistDocument));
-        EditText input=new EditText(this);input.setMinLines(5);input.setMaxLines(9);input.setGravity(Gravity.TOP);input.setHint("Список треков");styleField(input);input.setSaveEnabled(false);panel.addView(input);transferInput=input;
-        TextView result=text("",13);panel.addView(result);transferNote=result;
+        if(transferDialog!=null&&transferDialog.isShowing())transferDialog.dismiss();
+        transferKey="";transferStage="";transferBusy=false;
+        LinearLayout panel=column();panel.setPadding(dp(16),dp(10),dp(16),dp(8));
+        EditText title=new EditText(this);title.setSingleLine(true);title.setText("Перенос музыки");title.setHint("Название плейлиста");title.setFilters(new InputFilter[]{new InputFilter.LengthFilter(80)});styleField(title);panel.addView(title);transferTitle=title;
+        Spinner modes=new Spinner(this);String[] modeNames={"Точный","Умный","Максимальный"};modes.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,modeNames));modes.setSelection(2);panel.addView(modes);transferMode=modes;
+        TextView info=text("JSON, CSV или TXT до 1 МБ. Разбор списка и удаление дублей выполняются на устройстве.",12);info.setPadding(0,dp(8),0,dp(8));panel.addView(info);panel.addView(sheetAction("Выбрать файл",this::choosePlaylistDocument));
+        EditText input=new EditText(this);input.setMinLines(3);input.setMaxLines(5);input.setGravity(Gravity.TOP);input.setHint("Список треков");styleField(input);input.setSaveEnabled(false);panel.addView(input);transferInput=input;
+        TextView result=text("После поиска нажми «Добавить», чтобы создать плейлист.",13);panel.addView(result);transferNote=result;
         ScrollView form=new ScrollView(this);form.addView(panel);
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Перенести музыку").setView(form).setNegativeButton("Закрыть",null).setPositiveButton("Найти треки",null).create();
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Перенести музыку").setView(form).setNegativeButton("Закрыть",null).setNeutralButton("Найти треки",null).setPositiveButton("Добавить",null).create();
         transferDialog=dialog;
-        dialog.setOnDismissListener(ignored->{if(transferDialog==dialog){transferReadGeneration++;transferDialog=null;transferInput=null;transferTitle=null;transferMode=null;transferNote=null;getSharedPreferences("transfer-draft",MODE_PRIVATE).edit().clear().apply();}});
-        styleSheet(dialog);
-        dialog.show();
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
-            String raw=input.getText().toString();if(raw.trim().isEmpty()){result.setText("Добавь список треков");return;}
-            if(raw.getBytes(java.nio.charset.StandardCharsets.UTF_8).length>1024*1024){result.setText("Максимальный размер 1 МБ");return;}
-            String[] codes={"safe","balanced","wide"};JSONObject body=new JSONObject();
-            try{body.put("provider","yandex").put("name",title.getText().toString()).put("text",raw).put("url","").put("mode",codes[modes.getSelectedItemPosition()]);}catch(Exception ex){result.setText(ex.getMessage());return;}
-            result.setText("Начинаем поиск…");
-            task(()->api.request("api/imports","POST",body), response->{
-                String key=response.optString("id");result.setText("Поиск запущен. ID: "+key);
-                if(!key.isEmpty())pollTransfer(key,result,dialog);
-            });
-        });
+        dialog.setOnDismissListener(ignored->{if(transferDialog==dialog){transferReadGeneration++;transferDialog=null;transferInput=null;transferTitle=null;transferMode=null;transferNote=null;}});
+        styleSheet(dialog);dialog.show();dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);
+        View.OnClickListener startTransfer=v->{
+            if(transferBusy)return;
+            String raw=input.getText().toString(),name=title.getText().toString().trim();if(raw.trim().isEmpty()||name.isEmpty()){result.setText("Укажи название плейлиста и список треков");return;}
+            String mode=new String[]{"safe","balanced","wide"}[modes.getSelectedItemPosition()];
+            transferBusy=true;transferStage="";dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setEnabled(false);dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);result.setText("Разбираем список на устройстве…");
+            final NativeAPI client=api;
+            transferRequest(()->{JSONArray prepared=TransferPreparation.parse(raw);return client.request("api/imports","POST",new JSONObject().put("provider","yandex").put("name",name).put("text",prepared.toString()).put("url","").put("mode",mode));},response->{
+                transferKey=response.optString("id");if(transferKey.isEmpty()){transferBusy=false;result.setText("Сервер не вернул номер переноса");dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setEnabled(true);return;}
+                getSharedPreferences("transfer-draft",MODE_PRIVATE).edit().putString("job|"+origin+"|"+user,transferKey).apply();
+                pollTransfer(transferKey,result,dialog);
+            },result,dialog);
+        };
+        dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setTag(startTransfer);dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(startTransfer);
+        String saved=getSharedPreferences("transfer-draft",MODE_PRIVATE).getString("job|"+origin+"|"+user,"");
+        if(!saved.isEmpty()){transferKey=saved;dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setEnabled(false);pollTransfer(saved,result,dialog);}
+    }
+    private String transferETA(JSONObject job){
+        String stage=job.optString("state");int done=stage.equals("saving")?job.optInt("saved"):job.optInt("progress");int total=stage.equals("saving")?job.optInt("matched"):job.optInt("total");long now=android.os.SystemClock.elapsedRealtime();
+        if(!stage.equals(transferStage)||done<transferSampleProgress){transferStage=stage;transferSampleAt=now;transferSampleProgress=done;}
+        if(!stage.equals("matching")&&!stage.equals("saving"))return "";
+        int delta=done-transferSampleProgress;if(delta<2||now-transferSampleAt<3000)return "\nОцениваем оставшееся время…";
+        long seconds=Math.max(1,Math.round((now-transferSampleAt)/1000.0/delta*Math.max(0,total-done)));
+        return "\nОсталось примерно "+(seconds<60?"меньше минуты":((seconds+59)/60)+" мин");
     }
     private void pollTransfer(String key,TextView label,AlertDialog dialog){
-        if(!dialog.isShowing())return;
-        task(()->api.request("api/imports/"+key),response->{
-            if(!dialog.isShowing())return;
+        if(!dialog.isShowing()||!key.equals(transferKey))return;
+        final NativeAPI client=api;
+        transferRequest(()->client.request("api/imports/"+Uri.encode(key)),response->{
+            if(!key.equals(transferKey))return;
             String state=response.optString("state");
-            label.setText(response.optString("message","Поиск")+"\nПроверено "+response.optInt("progress")+"/"+response.optInt("total")+" · Найдено "+response.optInt("matched"));
-            if(state.equals("ready")||state.equals("error")){
-                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setText("Сохранить найденное");
-                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->task(()->api.request("api/imports/"+key+"/commit","POST",new JSONObject()),x->pollTransfer(key,label,dialog)));
-            } else if(state.equals("matching")||state.equals("reading")||state.equals("saving")){
-                ui.postDelayed(()->pollTransfer(key,label,dialog),1800);
-            }
-        });
+            label.setText(response.optString("message","Поиск")+"\nПроверено "+response.optInt("progress")+"/"+response.optInt("total")+" · Найдено "+response.optInt("matched")+transferETA(response));
+            boolean active=state.equals("matching")||state.equals("reading")||state.equals("saving");transferBusy=active;
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setEnabled(!active);
+            if(!active){dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setText("Найти треки");dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener((View.OnClickListener)dialog.getButton(AlertDialog.BUTTON_NEUTRAL).getTag());}
+            boolean canAdd=(state.equals("ready")||state.equals("error"))&&response.optInt("matched")>0;
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(canAdd);
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setText("Добавить");
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{if(transferBusy)return;transferBusy=true;dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setEnabled(false);label.setText("Создаём плейлист…");transferRequest(()->client.request("api/imports/"+Uri.encode(key)+"/commit","POST",new JSONObject()),x->pollTransfer(key,label,dialog),label,dialog);});
+            if(active)ui.postDelayed(()->pollTransfer(key,label,dialog),2000);
+            if(state.equals("done")){label.setText("Плейлист создан. Добавлено треков: "+response.optInt("saved"));getSharedPreferences("transfer-draft",MODE_PRIVATE).edit().remove("job|"+origin+"|"+user).apply();load();}
+        },label,dialog);
     }
-
 }
-
-
-

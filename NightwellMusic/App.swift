@@ -511,7 +511,12 @@ private struct NightwellNativeTransfer: View {
     @FocusState private var nameFieldFocused: Bool
     @State private var contents = ""
     @State private var selectedFilename = ""
-    @State private var mode = "balanced"
+    @State private var mode = "wide"
+    @State private var etaStage = ""
+    @State private var etaStart = Date()
+    @State private var etaProgress = 0
+    @State private var etaText = ""
+    @State private var saving = false
     @State private var job: ImportJob?
     @State private var errorText = ""
     @State private var busy = false
@@ -535,7 +540,7 @@ private struct NightwellNativeTransfer: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     Text("Перенести музыку").font(.largeTitle.bold())
-                    Text("Поиск выполняется на сервере, файл читается на устройстве.").foregroundStyle(.secondary)
+                    Text("Разбор списка, удаление дублей и расчёт времени выполняются на устройстве. Поиск продолжится на сервере даже после закрытия приложения.").foregroundStyle(.secondary)
                     TextField("Название плейлиста", text: $name).focused($nameFieldFocused).submitLabel(.done).onSubmit { nameFieldFocused = false }.padding(14).nightwellLiquidGlass(18)
                     Picker("Режим поиска", selection: $mode) {
                         Text("Точный").tag("safe")
@@ -566,8 +571,9 @@ private struct NightwellNativeTransfer: View {
                             }
                             Text(job.total > 0 ? "Обработано \(Int(Double(job.progress) / Double(job.total) * 100))% списка" : "Подготовка поиска")
                                 .font(.caption).foregroundStyle(.secondary)
+                            if !etaText.isEmpty { Text(etaText).font(.caption).foregroundStyle(.secondary) }
                             if (job.state == "ready" || job.state == "error") && job.matched > 0 {
-                                Button("Добавить найденные треки") { Task { await commit() } }.buttonStyle(.borderedProminent)
+                                Button(saving ? "Добавляем…" : "Добавить") { Task { await commit() } }.buttonStyle(.borderedProminent).disabled(saving)
                             }
                             if activeStates.contains(job.state) {
                                 Button("Остановить") { Task { await cancel() } }.tint(.orange)
@@ -600,7 +606,7 @@ private struct NightwellNativeTransfer: View {
                             let previous = history.filter { !activeStates.contains($0.state) && $0.id != job?.id }
                             if previous.isEmpty { Text("История пуста").font(.caption).foregroundStyle(.secondary) }
                             ForEach(previous, id: \.id) { entry in
-                                Button { job = entry } label: {
+                                Button { job = entry; etaText = ""; etaStage = "" } label: {
                                     VStack(alignment: .leading, spacing: 6) {
                                         HStack {
                                             Text(entry.name ?? "Перенос музыки").font(.subheadline.weight(.semibold))
@@ -631,9 +637,9 @@ private struct NightwellNativeTransfer: View {
                         do {
                             let data = try Data(contentsOf: url)
                             guard data.count <= 1024 * 1024 else { errorText = "Размер файла больше 1 МБ"; return }
-                            guard let text = String(data: data, encoding: .utf8),
+                            guard let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .utf16),
                                   !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                                errorText = "Файл пустой или не в UTF-8"; return
+                                errorText = "Файл пустой или имеет неподдерживаемую кодировку"; return
                             }
                             contents = text
                             selectedFilename = url.lastPathComponent
@@ -646,6 +652,16 @@ private struct NightwellNativeTransfer: View {
                 .ignoresSafeArea()
             }
         }.preferredColorScheme(.dark)
+    }
+    private func updateETA(_ job: ImportJob) {
+        let progress = job.state == "saving" ? job.saved : job.progress
+        let total = job.state == "saving" ? job.matched : job.total
+        if etaStage != job.state || progress < etaProgress { etaStage = job.state; etaStart = Date(); etaProgress = progress }
+        guard job.state == "matching" || job.state == "saving" else { etaText = ""; return }
+        let elapsed = Date().timeIntervalSince(etaStart), delta = progress - etaProgress
+        guard delta >= 2, elapsed >= 3 else { etaText = "Оцениваем оставшееся время…"; return }
+        let seconds = max(1, elapsed / Double(delta) * Double(max(0, total - progress)))
+        etaText = seconds < 60 ? "Осталось примерно меньше минуты" : "Осталось примерно \(Int(ceil(seconds / 60))) мин"
     }
     private func statusName(_ status: String) -> String {
         switch status {
@@ -670,7 +686,10 @@ private struct NightwellNativeTransfer: View {
     private func start() async {
         busy = true; defer { busy = false }
         do {
-            let result: ImportJob = try await store.api.request("api/imports", method: "POST", body: ["provider":"yandex","name":name,"url":"","text":contents,"mode":mode])
+            let raw = contents
+            let prepared = try await Task.detached(priority: .userInitiated) { try TransferPreparation.prepare(raw) }.value
+            etaStage = ""
+            let result: ImportJob = try await store.api.request("api/imports", method: "POST", body: ["provider":"yandex","name":name,"url":"","text":prepared,"mode":mode])
             job = result; errorText = ""; await refreshHistory(); await poll(result.id)
         } catch {
             errorText = error.localizedDescription
@@ -688,14 +707,16 @@ private struct NightwellNativeTransfer: View {
         while !Task.isCancelled && observingJobID == id {
             do {
                 let next: ImportJob = try await store.api.request("api/imports/" + id)
-                if job?.id == id { job = next }
+                if job?.id == id { job = next; updateETA(next) }
+                if next.state == "done" { await store.refresh() }
                 if !activeStates.contains(next.state) { await refreshHistory(); return }
                 try await Task.sleep(nanoseconds: 2_500_000_000)
             } catch { errorText = error.localizedDescription; return }
         }
     }
     private func commit() async {
-        guard let job else { return }
+        guard let job, !saving else { return }
+        saving = true; defer { saving = false }
         do { let next: ImportJob = try await store.api.request("api/imports/" + job.id + "/commit",method:"POST",body:[:]); self.job = next; await refreshHistory(); await poll(job.id) }
         catch { errorText = error.localizedDescription }
     }
@@ -734,3 +755,4 @@ private struct NightwellImportFilePicker: UIViewControllerRepresentable {
         }
     }
 }
+

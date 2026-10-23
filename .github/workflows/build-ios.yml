@@ -41,6 +41,10 @@ jobs:
         run: |
           swiftc NightwellMusic/RequestRetry.swift scripts/test-request-retry.swift -o /tmp/test-request-retry
           /tmp/test-request-retry
+      - name: Test playlist parsing on device
+        run: |
+          swiftc NightwellMusic/TransferPreparation.swift scripts/test-transfer-preparation.swift -o /tmp/test-transfer-preparation
+          /tmp/test-transfer-preparation
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Select latest installed Xcode
