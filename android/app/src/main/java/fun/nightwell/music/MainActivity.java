@@ -84,7 +84,7 @@ public final class MainActivity extends Activity {
         @Override public void onMediaItemTransition(androidx.media3.common.MediaItem item,int reason){if(mixing)cancelMix();}
     };
     private final ServiceConnection connection=new ServiceConnection(){public void onServiceConnected(ComponentName n,IBinder b){playback=((PlaybackService.LocalBinder)b).getService();playback.player.addListener(playbackIntentObserver);if(!smokeMode&&pendingDeepLinkTrack.isEmpty())playback.restorePlayback(origin,user);updatePlayback();openPendingTrack();}public void onServiceDisconnected(ComponentName n){playback=null;}};
-    @Override public void onCreate(Bundle saved){super.onCreate(saved);smokeMode=(getApplicationInfo().flags&android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE)!=0&&getIntent().getBooleanExtra("nativeSmoke",false);origin="https://music.nightwell.fun/";user=getSharedPreferences("native-api",MODE_PRIVATE).getString("account","");api=new NativeAPI(this,origin);if(Build.VERSION.SDK_INT>=30)getWindow().setDecorFitsSystemWindows(false);else getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE|View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);if(Build.VERSION.SDK_INT>=28){WindowManager.LayoutParams windowParams=getWindow().getAttributes();windowParams.layoutInDisplayCutoutMode=WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;getWindow().setAttributes(windowParams);}getWindow().setStatusBarColor(Color.TRANSPARENT);getWindow().setNavigationBarColor(Color.TRANSPARENT);getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);bindingRegistered=bindService(new Intent(this,PlaybackService.class).setAction("nightwell.local"),connection,BIND_AUTO_CREATE);build();if(smokeMode){smokeFixture(getIntent().getStringExtra("screen"));}else{acceptDeepLink(getIntent());load();}
+    @Override public void onCreate(Bundle saved){super.onCreate(saved);smokeMode=(getApplicationInfo().flags&android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE)!=0&&getIntent().getBooleanExtra("nativeSmoke",false);origin="https://music.nightwell.fun/";user=getSharedPreferences("native-api",MODE_PRIVATE).getString("account","");api=new NativeAPI(this,origin);if(!smokeMode&&!user.isEmpty()&&!NativeAPI.cookie(this,origin).isEmpty())restoreLibrarySnapshot(user);if(Build.VERSION.SDK_INT>=30)getWindow().setDecorFitsSystemWindows(false);else getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE|View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);if(Build.VERSION.SDK_INT>=28){WindowManager.LayoutParams windowParams=getWindow().getAttributes();windowParams.layoutInDisplayCutoutMode=WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;getWindow().setAttributes(windowParams);}getWindow().setStatusBarColor(Color.TRANSPARENT);getWindow().setNavigationBarColor(Color.TRANSPARENT);getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);bindingRegistered=bindService(new Intent(this,PlaybackService.class).setAction("nightwell.local"),connection,BIND_AUTO_CREATE);build();if(smokeMode){smokeFixture(getIntent().getStringExtra("screen"));}else{acceptDeepLink(getIntent());load();}
         if(saved!=null&&saved.getBoolean("transfer.open",false)){nativeTransfer();transferTitle.setText(saved.getString("transfer.title","Перенос музыки"));transferInput.setText(getSharedPreferences("transfer-draft",MODE_PRIVATE).getString("text",""));transferMode.setSelection(saved.getInt("transfer.mode",2));}
     }
     @Override protected void onSaveInstanceState(Bundle saved){
@@ -181,7 +181,7 @@ public final class MainActivity extends Activity {
         else if(tab.equals("Обращения"))supportTickets(false);
         else if(tab.equals("Только фон")||tab.equals("Показать интерфейс"))toggleBackgroundOnly();
         else if(tab.equals("Войти"))auth();
-        else if(tab.equals("Выйти")){cancelMix();accountRequest.cancel();task(()->{api.request("api/logout","POST",null);new SessionStore(this).clear();return new JSONObject();},v->{libraryGeneration++;user="";playlists=new JSONArray();selectedPlaylist="";sessionReady=true;api.updateCSRF("");getSharedPreferences("native-api",MODE_PRIVATE).edit().putString("account","").apply();catalog=new JSONArray();shown=new JSONArray();likes.clear();if(playback!=null)playback.stop();navigate("Главная");});}
+        else if(tab.equals("Выйти")){cancelMix();accountRequest.cancel();task(()->{api.request("api/logout","POST",null);new SessionStore(this).clear();clearLibrarySnapshot();return new JSONObject();},v->{libraryGeneration++;user="";playlists=new JSONArray();selectedPlaylist="";sessionReady=true;api.updateCSRF("");getSharedPreferences("native-api",MODE_PRIVATE).edit().putString("account","").apply();catalog=new JSONArray();shown=new JSONArray();likes.clear();if(playback!=null)playback.stop();navigate("Главная");});}
         else navigate(tab);
     }
 
@@ -417,6 +417,38 @@ public final class MainActivity extends Activity {
         list=new ListView(this);list.setDivider(null);list.setCacheColorHint(Color.TRANSPARENT);adapter=new TrackAdapter();list.setAdapter(adapter);body.addView(list,new LinearLayout.LayoutParams(-1,0,1));list.setOnItemClickListener((p,v,pos,id)->play(shown.optJSONObject(pos),shown,false));list.setOnItemLongClickListener((p,v,pos,id)->{trackMenu(shown.optJSONObject(pos));return true;});
     }
     void updateList(){if(shown==null)shown=new JSONArray();if(adapter!=null)adapter.notifyDataSetChanged();}
+    private void restoreLibrarySnapshot(String account) {
+        try {
+            String raw=getSharedPreferences("library-snapshot",MODE_PRIVATE).getString("snapshot",null);
+            if(raw==null)return;
+            JSONObject snapshot=new JSONObject(raw);
+            if(!account.equals(snapshot.optString("account")))return;
+            JSONArray tracks=snapshot.optJSONArray("tracks");
+            if(tracks!=null)catalog=tracks;
+            JSONArray savedPlaylists=snapshot.optJSONArray("playlists");
+            if(savedPlaylists!=null)playlists=savedPlaylists;
+            JSONArray savedLikes=snapshot.optJSONArray("likes");
+            if(savedLikes!=null){likes.clear();for(int i=0;i<savedLikes.length();i++)likes.add(savedLikes.optString(i));}
+        }catch(Exception ignored){}
+    }
+    private void saveLibrarySnapshot(){
+        if(user.isEmpty()||smokeMode)return;
+        try {
+            JSONObject snapshot=new JSONObject();
+            snapshot.put("account",user);
+            JSONArray tracks=new JSONArray();
+            for(int i=0;i<Math.min(catalog.length(),400);i++)tracks.put(catalog.opt(i));
+            snapshot.put("tracks",tracks);
+            snapshot.put("playlists",playlists);
+            snapshot.put("likes",new JSONArray(likes));
+            String value=snapshot.toString();
+            if(value.length()>750000)return;
+            getSharedPreferences("library-snapshot",MODE_PRIVATE).edit().putString("snapshot",value).apply();
+        }catch(Exception ignored){}
+    }
+    private void clearLibrarySnapshot(){
+        getSharedPreferences("library-snapshot",MODE_PRIVATE).edit().remove("snapshot").apply();
+    }
     void load(){
         lastResumeRefresh=SystemClock.elapsedRealtime();
         final long ticket=accountRequest.start(()->{});
@@ -429,6 +461,7 @@ public final class MainActivity extends Activity {
                     JSONObject account=me.optJSONObject("user");
                     String nextAccount=account==null?"":account.optString("id");
                     if(!nextAccount.equals(user)){
+                        clearLibrarySnapshot();
                         libraryGeneration++;catalog=new JSONArray();shown=new JSONArray();playlists=new JSONArray();likes.clear();selectedPlaylist="";
                         if(playback!=null)playback.stop();
                     }
@@ -447,6 +480,7 @@ public final class MainActivity extends Activity {
                     // Temporary network failures must never discard saved account or music.
                     if(ex instanceof NetworkRetry.HttpFailure && ((NetworkRetry.HttpFailure)ex).status==401){
                         new SessionStore(this).clear();
+                        clearLibrarySnapshot();
                         api.updateCSRF("");
                         libraryGeneration++;
                         user="";
@@ -473,7 +507,7 @@ public final class MainActivity extends Activity {
                 JSONObject value=client.request("api/tracks");
                 JSONArray tracks=value.optJSONArray("tracks");
                 ui.post(()->{if(!isDestroyed()&&client==api&&revision==libraryGeneration&&account.equals(user)&&tracks!=null){
-                    catalog=tracks;if(!full&&!screen.equals("Поиск"))showScreen();
+                    catalog=tracks;saveLibrarySnapshot();if(!full&&!screen.equals("Поиск"))showScreen();
                 }});
             }catch(Exception ex){ui.post(()->{if(!isDestroyed()&&client==api&&revision==libraryGeneration&&account.equals(user))status.setText(friendly(ex));});}
         });
@@ -482,7 +516,7 @@ public final class MainActivity extends Activity {
                 JSONObject value=client.request("api/likes");
                 JSONArray ids=value.optJSONArray("ids");
                 ui.post(()->{if(!isDestroyed()&&client==api&&revision==libraryGeneration&&account.equals(user)&&ids!=null){
-                    likes.clear();for(int i=0;i<ids.length();i++)likes.add(ids.optString(i));
+                    likes.clear();for(int i=0;i<ids.length();i++)likes.add(ids.optString(i));saveLibrarySnapshot();
                     if(!full&&screen.equals("Избранное"))showScreen();
                 }});
             }catch(Exception ignored){}
@@ -492,7 +526,7 @@ public final class MainActivity extends Activity {
                 JSONObject value=client.request("api/playlists");
                 JSONArray items=value.optJSONArray("playlists");
                 ui.post(()->{if(!isDestroyed()&&client==api&&revision==libraryGeneration&&account.equals(user)&&items!=null){
-                    playlists=items;if(!full&&screen.equals("Плейлисты"))showScreen();
+                    playlists=items;saveLibrarySnapshot();if(!full&&screen.equals("Плейлисты"))showScreen();
                 }});
             }catch(Exception ignored){}
         });
