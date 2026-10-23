@@ -170,7 +170,7 @@ import Network
         connectionMonitor.start(queue: connectionQueue)
         connectionWatcher = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 15_000_000_000)
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
                 guard !Task.isCancelled else { return }
                 self?.checkConnection()
             }
