@@ -198,7 +198,7 @@ import Network
     }
     private var observers: [NSObjectProtocol] = []
     init() {
-        let saved = "https://music.nightwell.fun/"
+        let saved = UserDefaults.standard.string(forKey: "nightwell.server") ?? "https://music.nightwell.fun/"
         origin = ServerAddress.validated(saved) ?? URL(string: "https://music.nightwell.fun/")!
         api = MusicAPI(origin: origin)
         if let bytes = UserDefaults.standard.data(forKey: "native.account") { account = try? JSONDecoder().decode(Account.self, from: bytes) }
