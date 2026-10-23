@@ -55,6 +55,7 @@ public final class PlaybackService extends MediaSessionService {
     private volatile String origin = "";
     private String error = "";
     private String retriedTrackId = "";
+    private int streamRetryCount = 0;
     private Runnable pendingStreamRetry;
     private boolean waveActive, waveLoading;
     private WaveSettings waveSettings=new WaveSettings(new JSONObject());
@@ -124,6 +125,7 @@ public final class PlaybackService extends MediaSessionService {
             @Override public void onMediaItemTransition(MediaItem item,int reason) {
                 cancelStreamRetry();
                 retriedTrackId = "";
+                streamRetryCount = 0;
                 manualTransition=reason==Player.MEDIA_ITEM_TRANSITION_REASON_SEEK;tickListening();
                 fadeInActive=transitionSeconds>0 && (reason==Player.MEDIA_ITEM_TRANSITION_REASON_AUTO || reason==Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT);
                 player.setVolume(fadeInActive?0:baseVolume);
@@ -178,7 +180,9 @@ public final class PlaybackService extends MediaSessionService {
     }
     private boolean scheduleStreamRetry(androidx.media3.common.PlaybackException failure) {
         MediaItem item = player.getCurrentMediaItem();
-        if (item == null || item.mediaId.equals(retriedTrackId)) return false;
+        if (item == null) return false;
+        if (!item.mediaId.equals(retriedTrackId)) streamRetryCount = 0;
+        if (streamRetryCount >= 2) return false;
         boolean temporary = false;
         for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
             if (cause instanceof java.net.SocketTimeoutException ||
@@ -195,6 +199,8 @@ public final class PlaybackService extends MediaSessionService {
         if (!temporary) return false;
         cancelStreamRetry();
         retriedTrackId = item.mediaId;
+        streamRetryCount++;
+        final int attempt = streamRetryCount;
         final String id = item.mediaId;
         error = "Соединение прервалось. Повторяем загрузку…";
         final int retryIndex = player.getCurrentMediaItemIndex();
@@ -208,12 +214,13 @@ public final class PlaybackService extends MediaSessionService {
             player.prepare();
             player.play();
         };
-        waveHandler.postDelayed(pendingStreamRetry, 1500);
+        waveHandler.postDelayed(pendingStreamRetry, attempt == 1 ? 1500 : 3500);
         return true;
     }
     void prepare(String json) {
         cancelStreamRetry();
         retriedTrackId = "";
+        streamRetryCount = 0;
         try {
             JSONObject data = new JSONObject(json);
             String nextOrigin = ServerAddress.normalize(data.getString("origin"));
@@ -246,9 +253,9 @@ public final class PlaybackService extends MediaSessionService {
             player.prepare();
         } catch (Exception ex) { error="Не удалось загрузить очередь."; }
     }
-    void play() { cancelStreamRetry(); retriedTrackId = ""; error="";if(player.getPlaybackState()==Player.STATE_IDLE&&player.getMediaItemCount()>0)player.prepare();player.play();refillWave(); }
+    void play() { cancelStreamRetry(); retriedTrackId = ""; streamRetryCount = 0; error="";if(player.getPlaybackState()==Player.STATE_IDLE&&player.getMediaItemCount()>0)player.prepare();player.play();refillWave(); }
     void pause() { cancelStreamRetry(); player.pause(); }
-    void stop() { cancelStreamRetry(); retriedTrackId = ""; waveActive=false;cancelWaveRequest();waveSeen.clear();player.stop();player.clearMediaItems();
+    void stop() { cancelStreamRetry(); retriedTrackId = ""; streamRetryCount = 0; waveActive=false;cancelWaveRequest();waveSeen.clear();player.stop();player.clearMediaItems();
         if(audioCache!=null)for(String key:new HashSet<>(audioCache.getKeys()))if(key.startsWith(cacheScope+"|"))try{audioCache.removeResource(key);}catch(Exception ignored){}
     }
     void seek(double seconds) { if(Double.isFinite(seconds)){fadeInActive=false;player.setVolume(baseVolume);player.seekTo(Math.max(0,(long)(seconds*1000)));} }
