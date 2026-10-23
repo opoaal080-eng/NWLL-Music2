@@ -18,6 +18,10 @@ final class IndependentAudioMeter {
         generation = UUID(); download?.cancel(); download = nil; worker?.cancel(); worker = nil
         if !keepingEnvelope || envelope == nil { envelope = nil; key = "" }
     }
+    func needsPreparation(for key: String) -> Bool {
+        self.key != key || (envelope == nil && worker == nil && download == nil &&
+            preparation.canBegin(now: ProcessInfo.processInfo.systemUptime))
+    }
     func prepare(key: String, local: URL?, request: URLRequest?, origin: URL) {
         if self.key != key { cancel(); self.key = key }
         guard envelope == nil, worker == nil, download == nil,

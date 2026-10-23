@@ -4,8 +4,9 @@ import Foundation
 struct AuraPreparationPolicy {
     private(set) var attempts = 0
     private var retryAt = 0.0
+    func canBegin(now: TimeInterval) -> Bool { attempts < 3 && now >= retryAt }
     mutating func begin(now: TimeInterval) -> Bool {
-        guard attempts < 3, now >= retryAt else { return false }
+        guard canBegin(now: now) else { return false }
         attempts += 1
         return true
     }
