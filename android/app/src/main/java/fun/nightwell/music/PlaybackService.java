@@ -339,6 +339,7 @@ public final class PlaybackService extends MediaSessionService {
         });
     }
     double level(){return player==null?0:audioMeter.level(player.isPlaying());}
+    double bandLevel(int index){return player==null?0:audioMeter.band(index,player.isPlaying());}
     private long lastSaved;
     void persistPlayback(boolean force){
         if(player==null||player.getCurrentMediaItem()==null||origin.isEmpty()||!force&&android.os.SystemClock.elapsedRealtime()-lastSaved<2000)return;
