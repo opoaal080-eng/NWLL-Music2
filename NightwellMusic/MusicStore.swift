@@ -446,7 +446,7 @@ import Network
             let _: OK = try await api.request("/api/logout", method: "POST")
             NativePlayer.shared.stop(); preloadTask?.cancel(); preloadTask = nil; lastPreloadIDs = []; lastPreloadAt = .distantPast; searchTask?.cancel(); searchGeneration = UUID(); searchCache = [:]
             sessionGeneration = UUID(); starting = false; snapshotSaveTask?.cancel(); libraryRefresh.cancel()
-            account = nil; cacheAccount(); catalog = []; results = []; likes = []; playlists = []; query = ""; await api.setCSRF(nil)
+            account = nil; cacheAccount(); catalog = []; results = []; likes = []; playlists = []; lastWave = []; query = ""; await api.setCSRF(nil)
         } catch { self.error = error.localizedDescription }
     }
     func search() {
@@ -646,7 +646,7 @@ import Network
         guard let url = ServerAddress.validated(value) else { error = "Нужен HTTPS-адрес без пути и параметров"; return }
         NativePlayer.shared.stop(); preloadTask?.cancel(); preloadTask = nil; lastPreloadIDs = []; lastPreloadAt = .distantPast; leaveSearch(); catalog = []; results = []; playlists = []; likes = []; account = nil; searchCache = [:]
         sessionGeneration = UUID(); starting = false; snapshotSaveTask?.cancel(); libraryRefresh.cancel(); connectionCheck?.cancel(); sessionReady = false
-        origin = url; api = MusicAPI(origin: url); lastWave = []; UserDefaults.standard.set(url.absoluteString, forKey: "nightwell.server"); await start()
+        origin = url; api = MusicAPI(origin: url); lastWave = []; cacheAccount(); await api.setCSRF(nil); UserDefaults.standard.set(url.absoluteString, forKey: "nightwell.server"); await start()
     }
 }
 
