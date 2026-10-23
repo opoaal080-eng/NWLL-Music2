@@ -86,7 +86,8 @@ final class NativeAPI {
             catch(Exception ignored){} // HTML/empty error bodies must retain the HTTP status.
             throw new NetworkRetry.HttpFailure(code,message);
         }
-        return new JSONObject(new String(read(c.getInputStream(),4*1024*1024),StandardCharsets.UTF_8));
+        int limit=c.getURL().getPath().equals("/api/tracks")?32*1024*1024:4*1024*1024;
+        return new JSONObject(new String(read(c.getInputStream(),limit),StandardCharsets.UTF_8));
     }
     HttpURLConnection connection(String path) throws Exception {
         if(closed)throw new InterruptedIOException("Запрос отменён");
