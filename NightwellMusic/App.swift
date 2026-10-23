@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import SafariServices
 
 @main struct NightwellMusicApp: App {
     @UIApplicationDelegateAdaptor(DownloadAppDelegate.self) private var appDelegate
@@ -185,6 +186,9 @@ struct NativeRoot: View {
     @State private var waveSettingsPresented = false
     @State private var supportPresented = false
     @State private var premiumPresented = false
+    @State private var transferPresented = false
+    @State private var favoriteSort = "recent"
+    @ObservedObject private var favoritePremium = PremiumFeatureState.shared
     @State private var fullPlayer = false
     @State private var sharedLinkID: String?
     @State private var backgroundOnly = false
@@ -289,6 +293,7 @@ struct NativeRoot: View {
         }
         .fullScreenCover(isPresented: $fullPlayer) { FullPlayer(clock: store.clock) }
         
+        .sheet(isPresented: $transferPresented) { NightwellTransferBrowser(url: URL(string: "https://music.nightwell.fun/#transfer")!) }
         .sheet(isPresented: $showShare) { if let shareURL { ShareSheet(items: [shareURL]) } }
         .fileImporter(isPresented: $importFiles, allowedContentTypes: [.audio], allowsMultipleSelection: true) { result in
             if case let .success(urls) = result { Task { await store.importFiles(urls) } }
@@ -333,12 +338,20 @@ struct NativeRoot: View {
                 Button("Только фон", systemImage: "sparkles") { withAnimation(.easeInOut(duration: 0.22)) { backgroundOnly = true } }
                 Button("Моя статистика", systemImage: "chart.bar") { feature = .statistics }
                 Button("Nightwell Premium", systemImage: "star") { premiumPresented = true }
+                Button("Перенести музыку", systemImage: "square.and.arrow.down") { transferPresented = true }
                 Button("Настройки", systemImage: "gearshape") { settings = true }
                 Button("Настройка подборки", systemImage: "slider.horizontal.3") { waveSettingsPresented = true }
                 Button("Обращения и поддержка", systemImage: "envelope") { supportPresented = true }
                 Button(store.account == nil ? "Войти" : "Выйти", systemImage: "person") { if store.account == nil { store.authPresented = true } else { Task { await store.logout() } } }
             } label: { Image(systemName: "line.3.horizontal").font(.system(size: 19, weight: .medium)).foregroundStyle(pumpkin).frame(width: 44, height: 44).frostedGlass(22) }.accessibilityLabel("Меню").sheet(item: $feature) { PremiumFeatureView(kind: $0).environmentObject(store) }
         }.padding(.horizontal, 20).padding(.top, 8)
+    }
+    private var favoriteTracks: [Track] {
+        let entries = store.catalog.filter { store.likes.contains($0.id) }
+        guard favoritePremium.allowed else { return entries }
+        if favoriteSort == "title" { return entries.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending } }
+        if favoriteSort == "artist" { return entries.sorted { $0.artist.localizedStandardCompare($1.artist) == .orderedAscending } }
+        return entries
     }
     @ViewBuilder private var content: some View {
         switch store.screen {
@@ -354,7 +367,7 @@ struct NativeRoot: View {
                 TrackList(tracks: store.results)
             }.padding(.horizontal, 20)
         case .likes:
-            VStack(alignment: .leading) { collectionHeading("Избранное", tracks: store.catalog.filter { store.likes.contains($0.id) }, kind: "likes"); TrackList(tracks: store.catalog.filter { store.likes.contains($0.id) }) }.padding(.horizontal, 20)
+            VStack(alignment: .leading) { HStack { collectionHeading("Избранное", tracks: favoriteTracks, kind: "likes"); Spacer(); Menu { if favoritePremium.allowed { Button("Недавние") { favoriteSort = "recent" }; Button("По названию") { favoriteSort = "title" }; Button("По исполнителю") { favoriteSort = "artist" } } else { Button("Оформить Premium") { premiumPresented = true } } } label: { Label("Сортировка · Premium", systemImage: "arrow.up.arrow.down").font(.caption) } }; TrackList(tracks: favoriteTracks) }.padding(.horizontal, 20)
         case .playlists:
             VStack(alignment: .leading, spacing: 16) {
                 Button("Умные плейлисты · Premium") { feature = .smart }
@@ -470,3 +483,9 @@ struct ShareSheet: UIViewControllerRepresentable {
     func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }
 
+
+private struct NightwellTransferBrowser: UIViewControllerRepresentable {
+    let url: URL
+    func makeUIViewController(context: Context) -> SFSafariViewController { SFSafariViewController(url: url) }
+    func updateUIViewController(_ controller: SFSafariViewController, context: Context) {}
+}
