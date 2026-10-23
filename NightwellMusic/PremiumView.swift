@@ -119,26 +119,31 @@ struct PremiumView: View {
                         .transition(.opacity.combined(with: .move(edge: .top)))
                     }
 
-                    if let renewal {
-                        VStack(spacing: 10) {
-                            Text(renewal.auto_renewal == "disabled" ? "Автопродление отключено" : "Статус автопродления не подтверждён")
-                                .font(.subheadline)
-                                .foregroundStyle(.white.opacity(0.72))
-                            if renewal.has_lava_subscription && renewal.auto_renewal != "disabled" {
-                                Button(cancellingRenewal ? "Отключаем…" : "Отключить автопродление") {
+                    VStack(spacing: 10) {
+                        Text(renewal?.auto_renewal == "disabled" ? "Автопродление отключено" :
+                             renewal == nil ? "Не удалось получить статус автопродления" :
+                             renewal?.has_lava_subscription == true ? "Автопродление доступно для управления" :
+                             "Нет подтверждённой подписки с автопродлением")
+                            .font(.subheadline)
+                            .foregroundStyle(.white.opacity(0.72))
+                        if renewal?.auto_renewal != "disabled" {
+                            Button(cancellingRenewal ? "Отключаем…" : "Отключить автопродление") {
+                                if renewal?.has_lava_subscription == true {
                                     confirmCancellation = true
+                                } else {
+                                    renewalMessage = "Сервер не подтвердил подписку с автопродлением. Проверьте статус оплаты в Lava."
                                 }
-                                .buttonStyle(.bordered)
-                                .disabled(cancellingRenewal || checking)
                             }
-                            if !renewalMessage.isEmpty {
-                                Text(renewalMessage).font(.footnote).foregroundStyle(.white.opacity(0.75))
-                            }
+                            .buttonStyle(.bordered)
+                            .disabled(cancellingRenewal || checking)
                         }
-                        .frame(maxWidth: .infinity)
-                        .padding(14)
-                        .nightwellLiquidGlass(24)
+                        if !renewalMessage.isEmpty {
+                            Text(renewalMessage).font(.footnote).foregroundStyle(.white.opacity(0.75))
+                        }
                     }
+                    .frame(maxWidth: .infinity)
+                    .padding(14)
+                    .nightwellLiquidGlass(24)
                     Button(checking ? "Проверяем…" : "Обновить статус") {
                         Task { await refresh() }
                     }
