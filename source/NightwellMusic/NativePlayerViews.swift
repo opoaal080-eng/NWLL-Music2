@@ -109,7 +109,7 @@ struct RibbonScene: View {
     }
 }
 struct NativeHome: View {
-    @State private var waveSettingsPresented = false
+    let configureWave: () -> Void
     @State private var suppressMixTapUntil = Date.distantPast
     @EnvironmentObject var store: MusicStore
     @ObservedObject var clock: PlaybackClock
@@ -141,7 +141,7 @@ struct NativeHome: View {
                         else { clock.toggle() }
                     } label: {
                         Image(systemName: clock.playing ? "pause.fill" : "play.fill")
-                            .font(.system(size: 49, weight: .light))
+                            .font(.system(size: 40, weight: .light))
                             .foregroundStyle(pumpkin)
                             .frame(width: 112, height: 112)
                             .shadow(color: pumpkin.opacity(0.28), radius: 24)
@@ -157,19 +157,19 @@ struct NativeHome: View {
                                     .lineLimit(1)
                                     .minimumScaleFactor(0.8)
                             }
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(pumpkin)
                             .padding(.horizontal, 18)
-                            .frame(height: 44)
+                            .frame(height: 40)
                             .frostedGlass(22)
                         }
                         .disabled(store.loading)
                         .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in
                             suppressMixTapUntil = Date().addingTimeInterval(1)
-                            waveSettingsPresented = true
+                            configureWave()
                         })
                         .accessibilityHint("Удерживай, чтобы настроить подборку")
-                        .accessibilityAction(named: "Настроить подборку") { waveSettingsPresented = true }
+                        .accessibilityAction(named: "Настроить подборку") { configureWave() }
 
 
                     }
@@ -180,19 +180,6 @@ struct NativeHome: View {
             }
             .padding(.horizontal, 24)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        }
-        .overlay {
-            if waveSettingsPresented {
-                NightwellPopup(title: "", maxHeight: 560, dimsBackground: false, close: { waveSettingsPresented = false }) {
-                    NativeWaveSettingsView(close: { waveSettingsPresented = false })
-                        .environmentObject(store)
-                }
-            }
-        }
-        .onAppear {
-            #if DEBUG
-            if ProcessInfo.processInfo.arguments.contains("--native-smoke-wave-settings") { waveSettingsPresented = true }
-            #endif
         }
     }
 }
@@ -207,10 +194,10 @@ struct MiniPlayer: View {
     var body: some View {
         GeometryReader { box in
             let compact = box.size.width < 350
-            HStack(spacing: compact ? 7 : 10) {
+            HStack(spacing: compact ? 8 : 12) {
                 Button(action: open) {
                     HStack(spacing: 7) {
-                        Cover(track: clock.current, origin: store.origin).frame(width: compact ? 37 : 42, height: compact ? 37 : 42).clipShape(RoundedRectangle(cornerRadius: 12))
+                        Cover(track: clock.current, origin: store.origin).frame(width: compact ? 42 : 42, height: compact ? 42 : 42).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                         VStack(alignment: .leading, spacing: 4) {
                             Text(clock.current?.title ?? "Выбери трек").font(.system(size: compact ? 12 : 14, weight: .semibold)).lineLimit(1)
                             Text(clock.current?.artist ?? "Nightwell Music").font(.system(size: compact ? 10 : 12)).foregroundStyle(.white.opacity(0.65)).lineLimit(1)
@@ -230,22 +217,22 @@ struct MiniPlayer: View {
                 })
                 HStack(spacing: compact ? 2 : 5) {
                     if let track = clock.current {
-                        Button { Task { await store.like(track) } } label: { Image(systemName: store.likes.contains(track.id) ? "heart.fill" : "heart").font(.system(size: 18)).foregroundStyle(pumpkin).frame(width: compact ? 26 : 29, height: 44) }.accessibilityLabel("Избранное")
+                        Button { Task { await store.like(track) } } label: { Image(systemName: store.likes.contains(track.id) ? "heart.fill" : "heart").font(.system(size: 19)).foregroundStyle(pumpkin).frame(width: compact ? 26 : 29, height: 44) }.accessibilityLabel("Избранное")
                     }
-                    Button { changeTrack(-1) } label: { Image(systemName: "backward.end").font(.system(size: 17)).frame(width: compact ? 24 : 28, height: 44) }.accessibilityLabel("Предыдущий трек")
-                    Button { clock.toggle() } label: { Image(systemName: clock.playing ? "pause" : "play.fill").font(.system(size: 19, weight: .light)).frame(width: compact ? 40 : 42, height: compact ? 40 : 42).overlay(Circle().stroke(pumpkin.opacity(0.9), lineWidth: 1.1)) }.accessibilityLabel(clock.playing ? "Пауза" : "Воспроизвести")
-                    Button { changeTrack(1) } label: { Image(systemName: "forward.end").font(.system(size: 17)).frame(width: compact ? 24 : 28, height: 44) }.accessibilityLabel("Следующий трек")
+                    Button { changeTrack(-1) } label: { Image(systemName: "backward.end").font(.system(size: 15)).frame(width: compact ? 24 : 28, height: 44) }.accessibilityLabel("Предыдущий трек")
+                    Button { clock.toggle() } label: { Image(systemName: clock.playing ? "pause" : "play.fill").font(.system(size: 17, weight: .light)).frame(width: compact ? 42 : 42, height: compact ? 42 : 42).background(Circle().fill(Color.black.opacity(0.16))).overlay(Circle().stroke(pumpkin.opacity(0.95), lineWidth: 1.5)) }.accessibilityLabel(clock.playing ? "Пауза" : "Воспроизвести")
+                    Button { changeTrack(1) } label: { Image(systemName: "forward.end").font(.system(size: 15)).frame(width: compact ? 24 : 28, height: 44) }.accessibilityLabel("Следующий трек")
                 }.buttonStyle(.plain)
-            }.foregroundStyle(.white).padding(.horizontal, 11).frame(maxWidth: .infinity, maxHeight: .infinity)
+            }.foregroundStyle(.white) .padding(.horizontal, 14).frame(maxWidth: .infinity, maxHeight: .infinity)
             .background {
                 ZStack(alignment: .leading) {
-                    FrostedSurface(radius: 30)
-                    LinearGradient(colors: [pumpkin.opacity(0.14), Color.purple.opacity(0.035)], startPoint: .leading, endPoint: .trailing)
+                    RoundedRectangle(cornerRadius: 32, style: .continuous).fill(.ultraThinMaterial).opacity(0.23)
+                    LinearGradient(colors: [pumpkin.opacity(0.055), Color.purple.opacity(0.01)], startPoint: .leading, endPoint: .trailing)
                         .frame(width: box.size.width * min(1, max(0, clock.duration > 0 ? clock.position / clock.duration : 0)))
                 }
             }
-            .overlay(RoundedRectangle(cornerRadius: 30).stroke(LinearGradient(colors: [.white.opacity(0.32), pumpkin.opacity(0.26), .white.opacity(0.13)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1))
-            .clipShape(RoundedRectangle(cornerRadius: 30))
+            .overlay(RoundedRectangle(cornerRadius: 34, style: .continuous).stroke(LinearGradient(colors: [.white.opacity(0.34), pumpkin.opacity(0.34), .white.opacity(0.14)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.1))
+            .clipShape(RoundedRectangle(cornerRadius: 34, style: .continuous))
             .shadow(color: pumpkin.opacity(glow ? 0.4 : 0), radius: 18)
         }.frame(height: 68)
         .animation(reduced ? nil : .spring(response: 0.32, dampingFraction: 0.82), value: clock.id)
@@ -296,7 +283,7 @@ struct GlassSlider: View {
                     .offset(x: width * fraction - 9)
             }
             .padding(.horizontal, 11)
-            .frame(height: 44)
+            .frame(height: 40)
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0)
                 .onChanged { gesture in
@@ -309,7 +296,7 @@ struct GlassSlider: View {
                     onEditingChanged(false)
                 })
         }
-        .frame(height: 44)
+        .frame(height: 40)
         .animation(reducedMotion ? nil : .easeOut(duration: 0.16), value: dragging)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(label)
@@ -343,7 +330,7 @@ struct FullPlayer: View {
         ZStack {
             SeasonBackground()
             VStack(spacing: 20) {
-                HStack { Button { dismiss() } label: { Image(systemName: "chevron.down").frame(width: 44, height: 44).frostedGlass() }; Spacer(); VStack(spacing: 5) { Text("HALLOWEEN EDITION").font(.caption2).tracking(3).foregroundStyle(pumpkin); Text("Играет сейчас").font(.headline) }; Spacer(); tools }
+                HStack { Button { dismiss() } label: { Image(systemName: "chevron.down").frame(width: 46, height: 46).nightwellLiquidGlass(24) }; Spacer(); VStack(spacing: 5) { Text("HALLOWEEN EDITION").font(.caption2).tracking(3).foregroundStyle(pumpkin); Text("Играет сейчас").font(.headline) }; Spacer(); tools }
                 GeometryReader { box in
                     if showLyrics {
                         SharedLyricsPanel(model: store.lyrics, clock: clock)
@@ -374,13 +361,13 @@ struct FullPlayer: View {
                     HStack {
                         Button { shuffle.toggle(); NativePlayer.shared.modes(repeatMode: repeatMode, shuffle: shuffle) } label: { Image(systemName: "shuffle").foregroundStyle(shuffle ? pumpkin : .secondary) }; Spacer()
                         Button { NativePlayer.shared.step(-1) } label: { Image(systemName: "backward.end") }; Spacer()
-                        Button { clock.toggle() } label: { Image(systemName: clock.playing ? "pause" : "play.fill").font(.system(size: 32)).frame(width: 74, height: 74).overlay(Circle().stroke(pumpkin, lineWidth: 1)) }; Spacer()
+                        Button { clock.toggle() } label: { Image(systemName: clock.playing ? "pause" : "play.fill").font(.system(size: 27)).frame(width: 74, height: 74).overlay(Circle().stroke(pumpkin, lineWidth: 1)) }; Spacer()
                         Button { NativePlayer.shared.step(1) } label: { Image(systemName: "forward.end") }; Spacer()
                         Button { repeatMode = (repeatMode + 1) % 3; NativePlayer.shared.modes(repeatMode: repeatMode, shuffle: shuffle) } label: { Image(systemName: repeatMode == 2 ? "repeat.1" : "repeat").foregroundStyle(repeatMode > 0 ? pumpkin : .secondary) }
                     }.font(.title2)
                     Divider()
                     Button { showQueue = true } label: { HStack { Image(systemName: "list.bullet"); Text("Дальше в очереди"); Spacer(); Text(String(clock.queue.count)).foregroundStyle(.secondary) } }.font(.subheadline)
-                }.padding(20).frostedGlass(28)
+                }.padding(22).nightwellLiquidGlass(32)
                 if !clock.failure.isEmpty { Text(clock.failure).font(.caption).foregroundStyle(pumpkin) }
             }.padding(.horizontal, 22).padding(.vertical, 12)
         }.overlay { NativeFogLayer(active: !showQueue) }.tint(pumpkin)
@@ -419,7 +406,7 @@ struct FullPlayer: View {
                 ShareLink(item: store.origin.appendingPathComponent("track/" + track.id)) { Label("Поделиться", systemImage: "square.and.arrow.up") }
                 Menu("Добавить в плейлист") { ForEach(store.playlists) { p in Button(p.name) { Task { await store.add(track, playlist: p) } } } }
             }
-        } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44).frostedGlass() }
+        } label: { Image(systemName: "ellipsis").frame(width: 46, height: 46).nightwellLiquidGlass(24) }
     }
 }
 func formatTime(_ seconds: Double) -> String { let value = seconds.isFinite ? max(0, Int(seconds)) : 0; return String(format: "%d:%02d", value / 60, value % 60) }
@@ -438,13 +425,13 @@ struct PlaybackQueue: View {
                 HStack(alignment: .center) {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("ТВОЯ МУЗЫКА").font(.system(size: 9, weight: .semibold)).tracking(3).foregroundStyle(pumpkin)
-                        Text("Очередь").font(.system(size: 28, weight: .bold))
+                        Text("Очередь").font(.system(size: 23, weight: .bold))
                     }
                     Spacer()
                     Text("\(clock.queue.count)").font(.subheadline.monospacedDigit())
-                        .padding(10).frostedGlass(16)
+                        .padding(10).nightwellLiquidGlass(20)
                     Button { dismiss() } label: {
-                        Image(systemName: "xmark").frame(width: 42, height: 42).frostedGlass(21)
+                        Image(systemName: "xmark").frame(width: 42, height: 42).nightwellLiquidGlass(24)
                     }.accessibilityLabel("Закрыть очередь")
                 }
                 ScrollViewReader { reader in
@@ -468,7 +455,7 @@ struct PlaybackQueue: View {
                             }
                         }.padding(12)
                     }
-                    .frostedGlass(24)
+                    .nightwellLiquidGlass(28)
                     .onAppear { if currentIndex >= 0 { reader.scrollTo(currentIndex, anchor: .top) } }
                 }
             }.padding(.horizontal, 20).padding(.top, 28).padding(.bottom, 18)
@@ -505,7 +492,7 @@ struct LyricsView: View {
                             }
                         } else {
                             Text(lyrics.plain ?? lyrics.message ?? (lyrics.searching ? "Ищем текст…" : "Текст пока не найден"))
-                                .font(.system(size: 25, weight: .semibold))
+                                .font(.system(size: 21, weight: .semibold))
                                 .foregroundStyle(nightwellText)
                                 .multilineTextAlignment(.center)
                                 .lineSpacing(10)
@@ -549,95 +536,120 @@ struct LyricsView: View {
 struct AuthSheet: View {
     let close: () -> Void
     @EnvironmentObject var store: MusicStore
-    @Environment(\.dismiss) private var dismiss
     @State private var email = ""
     @State private var password = ""
+    @State private var code = ""
     @State private var register = false
     @State private var busy = false
     @State private var failure = ""
 
+    private var verifying: Bool { store.emailChallenge != nil }
+    private var cannotSubmit: Bool {
+        busy || (verifying ? code.count != 6 : email.isEmpty || password.isEmpty)
+    }
+
     var body: some View {
-        ZStack {
-                ScrollView(showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 22) {
-                        HStack(alignment: .top) {
-                            VStack(alignment: .leading, spacing: 9) {
-                                Image("BrandLogo").resizable().scaledToFit().frame(width: 56, height: 56)
-                                Text(register ? "Создать аккаунт" : "С возвращением")
-                                    .font(.system(size: 31, weight: .bold))
-                                Text(register ? "Создай аккаунт Nightwell Music" : "Твоя музыка снова рядом")
-                                    .font(.subheadline).foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Button { close() } label: {
-                                Image(systemName: "xmark").font(.headline)
-                                    .frame(width: 42, height: 42).glass(21)
-                            }
-                        }
-                        VStack(spacing: 14) {
-                            VStack(alignment: .leading, spacing: 7) {
-                                Text("Email").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                                TextField("name@example.com", text: $email)
-                                    .keyboardType(.emailAddress)
-                                    .textContentType(.username)
-                                    .autocorrectionDisabled()
-                                    .textInputAutocapitalization(.never)
-                                    .padding(15)
-                                    .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 16))
-                            }
-                            VStack(alignment: .leading, spacing: 7) {
-                                Text("Пароль").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                                SecureField("Пароль", text: $password)
-                                    .textContentType(register ? .newPassword : .password)
-                                    .padding(15)
-                                    .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 16))
-                            }
-                        }.padding(16).background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 25))
-                        if !failure.isEmpty {
-                            Text(failure).font(.subheadline).foregroundStyle(.orange)
-                                .padding(14)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(Color.orange.opacity(0.15), in: RoundedRectangle(cornerRadius: 16))
-                        }
-                        Button {
-                            guard !busy else { return }
-                            busy = true
-                            Task {
-                                let ok = await store.authenticate(email: email, password: password, register: register)
-                                busy = false
-                                if ok { close() }
-                                else { failure = store.error ?? "Не удалось войти"; store.error = nil }
-                            }
-                        } label: {
-                            HStack {
-                                Spacer()
-                                if busy { ProgressView().tint(.black) }
-                                Text(register ? "Создать аккаунт" : "Войти")
-                                    .font(.headline)
-                                Spacer()
-                            }
-                            .frame(height: 54)
-                            .foregroundStyle(Color.black)
-                            .background(pumpkin, in: RoundedRectangle(cornerRadius: 18))
-                        }
-                        .disabled(busy || email.isEmpty || password.isEmpty)
-                        .opacity(busy || email.isEmpty || password.isEmpty ? 0.5 : 1)
-                        Button(register ? "Уже есть аккаунт? Войти" : "Нет аккаунта? Создать") {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                register.toggle()
-                                failure = ""
-                            }
-                        }
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(pumpkin)
-                        .frame(maxWidth: .infinity)
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 22) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 9) {
+                        Image("BrandLogo").resizable().scaledToFit().frame(width: 56, height: 56)
+                        Text(verifying ? "Проверь почту" : register ? "Создать аккаунт" : "С возвращением")
+                            .font(.system(size: 26, weight: .bold))
+                        Text(verifying ? "Введи код из письма Nightwell Music" : register ? "Создай аккаунт Nightwell Music" : "Твоя музыка снова рядом")
+                            .font(.subheadline).foregroundStyle(.secondary)
                     }
-                    .padding(.horizontal, 22)
-                    .padding(.top, 28)
-                    .padding(.bottom, 40)
+                    Spacer()
+                    Button { close() } label: {
+                        Image(systemName: "xmark").font(.headline).frame(width: 42, height: 42).glass(21)
+                    }
                 }
-        }
-        .tint(pumpkin)
+                VStack(spacing: 14) {
+                    if let challenge = store.emailChallenge {
+                        Text("Письмо отправлено на " + challenge.email_hint)
+                            .font(.subheadline).frame(maxWidth: .infinity, alignment: .leading)
+                        TextField("Код из 6 цифр", text: $code)
+                            .keyboardType(.numberPad).textContentType(.oneTimeCode)
+                            .textInputAutocapitalization(.never).autocorrectionDisabled()
+                            .font(.title2.monospacedDigit()).padding(15)
+                            .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 16))
+                            .accessibilityIdentifier("email-verification-code")
+                            .onChange(of: code) { _, value in
+                                code = String(value.filter { $0.isASCII && $0.isNumber }.prefix(6))
+                            }
+                        TimelineView(.periodic(from: .now, by: 1)) { context in
+                            let remaining = max(0, Int(ceil(challenge.resend_at - context.date.timeIntervalSince1970)))
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text(context.date.timeIntervalSince1970 < challenge.expires_at
+                                     ? "Код действует 10 минут. Если письма нет, проверь спам."
+                                     : "Код истёк. Начни вход заново.")
+                                    .font(.footnote).foregroundStyle(.secondary)
+                                Button(remaining > 0 ? "Повторить через \(remaining) с" : "Отправить код ещё раз") {
+                                    guard !busy else { return }
+                                    busy = true
+                                    Task {
+                                        await store.resendEmailCode()
+                                        failure = store.error ?? ""
+                                        store.error = nil
+                                        code = ""
+                                        busy = false
+                                    }
+                                }.disabled(busy || remaining > 0 || context.date.timeIntervalSince1970 >= challenge.expires_at)
+                            }
+                        }
+                    } else {
+                        VStack(alignment: .leading, spacing: 7) {
+                            Text("Email").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                            TextField("name@example.com", text: $email)
+                                .keyboardType(.emailAddress).textContentType(.username)
+                                .autocorrectionDisabled().textInputAutocapitalization(.never)
+                                .padding(15).background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 16))
+                        }
+                        VStack(alignment: .leading, spacing: 7) {
+                            Text("Пароль").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                            SecureField("Пароль", text: $password)
+                                .textContentType(register ? .newPassword : .password)
+                                .padding(15).background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 16))
+                        }
+                    }
+                }.disabled(busy).padding(16).background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 25))
+                if !failure.isEmpty {
+                    Text(failure).font(.subheadline).foregroundStyle(.orange).padding(14)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.orange.opacity(0.15), in: RoundedRectangle(cornerRadius: 16))
+                }
+                Button {
+                    guard !cannotSubmit else { return }
+                    busy = true
+                    failure = ""
+                    Task {
+                        let ok: Bool
+                        if verifying { ok = await store.confirmEmailCode(code) }
+                        else { ok = await store.authenticate(email: email, password: password, register: register) }
+                        busy = false
+                        if verifying { password = "" }
+                        if ok { close() }
+                        else { failure = store.error ?? ""; store.error = nil }
+                    }
+                } label: {
+                    HStack {
+                        Spacer()
+                        if busy { ProgressView().tint(.black) }
+                        Text(verifying ? "Подтвердить код" : register ? "Создать аккаунт" : "Войти").font(.headline)
+                        Spacer()
+                    }.frame(height: 48).foregroundStyle(Color.black)
+                        .background(pumpkin, in: RoundedRectangle(cornerRadius: 18))
+                }.disabled(cannotSubmit).opacity(cannotSubmit ? 0.5 : 1)
+                Button(verifying ? "Изменить данные" : register ? "Уже есть аккаунт? Войти" : "Нет аккаунта? Создать") {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        if verifying { store.emailChallenge = nil; code = ""; password = "" }
+                        else { register.toggle() }
+                        failure = ""
+                    }
+                }.disabled(busy).font(.subheadline.weight(.semibold)).foregroundStyle(pumpkin)
+                    .frame(maxWidth: .infinity)
+            }.padding(.horizontal, 22).padding(.top, 28).padding(.bottom, 40)
+        }.tint(pumpkin).onDisappear { store.emailChallenge = nil; code = ""; password = "" }
     }
 }
 
@@ -646,7 +658,7 @@ struct NativeSettings: View {
     let close: () -> Void
     @EnvironmentObject var store: MusicStore
     @Environment(\.dismiss) private var dismiss
-    @AppStorage("nw-transition-seconds") private var transition = 0.8
+    @AppStorage("nw-transition-seconds") private var transition = 1.5
     @AppStorage("nw-ambient-lyrics") private var ambientLyrics = true
     private var buildCaption: String {
         let info = Bundle.main.infoDictionary ?? [:]
@@ -656,34 +668,43 @@ struct NativeSettings: View {
         return "Nightwell Music \(version) (\(number)) · \(revision)"
     }
     var body: some View {
-        VStack(spacing: 14) {
-            HStack { Text("Настройки").font(.title.bold()); Spacer(); Button { close() } label: { Image(systemName: "xmark").frame(width: 40, height: 40).glass(20) } }
-            ScrollView {
+        VStack(spacing: 18) {
+            HStack {
+                Text("Настройки").font(.system(size: 28, weight: .bold))
+                Spacer()
+                Button(action: close) {
+                    Image(systemName: "xmark").font(.system(size: 22, weight: .light))
+                        .foregroundStyle(pumpkin).frame(width: 42, height: 42).background(.white.opacity(0.05), in: Circle())
+                }.accessibilityLabel("Закрыть настройки")
+            }.padding(.top, 12)
+            ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 18) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Button("Темы и ленты · Premium") { feature = .appearance }.sheet(item: $feature) { PremiumFeatureView(kind: $0).environmentObject(store) }
-                        Label("Оформление", systemImage: "paintbrush.pointed").font(.headline).foregroundStyle(pumpkin)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Button("Темы и ленты · Premium") { feature = .appearance }
+                            .sheet(item: $feature) { PremiumFeatureView(kind: $0).environmentObject(store) }
+                        Label("Оформление", systemImage: "paintbrush").font(.system(size: 18, weight: .semibold)).foregroundStyle(pumpkin)
                         Toggle("Текст вместе с лентами", isOn: $ambientLyrics)
                             .onChange(of: ambientLyrics) { enabled in
                                 if enabled { store.lyrics.select(store.clock.current, api: store.api, origin: store.origin, online: store.account != nil) }
                             }
-                        Text("Строки с таймкодами появляются во время песни.").font(.caption).foregroundStyle(.secondary)
-                    }.padding(16).nightwellLiquidGlass(22)
+                        Text("Строки с таймкодами появляются во время песни.").font(.system(size: 13)).foregroundStyle(.white.opacity(0.43))
+                    }.padding(16).frame(maxWidth: .infinity, minHeight: 160, alignment: .leading).background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
                     VStack(alignment: .leading, spacing: 12) {
-                        Label("Воспроизведение", systemImage: "waveform").font(.headline).foregroundStyle(pumpkin)
-                        HStack { Text("Переход между треками"); Spacer(); Text(transition == 0 ? "Выкл." : String(format: "%.1f с", transition)).foregroundStyle(pumpkin) }
+                        Label("Воспроизведение", systemImage: "waveform").font(.system(size: 18, weight: .semibold)).foregroundStyle(pumpkin)
+                        HStack { Text("Переход между треками"); Spacer(minLength: 4); Text(transition == 0 ? "Выкл." : String(format: "%.1f с", transition)).foregroundStyle(pumpkin) }
                         GlassSlider(value: $transition, range: 0...5, step: 0.1, accessibilityStep: 0.1, label: "Переход между треками", valueText: String(format: "%.1f с", transition))
+                            .padding(.vertical, 2)
                             .onChange(of: transition) { NativePlayer.shared.transitionDuration($0) }
-                        Text("Плавное затухание и нарастание громкости.").font(.caption).foregroundStyle(.secondary)
-                    }.padding(16).nightwellLiquidGlass(22)
-                    Text(buildCaption).font(.caption2).foregroundStyle(.secondary).frame(maxWidth: .infinity)
-                }.padding(.vertical, 4)
+                        Text("Плавное затухание и нарастание громкости.").font(.system(size: 12)).foregroundStyle(.white.opacity(0.43))
+                    }.padding(16).frame(maxWidth: .infinity, minHeight: 166, alignment: .leading).background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+                    Text(buildCaption).font(.system(size: 11)).foregroundStyle(.white.opacity(0.4)).frame(maxWidth: .infinity)
+                }.padding(.vertical, 2)
             }
-            .frame(maxHeight: 440)
-        }.padding(20).tint(pumpkin)
-            
+        }.font(.system(size: 17)).padding(20).tint(pumpkin)
+
     }
 }
+
 
 
 

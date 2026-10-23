@@ -536,95 +536,120 @@ struct LyricsView: View {
 struct AuthSheet: View {
     let close: () -> Void
     @EnvironmentObject var store: MusicStore
-    @Environment(\.dismiss) private var dismiss
     @State private var email = ""
     @State private var password = ""
+    @State private var code = ""
     @State private var register = false
     @State private var busy = false
     @State private var failure = ""
 
+    private var verifying: Bool { store.emailChallenge != nil }
+    private var cannotSubmit: Bool {
+        busy || (verifying ? code.count != 6 : email.isEmpty || password.isEmpty)
+    }
+
     var body: some View {
-        ZStack {
-                ScrollView(showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 22) {
-                        HStack(alignment: .top) {
-                            VStack(alignment: .leading, spacing: 9) {
-                                Image("BrandLogo").resizable().scaledToFit().frame(width: 56, height: 56)
-                                Text(register ? "Создать аккаунт" : "С возвращением")
-                                    .font(.system(size: 26, weight: .bold))
-                                Text(register ? "Создай аккаунт Nightwell Music" : "Твоя музыка снова рядом")
-                                    .font(.subheadline).foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Button { close() } label: {
-                                Image(systemName: "xmark").font(.headline)
-                                    .frame(width: 42, height: 42).glass(21)
-                            }
-                        }
-                        VStack(spacing: 14) {
-                            VStack(alignment: .leading, spacing: 7) {
-                                Text("Email").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                                TextField("name@example.com", text: $email)
-                                    .keyboardType(.emailAddress)
-                                    .textContentType(.username)
-                                    .autocorrectionDisabled()
-                                    .textInputAutocapitalization(.never)
-                                    .padding(15)
-                                    .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 16))
-                            }
-                            VStack(alignment: .leading, spacing: 7) {
-                                Text("Пароль").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                                SecureField("Пароль", text: $password)
-                                    .textContentType(register ? .newPassword : .password)
-                                    .padding(15)
-                                    .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 16))
-                            }
-                        }.padding(16).background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 25))
-                        if !failure.isEmpty {
-                            Text(failure).font(.subheadline).foregroundStyle(.orange)
-                                .padding(14)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(Color.orange.opacity(0.15), in: RoundedRectangle(cornerRadius: 16))
-                        }
-                        Button {
-                            guard !busy else { return }
-                            busy = true
-                            Task {
-                                let ok = await store.authenticate(email: email, password: password, register: register)
-                                busy = false
-                                if ok { close() }
-                                else { failure = store.error ?? "Не удалось войти"; store.error = nil }
-                            }
-                        } label: {
-                            HStack {
-                                Spacer()
-                                if busy { ProgressView().tint(.black) }
-                                Text(register ? "Создать аккаунт" : "Войти")
-                                    .font(.headline)
-                                Spacer()
-                            }
-                            .frame(height: 48)
-                            .foregroundStyle(Color.black)
-                            .background(pumpkin, in: RoundedRectangle(cornerRadius: 18))
-                        }
-                        .disabled(busy || email.isEmpty || password.isEmpty)
-                        .opacity(busy || email.isEmpty || password.isEmpty ? 0.5 : 1)
-                        Button(register ? "Уже есть аккаунт? Войти" : "Нет аккаунта? Создать") {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                register.toggle()
-                                failure = ""
-                            }
-                        }
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(pumpkin)
-                        .frame(maxWidth: .infinity)
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 22) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 9) {
+                        Image("BrandLogo").resizable().scaledToFit().frame(width: 56, height: 56)
+                        Text(verifying ? "Проверь почту" : register ? "Создать аккаунт" : "С возвращением")
+                            .font(.system(size: 26, weight: .bold))
+                        Text(verifying ? "Введи код из письма Nightwell Music" : register ? "Создай аккаунт Nightwell Music" : "Твоя музыка снова рядом")
+                            .font(.subheadline).foregroundStyle(.secondary)
                     }
-                    .padding(.horizontal, 22)
-                    .padding(.top, 28)
-                    .padding(.bottom, 40)
+                    Spacer()
+                    Button { close() } label: {
+                        Image(systemName: "xmark").font(.headline).frame(width: 42, height: 42).glass(21)
+                    }
                 }
-        }
-        .tint(pumpkin)
+                VStack(spacing: 14) {
+                    if let challenge = store.emailChallenge {
+                        Text("Письмо отправлено на " + challenge.email_hint)
+                            .font(.subheadline).frame(maxWidth: .infinity, alignment: .leading)
+                        TextField("Код из 6 цифр", text: $code)
+                            .keyboardType(.numberPad).textContentType(.oneTimeCode)
+                            .textInputAutocapitalization(.never).autocorrectionDisabled()
+                            .font(.title2.monospacedDigit()).padding(15)
+                            .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 16))
+                            .accessibilityIdentifier("email-verification-code")
+                            .onChange(of: code) { _, value in
+                                code = String(value.filter { $0.isASCII && $0.isNumber }.prefix(6))
+                            }
+                        TimelineView(.periodic(from: .now, by: 1)) { context in
+                            let remaining = max(0, Int(ceil(challenge.resend_at - context.date.timeIntervalSince1970)))
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text(context.date.timeIntervalSince1970 < challenge.expires_at
+                                     ? "Код действует 10 минут. Если письма нет, проверь спам."
+                                     : "Код истёк. Начни вход заново.")
+                                    .font(.footnote).foregroundStyle(.secondary)
+                                Button(remaining > 0 ? "Повторить через \(remaining) с" : "Отправить код ещё раз") {
+                                    guard !busy else { return }
+                                    busy = true
+                                    Task {
+                                        await store.resendEmailCode()
+                                        failure = store.error ?? ""
+                                        store.error = nil
+                                        code = ""
+                                        busy = false
+                                    }
+                                }.disabled(busy || remaining > 0 || context.date.timeIntervalSince1970 >= challenge.expires_at)
+                            }
+                        }
+                    } else {
+                        VStack(alignment: .leading, spacing: 7) {
+                            Text("Email").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                            TextField("name@example.com", text: $email)
+                                .keyboardType(.emailAddress).textContentType(.username)
+                                .autocorrectionDisabled().textInputAutocapitalization(.never)
+                                .padding(15).background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 16))
+                        }
+                        VStack(alignment: .leading, spacing: 7) {
+                            Text("Пароль").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                            SecureField("Пароль", text: $password)
+                                .textContentType(register ? .newPassword : .password)
+                                .padding(15).background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 16))
+                        }
+                    }
+                }.disabled(busy).padding(16).background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 25))
+                if !failure.isEmpty {
+                    Text(failure).font(.subheadline).foregroundStyle(.orange).padding(14)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.orange.opacity(0.15), in: RoundedRectangle(cornerRadius: 16))
+                }
+                Button {
+                    guard !cannotSubmit else { return }
+                    busy = true
+                    failure = ""
+                    Task {
+                        let ok: Bool
+                        if verifying { ok = await store.confirmEmailCode(code) }
+                        else { ok = await store.authenticate(email: email, password: password, register: register) }
+                        busy = false
+                        if verifying { password = "" }
+                        if ok { close() }
+                        else { failure = store.error ?? ""; store.error = nil }
+                    }
+                } label: {
+                    HStack {
+                        Spacer()
+                        if busy { ProgressView().tint(.black) }
+                        Text(verifying ? "Подтвердить код" : register ? "Создать аккаунт" : "Войти").font(.headline)
+                        Spacer()
+                    }.frame(height: 48).foregroundStyle(Color.black)
+                        .background(pumpkin, in: RoundedRectangle(cornerRadius: 18))
+                }.disabled(cannotSubmit).opacity(cannotSubmit ? 0.5 : 1)
+                Button(verifying ? "Изменить данные" : register ? "Уже есть аккаунт? Войти" : "Нет аккаунта? Создать") {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        if verifying { store.emailChallenge = nil; code = ""; password = "" }
+                        else { register.toggle() }
+                        failure = ""
+                    }
+                }.disabled(busy).font(.subheadline.weight(.semibold)).foregroundStyle(pumpkin)
+                    .frame(maxWidth: .infinity)
+            }.padding(.horizontal, 22).padding(.top, 28).padding(.bottom, 40)
+        }.tint(pumpkin).onDisappear { store.emailChallenge = nil; code = ""; password = "" }
     }
 }
 
@@ -679,6 +704,7 @@ struct NativeSettings: View {
 
     }
 }
+
 
 
 

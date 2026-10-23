@@ -63,6 +63,7 @@ import Combine
     @Published var downloadMessage = ""
     @Published var downloading = false
     @Published var authPresented = false
+    @Published var emailChallenge: EmailChallenge?
     @Published var likeFlash = 0
     private(set) var api: MusicAPI
     private(set) var origin: URL
@@ -203,12 +204,59 @@ import Combine
             catalog = values.0.tracks; likes = Set(values.1.ids); playlists = values.2.playlists
         } catch { self.error = error.localizedDescription }
     }
+    private func finishAuthentication(_ response: EmailAuthResponse) async throws -> Bool {
+        if let challenge = response.challenge {
+            emailChallenge = challenge
+            return false
+        }
+        guard let user = response.user else { throw APIError(message: "Сервер не подтвердил вход") }
+        account = user
+        emailChallenge = nil
+        cacheAccount()
+        await api.setCSRF(response.csrf)
+        authPresented = false
+        await refresh()
+        restorePlayback()
+        if let id = pendingSharedTrackID {
+            pendingSharedTrackID = nil
+            await openSharedTrack(id)
+        }
+        return true
+    }
+
     func authenticate(email: String, password: String, register: Bool) async -> Bool {
+        error = nil
+        emailChallenge = nil
         do {
-            let identity: Identity = try await api.request(register ? "/api/register" : "/api/login", method: "POST", body: ["email": email, "password": password])
-            account = identity.user; cacheAccount(); await api.setCSRF(identity.csrf); authPresented = false; await refresh(); restorePlayback(); if let id = pendingSharedTrackID { pendingSharedTrackID = nil; await openSharedTrack(id) }; return true
+            let response: EmailAuthResponse = try await api.request(register ? "/api/register" : "/api/login",
+                method: "POST", body: ["email": email, "password": password, "supports_email_codes": true])
+            return try await finishAuthentication(response)
         } catch { self.error = error.localizedDescription; return false }
     }
+
+    func confirmEmailCode(_ code: String) async -> Bool {
+        error = nil
+        guard let challenge = emailChallenge else { return false }
+        do {
+            let path = challenge.action == "register" ? "/api/register" : "/api/login"
+            let response: EmailAuthResponse = try await api.request(path, method: "POST",
+                body: ["challenge_id": challenge.id, "code": code])
+            return try await finishAuthentication(response)
+        } catch { self.error = error.localizedDescription; return false }
+    }
+
+    func resendEmailCode() async {
+        error = nil
+        guard let challenge = emailChallenge else { return }
+        do {
+            let path = challenge.action == "register" ? "/api/register" : "/api/login"
+            let response: EmailAuthResponse = try await api.request(path, method: "POST",
+                body: ["challenge_id": challenge.id, "resend": true])
+            guard let next = response.challenge else { throw APIError(message: "Не удалось запросить код") }
+            emailChallenge = next
+        } catch { self.error = error.localizedDescription }
+    }
+
     func logout() async {
         do {
             let _: OK = try await api.request("/api/logout", method: "POST")
@@ -408,4 +456,5 @@ import Combine
         origin = url; api = MusicAPI(origin: url); UserDefaults.standard.set(url.absoluteString, forKey: "nightwell.server"); await start()
     }
 }
+
 

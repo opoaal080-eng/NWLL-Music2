@@ -125,3 +125,17 @@ actor MusicAPI: LyricsService {
 }
 
 
+
+struct EmailChallenge: Decodable {
+    let id: String
+    let action: String
+    let email_hint: String
+    let expires_at: Double
+    let resend_at: Double
+}
+
+struct EmailAuthResponse: Decodable {
+    let user: Account?
+    let csrf: String?
+    let challenge: EmailChallenge?
+}
