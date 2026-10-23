@@ -359,7 +359,7 @@ public final class MainActivity extends Activity {
             }return;
         }
         if(screen.equals("Поиск")){search=new EditText(this);search.setTextColor(Color.WHITE);search.setSingleLine(true);search.setTextSize(16);search.setHintTextColor(0xff999ca8);search.setPadding(dp(16),dp(14),dp(16),dp(14));search.setBackground(touchSurface(0xff202228,24));search.setHint("Трек или исполнитель");body.addView(search);search.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int st,int c,int a){}public void onTextChanged(CharSequence s,int st,int before,int count){query=s.toString();search(query);}public void afterTextChanged(Editable e){}});shown=new JSONArray();}
-        else if(screen.equals("Избранное")){shown=new JSONArray();for(int i=0;i<catalog.length();i++)if(likes.contains(catalog.optJSONObject(i).optString("id")))shown.put(catalog.optJSONObject(i));LinearLayout actionsRow=column();actionsRow.setGravity(Gravity.RIGHT);TextView more=iconButton("⋯",()->collectionMenu("likes",""));LinearLayout.LayoutParams moreParams=new LinearLayout.LayoutParams(dp(52),dp(48));moreParams.gravity=Gravity.RIGHT;actionsRow.addView(more,moreParams);body.addView(actionsRow);}
+        else if(screen.equals("Избранное")){shown=new JSONArray();for(int i=0;i<catalog.length();i++)if(likes.contains(catalog.optJSONObject(i).optString("id")))shown.put(catalog.optJSONObject(i));shown=sortedFavorites(shown);LinearLayout actionsRow=column();actionsRow.setGravity(Gravity.RIGHT);TextView sort=iconButton("⇅",()->favoriteSortMenu());actionsRow.addView(sort);TextView more=iconButton("⋯",()->collectionMenu("likes",""));LinearLayout.LayoutParams moreParams=new LinearLayout.LayoutParams(dp(52),dp(48));moreParams.gravity=Gravity.RIGHT;actionsRow.addView(more,moreParams);body.addView(actionsRow);}
         else if(screen.equals("Плейлисты")){android.widget.ScrollView scroll=new android.widget.ScrollView(this);LinearLayout entries=column();scroll.addView(entries);body.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));entries.addView(sheetAction("Умные плейлисты · Premium",()->feature("smart")));entries.addView(action("＋ Создать плейлист",()->input("Новый плейлист",name->task(()->api.request("api/playlists","POST",new JSONObject().put("name",name)),v->load()))));for(int i=0;i<playlists.length();i++){JSONObject p=playlists.optJSONObject(i);LinearLayout r=row();r.setBackground(surface());r.addView(action(p.optString("name"),()->openPlaylist(p)),new LinearLayout.LayoutParams(0,-2,1));r.addView(action("⋯",()->collectionMenu("playlist",p.optString("id"))));LinearLayout.LayoutParams gap=new LinearLayout.LayoutParams(-1,-2);gap.bottomMargin=dp(10);entries.addView(r,gap);}return;}
         else if(screen.equals("Офлайн")){body.addView(action("Добавить аудиофайлы",this::importFiles));task(()->new JSONObject(OfflineStore.operation(this,origin,"{\"op\":\"listAll\"}")),v->{if(screen.equals("Офлайн")){shown=v.optJSONArray("tracks");updateList();}});shown=new JSONArray();}
         list=new ListView(this);list.setDivider(null);list.setCacheColorHint(Color.TRANSPARENT);adapter=new TrackAdapter();list.setAdapter(adapter);body.addView(list,new LinearLayout.LayoutParams(-1,0,1));list.setOnItemClickListener((p,v,pos,id)->play(shown.optJSONObject(pos),shown,false));list.setOnItemLongClickListener((p,v,pos,id)->{trackMenu(shown.optJSONObject(pos));return true;});
@@ -775,7 +775,24 @@ public final class MainActivity extends Activity {
         public int getCount(){return shown.length();}public Object getItem(int p){return shown.optJSONObject(p);}public long getItemId(int p){return p;}
         public View getView(int position,View recycled,ViewGroup parent){LinearLayout r;TextView title,artist,more;if(recycled==null){r=row();r.setPadding(dp(12),dp(12),dp(8),dp(12));LinearLayout labels=column();title=text("",16);title.setMaxLines(2);artist=text("",12);artist.setMaxLines(1);labels.addView(title);labels.addView(artist);r.addView(labels,new LinearLayout.LayoutParams(0,-2,1));r.addView(new PlayingIndicator(MainActivity.this),new LinearLayout.LayoutParams(dp(20),dp(20)));more=action("⋯",()->{});r.addView(more);r.setTag(new TextView[]{title,artist,more});}else r=(LinearLayout)recycled;TextView[] holder=(TextView[])r.getTag();JSONObject t=shown.optJSONObject(position);holder[0].setText(t.optString("title"));PlayingIndicator indicator=(PlayingIndicator)r.getChildAt(1);indicator.setVisibility(currentID.equals(t.optString("id"))?View.VISIBLE:View.GONE);indicator.playing(lastPlaying);holder[1].setText(t.optString("artist"));holder[2].setOnClickListener(v->trackMenu(t));r.setBackgroundColor(currentID.equals(t.optString("id"))?0x22ffb260:Color.TRANSPARENT);return r;}
     }
-    private void nativeTransfer(){
+    private 
+    private String favoriteOrder="recent";
+    private void favoriteSortMenu(){
+        loadPremium(()->{
+            if(!premiumAllowed()){premium();return;}
+            String[] variants={"Недавние","По названию","По исполнителю"};
+            nightwellOptions("Сортировка · Premium",variants,index->{favoriteOrder=new String[]{"recent","title","artist"}[index];selectMenu("Избранное");});
+        });
+    }
+    private JSONArray sortedFavorites(JSONArray items){
+        if(!premiumAllowed()||favoriteOrder.equals("recent"))return items;
+        ArrayList<JSONObject> result=new ArrayList<>();
+        for(int i=0;i<items.length();i++){JSONObject item=items.optJSONObject(i);if(item!=null)result.add(item);}
+        String column=favoriteOrder.equals("title")?"title":"artist";
+        result.sort((a,b)->java.text.Collator.getInstance(new java.util.Locale("ru")).compare(a.optString(column),b.optString(column)));
+        JSONArray sorted=new JSONArray();for(JSONObject item:result)sorted.put(item);return sorted;
+    }
+    void nativeTransfer(){
         LinearLayout panel=column();panel.setPadding(dp(20),dp(16),dp(20),dp(12));
         EditText title=new EditText(this);title.setSingleLine(true);title.setText("Перенос музыки");title.setHint("Название плейлиста");panel.addView(title);
         Spinner modes=new Spinner(this);String[] modeNames={"Точный","Умный","Максимальный"};modes.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,modeNames));modes.setSelection(1);panel.addView(modes);
