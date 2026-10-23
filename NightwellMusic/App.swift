@@ -543,35 +543,26 @@ private struct NightwellNativeTransfer: View {
             .navigationTitle("Перенос")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Закрыть") { dismiss() } } }
-            .fileImporter(isPresented: $showingFile, allowedContentTypes: [.item, .data], allowsMultipleSelection: false) { result in
-                switch result {
-                case .success(let urls):
-                    guard let url = urls.first else { errorText = "Файл не выбран"; return }
-                    guard ["json", "csv", "txt"].contains(url.pathExtension.lowercased()) else {
-                        errorText = "Поддерживаются только JSON, CSV и TXT"; return
+            .sheet(isPresented: $showingFile) {
+                NightwellImportFilePicker { result in
+                    switch result {
+                    case .success(let url):
+                        do {
+                            let data = try Data(contentsOf: url)
+                            guard data.count <= 1024 * 1024 else { errorText = "Размер файла больше 1 МБ"; return }
+                            guard let text = String(data: data, encoding: .utf8),
+                                  !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                                errorText = "Файл пустой или не в UTF-8"; return
+                            }
+                            contents = text
+                            selectedFilename = url.lastPathComponent
+                            errorText = ""
+                        } catch { errorText = "Ошибка чтения файла: " + error.localizedDescription }
+                    case .failure(let error):
+                        errorText = error.localizedDescription
                     }
-                    let access = url.startAccessingSecurityScopedResource()
-                    defer { if access { url.stopAccessingSecurityScopedResource() } }
-                    var readError: NSError?
-                    var fileData: Data?
-                    NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &readError) { coordinatedURL in
-                        fileData = try? Data(contentsOf: coordinatedURL)
-                    }
-                    if let readError { errorText = readError.localizedDescription; return }
-                    guard let data = fileData else {
-                        errorText = "Не удалось прочитать файл. Сохрани его в «Файлы» на iPhone."; return
-                    }
-                    guard data.count <= 1024 * 1024 else { errorText = "Размер файла больше 1 МБ"; return }
-                    guard let text = String(data: data, encoding: .utf8),
-                          !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                        errorText = "Файл пустой или не в UTF-8"; return
-                    }
-                    contents = text
-                    selectedFilename = url.lastPathComponent
-                    errorText = ""
-                case .failure(let failure):
-                    errorText = failure.localizedDescription
                 }
+                .ignoresSafeArea()
             }
         }.preferredColorScheme(.dark)
     }
@@ -601,5 +592,34 @@ private struct NightwellNativeTransfer: View {
         guard let job else { return }
         do { let next: ImportJob = try await store.api.request("api/imports/" + job.id + "/cancel",method:"POST",body:[:]); self.job = next }
         catch { errorText = error.localizedDescription }
+    }
+}
+
+private struct NightwellImportFilePicker: UIViewControllerRepresentable {
+    let completion: (Result<URL, Error>) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(completion: completion) }
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.item], asCopy: true)
+        picker.allowsMultipleSelection = false
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) {}
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let completion: (Result<URL, Error>) -> Void
+        init(completion: @escaping (Result<URL, Error>) -> Void) { self.completion = completion }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            guard let url = urls.first else { return }
+            guard ["json", "csv", "txt"].contains(url.pathExtension.lowercased()) else {
+                completion(.failure(NSError(domain: "NightwellImport", code: 1, userInfo: [NSLocalizedDescriptionKey: "Поддерживаются JSON, CSV и TXT"])))
+                return
+            }
+            completion(.success(url))
+        }
     }
 }
