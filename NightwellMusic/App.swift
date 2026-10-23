@@ -558,7 +558,19 @@ private struct NightwellNativeTransfer: View {
                         VStack(alignment: .leading, spacing: 12) {
                             Text(job.message ?? "Поиск").font(.headline)
                             ProgressView(value: Double(job.progress), total: Double(max(1, job.total)))
-                            Text("Проверено: \(job.progress) / \(job.total) · Найдено: \(job.matched)").font(.caption).foregroundStyle(.secondary)
+                            HStack(spacing: 12) {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text("\(job.progress) / \(job.total)").font(.title3.bold()).monospacedDigit()
+                                    Text("Проверено").font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                VStack(alignment: .trailing, spacing: 3) {
+                                    Text("\(job.matched)").font(.title3.bold()).foregroundStyle(pumpkin).monospacedDigit()
+                                    Text("Найдено").font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                            Text(job.total > 0 ? "Обработано \(Int(Double(job.progress) / Double(job.total) * 100))% списка" : "Подготовка поиска")
+                                .font(.caption).foregroundStyle(.secondary)
                             if (job.state == "ready" || job.state == "error") && job.matched > 0 {
                                 Button("Добавить найденные треки") { Task { await commit() } }.buttonStyle(.borderedProminent)
                             }
