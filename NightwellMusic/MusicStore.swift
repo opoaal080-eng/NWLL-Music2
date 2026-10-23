@@ -161,7 +161,7 @@ import Network
                     }
                 }
             } catch {
-                if !Task.isCancelled, self.origin == server, self.sessionGeneration == session, self.connectionCheckGeneration == checkID { self.connectionStatus = "Оффлайн" }
+                if !Task.isCancelled, self.origin == server, self.sessionGeneration == session, self.connectionCheckGeneration == checkID, self.hasNetworkPath { self.connectionStatus = "Оффлайн" }
             }
         }
     }
@@ -348,7 +348,8 @@ import Network
         await libraryRefresh.run { [weak self] in
             guard let self else { return }
             @MainActor func current() -> Bool {
-                !Task.isCancelled && self.sessionGeneration == generation &&
+                !Task.isCancelled && self.hasNetworkPath &&
+                    self.sessionGeneration == generation &&
                     self.account?.id == owner && self.origin == server
             }
             guard current() else { return }
