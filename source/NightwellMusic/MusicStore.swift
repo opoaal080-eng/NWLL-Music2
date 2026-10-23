@@ -128,6 +128,7 @@ import Network
     private var connectionCheck: Task<Void, Never>?
     private var connectionCheckGeneration = UUID()
     private var hasNetworkPath = true
+    private var networkGeneration = UUID()
     private var lastConnectionRefresh = Date.distantPast
 
     private func checkConnection() {
@@ -170,7 +171,12 @@ import Network
         connectionMonitor.pathUpdateHandler = { [weak self] path in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                self.hasNetworkPath = path.status == .satisfied
+                let available = path.status == .satisfied
+                if available != self.hasNetworkPath {
+                    self.networkGeneration = UUID()
+                    if !available { self.libraryRefresh.cancel() }
+                }
+                self.hasNetworkPath = available
                 if self.hasNetworkPath {
                     self.checkConnection()
                 } else {
@@ -345,11 +351,12 @@ import Network
     func refresh() async {
         guard let owner = account?.id else { return }
         let client = api, server = origin, generation = sessionGeneration
+        let network = networkGeneration
         await libraryRefresh.run { [weak self] in
             guard let self else { return }
             @MainActor func current() -> Bool {
                 !Task.isCancelled && self.hasNetworkPath &&
-                    self.sessionGeneration == generation &&
+                    self.networkGeneration == network && self.sessionGeneration == generation &&
                     self.account?.id == owner && self.origin == server
             }
             guard current() else { return }
