@@ -18,8 +18,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: Verify recovered sources
         run: python3 scripts/verify-native-source.py
+      - name: Verify mirrored iOS sources
+        run: |
+          diff -qr NightwellMusic source/NightwellMusic
       - name: Parse Swift sources
-        run: swiftc -frontend -parse NightwellMusic/*.swift NativeTests/*.swift
+        run: |
+          swiftc -frontend -parse NightwellMusic/*.swift NativeTests/*.swift
+          swiftc -frontend -parse source/NightwellMusic/*.swift
       - name: Test Premium payment confirmation
         run: |
           swiftc NightwellMusic/PremiumPaymentPolicy.swift scripts/test-premium-payment.swift -o /tmp/test-premium-payment
