@@ -251,7 +251,7 @@ struct NativeRoot: View {
                     NativeSettings(close: { settings = false })
                 }
             } else if let playlist = selectedPlaylist {
-                NightwellPopup(title: "", maxHeight: 610, close: { selectedPlaylist = nil }) {
+                NightwellPopup(title: "", maxHeight: 618, dimsBackground: false, centered: true, transparentSettings: true, close: { selectedPlaylist = nil }) {
                     PlaylistScreen(close: { selectedPlaylist = nil }, playlist: playlist)
                         .id(playlist.id)
                 }
@@ -461,17 +461,30 @@ struct PlaylistScreen: View {
     @State private var tracks: [Track] = []
     @Environment(\.dismiss) private var dismiss
     var body: some View {
-        ZStack {
-            VStack(spacing: 18) {
-                HStack {
-                    Button { close() } label: { Image(systemName: "xmark").frame(width: 44, height: 44).glass(24) }
-                    Spacer()
-                    Button { Task { await store.download(tracks) } } label: { Image(systemName: "arrow.down.to.line").frame(width: 44, height: 44).glass(24) }
-                }
-                HStack { Text(playlist.name).font(.largeTitle.bold()); Spacer() }
-                TrackList(tracks: tracks, playlist: playlist)
-            }.padding(.horizontal, 20).padding(.top, 12)
-        }.tint(pumpkin).task {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(playlist.name)
+                    .font(.title2.bold())
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Button { Task { await store.download(tracks) } } label: {
+                    Image(systemName: "arrow.down.to.line").frame(width: 42, height: 42).frostedGlass(20)
+                }.accessibilityLabel("Скачать плейлист")
+                Button(action: close) {
+                    Image(systemName: "xmark").frame(width: 42, height: 42).frostedGlass(20)
+                }.accessibilityLabel("Закрыть плейлист")
+            }
+            .padding(.top, 18)
+            Text("Треки плейлиста · \\(tracks.count)")
+                .font(.caption).foregroundStyle(.secondary)
+            TrackList(tracks: tracks, playlist: playlist)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipped()
+        }
+        .padding(.horizontal, 18)
+        .padding(.bottom, 16)
+        .tint(pumpkin)
+        .task {
             #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("--native-smoke-playlist") {
                 tracks = [Track(id: "preview-one", title: "Музыка этой ночи", artist: "Nightwell Music"), Track(id: "preview-two", title: "Твой тёмный ритм", artist: "Nightwell Music")]
