@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'NightwellMusic/**'
+      - 'source/NightwellMusic/**'
       - 'NativeTests/**'
       - 'project.yml'
       - 'scripts/verify-native-source.py'
