@@ -19,9 +19,10 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
         var jobs: [String: Job] = [:]
         var total = 0, added = 0, skipped = 0, failed = 0
     }
-    struct Progress { let active: Bool; let message: String }
+    struct Progress { let active: Bool; let message: String; let fractions: [String: Double] }
     private let lock = NSRecursiveLock()
     private var state = State()
+    private var fractions: [String: Double] = [:]
     private var ready = false
     private var eventCompletion: (() -> Void)?
     private lazy var session: URLSession = {
@@ -48,9 +49,9 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
         lock.lock(); defer { lock.unlock() }
         if !state.jobs.isEmpty {
             let done = state.added + state.skipped + state.failed
-            return Progress(active: true, message: "Загрузка \(done) / \(state.total)")
+            return Progress(active: true, message: "Загрузка \(done) / \(state.total)", fractions: fractions)
         }
-        return Progress(active: false, message: state.total == 0 ? "" : "Скачано: \(state.added) · уже сохранено: \(state.skipped) · ошибок: \(state.failed)")
+        return Progress(active: false, message: state.total == 0 ? "" : "Скачано: \(state.added) · уже сохранено: \(state.skipped) · ошибок: \(state.failed)", fractions: fractions)
     }
     func handleEvents(_ completion: @escaping () -> Void) {
         lock.lock(); eventCompletion = completion; lock.unlock()
@@ -108,6 +109,7 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
     private func finish(_ task: URLSessionTask, success: Bool) {
         lock.lock(); defer { lock.unlock() }
         guard let key = task.taskDescription, state.jobs.removeValue(forKey: key) != nil else { return }
+        fractions.removeValue(forKey: key)
         if success { state.added += 1 } else { state.failed += 1 }
         persist(); publish()
     }
@@ -131,7 +133,13 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
         if error != nil { finish(task, success: false) }
     }
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
-        if totalBytesWritten > OfflineStore.limit || totalBytesExpectedToWrite > OfflineStore.limit { downloadTask.cancel() }
+        if totalBytesWritten > OfflineStore.limit || totalBytesExpectedToWrite > OfflineStore.limit { downloadTask.cancel(); return }
+        guard let key = downloadTask.taskDescription, totalBytesExpectedToWrite > 0 else { return }
+        lock.lock()
+        let value = min(1, max(0, Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)))
+        let previous = fractions[key] ?? 0
+        if value - previous >= 0.01 || value >= 1 { fractions[key] = value; publish() }
+        lock.unlock()
     }
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
         // Offline exports must remain on our HTTPS origin; never forward session cookies to a media CDN.
