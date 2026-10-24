@@ -340,8 +340,11 @@ final class NativePlayer {
     private func seekCurrentItem(to seconds: Double) {
         let item = itemGeneration; seekGeneration = UUID(); let seek = seekGeneration
         waitingForReady = true
+        // Small tolerance lets the streaming decoder seek to nearby buffered samples.
+        // Keep exact seeks for downloaded local files.
+        let tolerance = current?.offline == true ? CMTime.zero : CMTime(seconds: 0.15, preferredTimescale: 600)
         player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600),
-            toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+            toleranceBefore: tolerance, toleranceAfter: tolerance) { [weak self] _ in
                 DispatchQueue.main.async {
                     guard let self, self.itemGeneration == item, self.seekGeneration == seek else { return }
                     self.waitingForReady = false
