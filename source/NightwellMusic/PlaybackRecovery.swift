@@ -39,11 +39,15 @@ final class PlaybackRecovery {
         var next: NSError? = error as NSError
         for _ in 0..<8 {
             guard let value = next else { break }
-            if value.domain == NSURLErrorDomain {
-                return [NSURLErrorTimedOut, NSURLErrorCannotFindHost,
-                        NSURLErrorCannotConnectToHost, NSURLErrorNetworkConnectionLost,
-                        NSURLErrorDNSLookupFailed, NSURLErrorNotConnectedToInternet].contains(value.code)
+            if value.domain == NSURLErrorDomain &&
+                [NSURLErrorTimedOut, NSURLErrorCannotFindHost,
+                 NSURLErrorCannotConnectToHost, NSURLErrorNetworkConnectionLost,
+                 NSURLErrorDNSLookupFailed, NSURLErrorNotConnectedToInternet,
+                 NSURLErrorInternationalRoamingOff, NSURLErrorDataNotAllowed].contains(value.code) {
+                return true
             }
+            // AVFoundation may wrap a transient network failure in another
+            // NSError. Continue looking even if an outer URL error is not retryable.
             next = value.userInfo[NSUnderlyingErrorKey] as? NSError
         }
         return false
