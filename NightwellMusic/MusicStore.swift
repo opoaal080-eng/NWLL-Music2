@@ -227,8 +227,10 @@ import Network
         observers.append(NotificationCenter.default.addObserver(forName: BackgroundDownloads.changed, object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
             let progress = BackgroundDownloads.shared.progress
+            let statusChanged = self.downloadMessage != progress.message
             self.downloading = progress.active; self.downloadMessage = progress.message; self.downloadFractions = progress.fractions
-            Task { await self.refreshOffline() }
+            // Updating a progress bar must not rescan offline storage each percent.
+            if statusChanged || !progress.active { Task { await self.refreshOffline() } }
         })
         BackgroundDownloads.shared.reconnect()
         let progress = BackgroundDownloads.shared.progress
