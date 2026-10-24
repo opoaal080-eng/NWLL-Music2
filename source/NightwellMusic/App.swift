@@ -491,6 +491,14 @@ struct PlaylistScreen: View {
                 }.accessibilityLabel("Закрыть плейлист")
             }
             .padding(.top, 18)
+            let activeFractions = tracks.compactMap { store.downloadProgress($0.id) }
+            if !activeFractions.isEmpty {
+                let fraction = activeFractions.reduce(0, +) / Double(activeFractions.count)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Скачивание · \\(Int(fraction * 100))%").font(.caption).foregroundStyle(.secondary)
+                    ProgressView(value: fraction).tint(pumpkin)
+                }
+            }
             Text("Треки плейлиста · \\(tracks.count)")
                 .font(.caption).foregroundStyle(.secondary)
             TrackList(tracks: tracks, playlist: playlist)
