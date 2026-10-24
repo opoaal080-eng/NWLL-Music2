@@ -29,6 +29,8 @@ private final class NowPlayingEligibilityDelegate: NSObject, MPNowPlayingSession
 final class NativePlayer {
     static let shared = NativePlayer()
     let player = AVPlayer()
+    private var nextAsset: AVURLAsset?
+    private var nextAssetID: String?
     private lazy var nowPlayingSession = MPNowPlayingSession(players: [player])
     private let nowPlayingEligibility = NowPlayingEligibilityDelegate()
     private var activatingNowPlaying = false
@@ -179,6 +181,24 @@ final class NativePlayer {
         load(position: max(0, ((data["position"] as? NSNumber)?.doubleValue ?? 0) / 1000))
     }
 
+    private func prewarmNextAsset() {
+        guard !shuffle, !waveWaiting, index + 1 < tracks.count, let origin else {
+            nextAsset = nil; nextAssetID = nil; return
+        }
+        let next = tracks[index + 1]
+        guard nextAssetID != next.id else { return }
+        let saved = OfflineStore.audio(origin: origin,
+            account: next.offlineAccount.isEmpty ? offlineAccount : next.offlineAccount, id: next.id)
+        guard !next.offline || saved != nil,
+              let url = saved ?? URL(string: "api/stream/" + next.id + "?cache=1&format=" +
+                  (next.remote || next.source == "soundcloud" ? "hls" : "file"),
+                  relativeTo: origin)?.absoluteURL else { return }
+        let asset = AVURLAsset(url: url, options: [AVURLAssetHTTPCookiesKey: cookies])
+        nextAsset = asset; nextAssetID = next.id
+        // Only warm metadata for one imminent track, never download the whole queue.
+        Task(priority: .utility) { let _ = try? await asset.load(.isPlayable) }
+    }
+
     private func load(position: Double = 0, recovering: Bool = false) {
         if !recovering { recovery.cancel(resetBudget: true); independentMeter.cancel(); resumeAfterInterruption = false }
         eqGeneration = UUID(); eqDownload?.cancel(); eqDownload = nil; eqAttempted = false; enginePlayback.stop()
@@ -205,7 +225,9 @@ final class NativePlayer {
         if let failureObserver { NotificationCenter.default.removeObserver(failureObserver) }
         if let stallObserver { NotificationCenter.default.removeObserver(stallObserver); self.stallObserver = nil }
         itemObservation = nil
-        let asset = AVURLAsset(url: url, options: [AVURLAssetHTTPCookiesKey: cookies])
+        let asset = nextAssetID == current.id && nextAsset?.url == url
+            ? nextAsset! : AVURLAsset(url: url, options: [AVURLAssetHTTPCookiesKey: cookies])
+        nextAsset = nil; nextAssetID = nil
         let item = AVPlayerItem(asset: asset)
         // Keep a useful forward buffer, but do not wait to fill it before starting.
         item.preferredForwardBufferDuration = 12
@@ -216,6 +238,7 @@ final class NativePlayer {
             DispatchQueue.main.async {
                 guard let self, self.itemGeneration == generation else { return }
                 if item.status == .readyToPlay {
+                    self.prewarmNextAsset()
                     let length = item.duration.seconds
                     let target = length.isFinite && self.requestedPosition >= length ? 0 : self.requestedPosition
                     self.requestedPosition = target; self.lastPosition = target
