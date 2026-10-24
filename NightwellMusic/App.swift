@@ -392,7 +392,13 @@ struct NativeRoot: View {
     }
     private func collectionHeading(_ title: String, tracks: [Track], kind: String) -> some View {
         HStack { Text(title).font(.largeTitle.bold()); Spacer(); Menu {
-            Button("Скачать всё", systemImage: "arrow.down.to.line") { Task { await store.download(tracks) } }
+            if !tracks.isEmpty && tracks.allSatisfy({ store.isDownloaded($0) }) {
+                Button("Удалить загрузки", systemImage: "trash", role: .destructive) {
+                    Task { for track in tracks { await store.removeDownload(track) } }
+                }
+            } else {
+                Button("Скачать всё", systemImage: "arrow.down.to.line") { Task { await store.download(tracks) } }
+            }
             Button("Поделиться", systemImage: "square.and.arrow.up") { Task { shareURL = await store.share(kind: kind); showShare = shareURL != nil } }
         } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44).glass() } }
     }
@@ -478,7 +484,7 @@ struct PlaylistScreen: View {
                         for track in tracks { await store.removeDownload(track) }
                     } else { await store.download(tracks.filter { !store.isDownloaded($0) }) }
                 } } label: {
-                    Image(systemName: "arrow.down.to.line").frame(width: 42, height: 42).frostedGlass(20)
+                    Image(systemName: !tracks.isEmpty && tracks.allSatisfy { store.isDownloaded($0) } ? "trash" : "arrow.down.to.line").frame(width: 42, height: 42).frostedGlass(20)
                 }.accessibilityLabel(tracks.allSatisfy { store.isDownloaded($0) } ? "Удалить загрузку плейлиста" : "Скачать плейлист")
                 Button(action: close) {
                     Image(systemName: "xmark").frame(width: 42, height: 42).frostedGlass(20)
