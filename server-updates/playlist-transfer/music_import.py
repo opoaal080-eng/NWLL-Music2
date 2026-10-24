@@ -31,9 +31,10 @@ def search_queries(item, mode):
     queries = [artist + ' ' + title]
     if mode != 'safe':
         queries += [searchable(artist) + ' ' + searchable(title), title + ' ' + artist]
-    if mode == 'wide':
         primary = re.split(r'\s+(?:feat\.?|ft\.?|featuring|&|и)\s+|[,;]',artist,flags=re.I)[0].strip()
-        queries += [primary + ' ' + searchable(title), transliterate(artist + ' ' + title), title]
+        queries += [primary + ' ' + searchable(title), transliterate(artist + ' ' + title)]
+    if mode == 'wide':
+        queries += [title, searchable(title)]
     seen=set(); result=[]
     for query in queries:
         key=norm(query)
@@ -170,6 +171,13 @@ def install(app,identity,csrf,path):
                     exact.setdefault((title,artist),[]).append(candidate)
                     group=artists.setdefault(artist,[])
                     if len(group)<1000:group.append(candidate)
+                    # Also index titles: artist metadata may differ between sources.
+                titles={}
+                for candidate in catalog:
+                    if isinstance(candidate,dict):
+                        title_key=norm(candidate.get('title',''))
+                        if title_key and len(titles.setdefault(title_key,[]))<200:
+                            titles[title_key].append(candidate)
                 # Single-flight remote search and bounded cache protect music playback.
                 gate=asyncio.Semaphore(1)
                 query_cache={}
@@ -187,7 +195,7 @@ def install(app,identity,csrf,path):
                 async def match(index,item):
                     async with gate:
                         if jobs.cancelled(key,user):return
-                        local=exact.get((norm(item["title"]),norm(item["artist"])),artists.get(norm(item["artist"]),[]))
+                        local=exact.get((norm(item["title"]),norm(item["artist"]))) or (artists.get(norm(item["artist"]),[]) + titles.get(norm(item["title"]),[]))
                         found,reason=await asyncio.to_thread(select_match,item,local,mode)
                         if found is None:
                             # Additional queries only when the stricter query found no good match.
