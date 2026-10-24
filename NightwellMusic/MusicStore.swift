@@ -64,6 +64,7 @@ import Network
     @Published private(set) var connectionStatus = "Загрузка…"
     @Published var downloadMessage = ""
     @Published var downloading = false
+    @Published var downloadFractions: [String: Double] = [:]
     @Published var authPresented = false
     @Published var emailChallenge: EmailChallenge?
     @Published var likeFlash = 0
@@ -226,12 +227,12 @@ import Network
         observers.append(NotificationCenter.default.addObserver(forName: BackgroundDownloads.changed, object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
             let progress = BackgroundDownloads.shared.progress
-            self.downloading = progress.active; self.downloadMessage = progress.message
+            self.downloading = progress.active; self.downloadMessage = progress.message; self.downloadFractions = progress.fractions
             Task { await self.refreshOffline() }
         })
         BackgroundDownloads.shared.reconnect()
         let progress = BackgroundDownloads.shared.progress
-        downloading = progress.active; downloadMessage = progress.message
+        downloading = progress.active; downloadMessage = progress.message; downloadFractions = progress.fractions
 
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
@@ -677,6 +678,23 @@ import Network
             guard state.premium else { error = "Скачивание доступно с Premium — 150 ₽ за 30 дней."; return }
         } catch { self.error = error.localizedDescription; return }
         BackgroundDownloads.shared.enqueue(list, origin: origin, account: account.id)
+    }
+    func downloadProgress(_ id: String) -> Double? {
+        guard let account else { return nil }
+        return downloadFractions[origin.absoluteString + "|" + account.id + "|" + id]
+    }
+    func isDownloaded(_ track: Track) -> Bool {
+        offline.contains { $0.id == track.id } || track._offline == true
+    }
+    func removeDownload(_ track: Track) async {
+        guard let account else { return }
+        let server = origin
+        do {
+            _ = try await Task.detached {
+                try OfflineStore.operation(["op": "remove", "account": account.id, "id": track.id], origin: server)
+            }.value
+            await refreshOffline()
+        } catch { self.error = error.localizedDescription }
     }
     func importFiles(_ urls: [URL]) async {
         for url in urls {
