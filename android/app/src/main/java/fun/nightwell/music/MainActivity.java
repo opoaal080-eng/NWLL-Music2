@@ -49,6 +49,8 @@ public final class MainActivity extends Activity {
     private TextView transferNote;
     private int transferReadGeneration;
     private long libraryGeneration,lastResumeRefresh;
+    private int connectionRecoveryAttempts;
+    private final Runnable connectionRecovery=()->{if(visible&&!smokeMode&&!isDestroyed())load();};
     private String downloadProgress="";
     private String pendingDeepLinkTrack="";
     private boolean sessionReady,smokeMode;
@@ -97,7 +99,7 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onResume(){super.onResume();visible=true;if(!smokeMode&&sessionReady&&SystemClock.elapsedRealtime()-lastResumeRefresh>30000)load();if(premiumRefresh!=null)premiumRefresh.run();BackgroundDownloads.reconcile(this);if(ribbon!=null)ribbon.running(!smokeMode&&!full&&screen.equals("Главная"));ui.removeCallbacks(tick);if(!smokeMode)ui.post(tick);}
-    @Override protected void onPause(){super.onPause();if(navigationPopup!=null)navigationPopup.dismiss();if(playback!=null)playback.persistPlayback(true);visible=false;if(ribbon!=null)ribbon.running(false);ui.removeCallbacks(tick);}
+    @Override protected void onPause(){super.onPause();ui.removeCallbacks(connectionRecovery);if(navigationPopup!=null)navigationPopup.dismiss();if(playback!=null)playback.persistPlayback(true);visible=false;if(ribbon!=null)ribbon.running(false);ui.removeCallbacks(tick);}
     @Override protected void onDestroy(){generation++;cancelMix();accountRequest.cancel();if(api!=null)api.close();ui.removeCallbacksAndMessages(null);io.shutdownNow();prefetch.shutdownNow();if(playback!=null)playback.player.removeListener(playbackIntentObserver);if(bindingRegistered){unbindService(connection);bindingRegistered=false;}super.onDestroy();}
     int dp(float n){return (int)(n*getResources().getDisplayMetrics().density+.5f);}
     LinearLayout column(){LinearLayout v=new LinearLayout(this);v.setOrientation(LinearLayout.VERTICAL);return v;}
@@ -450,6 +452,7 @@ public final class MainActivity extends Activity {
         getSharedPreferences("library-snapshot",MODE_PRIVATE).edit().remove("snapshot").apply();
     }
     void load(){
+        ui.removeCallbacks(connectionRecovery);
         lastResumeRefresh=SystemClock.elapsedRealtime();
         final long ticket=accountRequest.start(()->{});
         io.execute(()->{
@@ -457,6 +460,8 @@ public final class MainActivity extends Activity {
                 JSONObject me=api.request("api/me");
                 ui.post(()->{
                     if(isDestroyed()||!accountRequest.complete(ticket))return;
+                    connectionRecoveryAttempts=0;
+                    ui.removeCallbacks(connectionRecovery);
                     api.updateCSRF(me.optString("csrf",""));
                     JSONObject account=me.optJSONObject("user");
                     String nextAccount=account==null?"":account.optString("id");
@@ -495,6 +500,13 @@ public final class MainActivity extends Activity {
                     }
                     sessionReady=true;
                     status.setText(friendly(ex));
+                    // Reconnect automatically after transient outages, without a busy loop.
+                    if(visible && !(ex instanceof NetworkRetry.HttpFailure && ((NetworkRetry.HttpFailure)ex).status==401)
+                            && connectionRecoveryAttempts<3){
+                        int delay=10000*(1<<connectionRecoveryAttempts++);
+                        ui.removeCallbacks(connectionRecovery);
+                        ui.postDelayed(connectionRecovery,delay);
+                    }
                 });
             }
         });
