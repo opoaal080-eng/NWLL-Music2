@@ -484,10 +484,10 @@ struct PlaylistScreen: View {
                         for track in tracks { await store.removeDownload(track) }
                     } else { await store.download(tracks.filter { !store.isDownloaded($0) }) }
                 } } label: {
-                    Image(systemName: (!tracks.isEmpty && tracks.allSatisfy({ store.isDownloaded($0) })) ? "trash" : "arrow.down.to.line").frame(width: 42, height: 42).frostedGlass(20)
+                    Image(systemName: (!tracks.isEmpty && tracks.allSatisfy({ store.isDownloaded($0) })) ? "trash" : "arrow.down.to.line").frame(width: 42, height: 42).frostedGlass(20, bordered: false, intensity: 0.55)
                 }.accessibilityLabel(tracks.allSatisfy { store.isDownloaded($0) } ? "Удалить загрузку плейлиста" : "Скачать плейлист")
                 Button(action: close) {
-                    Image(systemName: "xmark").frame(width: 42, height: 42).frostedGlass(20)
+                    Image(systemName: "xmark").frame(width: 42, height: 42).frostedGlass(20, bordered: false, intensity: 0.55)
                 }.accessibilityLabel("Закрыть плейлист")
             }
             .padding(.top, 18)
