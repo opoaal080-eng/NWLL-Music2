@@ -429,7 +429,13 @@ struct NativeTrackRow: View {
             }.buttonStyle(.plain)
             Menu {
                 Button(store.likes.contains(track.id) ? "Убрать из избранного" : "В избранное", systemImage: store.likes.contains(track.id) ? "heart.fill" : "heart") { Task { await store.like(track) } }
-                Button("Скачать", systemImage: "arrow.down.to.line") { Task { await store.download([track]) } }
+                if store.isDownloaded(track) {
+                    Button("Удалить загрузку", systemImage: "trash", role: .destructive) { Task { await store.removeDownload(track) } }
+                } else if let fraction = store.downloadProgress(track.id) {
+                    Text("Скачивание \(Int(fraction * 100))%")
+                } else {
+                    Button("Скачать", systemImage: "arrow.down.to.line") { Task { await store.download([track]) } }
+                }
                 ShareLink(item: store.origin.appendingPathComponent("track/" + track.id)) { Label("Поделиться", systemImage: "square.and.arrow.up") }
                 Menu("Добавить в плейлист") { ForEach(store.playlists) { p in Button(p.name) { Task { await store.add(track, playlist: p) } } } }
                 if let playlist { Button("Убрать из плейлиста", role: .destructive) { Task { await store.add(track, playlist: playlist, remove: true) } } }
@@ -467,9 +473,13 @@ struct PlaylistScreen: View {
                     .font(.title2.bold())
                     .lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                Button { Task { await store.download(tracks) } } label: {
+                Button { Task {
+                    if tracks.allSatisfy({ store.isDownloaded($0) }) {
+                        for track in tracks { await store.removeDownload(track) }
+                    } else { await store.download(tracks.filter { !store.isDownloaded($0) }) }
+                } } label: {
                     Image(systemName: "arrow.down.to.line").frame(width: 42, height: 42).frostedGlass(20)
-                }.accessibilityLabel("Скачать плейлист")
+                }.accessibilityLabel(tracks.allSatisfy { store.isDownloaded($0) } ? "Удалить загрузку плейлиста" : "Скачать плейлист")
                 Button(action: close) {
                     Image(systemName: "xmark").frame(width: 42, height: 42).frostedGlass(20)
                 }.accessibilityLabel("Закрыть плейлист")
