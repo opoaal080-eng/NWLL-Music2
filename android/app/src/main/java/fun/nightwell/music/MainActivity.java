@@ -50,7 +50,7 @@ public final class MainActivity extends Activity {
     private int transferReadGeneration;
     private long libraryGeneration,lastResumeRefresh;
     private int connectionRecoveryAttempts;
-    private final Runnable connectionRecovery=()->{if(visible&&!smokeMode&&!isDestroyed())load();};
+    private final Runnable connectionRecovery=()->{if(!smokeMode&&!isDestroyed()&&getLifecycle().getCurrentState().isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED))load();};
     private String downloadProgress="";
     private String pendingDeepLinkTrack="";
     private boolean sessionReady,smokeMode;
