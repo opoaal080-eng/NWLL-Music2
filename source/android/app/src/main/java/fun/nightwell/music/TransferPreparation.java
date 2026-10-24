@@ -25,7 +25,10 @@ final class TransferPreparation {
                 if(artists instanceof JSONArray){JSONArray a=(JSONArray)artists;for(int j=0;j<a.length();j++){Object v=a.get(j);artist+=(j>0?", ":"")+(v instanceof JSONObject?((JSONObject)v).optString("name"):String.valueOf(v));}}
                 else if(artists instanceof JSONObject)artist=((JSONObject)artists).optString("name");
                 else if(artists instanceof String)artist=(String)artists;
-                JSONObject row=track(item.optString("title",item.optString("name")),artist);
+                String title=item.optString("title",item.optString("name"));
+                Object versionValue=item.opt("version");
+                if(versionValue instanceof String){String version=((String)versionValue).trim();if(!key(version).isEmpty()&&!key(title).contains(key(version)))title+=" ("+version+")";}
+                JSONObject row=track(title,artist);
                 double seconds=item.optDouble("duration",0);if(seconds<=0)seconds=item.optDouble("duration_ms",item.optDouble("durationMs",0))/1000;
                 if(Double.isFinite(seconds)&&seconds>0&&seconds<86400)row.put("duration",seconds);
                 rows.put(row);
@@ -69,3 +72,4 @@ final class TransferPreparation {
         if(quoted)return Collections.emptyList();row.add(field.toString());rows.add(row);return rows;
     }
 }
+

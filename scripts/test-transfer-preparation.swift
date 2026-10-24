@@ -8,9 +8,12 @@ import Foundation
   precondition(csv.count == 1 && csv[0]["title"] as? String == "Song, part 1")
   let json = try rows("{\"tracks\":[{\"track\":{\"name\":\"Song\",\"artists\":[{\"name\":\"Artist\"}],\"duration_ms\":180000}}]}")
   precondition(json[0]["duration"] as? Double == 180)
+  let versions = try rows("[{\"title\":\"Song\",\"artist\":\"Artist\"},{\"title\":\"Song\",\"artist\":\"Artist\",\"version\":\"Live\"}]")
+  precondition(versions.count == 2 && versions[1]["title"] as? String == "Song (Live)")
   let txt = try rows("Ёлка — Трек\nЕлка - Трек")
   precondition(txt.count == 1)
   do { _ = try rows("artist,title\nArtist"); fatalError("Malformed CSV accepted") } catch {}
   print("Transfer parsing, quotes, duplicate removal and duration passed")
  }
 }
+

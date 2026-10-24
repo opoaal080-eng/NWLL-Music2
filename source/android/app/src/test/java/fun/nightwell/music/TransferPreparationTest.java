@@ -11,8 +11,13 @@ public class TransferPreparationTest {
   JSONArray rows=TransferPreparation.parse("{\"tracks\":[{\"track\":{\"name\":\"Song\",\"artists\":[{\"name\":\"Artist\"}],\"duration_ms\":180000}}]}");
   assertEquals(180,rows.getJSONObject(0).getDouble("duration"),.001);
  }
+ @Test public void separateVersionSurvivesPreparation() throws Exception {
+  JSONArray rows=TransferPreparation.parse("[{\"title\":\"Song\",\"artist\":\"Artist\"},{\"title\":\"Song\",\"artist\":\"Artist\",\"version\":\"Live\"}]");
+  assertEquals(2,rows.length());assertEquals("Song (Live)",rows.getJSONObject(1).getString("title"));
+ }
  @Test public void txtAndUnicodeDuplicates() throws Exception {
   assertEquals(1,TransferPreparation.parse("Ёлка — Трек\nЕлка - Трек").length());
  }
  @Test(expected=Exception.class) public void malformedRowRejected() throws Exception { TransferPreparation.parse("artist,title\nArtist"); }
 }
+

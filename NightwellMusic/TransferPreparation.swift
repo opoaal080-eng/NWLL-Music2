@@ -32,7 +32,11 @@ enum TransferPreparation {
                 if let list = artists as? [Any] { artist = list.compactMap { ($0 as? String) ?? ($0 as? [String: Any])?["name"] as? String }.joined(separator: ", ") }
                 else { artist = (artists as? String) ?? (artists as? [String: Any])?["name"] as? String ?? "" }
                 let duration = (row["duration"] as? Double) ?? ((row["duration_ms"] ?? row["durationMs"]) as? Double).map { $0 / 1000 }
-                try append((row["title"] ?? row["name"]) as? String ?? "", artist, duration)
+                var title = (row["title"] ?? row["name"]) as? String ?? ""
+                if let version = row["version"] as? String, !key(version).isEmpty, !key(title).contains(key(version)) {
+                    title += " (" + version.trimmingCharacters(in: .whitespacesAndNewlines) + ")"
+                }
+                try append(title, artist, duration)
             }
         } else {
             var parsed = false
@@ -77,3 +81,4 @@ enum TransferPreparation {
         row.append(field); rows.append(row); return rows
     }
 }
+
