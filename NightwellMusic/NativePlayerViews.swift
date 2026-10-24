@@ -161,7 +161,7 @@ struct NativeHome: View {
                             .foregroundStyle(pumpkin)
                             .padding(.horizontal, 18)
                             .frame(height: 40)
-                            .frostedGlass(22, bordered: false, intensity: 0.55)
+                            .frostedGlass(22, bordered: false, intensity: 0.20)
                         }
                         .disabled(store.loading)
                         .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in
