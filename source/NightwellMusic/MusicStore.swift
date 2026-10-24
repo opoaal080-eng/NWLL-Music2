@@ -152,12 +152,24 @@ import Network
             }
             do {
                 // Reuse the authenticated connection instead of negotiating a new TLS session.
-                let _: Identity = try await client.request("/api/me", timeout: 8)
+                let identity: Identity = try await client.request("/api/me", timeout: 8)
                 guard !Task.isCancelled, self.hasNetworkPath, self.origin == server,
                       self.sessionGeneration == session, self.connectionCheckGeneration == checkID else { return }
                 let wasOffline = self.connectionStatus == "Оффлайн"
+                let changedAccount = self.account?.id != identity.user?.id
+                if changedAccount {
+                    self.libraryRefresh.cancel()
+                    self.catalog = []; self.likes = []; self.playlists = []; self.lastWave = []; self.results = []
+                    NativePlayer.shared.stop()
+                }
+                self.account = identity.user
+                self.cacheAccount()
+                await client.setCSRF(identity.csrf)
+                guard !Task.isCancelled, self.origin == server,
+                      self.sessionGeneration == session, self.connectionCheckGeneration == checkID else { return }
+                if changedAccount { self.restoreSessionSnapshot() }
                 self.connectionStatus = "Онлайн"
-                if wasOffline && self.account != nil &&
+                if (wasOffline || changedAccount) && self.account != nil &&
                     Date().timeIntervalSince(self.lastConnectionRefresh) > 30 {
                     self.lastConnectionRefresh = Date()
                     // Keep the connectivity checker free while the library reloads.
