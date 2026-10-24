@@ -15,6 +15,10 @@ public class TransferPreparationTest {
   JSONArray rows=TransferPreparation.parse("[{\"title\":\"Song\",\"artist\":\"Artist\"},{\"title\":\"Song\",\"artist\":\"Artist\",\"version\":\"Live\"}]");
   assertEquals(2,rows.length());assertEquals("Song (Live)",rows.getJSONObject(1).getString("title"));
  }
+ @Test public void existingVersionNotAppendedTwice() throws Exception {
+  JSONArray rows=TransferPreparation.parse("[{\"title\":\"Song (Live)\",\"artist\":\"Artist\",\"version\":\"Live\"}]");
+  assertEquals("Song (Live)",rows.getJSONObject(0).getString("title"));
+ }
  @Test public void txtAndUnicodeDuplicates() throws Exception {
   assertEquals(1,TransferPreparation.parse("Ёлка — Трек\nЕлка - Трек").length());
  }
