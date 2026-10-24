@@ -208,7 +208,7 @@ final class NativePlayer {
         let asset = AVURLAsset(url: url, options: [AVURLAssetHTTPCookiesKey: cookies])
         let item = AVPlayerItem(asset: asset)
         // Keep a useful forward buffer, but do not wait to fill it before starting.
-        item.preferredForwardBufferDuration = 8
+        item.preferredForwardBufferDuration = 12
         audioMeter = LocalAudioMeter()
         configureAudioMeter(for: item)
         player.replaceCurrentItem(with: item)
