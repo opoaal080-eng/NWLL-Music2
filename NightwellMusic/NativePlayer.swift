@@ -240,7 +240,6 @@ final class NativePlayer {
                 if item.status == .readyToPlay {
                     // Start fallback envelope preparation as soon as the stream is ready.
                     // It runs independently from playback and must never block the first samples.
-                    if self.wantsPlay && !self.usesLiveMeter { self.refreshIndependentMeter() }
                     self.prewarmNextAsset()
                     let length = item.duration.seconds
                     let target = length.isFinite && self.requestedPosition >= length ? 0 : self.requestedPosition
@@ -564,7 +563,7 @@ final class NativePlayer {
         }
     }
     private func refreshIndependentMeter() {
-        guard appIsActive, (audible || wantsPlay),
+        guard appIsActive, audible,
               let current, let origin, !AVAudioSession.sharedInstance().currentRoute.outputs.isEmpty else { return }
         // Live taps can take a moment to start, but avoid downloading a second
         // copy of the track once live PCM analysis is already available.
