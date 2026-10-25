@@ -86,6 +86,6 @@ final class RibbonView extends View {
    }
   }
   paint.setShader(null);
-  if(running&&isShown()&&getWindowVisibility()==VISIBLE)postInvalidateDelayed(playing?33:67);
+  if(running&&isShown()&&getWindowVisibility()==VISIBLE)postInvalidateOnAnimation();
  }
 }
