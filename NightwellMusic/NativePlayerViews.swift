@@ -49,7 +49,7 @@ struct RibbonScene: View {
                     // Do not jump through the time spent in the background.
                     frameDate = frameDate.addingTimeInterval(elapsed * (premium.allowed ? premium.preferences.ribbon_speed : 1))
                 }
-                do { try await Task.sleep(nanoseconds: playing ? 33_333_333 : 100_000_000) }
+                do { try await Task.sleep(nanoseconds: 33_333_333) }
                 catch { return }
             }
         }
