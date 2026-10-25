@@ -238,6 +238,9 @@ final class NativePlayer {
             DispatchQueue.main.async {
                 guard let self, self.itemGeneration == generation else { return }
                 if item.status == .readyToPlay {
+                    // Start fallback envelope preparation as soon as the stream is ready.
+                    // It runs independently from playback and must never block the first samples.
+                    if self.wantsPlay && !self.usesLiveMeter { self.refreshIndependentMeter() }
                     self.prewarmNextAsset()
                     let length = item.duration.seconds
                     let target = length.isFinite && self.requestedPosition >= length ? 0 : self.requestedPosition
