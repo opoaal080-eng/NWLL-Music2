@@ -196,6 +196,12 @@ final class NativePlayer {
                   relativeTo: origin)?.absoluteURL else { return }
         let asset = AVURLAsset(url: url, options: [AVURLAssetHTTPCookiesKey: cookies])
         nextAsset = asset; nextAssetID = next.id
+        // Offline files are already on disk; analyse one upcoming track at low priority.
+        // Streaming tracks stay on the live tap path to avoid duplicate downloads.
+        if let saved {
+            let key = origin.absoluteString + "|" + offlineAccount + "|" + next.offlineAccount + "|" + next.id
+            independentMeter.prewarm(key: key, local: saved)
+        }
         // Only warm metadata for one imminent track, never download the whole queue.
         Task(priority: .utility) { let _ = try? await asset.load(.isPlayable) }
     }
