@@ -48,6 +48,7 @@ final class NativePlayer {
     private var audible: Bool { enginePlayback.ready ? enginePlayback.playing : player.timeControlStatus == .playing }
     private let independentMeter = IndependentAudioMeter()
     private var usesLiveMeter = true
+    private var liveMeterStartUptime = ProcessInfo.processInfo.systemUptime
     var onChange: (() -> Void)?
     private(set) var origin: URL?
     private var tracks: [NativeTrack] = []
@@ -232,6 +233,7 @@ final class NativePlayer {
         // Keep a useful forward buffer, but do not wait to fill it before starting.
         item.preferredForwardBufferDuration = 12
         audioMeter = LocalAudioMeter()
+        liveMeterStartUptime = ProcessInfo.processInfo.systemUptime
         configureAudioMeter(for: item)
         player.replaceCurrentItem(with: item)
         itemObservation = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
@@ -567,7 +569,12 @@ final class NativePlayer {
               let current, let origin, !AVAudioSession.sharedInstance().currentRoute.outputs.isEmpty else { return }
         // Live taps can take a moment to start, but avoid downloading a second
         // copy of the track once live PCM analysis is already available.
-        if usesLiveMeter && audioMeter.processing { return }
+        if usesLiveMeter {
+            if audioMeter.processing { return }
+            // Give the local PCM tap time to start before initiating a separate
+            // network download and full-file envelope analysis.
+            if ProcessInfo.processInfo.systemUptime - liveMeterStartUptime < 2.5 { return }
+        }
         let key = origin.absoluteString + "|" + offlineAccount + "|" + current.offlineAccount + "|" + current.id
         guard independentMeter.needsPreparation(for: key) else { return }
         let local = OfflineStore.audio(origin: origin, account: current.offlineAccount.isEmpty ? offlineAccount : current.offlineAccount, id: current.id)
