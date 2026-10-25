@@ -30,7 +30,7 @@ struct DailyPublicPlaylistsView: View {
             ForEach(playlists) { playlist in
                 Button {
                     guard let track = playlist.tracks.first else { return }
-                    store.play(track, queue: playlist.tracks)
+                    store.play(track, in: playlist.tracks)
                 } label: {
                     HStack {
                         Image(systemName: "waveform")
