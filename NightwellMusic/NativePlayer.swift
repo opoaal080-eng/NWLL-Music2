@@ -237,7 +237,8 @@ final class NativePlayer {
         nextAsset = nil; nextAssetID = nil
         let item = AVPlayerItem(asset: asset)
         // Keep a useful forward buffer, but do not wait to fill it before starting.
-        item.preferredForwardBufferDuration = 12
+        item.preferredForwardBufferDuration = 6
+        // Start once playable instead of waiting for a long forward buffer.
         audioMeter = LocalAudioMeter()
         liveMeterStartUptime = ProcessInfo.processInfo.systemUptime
         configureAudioMeter(for: item)
