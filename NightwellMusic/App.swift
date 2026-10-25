@@ -376,6 +376,7 @@ struct NativeRoot: View {
         case .playlists:
             VStack(alignment: .leading, spacing: 16) {
                 Button("Умные плейлисты · Premium") { feature = .smart }
+                DailyPublicPlaylistsView(store: store)
                 HStack { Text("Плейлисты").font(.largeTitle.bold()); Spacer(); Button { createPlaylist = true } label: { Image(systemName: "plus") } }
                 ScrollView { LazyVStack(spacing: 12) { ForEach(store.playlists) { p in
                     HStack { Button { selectedPlaylist = p } label: { Text(p.name).frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 16) }; Menu {
