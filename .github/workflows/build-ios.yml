@@ -87,6 +87,9 @@ jobs:
             output/build-provenance.json
 
       - name: Build simulator and capture reference screens
+        # Simulator screenshots are diagnostic; a CoreSimulator failure must not
+        # invalidate an already built and uploaded device IPA.
+        continue-on-error: true
         run: |
           xcodebuild -project NightwellMusic.xcodeproj -scheme NightwellMusic -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build-simulator CURRENT_PROJECT_VERSION=$((400 + GITHUB_RUN_NUMBER)) CODE_SIGNING_ALLOWED=NO build > simulator-build.log 2>&1 || { tail -100 simulator-build.log; exit 1; }
           APP=build-simulator/Build/Products/Debug-iphonesimulator/NightwellMusic.app
