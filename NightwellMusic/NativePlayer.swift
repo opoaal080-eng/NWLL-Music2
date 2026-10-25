@@ -564,8 +564,11 @@ final class NativePlayer {
         }
     }
     private func refreshIndependentMeter() {
-        guard appIsActive, audible,
+        guard appIsActive, (audible || wantsPlay),
               let current, let origin, !AVAudioSession.sharedInstance().currentRoute.outputs.isEmpty else { return }
+        // Live taps can take a moment to start, but avoid downloading a second
+        // copy of the track once live PCM analysis is already available.
+        if usesLiveMeter && audioMeter.processing { return }
         let key = origin.absoluteString + "|" + offlineAccount + "|" + current.offlineAccount + "|" + current.id
         guard independentMeter.needsPreparation(for: key) else { return }
         let local = OfflineStore.audio(origin: origin, account: current.offlineAccount.isEmpty ? offlineAccount : current.offlineAccount, id: current.id)
