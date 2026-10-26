@@ -737,7 +737,23 @@ public final class MainActivity extends Activity {
 
     void fullPlayerMenu(JSONObject track){nightwellOptions("Плеер",new String[]{"Эквалайзер","Действия с треком"},n->{if(n==0)feature("sound");else trackMenu(track);});}
     void trackMenu(JSONObject track){AlertDialog actions=new AlertDialog.Builder(this).setTitle(track.optString("title")).setItems(new String[]{likes.contains(track.optString("id"))?"Убрать из избранного":"В избранное","Скачать","Поделиться","Добавить в плейлист"},(d,n)->{String id=track.optString("id");if(n==0){toggleFavorite(track);}else if(n==1)download(new JSONArray().put(track));else if(n==2)share(origin+"track/"+id);else{String[] names=new String[playlists.length()];for(int i=0;i<names.length;i++)names[i]=playlists.optJSONObject(i).optString("name");new AlertDialog.Builder(this).setTitle("В плейлист").setItems(names,(x,i)->task(()->api.request("api/playlists/"+playlists.optJSONObject(i).getString("id")+"/tracks/"+id,"POST",null),v->{})).show();}}).create();styleSheet(actions);actions.show();}
-    void openPlaylist(JSONObject p){final int gen=++generation;api.cancelSearch();if(pendingSearch!=null)ui.removeCallbacks(pendingSearch);final String id=p.optString("id");screen=p.optString("name");selectedPlaylist=id;showScreen();task(()->api.request("api/playlists/"+id+"/tracks"),v->{if(gen!=generation||!id.equals(selectedPlaylist))return;shown=v.optJSONArray("tracks");updateList();});}
+    private String playlistSnapshotKey(String id){return "playlist|"+origin+"|"+user+"|"+id;}
+    void openPlaylist(JSONObject p){
+        final int gen=++generation;api.cancelSearch();
+        if(pendingSearch!=null)ui.removeCallbacks(pendingSearch);
+        final String id=p.optString("id");
+        screen=p.optString("name");selectedPlaylist=id;
+        String cached=getSharedPreferences("playlist-snapshots",MODE_PRIVATE).getString(playlistSnapshotKey(id),null);
+        try{shown=cached==null?new JSONArray():new JSONArray(cached);}catch(Exception ignored){shown=new JSONArray();}
+        showScreen();updateList();
+        task(()->api.request("api/playlists/"+id+"/tracks"),v->{
+            if(gen!=generation||!id.equals(selectedPlaylist))return;
+            JSONArray tracks=v.optJSONArray("tracks");if(tracks==null)return;
+            shown=tracks;updateList();
+            if(tracks.toString().length()<750000)getSharedPreferences("playlist-snapshots",MODE_PRIVATE)
+                .edit().putString(playlistSnapshotKey(id),tracks.toString()).apply();
+        });
+    }
     void nightwellOptions(String title,String[] options,java.util.function.IntConsumer selected){
         LinearLayout panel=column();panel.setPadding(dp(18),dp(14),dp(18),dp(16));
         TextView heading=text(title,21);heading.setTextColor(0xffffe9d4);heading.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);heading.setPadding(dp(8),dp(4),dp(8),dp(16));panel.addView(heading);
