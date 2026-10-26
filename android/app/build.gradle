@@ -6,8 +6,8 @@ android {
         applicationId 'fun.nightwell.music'
         minSdk 26
         targetSdk 36
-        versionCode 40
-        versionName '1.1.9-googleplay'
+        versionCode 41
+        versionName '1.1.10-googleplay'
         // Direct APK builds enable website checkout. Disable for store builds until regional routing is configured.
         buildConfigField 'boolean', 'EXTERNAL_PREMIUM_PAYMENTS', providers.gradleProperty('nightwellExternalPayments').getOrElse('true') == 'true' ? 'true' : 'false'
     }
