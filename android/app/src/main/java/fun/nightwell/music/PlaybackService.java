@@ -189,7 +189,7 @@ public final class PlaybackService extends MediaSessionService {
         MediaItem item = player.getCurrentMediaItem();
         if (item == null) return false;
         if (!item.mediaId.equals(retriedTrackId)) streamRetryCount = 0;
-        if (streamRetryCount >= 2) return false;
+        if (streamRetryCount >= 3) return false;
         boolean temporary = false;
         for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
             if (cause instanceof java.net.SocketTimeoutException ||
@@ -221,7 +221,7 @@ public final class PlaybackService extends MediaSessionService {
             player.prepare();
             player.play();
         };
-        waveHandler.postDelayed(pendingStreamRetry, attempt == 1 ? 1500 : 3500);
+        waveHandler.postDelayed(pendingStreamRetry, attempt == 1 ? 1200 : attempt == 2 ? 3000 : 6000);
         return true;
     }
     void prepare(String json) {
