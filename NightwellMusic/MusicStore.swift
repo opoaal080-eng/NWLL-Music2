@@ -568,8 +568,12 @@ import Network
     }
     private var pendingSharedTrackID: String?
     func play(_ track: Track, in queue: [Track], wave: Bool = false) {
-        if account == nil && track._offline != true { authPresented = true; return }
-        NativePlayer.shared.prepare(["id": track.id, "queue": queue.map(\.dictionary), "account": account?.id ?? "device", "wave": wave, "wave_preferences": WaveSettings.read(origin, account?.id ?? "device").dictionary], origin: origin, cookies: HTTPCookieStorage.shared.cookies(for: origin) ?? [])
+        // Reuse the downloaded audio for tracks listed in favorites or playlists.
+        let downloaded = Dictionary(offline.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let localQueue = queue.map { downloaded[$0.id] ?? $0 }
+        let selected = downloaded[track.id] ?? track
+        if account == nil && selected._offline != true { authPresented = true; return }
+        NativePlayer.shared.prepare(["id": selected.id, "queue": localQueue.map(\.dictionary), "account": account?.id ?? "device", "wave": wave, "wave_preferences": WaveSettings.read(origin, account?.id ?? "device").dictionary], origin: origin, cookies: HTTPCookieStorage.shared.cookies(for: origin) ?? [])
         NativePlayer.shared.play()
     }
     func applyWaveSettings(_ value: WaveSettings) async throws {
