@@ -1,13 +1,13 @@
 plugins { id 'com.android.application' }
 android {
     namespace 'fun.nightwell.music'
-    compileSdk 35
+    compileSdk 36
     defaultConfig {
         applicationId 'fun.nightwell.music'
         minSdk 26
-        targetSdk 35
-        versionCode 39
-        versionName '1.1.8-transfer'
+        targetSdk 36
+        versionCode 40
+        versionName '1.1.9-googleplay'
         // Direct APK builds enable website checkout. Disable for store builds until regional routing is configured.
         buildConfigField 'boolean', 'EXTERNAL_PREMIUM_PAYMENTS', providers.gradleProperty('nightwellExternalPayments').getOrElse('true') == 'true' ? 'true' : 'false'
     }
