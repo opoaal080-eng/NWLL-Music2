@@ -28,7 +28,7 @@ jobs:
           echo "$(dirname "$SDKMANAGER")" >> "$GITHUB_PATH"
           "$SDKMANAGER" --version
       - name: Install Android SDK platform
-        run: sdkmanager --install "platforms;android-35" "build-tools;35.0.0"
+        run: sdkmanager --install "platforms;android-36" "build-tools;36.0.0"
       - name: Validate Android resources
         run: python3 ../scripts/validate-app-sources.py --android
       - uses: gradle/actions/setup-gradle@v4
@@ -91,7 +91,7 @@ jobs:
       - name: Install Android SDK platform
         run: |
           SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | head -n 1)"
-          "$SDKMANAGER" --install "platforms;android-35" "build-tools;35.0.0"
+          "$SDKMANAGER" --install "platforms;android-36" "build-tools;36.0.0"
       - name: Restore upload signing key when configured
         env:
           NIGHTWELL_KEYSTORE_BASE64: ${{ secrets.NIGHTWELL_KEYSTORE_BASE64 }}
