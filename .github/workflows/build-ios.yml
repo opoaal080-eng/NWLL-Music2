@@ -85,35 +85,3 @@ jobs:
           path: |
             output/Nightwell-Music-recovered-unsigned.ipa
             output/build-provenance.json
-
-      - name: Build simulator and capture reference screens
-        # Simulator screenshots are diagnostic; a CoreSimulator failure must not
-        # invalidate an already built and uploaded device IPA.
-        continue-on-error: true
-        run: |
-          xcodebuild -project NightwellMusic.xcodeproj -scheme NightwellMusic -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build-simulator CURRENT_PROJECT_VERSION=$((400 + GITHUB_RUN_NUMBER)) CODE_SIGNING_ALLOWED=NO build > simulator-build.log 2>&1 || { tail -100 simulator-build.log; exit 1; }
-          APP=build-simulator/Build/Products/Debug-iphonesimulator/NightwellMusic.app
-          python3 ios/apply_legacy_assets.py "$APP"
-          RUNTIME=$(xcrun simctl list runtimes -j | python3 -c 'import json,sys; r=[x for x in json.load(sys.stdin)["runtimes"] if x.get("isAvailable") and ".iOS-" in x["identifier"]]; print(max(r,key=lambda x:tuple(map(int,x["version"].split("."))))["identifier"])')
-          echo "Reference runtime: $RUNTIME"
-          DEVICE=$(xcrun simctl create "Nightwell iPhone 16 Reference" com.apple.CoreSimulator.SimDeviceType.iPhone-16 "$RUNTIME")
-          xcrun simctl boot "$DEVICE"
-          xcrun simctl bootstatus "$DEVICE" -b
-          xcrun simctl status_bar "$DEVICE" override --time '05:03' --dataNetwork wifi --wifiMode active --wifiBars 3 --batteryState charged --batteryLevel 70
-          xcrun simctl install "$DEVICE" "$APP"
-          mkdir -p output/screenshots
-          for SCREEN in home settings wave-settings support premium statistics; do
-            xcrun simctl terminate "$DEVICE" fun.nightwell.music || true
-            xcrun simctl launch "$DEVICE" fun.nightwell.music --native-smoke "--native-smoke-$SCREEN" -AppleLanguages '(ru)' -AppleLocale ru_RU
-            sleep 4
-            xcrun simctl io "$DEVICE" screenshot "output/screenshots/$SCREEN.png"
-          done
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: Nightwell-iPhone-reference-screens
-          path: |
-            output/screenshots
-            simulator-build.log
-
-
