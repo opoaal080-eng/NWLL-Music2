@@ -361,7 +361,42 @@ struct NativeRoot: View {
     @ViewBuilder private var content: some View {
         switch store.screen {
         case .home:
-            NativeHome(configureWave: { waveSettingsPresented = true }, clock: store.clock)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    Text("Твой тёмный ритм").font(.system(size: 31, weight: .bold))
+                    Text("Музыка на сегодня").foregroundStyle(.secondary)
+                    HStack(spacing: 12) {
+                        Button { store.screen = .likes } label: {
+                            Label("Избранное", systemImage: "heart.fill")
+                                .frame(maxWidth: .infinity, minHeight: 78)
+                        }
+                        Button { store.screen = .playlists } label: {
+                            Label("Плейлисты", systemImage: "square.stack.fill")
+                                .frame(maxWidth: .infinity, minHeight: 78)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .background(RoundedRectangle(cornerRadius: 26).fill(Color(white: 0.22)))
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Твоя музыка").font(.title2.bold())
+                        Text("Подборка, которая подстраивается под твой ритм.")
+                            .foregroundStyle(.secondary)
+                        NativeHome(configureWave: { waveSettingsPresented = true }, clock: store.clock)
+                    }
+                    .padding(14)
+                    .background(RoundedRectangle(cornerRadius: 32).fill(Color(white: 0.19)))
+                    Button { store.screen = .playlists } label: {
+                        HStack {
+                            Image(systemName: "sparkles")
+                            Text("Подборки дня").font(.headline)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                        }.padding(20)
+                    }
+                    .buttonStyle(.plain)
+                    .background(RoundedRectangle(cornerRadius: 26).fill(Color(white: 0.22)))
+                }.padding(.horizontal, 18)
+            }
         case .search:
             VStack(alignment: .leading, spacing: 14) {
                 Text("Поиск").font(.largeTitle.bold())
