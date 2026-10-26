@@ -103,7 +103,7 @@ import Network
         guard let key = sessionCacheKey,
               let data = UserDefaults.standard.data(forKey: key) else { return }
         guard let cache = try? JSONDecoder().decode(SessionSnapshot.self, from: data),
-              cache.savedAt.timeIntervalSinceNow > -14 * 24 * 60 * 60,
+              cache.savedAt.timeIntervalSinceNow > -365 * 24 * 60 * 60,
               cache.savedAt.timeIntervalSinceNow < 5 * 60 else {
             UserDefaults.standard.removeObject(forKey: key)
             return
@@ -568,8 +568,12 @@ import Network
     }
     private var pendingSharedTrackID: String?
     func play(_ track: Track, in queue: [Track], wave: Bool = false) {
-        if account == nil && track._offline != true { authPresented = true; return }
-        NativePlayer.shared.prepare(["id": track.id, "queue": queue.map(\.dictionary), "account": account?.id ?? "device", "wave": wave, "wave_preferences": WaveSettings.read(origin, account?.id ?? "device").dictionary], origin: origin, cookies: HTTPCookieStorage.shared.cookies(for: origin) ?? [])
+        // Reuse the downloaded audio for tracks listed in favorites or playlists.
+        let downloaded = Dictionary(offline.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let localQueue = queue.map { downloaded[$0.id] ?? $0 }
+        let selected = downloaded[track.id] ?? track
+        if account == nil && selected._offline != true { authPresented = true; return }
+        NativePlayer.shared.prepare(["id": selected.id, "queue": localQueue.map(\.dictionary), "account": account?.id ?? "device", "wave": wave, "wave_preferences": WaveSettings.read(origin, account?.id ?? "device").dictionary], origin: origin, cookies: HTTPCookieStorage.shared.cookies(for: origin) ?? [])
         NativePlayer.shared.play()
     }
     func applyWaveSettings(_ value: WaveSettings) async throws {
@@ -645,8 +649,25 @@ import Network
             self.error = "Не удалось проверить избранное. Проверьте подключение и повторите."
         }
     }
+    private func playlistCacheKey(_ id: String) -> String? {
+        guard let scope = sessionCacheKey, !id.isEmpty else { return nil }
+        return scope + "-playlist-" + id
+    }
     func playlistTracks(_ id: String) async throws -> [Track] {
-        let value: TrackResult = try await api.request("/api/playlists/" + id + "/tracks"); return value.tracks
+        let key = playlistCacheKey(id)
+        do {
+            let value: TrackResult = try await api.request("/api/playlists/" + id + "/tracks", timeout: 10)
+            if let key, let data = try? JSONEncoder().encode(value.tracks), data.count < 1_500_000 {
+                UserDefaults.standard.set(data, forKey: key)
+            }
+            return value.tracks
+        } catch {
+            if let key, let data = UserDefaults.standard.data(forKey: key),
+               let saved = try? JSONDecoder().decode([Track].self, from: data) {
+                return saved
+            }
+            throw error
+        }
     }
     func createPlaylist(_ name: String) async {
         do { let _: Playlist = try await api.request("/api/playlists", method: "POST", body: ["name": name]); await refresh() }
