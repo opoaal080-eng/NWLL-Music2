@@ -202,8 +202,11 @@ final class NativePlayer {
             let key = origin.absoluteString + "|" + offlineAccount + "|" + next.offlineAccount + "|" + next.id
             independentMeter.prewarm(key: key, local: saved)
         }
-        // Only warm metadata for one imminent track, never download the whole queue.
-        Task(priority: .utility) { let _ = try? await asset.load(.isPlayable) }
+        // Avoid a competing network request during startup on high-latency links.
+        // The next item still reuses its AVURLAsset when playback advances.
+        if saved != nil {
+            Task(priority: .utility) { let _ = try? await asset.load(.isPlayable) }
+        }
     }
 
     private func load(position: Double = 0, recovering: Bool = false) {
