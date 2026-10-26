@@ -103,7 +103,7 @@ import Network
         guard let key = sessionCacheKey,
               let data = UserDefaults.standard.data(forKey: key) else { return }
         guard let cache = try? JSONDecoder().decode(SessionSnapshot.self, from: data),
-              cache.savedAt.timeIntervalSinceNow > -14 * 24 * 60 * 60,
+              cache.savedAt.timeIntervalSinceNow > -365 * 24 * 60 * 60,
               cache.savedAt.timeIntervalSinceNow < 5 * 60 else {
             UserDefaults.standard.removeObject(forKey: key)
             return
@@ -645,8 +645,25 @@ import Network
             self.error = "Не удалось проверить избранное. Проверьте подключение и повторите."
         }
     }
+    private func playlistCacheKey(_ id: String) -> String? {
+        guard let scope = sessionCacheKey, !id.isEmpty else { return nil }
+        return scope + "-playlist-" + id
+    }
     func playlistTracks(_ id: String) async throws -> [Track] {
-        let value: TrackResult = try await api.request("/api/playlists/" + id + "/tracks"); return value.tracks
+        let key = playlistCacheKey(id)
+        do {
+            let value: TrackResult = try await api.request("/api/playlists/" + id + "/tracks", timeout: 10)
+            if let key, let data = try? JSONEncoder().encode(value.tracks), data.count < 1_500_000 {
+                UserDefaults.standard.set(data, forKey: key)
+            }
+            return value.tracks
+        } catch {
+            if let key, let data = UserDefaults.standard.data(forKey: key),
+               let saved = try? JSONDecoder().decode([Track].self, from: data) {
+                return saved
+            }
+            throw error
+        }
     }
     func createPlaylist(_ name: String) async {
         do { let _: Playlist = try await api.request("/api/playlists", method: "POST", body: ["name": name]); await refresh() }
