@@ -386,6 +386,30 @@ public final class MainActivity extends Activity {
         if(android.animation.ValueAnimator.areAnimatorsEnabled()){body.setAlpha(.5f);body.animate().alpha(1).setDuration(180);}
         if(ribbon!=null){ribbon.running(false);ribbon.setVisibility(View.GONE);}body.removeAllViews();list=null;search=null;adapter=null;if(!screen.equals("Главная"))body.addView(text(screen,30));
         if(screen.equals("Главная")){
+            // Card-dashboard concept: editorial shelves and quick library entry points.
+            LinearLayout dashboard=column();
+            dashboard.setPadding(dp(4),dp(8),dp(4),dp(14));
+            TextView greeting=text("Твой тёмный ритм",27);
+            greeting.setTypeface(null,android.graphics.Typeface.BOLD);
+            dashboard.addView(greeting);
+            TextView intro=text("Музыка на сегодня",15);
+            intro.setTextColor(0xffbdb7c2);
+            dashboard.addView(intro);
+            LinearLayout shortcuts=row();
+            TextView favorites=action("♥  Избранное",()->navigate("Избранное"));
+            favorites.setBackground(touchSurface(0xff383838,26));
+            shortcuts.addView(favorites,new LinearLayout.LayoutParams(0,dp(66),1));
+            TextView library=action("▤  Плейлисты",()->navigate("Плейлисты"));
+            library.setBackground(touchSurface(0xff383838,26));
+            LinearLayout.LayoutParams libraryParams=new LinearLayout.LayoutParams(0,dp(66),1);
+            libraryParams.leftMargin=dp(10);shortcuts.addView(library,libraryParams);
+            dashboard.addView(shortcuts);
+            TextView daily=action("✦  Подборки дня",this::dailyPublicPlaylists);
+            daily.setBackground(touchSurface(0xff333333,28));
+            LinearLayout.LayoutParams dailyParams=new LinearLayout.LayoutParams(-1,dp(68));
+            dailyParams.topMargin=dp(12);dashboard.addView(daily,dailyParams);
+            body.addView(dashboard);
+
             boolean compact=getResources().getConfiguration().orientation==android.content.res.Configuration.ORIENTATION_LANDSCAPE;
             android.widget.FrameLayout stage=new android.widget.FrameLayout(this);body.addView(stage,new LinearLayout.LayoutParams(-1,0,1));
             ribbon.setVisibility(View.VISIBLE);ribbon.running(visible&&!smokeMode);
