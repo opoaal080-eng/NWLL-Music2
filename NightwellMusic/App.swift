@@ -201,10 +201,11 @@ struct NativeRoot: View {
     @Environment(\.accessibilityReduceMotion) private var reducedMotion
     var body: some View {
         ZStack {
-            SeasonBackground()
-            NativeFogLayer(active: !fullPlayer)
-                .ignoresSafeArea()
-                .allowsHitTesting(false)
+            if store.screen == .home || backgroundOnly {
+                LinearGradient(colors: [Color(red: 0.025, green: 0.035, blue: 0.045), .black], startPoint: .top, endPoint: .bottom).ignoresSafeArea()
+            } else {
+                SeasonBackground()
+            }
             if !backgroundOnly && store.screen == .home {
                 RibbonScene(playing: store.clock.playing, flash: store.likeFlash)
                     .ignoresSafeArea()
@@ -330,7 +331,7 @@ struct NativeRoot: View {
             .foregroundStyle(nightwellText)
             .accessibilityLabel("На главную")
             Spacer()
-            Button { if store.screen == .search { store.screen = .home } else { store.screen = .search } } label: { Image(systemName: store.screen == .search ? "xmark" : "magnifyingglass").font(.system(size: 19, weight: .medium)).foregroundStyle(pumpkin).frame(width: 44, height: 44).frostedGlass(22, bordered: false, intensity: 0.20) }.accessibilityLabel(store.screen == .search ? "Закрыть поиск" : "Поиск")
+            Button { if store.screen == .search { store.screen = .home } else { store.screen = .search } } label: { Image(systemName: store.screen == .search ? "xmark" : "magnifyingglass").font(.system(size: 19, weight: .medium)).foregroundStyle(.white).frame(width: 44, height: 44).frostedGlass(22, bordered: false, intensity: 0.20) }.accessibilityLabel(store.screen == .search ? "Закрыть поиск" : "Поиск")
             Menu {
                 Section {
                     Label(store.connectionStatus, systemImage: store.connectionStatus == "Онлайн" ? "wifi" : store.connectionStatus == "Загрузка…" ? "arrow.triangle.2.circlepath" : "wifi.slash")
@@ -348,7 +349,7 @@ struct NativeRoot: View {
                 Button("Настройка подборки", systemImage: "slider.horizontal.3") { waveSettingsPresented = true }
                 Button("Обращения и поддержка", systemImage: "envelope") { supportPresented = true }
                 Button(store.account == nil ? "Войти" : "Выйти", systemImage: "person") { if store.account == nil { store.authPresented = true } else { Task { await store.logout() } } }
-            } label: { Image(systemName: "line.3.horizontal").font(.system(size: 19, weight: .medium)).foregroundStyle(pumpkin).frame(width: 44, height: 44).frostedGlass(22, bordered: false, intensity: 0.20) }.accessibilityLabel("Меню").sheet(item: $feature) { PremiumFeatureView(kind: $0).environmentObject(store) }
+            } label: { Image(systemName: "line.3.horizontal").font(.system(size: 19, weight: .medium)).foregroundStyle(.white).frame(width: 44, height: 44).frostedGlass(22, bordered: false, intensity: 0.20) }.accessibilityLabel("Меню").sheet(item: $feature) { PremiumFeatureView(kind: $0).environmentObject(store) }
         }.padding(.horizontal, 20).padding(.top, 8)
     }
     private var favoriteTracks: [Track] {
@@ -780,4 +781,5 @@ private struct NightwellImportFilePicker: UIViewControllerRepresentable {
         }
     }
 }
+
 

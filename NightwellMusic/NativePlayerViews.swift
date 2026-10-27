@@ -57,59 +57,38 @@ struct RibbonScene: View {
         }
         .allowsHitTesting(false)
     }
-    private func auraColor(_ phase: Double) -> Color {
-        let palette: [(Double, Double, Double)] = [
-            (135, 87, 255), (239, 98, 193), (255, 153, 92), (91, 189, 255)
-        ]
-        let wrapped = (phase.truncatingRemainder(dividingBy: 4) + 4).truncatingRemainder(dividingBy: 4)
-        let index = Int(wrapped)
-        let fraction = wrapped - Double(index)
-        let blend = fraction * fraction * (3 - 2 * fraction)
-        let a = palette[index], b = palette[(index + 1) % 4]
-        return Color(red: (a.0 + (b.0 - a.0) * blend) / 255,
-                     green: (a.1 + (b.1 - a.1) * blend) / 255,
-                     blue: (a.2 + (b.2 - a.2) * blend) / 255)
-    }
     private func draw(context: GraphicsContext, size: CGSize, date: Date) {
-        let t = reduced ? 0 : date.timeIntervalSinceReferenceDate * 0.24
-        let burst = max(0, 1 - date.timeIntervalSince(flashDate) / 0.7)
         guard size.width > 1 && size.height > 1 else { return }
+        let t = reduced ? 0 : date.timeIntervalSinceReferenceDate * 0.22
         let w = Double(size.width), h = Double(size.height)
-        // Three streams emerge from the center and carry their waves beyond the top and sides.
-        let cx = w * 0.5, cy = h * 0.54
-        for side in 0..<3 {
-            let dx = side == 0 ? -w * 0.72 : side == 1 ? w * 0.72 : 0
-            let dy = side == 2 ? -h * 0.78 : -h * 0.36
-            let length = hypot(dx, dy)
-            for band in (0..<18).reversed() {
-                let lane = (Double(band) - 8.5) / 17
-                var path = Path()
-                for step in 0...64 {
-                    let u = Double(step) / 64
-                    let spread = sin(u * .pi * 0.5)
-                    let bend = (sin(u * 9 - t + lane * 3) * (0.045 + energy * 0.045)
-                        + lane * 0.26) * min(w, h) * spread
-                    let x = cx + dx * u - dy / length * bend
-                    let y = cy + dy * u + dx / length * bend
-                    let p = CGPoint(x: x, y: y)
-                    if step == 0 { path.move(to: p) } else { path.addLine(to: p) }
-                }
-                let opacity = min(0.52, (0.11 + energy * 0.20 + burst * 0.12) * (1 - abs(lane) * 0.9))
-                let hue = t * 0.4 + Double(side) * 0.8
-                let gradient = Gradient(stops: [
-                    .init(color: .clear, location: 0),
-                    .init(color: .clear, location: 0.08),
-                    .init(color: auraColor(hue).opacity(opacity), location: 0.3),
-                    .init(color: auraColor(hue + 0.6).opacity(opacity), location: 0.68),
-                    .init(color: auraColor(hue + 1.2).opacity(opacity), location: 1)
-                ])
-                context.stroke(path, with: .linearGradient(gradient,
-                    startPoint: CGPoint(x: cx, y: cy), endPoint: CGPoint(x: cx + dx, y: cy + dy)),
-                               style: StrokeStyle(lineWidth: 8 + Double(band) * 0.68 + energy * 16, lineCap: .round))
+        let intensity = playing ? energy : 0.0
+        let ice = Color(red: 0.70, green: 0.83, blue: 1)
+        for light in 0..<8 {
+            let left = light % 2 == 0
+            let row = Double(light / 2)
+            let source = CGPoint(x: left ? w * 0.03 : w * 0.97, y: h * (0.23 + row * 0.17))
+            let target = CGPoint(x: w * (0.5 + sin(t + Double(light) * 1.7) * 0.42), y: h * (0.38 + cos(t * 0.7 + Double(light)) * 0.23))
+            let dx = target.x - source.x, dy = target.y - source.y
+            let length = max(1, hypot(dx, dy))
+            let end = CGPoint(x: source.x + dx / length * h * 0.8, y: source.y + dy / length * h * 0.8)
+            for ray in -2...2 {
+                let spread = Double(ray) * 0.025
+                let offset = h * spread
+                let tip = CGPoint(x: end.x - dy / length * offset, y: end.y + dx / length * offset)
+                let width = 9.0 + intensity * 13
+                var cone = Path()
+                cone.move(to: source)
+                cone.addLine(to: CGPoint(x: tip.x - dy / length * width, y: tip.y + dx / length * width))
+                cone.addLine(to: CGPoint(x: tip.x + dy / length * width, y: tip.y - dx / length * width))
+                cone.closeSubpath()
+                context.fill(cone, with: .linearGradient(Gradient(colors: [ice.opacity(0.22 + intensity * 0.2), ice.opacity(0.05), .clear]), startPoint: source, endPoint: tip))
             }
+            let halo = CGRect(x: source.x - 12, y: source.y - 12, width: 24, height: 24)
+            context.fill(Path(ellipseIn: halo), with: .radialGradient(Gradient(colors: [.white.opacity(0.8), ice.opacity(0.25), .clear]), center: source, startRadius: 0, endRadius: 12))
         }
     }
 }
+
 struct NativeHome: View {
     let configureWave: () -> Void
     @State private var suppressMixTapUntil = Date.distantPast
@@ -120,20 +99,17 @@ struct NativeHome: View {
         GeometryReader { box in
             VStack(alignment: .leading, spacing: 0) {
                 VStack(alignment: .leading, spacing: 14) {
-                    Text("HALLOWEEN EDITION")
-                        .font(.system(size: 9, weight: .semibold))
-                        .tracking(3.4)
-                        .foregroundStyle(pumpkin.opacity(0.9))
-                    VStack(alignment: .leading, spacing: -2) {
-                        Text("Твой")
-                        Text("тёмный ритм")
-                    }
-                    .font(.system(size: min(48, box.size.width * 0.125), weight: .bold))
-                    .tracking(-1.4)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
-                    .foregroundStyle(LinearGradient(colors: [.white, nightwellText, pumpkin.opacity(0.88)], startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .shadow(color: nightwellViolet.opacity(0.55), radius: 13)
+                    Text("Твой ритм")
+                        .font(.system(size: min(48, box.size.width * 0.125), weight: .bold))
+                        .tracking(-1.4)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                        .foregroundStyle(.white)
+                    Text("Музыка под твоё настроение")
+                        .font(.system(size: 16))
+                        .foregroundStyle(.white.opacity(0.65))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                 }
                 .padding(.top, 18)
 
@@ -144,9 +120,10 @@ struct NativeHome: View {
                     } label: {
                         Image(systemName: clock.playing ? "pause.fill" : "play.fill")
                             .font(.system(size: 40, weight: .light))
-                            .foregroundStyle(pumpkin)
+                            .foregroundStyle(Color.white)
                             .frame(width: 112, height: 112)
-                            .shadow(color: pumpkin.opacity(0.28), radius: 24)
+                            .nightwellLiquidGlass(56)
+                            .shadow(color: Color.white.opacity(0.28), radius: 24)
                     }
                     .accessibilityLabel(clock.playing ? "Пауза" : "Воспроизвести")
                     .buttonStyle(.plain)
@@ -154,13 +131,13 @@ struct NativeHome: View {
                     HStack(spacing: 10) {
                         Button { if Date() >= suppressMixTapUntil { Task { await store.wave() } } } label: {
                             HStack(spacing: 7) {
-                                if store.loading { ProgressView().tint(pumpkin) }
+                                if store.loading { ProgressView().tint(Color.white) }
                                 Text(store.loading ? "Подбираем…" : "Новая подборка")
                                     .lineLimit(1)
                                     .minimumScaleFactor(0.8)
                             }
                             .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(pumpkin)
+                            .foregroundStyle(Color.white)
                             .padding(.horizontal, 18)
                             .frame(height: 40)
                             .frostedGlass(22, bordered: false, intensity: 0.20)
@@ -851,6 +828,7 @@ struct NativeSettings: View {
 
     }
 }
+
 
 
 
