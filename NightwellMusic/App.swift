@@ -199,7 +199,7 @@ struct NativeRoot: View {
     @State private var showShare = false
     @State private var launching = true
     @Environment(\.accessibilityReduceMotion) private var reducedMotion
-    var body: some View {
+    @ViewBuilder private var mainScene: some View {
         ZStack {
             if store.screen == .home || backgroundOnly {
                 LinearGradient(colors: [Color(red: 0.025, green: 0.035, blue: 0.045), .black], startPoint: .top, endPoint: .bottom).ignoresSafeArea()
@@ -234,7 +234,9 @@ struct NativeRoot: View {
                 }
             }
         }
-        .overlay {
+    }
+
+    @ViewBuilder private var modalScene: some View {
             if store.authPresented {
                 NightwellPopup(title: "", close: { store.authPresented = false }) {
                     AuthSheet(close: { store.authPresented = false })
@@ -259,7 +261,11 @@ struct NativeRoot: View {
                         .id(playlist.id)
                 }
             }
-        }
+    }
+
+    var body: some View {
+        mainScene
+            .overlay { modalScene }
         .animation(.spring(response: 0.3, dampingFraction: 0.86), value: settings)
         .animation(.spring(response: 0.3, dampingFraction: 0.86), value: store.authPresented)
         .tint(pumpkin)
