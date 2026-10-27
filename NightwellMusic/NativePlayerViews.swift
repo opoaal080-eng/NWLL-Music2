@@ -317,12 +317,26 @@ struct GlassSlider: View {
 }
 
 // System-managed AirPlay and Bluetooth output selector.
+// AVRoutePickerView owns the system route selection UI. Expand its native button
+// to cover the complete capsule so tapping the device name works too.
+private final class ExpandedAudioRoutePicker: AVRoutePickerView {
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        for case let button as UIButton in subviews {
+            button.frame = bounds
+        }
+    }
+}
+
 private struct NightwellAudioRoutePicker: UIViewRepresentable {
     func makeUIView(context: Context) -> AVRoutePickerView {
-        let picker = AVRoutePickerView(frame: .zero)
+        let picker = ExpandedAudioRoutePicker(frame: .zero)
         picker.prioritizesVideoDevices = false
-        picker.activeTintColor = UIColor.systemOrange
-        picker.tintColor = UIColor.white
+        // Keep the real UIKit picker fully interactive; only its icon is hidden.
+        picker.tintColor = .clear
+        picker.activeTintColor = .clear
+        picker.backgroundColor = .clear
+        picker.isUserInteractionEnabled = true
         return picker
     }
     func updateUIView(_ view: AVRoutePickerView, context: Context) {}
@@ -334,25 +348,21 @@ private struct NightwellAudioOutputControl: View {
         AVAudioSession.sharedInstance().currentRoute.outputs.first?.portName ?? "iPhone"
     }
     var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "airplayaudio")
-                .font(.caption)
+        HStack(spacing: 5) {
+            Image(systemName: "airplayaudio").font(.caption2)
             Text(output)
-                .font(.subheadline.weight(.semibold))
+                .font(.caption.weight(.medium))
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
-            Image(systemName: "chevron.down")
-                .font(.caption2)
+            Image(systemName: "chevron.down").font(.system(size: 9))
         }
         .foregroundStyle(.primary)
-        .padding(.horizontal, 12)
-        .frame(height: 44)
+        .padding(.horizontal, 10)
+        .frame(height: 30)
         .background(.ultraThinMaterial, in: Capsule())
         .overlay {
-            // A transparent native route picker covers the whole label:
-            // tapping the device name opens Apple's output selection sheet.
             NightwellAudioRoutePicker()
-                .opacity(0.02)
+                .contentShape(Capsule())
                 .accessibilityLabel("Устройство вывода: \\(output). Изменить")
         }
         .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification)) { _ in
