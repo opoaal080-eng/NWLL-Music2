@@ -579,7 +579,7 @@ private struct NightwellNativeTransfer: View {
                     Button { showingFile = true } label: { Label(selectedFilename.isEmpty ? "Выбрать JSON, CSV или TXT" : selectedFilename, systemImage: "doc.badge.plus").frame(maxWidth: .infinity).padding(16) }
                         .nightwellLiquidGlass(20)
                     Button(busy ? "Обрабатываем…" : "Найти треки") { Task { await start() } }
-                        .buttonStyle(.borderedProminent).disabled(contents.isEmpty || busy)
+                        .buttonStyle(.borderedProminent).tint(Color(white: 0.24)).foregroundStyle(.white).disabled(contents.isEmpty || busy)
                     if let job {
                         VStack(alignment: .leading, spacing: 12) {
                             Text(job.message ?? "Поиск").font(.headline)
@@ -599,7 +599,7 @@ private struct NightwellNativeTransfer: View {
                                 .font(.caption).foregroundStyle(.secondary)
                             if !etaText.isEmpty { Text(etaText).font(.caption).foregroundStyle(.secondary) }
                             if (job.state == "ready" || job.state == "error") && job.matched > 0 {
-                                Button(saving ? "Добавляем…" : "Добавить") { Task { await commit() } }.buttonStyle(.borderedProminent).disabled(saving)
+                                Button(saving ? "Добавляем…" : "Добавить") { Task { await commit() } }.buttonStyle(.borderedProminent).tint(Color(white: 0.24)).foregroundStyle(.white).disabled(saving)
                             }
                             if activeStates.contains(job.state) {
                                 Button("Остановить") { Task { await cancel() } }.tint(.white)
