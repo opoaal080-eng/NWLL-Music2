@@ -155,23 +155,39 @@ public final class MainActivity extends Activity {
         return "Аудиовыход Android";
     }
     void chooseAudioOutput(){
-        // On supported Android releases request the system media-output switcher.
-        // Reflection keeps the app compatible with older Android SDKs.
+        // Use the platform output picker when available. Never allow an unsupported
+        // routing API or missing Settings activity to crash the music player.
         try{
-            android.media.MediaRouter2 router=android.media.MediaRouter2.getInstance(this);
-            java.lang.reflect.Method switcher=router.getClass().getMethod("showSystemOutputSwitcher");
-            Object result=switcher.invoke(router);
-            if(Boolean.TRUE.equals(result))return;
-        }catch(Exception ignored){}
-        String[] options={"Bluetooth","Настройки звука"};
-        AlertDialog dialog=new AlertDialog.Builder(this)
-            .setTitle("Устройство вывода")
-            .setMessage("Сейчас: "+audioOutputName()+"\\nСистемное меню выбора недоступно на этом устройстве.")
-            .setItems(options,(d,which)->{
-                try{startActivity(new Intent(which==0?android.provider.Settings.ACTION_BLUETOOTH_SETTINGS:android.provider.Settings.ACTION_SOUND_SETTINGS));}
-                catch(Exception ignored){startActivity(new Intent(android.provider.Settings.ACTION_SETTINGS));}
-            }).setNegativeButton("Отмена",null).create();
-        dialog.show();styleSheet(dialog);
+            if(android.os.Build.VERSION.SDK_INT>=34){
+                android.media.MediaRouter2 router=android.media.MediaRouter2.getInstance(this);
+                java.lang.reflect.Method method=android.media.MediaRouter2.class.getMethod("showSystemOutputSwitcher");
+                if(Boolean.TRUE.equals(method.invoke(router)))return;
+            }
+        }catch(Throwable ignored){
+            android.util.Log.w("NightwellAudioRoute","System output picker unavailable",ignored);
+        }
+        try{
+            new AlertDialog.Builder(this)
+                .setTitle("Устройство вывода")
+                .setMessage("Сейчас: "+audioOutputName()+"\\nВыберите настройки подключения устройства.")
+                .setItems(new String[]{"Bluetooth","Настройки звука"},(dialog,which)->{
+                    try{
+                        Intent intent=new Intent(which==0
+                            ?android.provider.Settings.ACTION_BLUETOOTH_SETTINGS
+                            :android.provider.Settings.ACTION_SOUND_SETTINGS);
+                        if(intent.resolveActivity(getPackageManager())!=null)startActivity(intent);
+                        else startActivity(new Intent(android.provider.Settings.ACTION_SETTINGS));
+                    }catch(Throwable error){
+                        android.util.Log.w("NightwellAudioRoute","Cannot open audio settings",error);
+                        android.widget.Toast.makeText(this,"Не удалось открыть настройки устройства",android.widget.Toast.LENGTH_SHORT).show();
+                    }
+                })
+                .setNegativeButton("Отмена",null)
+                .show();
+        }catch(Throwable error){
+            android.util.Log.e("NightwellAudioRoute","Cannot show audio route dialog",error);
+            android.widget.Toast.makeText(this,"Выбор устройства сейчас недоступен",android.widget.Toast.LENGTH_SHORT).show();
+        }
     }
     void menu(){
         if(navigationPopup!=null)navigationPopup.dismiss();
@@ -179,16 +195,6 @@ public final class MainActivity extends Activity {
         LinearLayout entries=column();entries.setPadding(0,dp(6),0,dp(6));
         TextView connectionHeading=text("Подключение",11);connectionHeading.setTextColor(0xffa6a4af);connectionHeading.setPadding(dp(14),dp(4),dp(14),dp(2));entries.addView(connectionHeading);
         TextView connectionState=text("Проверка…",15);connectionState.setPadding(dp(14),0,dp(14),dp(6));entries.addView(connectionState);
-        TextView outputHeading=text("Устройство вывода",11);
-        outputHeading.setTextColor(0xffa6a4af);
-        outputHeading.setPadding(dp(14),dp(7),dp(14),dp(2));
-        entries.addView(outputHeading);
-        TextView outputAction=sheetAction("♫  "+audioOutputName()+"  ·  Изменить",()->{
-            if(navigationPopup!=null)navigationPopup.dismiss();
-            chooseAudioOutput();
-        });
-        outputAction.setContentDescription("Устройство вывода: "+audioOutputName()+". Изменить");
-        entries.addView(outputAction,new LinearLayout.LayoutParams(-1,-2));
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(false);scroll.setVerticalScrollBarEnabled(false);scroll.addView(entries);
         android.graphics.Rect frame=new android.graphics.Rect();anchor.getWindowVisibleDisplayFrame(frame);int[] location=new int[2];anchor.getLocationOnScreen(location);
         int available=Math.max(dp(96),frame.bottom-location[1]-anchor.getHeight()-dp(12));
