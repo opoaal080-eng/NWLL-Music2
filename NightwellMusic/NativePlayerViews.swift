@@ -36,11 +36,11 @@ struct RibbonScene: View {
             guard scene == .active, playing, !reduced else { return }
             // A fresh frame loop starts on every foreground entry and view appearance.
             // Cancellation stops it when this scene is hidden or the app is inactive.
-            var baseline = 0.0
-            var lastLevel = 0.0
-            var lastBeat = -Double.infinity
-            var beatInterval = 0.5
-            var release = 0.18
+            // Continuous, multi-band music response with adaptive gain and independent lamp envelopes.
+            var adaptive = [Double](repeating: 0.07, count: 4)
+            var envelopes = [Double](repeating: 0, count: 8)
+            var previousBands = [Double](repeating: 0, count: 4)
+            var lastMove = ProcessInfo.processInfo.systemUptime
             var desired = targets
             var previous = ProcessInfo.processInfo.systemUptime
             while !Task.isCancelled {
@@ -48,41 +48,53 @@ struct RibbonScene: View {
                 let elapsed = min(0.1, max(0, now - previous))
                 previous = now
                 let p = premium.preferences
-                let bands = NativePlayer.shared.auraLevels()
+                let incoming = NativePlayer.shared.auraLevels()
                 let choices = [p.aura_voice, p.aura_low, p.aura_mid, p.aura_high]
                 let enabled = premium.allowed ? choices : [true, true, true, true]
-                let selected = zip(bands, enabled).compactMap { value, active in active && value.isFinite ? value : nil }
-                let raw = selected.isEmpty ? 0 : selected.reduce(0, +) / Double(selected.count)
-                let level = min(1, max(0, raw * (premium.allowed ? p.ribbon_intensity : 1)))
-                let onset = level > 0.035 && level > baseline * 1.3 + 0.012
-                    && level - lastLevel > 0.012 && now - lastBeat > 0.24
-                baseline += (level - baseline) * (1 - exp(-elapsed / 0.55))
-                lastLevel = level
+                let gain = premium.allowed ? max(0.1, p.ribbon_intensity) : 1.0
+                var levels = [Double](repeating: 0, count: 4)
+                for index in 0..<4 {
+                    let sample = index < incoming.count && enabled[index] && incoming[index].isFinite
+                        ? max(0, min(1, incoming[index])) : 0
+                    // Slowly follow track loudness so quieter songs still illuminate the scene.
+                    let follow = 1 - exp(-elapsed / (sample > adaptive[index] ? 1.8 : 7.0))
+                    adaptive[index] += (sample - adaptive[index]) * follow
+                    let normalized = sample / max(0.045, adaptive[index] * 1.65)
+                    levels[index] = min(1, max(0, normalized * gain))
+                }
+                let overall = levels.reduce(0, +) / 4
+                let speed = premium.allowed ? max(0.2, p.ribbon_speed) : 1.0
+                if now - lastMove > max(0.20, 0.48 / speed) && overall > 0.018 {
+                    lastMove = now
+                    desired = (0..<8).map { _ in
+                        CGPoint(x: Double.random(in: 0.08...0.92),
+                                y: Double.random(in: 0.25...0.75))
+                    }
+                }
+                let blend = 1 - exp(-elapsed * 3.4 * speed)
+                var nextLamps = lamps
+                for index in 0..<8 {
+                    let bandIndex = [1, 0, 2, 3, 1, 2, 0, 3][index]
+                    let band = levels[bandIndex]
+                    let attack = max(0, band - previousBands[bandIndex])
+                    let target = min(1, max(0, band * 0.84 + overall * 0.27 + attack * 0.38))
+                    let response = 1 - exp(-elapsed / (target > envelopes[index] ? 0.055 : 0.42))
+                    envelopes[index] += (target - envelopes[index]) * response
+                    nextLamps[index] = envelopes[index]
+                }
+                previousBands = levels
                 var transaction = Transaction()
                 transaction.disablesAnimations = true
                 withTransaction(transaction) {
-                    energy = level
-                    if onset {
-                        let interval = now - lastBeat
-                        if interval >= 0.24 && interval <= 1.5 {
-                            beatInterval = beatInterval * 0.5 + interval * 0.5
-                        }
-                        lastBeat = now
-                        release = min(0.24, max(0.09, beatInterval * 0.36))
-                        pulse = 1
-                        let active = Set((0..<8).shuffled().prefix(Int.random(in: 3...8)))
-                        lamps = (0..<8).map { active.contains($0) ? Double.random(in: 0.65...1) : 0 }
-                        desired = (0..<8).map { _ in CGPoint(x: Double.random(in: 0.08...0.92), y: Double.random(in: 0.25...0.75)) }
-                    } else {
-                        pulse = max(0, pulse - elapsed / release)
-                    }
-                    if level < 0.008 { pulse = 0 }
-                    let speed = premium.allowed ? max(0.2, p.ribbon_speed) : 1
-                    let blend = 1 - exp(-elapsed * 9 * speed)
+                    energy = overall
+                    pulse = nextLamps.max() ?? 0
+                    lamps = nextLamps
                     targets = zip(targets, desired).map { old, next in
                         CGPoint(x: old.x + (next.x - old.x) * blend,
                                 y: old.y + (next.y - old.y) * blend)
                     }
+                    // Force Canvas redraw even when sampled audio changes without SwiftUI notifications.
+                    frameDate = frameDate.addingTimeInterval(max(elapsed, 0.001))
                 }
                 do { try await Task.sleep(nanoseconds: 16_666_667) }
                 catch { return }
@@ -96,7 +108,7 @@ struct RibbonScene: View {
         let intensity = playing ? energy : 0.0
         let ice = Color(red: 0.70, green: 0.83, blue: 1)
         for light in 0..<8 {
-            let brightness = pulse * lamps[light]
+            let brightness = lamps[light]
             guard brightness > 0.001 else { continue }
             let left = light % 2 == 0
             let row = Double(light / 2)
