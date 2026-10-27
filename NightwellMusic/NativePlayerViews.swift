@@ -308,23 +308,23 @@ struct MiniPlayer: View {
                 })
                 HStack(spacing: compact ? 2 : 5) {
                     if let track = clock.current {
-                        Button { Task { await store.like(track) } } label: { Image(systemName: store.likes.contains(track.id) ? "heart.fill" : "heart").font(.system(size: 19)).foregroundStyle(pumpkin).frame(width: compact ? 26 : 29, height: 44) }.accessibilityLabel("Избранное")
+                        Button { Task { await store.like(track) } } label: { Image(systemName: store.likes.contains(track.id) ? "heart.fill" : "heart").font(.system(size: 19)).foregroundStyle(Color.white).frame(width: compact ? 26 : 29, height: 44) }.accessibilityLabel("Избранное")
                     }
                     Button { changeTrack(-1) } label: { Image(systemName: "backward.end").font(.system(size: 15)).frame(width: compact ? 24 : 28, height: 44) }.accessibilityLabel("Предыдущий трек")
-                    Button { clock.toggle() } label: { Image(systemName: clock.playing ? "pause" : "play.fill").font(.system(size: 17, weight: .light)).frame(width: compact ? 42 : 42, height: compact ? 42 : 42).background(Circle().fill(Color.black.opacity(0.16))).overlay(Circle().stroke(pumpkin.opacity(0.95), lineWidth: 1.5)) }.accessibilityLabel(clock.playing ? "Пауза" : "Воспроизвести")
+                    Button { clock.toggle() } label: { Image(systemName: clock.playing ? "pause" : "play.fill").font(.system(size: 17, weight: .light)).frame(width: compact ? 42 : 42, height: compact ? 42 : 42).background(Circle().fill(Color.black.opacity(0.16))).overlay(Circle().stroke(Color.white.opacity(0.95), lineWidth: 1.5)) }.accessibilityLabel(clock.playing ? "Пауза" : "Воспроизвести")
                     Button { changeTrack(1) } label: { Image(systemName: "forward.end").font(.system(size: 15)).frame(width: compact ? 24 : 28, height: 44) }.accessibilityLabel("Следующий трек")
                 }.buttonStyle(.plain)
             }.foregroundStyle(.white) .padding(.horizontal, 14).frame(maxWidth: .infinity, maxHeight: .infinity)
             .background {
                 ZStack(alignment: .leading) {
                     RoundedRectangle(cornerRadius: 32, style: .continuous).fill(.ultraThinMaterial).opacity(0.23)
-                    LinearGradient(colors: [pumpkin.opacity(0.055), Color.purple.opacity(0.01)], startPoint: .leading, endPoint: .trailing)
+                    LinearGradient(colors: [Color.white.opacity(0.055), Color.purple.opacity(0.01)], startPoint: .leading, endPoint: .trailing)
                         .frame(width: box.size.width * min(1, max(0, clock.duration > 0 ? clock.position / clock.duration : 0)))
                 }
             }
-            .overlay(RoundedRectangle(cornerRadius: 34, style: .continuous).stroke(LinearGradient(colors: [.white.opacity(0.34), pumpkin.opacity(0.34), .white.opacity(0.14)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.1))
+            .overlay(RoundedRectangle(cornerRadius: 34, style: .continuous).stroke(LinearGradient(colors: [.white.opacity(0.34), Color.white.opacity(0.34), .white.opacity(0.14)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.1))
             .clipShape(RoundedRectangle(cornerRadius: 34, style: .continuous))
-            .shadow(color: pumpkin.opacity(glow ? 0.4 : 0), radius: 18)
+            .shadow(color: Color.white.opacity(glow ? 0.4 : 0), radius: 18)
         }.frame(height: 68)
         .animation(reduced ? nil : .spring(response: 0.32, dampingFraction: 0.82), value: clock.id)
         .task(id: clock.id) { guard !reduced else { return }; glow = true; try? await Task.sleep(nanoseconds: 80_000_000); guard !Task.isCancelled else { return }; withAnimation(.easeOut(duration: 0.9)) { glow = false } }
@@ -363,13 +363,13 @@ struct GlassSlider: View {
             let width = max(0, proxy.size.width - 22)
             ZStack(alignment: .leading) {
                 Capsule().fill(.white.opacity(0.13)).frame(height: dragging ? 6 : 4)
-                Capsule().fill(LinearGradient(colors: [pumpkin.opacity(0.65), pumpkin], startPoint: .leading, endPoint: .trailing))
+                Capsule().fill(LinearGradient(colors: [Color.white.opacity(0.65), Color.white], startPoint: .leading, endPoint: .trailing))
                     .frame(width: width * fraction, height: dragging ? 6 : 4)
                 Circle()
-                    .fill(LinearGradient(colors: [.white.opacity(0.95), pumpkin], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .fill(LinearGradient(colors: [.white.opacity(0.95), Color.white], startPoint: .topLeading, endPoint: .bottomTrailing))
                     .frame(width: 18, height: 18)
                     .overlay(Circle().stroke(.white.opacity(0.5), lineWidth: 0.7))
-                    .shadow(color: pumpkin.opacity(dragging ? 0.55 : 0.18), radius: dragging ? 12 : 4)
+                    .shadow(color: Color.white.opacity(dragging ? 0.55 : 0.18), radius: dragging ? 12 : 4)
                     .scaleEffect(dragging ? 1.22 : 1)
                     .offset(x: width * fraction - 9)
             }
@@ -578,18 +578,18 @@ struct FullPlayer: View {
                             })
                     }
                 }
-                HStack { VStack(alignment: .leading, spacing: 8) { Text(clock.current?.title ?? "Выбери трек").font(.system(size: 20, weight: .bold)).lineLimit(2); Text(clock.current?.artist ?? "").font(.system(size: 15)).foregroundStyle(.secondary).lineLimit(1) }; Spacer(); if let track = clock.current { Button { Task { await store.like(track) } } label: { Image(systemName: store.likes.contains(track.id) ? "heart.fill" : "heart").font(.system(size: 20)).foregroundStyle(store.likes.contains(track.id) ? pumpkin : .white).frame(width: 44, height: 44).nightwellLiquidGlass(24) } } }
+                HStack { VStack(alignment: .leading, spacing: 8) { Text(clock.current?.title ?? "Выбери трек").font(.system(size: 20, weight: .bold)).lineLimit(2); Text(clock.current?.artist ?? "").font(.system(size: 15)).foregroundStyle(.secondary).lineLimit(1) }; Spacer(); if let track = clock.current { Button { Task { await store.like(track) } } label: { Image(systemName: store.likes.contains(track.id) ? "heart.fill" : "heart").font(.system(size: 20)).foregroundStyle(store.likes.contains(track.id) ? Color.white : .white).frame(width: 44, height: 44).nightwellLiquidGlass(24) } } }
                 VStack(spacing: 16) {
                     VStack(spacing: 8) {
                         GlassSlider(value: Binding(get: { seeking ? scrub : min(clock.position, clock.duration) }, set: { scrub = $0 }), range: 0...clock.duration, accessibilityStep: 5, label: "Позиция трека", valueText: formatTime(seeking ? scrub : clock.position)) { editing in if editing { scrub = clock.position; seeking = true } else { NativePlayer.shared.seek(scrub); seeking = false } }
                         HStack { Text(formatTime(seeking ? scrub : clock.position)); Spacer(); Text("−" + formatTime(max(0, clock.duration - (seeking ? scrub : clock.position)))) }.font(.caption).foregroundStyle(.secondary).monospacedDigit()
                     }
                     HStack {
-                        Button { shuffle.toggle(); NativePlayer.shared.modes(repeatMode: repeatMode, shuffle: shuffle) } label: { Image(systemName: "shuffle").foregroundStyle(shuffle ? pumpkin : .secondary) }; Spacer()
+                        Button { shuffle.toggle(); NativePlayer.shared.modes(repeatMode: repeatMode, shuffle: shuffle) } label: { Image(systemName: "shuffle").foregroundStyle(shuffle ? Color.white : .secondary) }; Spacer()
                         Button { NativePlayer.shared.step(-1) } label: { Image(systemName: "backward.end") }; Spacer()
                         Button { clock.toggle() } label: { Image(systemName: clock.playing ? "pause" : "play.fill").font(.system(size: 25)).frame(width: 68, height: 68).nightwellLiquidGlass(34) }; Spacer()
                         Button { NativePlayer.shared.step(1) } label: { Image(systemName: "forward.end") }; Spacer()
-                        Button { repeatMode = (repeatMode + 1) % 3; NativePlayer.shared.modes(repeatMode: repeatMode, shuffle: shuffle) } label: { Image(systemName: repeatMode == 2 ? "repeat.1" : "repeat").foregroundStyle(repeatMode > 0 ? pumpkin : .secondary) }
+                        Button { repeatMode = (repeatMode + 1) % 3; NativePlayer.shared.modes(repeatMode: repeatMode, shuffle: shuffle) } label: { Image(systemName: repeatMode == 2 ? "repeat.1" : "repeat").foregroundStyle(repeatMode > 0 ? Color.white : .secondary) }
                     }.font(.system(size: 20))
                 }
                 HStack {
@@ -597,9 +597,9 @@ struct FullPlayer: View {
                     Button { showQueue = true } label: { Image(systemName: "list.bullet").frame(maxWidth: .infinity, minHeight: 50) }.accessibilityLabel("Очередь")
                     Button { feature = .sound } label: { Image(systemName: "slider.vertical.3").frame(maxWidth: .infinity, minHeight: 50) }.accessibilityLabel("Эквалайзер")
                 }.font(.system(size: 20)).nightwellLiquidGlass(32)
-                if !clock.failure.isEmpty { Text(clock.failure).font(.caption).foregroundStyle(pumpkin) }
+                if !clock.failure.isEmpty { Text(clock.failure).font(.caption).foregroundStyle(Color.white) }
             }.padding(.horizontal, 26).padding(.top, 12).padding(.bottom, 4)
-        }.tint(pumpkin)
+        }.tint(Color.white)
         .environment(\.lyricsPalette, artworkTextColors)
         .onPreferenceChange(ArtworkPaletteKey.self) { colors in
             artworkTextColors = colors.isEmpty ? [.white, .white] : colors
@@ -657,7 +657,7 @@ struct PlaybackQueue: View {
             VStack(spacing: 20) {
                 HStack(alignment: .center) {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("ТВОЯ МУЗЫКА").font(.system(size: 9, weight: .semibold)).tracking(3).foregroundStyle(pumpkin)
+                        Text("ТВОЯ МУЗЫКА").font(.system(size: 9, weight: .semibold)).tracking(3).foregroundStyle(Color.white)
                         Text("Очередь").font(.system(size: 23, weight: .bold))
                     }
                     Spacer()
@@ -678,7 +678,7 @@ struct PlaybackQueue: View {
                                 VStack(alignment: .leading, spacing: 8) {
                                     if index == currentIndex {
                                         Text("СЕЙЧАС ИГРАЕТ").font(.system(size: 9, weight: .semibold))
-                                            .tracking(2).foregroundStyle(pumpkin).padding(.horizontal, 12)
+                                            .tracking(2).foregroundStyle(Color.white).padding(.horizontal, 12)
                                     } else if index == currentIndex + 1 {
                                         Text("ДАЛЬШЕ").font(.system(size: 9, weight: .semibold))
                                             .tracking(2).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.top, 8)
@@ -692,7 +692,7 @@ struct PlaybackQueue: View {
                     .onAppear { if currentIndex >= 0 { reader.scrollTo(currentIndex, anchor: .top) } }
                 }
             }.padding(.horizontal, 20).padding(.top, 28).padding(.bottom, 18)
-        }.tint(pumpkin).foregroundStyle(nightwellText)
+        }.tint(Color.white).foregroundStyle(nightwellText)
     }
 }
 
@@ -874,7 +874,7 @@ struct AuthSheet: View {
                         Text(verifying ? "Подтвердить код" : register ? "Создать аккаунт" : "Войти").font(.headline)
                         Spacer()
                     }.frame(height: 48).foregroundStyle(Color.black)
-                        .background(pumpkin, in: RoundedRectangle(cornerRadius: 18))
+                        .background(Color.white, in: RoundedRectangle(cornerRadius: 18))
                 }.disabled(cannotSubmit).opacity(cannotSubmit ? 0.5 : 1)
                 Button(verifying ? "Изменить данные" : register ? "Уже есть аккаунт? Войти" : "Нет аккаунта? Создать") {
                     withAnimation(.easeInOut(duration: 0.2)) {
@@ -882,10 +882,10 @@ struct AuthSheet: View {
                         else { register.toggle() }
                         failure = ""
                     }
-                }.disabled(busy).font(.subheadline.weight(.semibold)).foregroundStyle(pumpkin)
+                }.disabled(busy).font(.subheadline.weight(.semibold)).foregroundStyle(Color.white)
                     .frame(maxWidth: .infinity)
             }.padding(.horizontal, 22).padding(.top, 28).padding(.bottom, 40)
-        }.tint(pumpkin).onDisappear { store.emailChallenge = nil; code = ""; password = "" }
+        }.tint(Color.white).onDisappear { store.emailChallenge = nil; code = ""; password = "" }
     }
 }
 
@@ -910,7 +910,7 @@ struct NativeSettings: View {
                 Spacer()
                 Button(action: close) {
                     Image(systemName: "xmark").font(.system(size: 22, weight: .light))
-                        .foregroundStyle(pumpkin).frame(width: 42, height: 42).background(.white.opacity(0.05), in: Circle())
+                        .foregroundStyle(Color.white).frame(width: 42, height: 42).background(.white.opacity(0.05), in: Circle())
                 }.accessibilityLabel("Закрыть настройки")
             }.padding(.top, 12)
             ScrollView(showsIndicators: false) {
@@ -918,7 +918,7 @@ struct NativeSettings: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Button("Темы и ленты · Premium") { feature = .appearance }
                             .sheet(item: $feature) { PremiumFeatureView(kind: $0).environmentObject(store) }
-                        Label("Оформление", systemImage: "paintbrush").font(.system(size: 18, weight: .semibold)).foregroundStyle(pumpkin)
+                        Label("Оформление", systemImage: "paintbrush").font(.system(size: 18, weight: .semibold)).foregroundStyle(Color.white)
                         Toggle("Текст вместе с лентами", isOn: $ambientLyrics)
                             .onChange(of: ambientLyrics) { enabled in
                                 if enabled { store.lyrics.select(store.clock.current, api: store.api, origin: store.origin, online: store.account != nil) }
@@ -926,8 +926,8 @@ struct NativeSettings: View {
                         Text("Строки с таймкодами появляются во время песни.").font(.system(size: 13)).foregroundStyle(.white.opacity(0.43))
                     }.padding(16).frame(maxWidth: .infinity, minHeight: 160, alignment: .leading).background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
                     VStack(alignment: .leading, spacing: 12) {
-                        Label("Воспроизведение", systemImage: "waveform").font(.system(size: 18, weight: .semibold)).foregroundStyle(pumpkin)
-                        HStack { Text("Переход между треками"); Spacer(minLength: 4); Text(transition == 0 ? "Выкл." : String(format: "%.1f с", transition)).foregroundStyle(pumpkin) }
+                        Label("Воспроизведение", systemImage: "waveform").font(.system(size: 18, weight: .semibold)).foregroundStyle(Color.white)
+                        HStack { Text("Переход между треками"); Spacer(minLength: 4); Text(transition == 0 ? "Выкл." : String(format: "%.1f с", transition)).foregroundStyle(Color.white) }
                         GlassSlider(value: $transition, range: 0...5, step: 0.1, accessibilityStep: 0.1, label: "Переход между треками", valueText: String(format: "%.1f с", transition))
                             .padding(.vertical, 2)
                             .onChange(of: transition) { NativePlayer.shared.transitionDuration($0) }
@@ -936,7 +936,7 @@ struct NativeSettings: View {
                     Text(buildCaption).font(.system(size: 11)).foregroundStyle(.white.opacity(0.4)).frame(maxWidth: .infinity)
                 }.padding(.vertical, 2)
             }
-        }.font(.system(size: 17)).padding(20).tint(pumpkin)
+        }.font(.system(size: 17)).padding(20).tint(Color.white)
 
     }
 }
