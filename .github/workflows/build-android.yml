@@ -2,7 +2,7 @@ name: Build Nightwell Music Android (Recovered)
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, nw-player-redesign-20261027]
     paths:
       - 'android/**'
       - 'scripts/validate-app-sources.py'
@@ -118,3 +118,4 @@ jobs:
           path: android/app/build/outputs/bundle/release/*.aab
           if-no-files-found: error
           retention-days: 7
+

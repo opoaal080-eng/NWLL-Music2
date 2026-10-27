@@ -2,7 +2,7 @@ name: Build Nightwell Music iOS (Recovered)
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, nw-player-redesign-20261027]
     paths:
       - 'NightwellMusic/**'
       - 'source/NightwellMusic/**'
@@ -85,3 +85,4 @@ jobs:
           path: |
             output/Nightwell-Music-recovered-unsigned.ipa
             output/build-provenance.json
+

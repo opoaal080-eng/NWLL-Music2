@@ -351,14 +351,14 @@ private struct NightwellAudioOutputControl: View {
         HStack(spacing: 5) {
             Image(systemName: "airplayaudio").font(.caption2)
             Text(output)
-                .font(.caption.weight(.medium))
+                .font(.subheadline.weight(.medium))
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
             Image(systemName: "chevron.down").font(.system(size: 9))
         }
         .foregroundStyle(.primary)
         .padding(.horizontal, 10)
-        .frame(height: 30)
+        .frame(height: 42)
         .background(.ultraThinMaterial, in: Capsule())
         .overlay {
             NightwellAudioRoutePicker()
@@ -387,8 +387,20 @@ struct FullPlayer: View {
     var body: some View {
         ZStack {
             SeasonBackground()
-            VStack(spacing: 20) {
-                HStack { Button { dismiss() } label: { Image(systemName: "chevron.down").frame(width: 46, height: 46).nightwellLiquidGlass(24) }; Spacer(); VStack(spacing: 5) { NightwellAudioOutputControl(); Text("Играет сейчас").font(.headline) }; Spacer(); tools }
+            if clock.current != nil {
+                GeometryReader { geometry in
+                    Cover(track: clock.current, origin: store.origin)
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .clipped()
+                        .blur(radius: 55)
+                        .overlay(Color.black.opacity(0.55))
+                        .ignoresSafeArea()
+                        .allowsHitTesting(false)
+                }
+                .ignoresSafeArea()
+            }
+            VStack(spacing: 16) {
+                HStack { Button { dismiss() } label: { Image(systemName: "chevron.down").frame(width: 46, height: 46).nightwellLiquidGlass(24) }; Spacer(); NightwellAudioOutputControl(); Spacer(); tools }
                 GeometryReader { box in
                     if showLyrics {
                         SharedLyricsPanel(model: store.lyrics, clock: clock)
@@ -410,22 +422,25 @@ struct FullPlayer: View {
                             })
                     }
                 }
-                HStack { VStack(alignment: .leading, spacing: 8) { Text(clock.current?.title ?? "Выбери трек").font(.title2.bold()).lineLimit(2); Text(clock.current?.artist ?? "").font(.body).foregroundStyle(.secondary).lineLimit(1) }; Spacer(); if let track = clock.current { Button { Task { await store.like(track) } } label: { Image(systemName: store.likes.contains(track.id) ? "heart.fill" : "heart").font(.title).foregroundStyle(pumpkin) } } }
+                HStack { VStack(alignment: .leading, spacing: 8) { Text(clock.current?.title ?? "Выбери трек").font(.title2.bold()).lineLimit(2); Text(clock.current?.artist ?? "").font(.body).foregroundStyle(.secondary).lineLimit(1) }; Spacer(); if let track = clock.current { Button { Task { await store.like(track) } } label: { Image(systemName: store.likes.contains(track.id) ? "heart.fill" : "heart").font(.title2).foregroundStyle(store.likes.contains(track.id) ? pumpkin : .white).frame(width: 48, height: 48).nightwellLiquidGlass(24) } } }
                 VStack(spacing: 18) {
                     VStack(spacing: 8) {
                         GlassSlider(value: Binding(get: { seeking ? scrub : min(clock.position, clock.duration) }, set: { scrub = $0 }), range: 0...clock.duration, accessibilityStep: 5, label: "Позиция трека", valueText: formatTime(seeking ? scrub : clock.position)) { editing in if editing { scrub = clock.position; seeking = true } else { NativePlayer.shared.seek(scrub); seeking = false } }
-                        HStack { Text(formatTime(seeking ? scrub : clock.position)); Spacer(); Text(formatTime(clock.duration)) }.font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                        HStack { Text(formatTime(seeking ? scrub : clock.position)); Spacer(); Text("−" + formatTime(max(0, clock.duration - (seeking ? scrub : clock.position)))) }.font(.caption).foregroundStyle(.secondary).monospacedDigit()
                     }
                     HStack {
                         Button { shuffle.toggle(); NativePlayer.shared.modes(repeatMode: repeatMode, shuffle: shuffle) } label: { Image(systemName: "shuffle").foregroundStyle(shuffle ? pumpkin : .secondary) }; Spacer()
                         Button { NativePlayer.shared.step(-1) } label: { Image(systemName: "backward.end") }; Spacer()
-                        Button { clock.toggle() } label: { Image(systemName: clock.playing ? "pause" : "play.fill").font(.system(size: 27)).frame(width: 74, height: 74).overlay(Circle().stroke(pumpkin, lineWidth: 1)) }; Spacer()
+                        Button { clock.toggle() } label: { Image(systemName: clock.playing ? "pause" : "play.fill").font(.system(size: 27)).frame(width: 74, height: 74).nightwellLiquidGlass(37) }; Spacer()
                         Button { NativePlayer.shared.step(1) } label: { Image(systemName: "forward.end") }; Spacer()
                         Button { repeatMode = (repeatMode + 1) % 3; NativePlayer.shared.modes(repeatMode: repeatMode, shuffle: shuffle) } label: { Image(systemName: repeatMode == 2 ? "repeat.1" : "repeat").foregroundStyle(repeatMode > 0 ? pumpkin : .secondary) }
                     }.font(.title2)
-                    Divider()
-                    Button { showQueue = true } label: { HStack { Image(systemName: "list.bullet"); Text("Дальше в очереди"); Spacer(); Text(String(clock.queue.count)).foregroundStyle(.secondary) } }.font(.subheadline)
-                }.padding(22).nightwellLiquidGlass(32)
+                }
+                HStack {
+                    Button { withAnimation { showLyrics.toggle() } } label: { Image(systemName: "text.bubble").frame(maxWidth: .infinity, minHeight: 56) }.accessibilityLabel("Текст песни")
+                    Button { showQueue = true } label: { Image(systemName: "list.bullet").frame(maxWidth: .infinity, minHeight: 56) }.accessibilityLabel("Очередь")
+                    Button { feature = .sound } label: { Image(systemName: "slider.vertical.3").frame(maxWidth: .infinity, minHeight: 56) }.accessibilityLabel("Эквалайзер")
+                }.font(.title2).nightwellLiquidGlass(32)
                 if !clock.failure.isEmpty { Text(clock.failure).font(.caption).foregroundStyle(pumpkin) }
             }.padding(.horizontal, 22).padding(.vertical, 12)
         }.overlay { NativeFogLayer(active: !showQueue) }.tint(pumpkin)
@@ -762,6 +777,7 @@ struct NativeSettings: View {
 
     }
 }
+
 
 
 

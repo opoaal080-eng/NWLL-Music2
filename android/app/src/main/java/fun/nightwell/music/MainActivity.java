@@ -33,6 +33,7 @@ public final class MainActivity extends Activity {
     private TextView status,miniTitle,miniArtist,miniPlay,miniPrev,miniNext,miniLike;
     private android.widget.ImageView miniCover;private android.graphics.drawable.ClipDrawable miniProgress;
     private TextView fullTime,homePlay,fullPlay,fullLike,fullAudioOutput;
+    private android.widget.ImageView playerBackdrop; private View playerBackdropShade;
     private SeekBar seek;
     private EditText search;
     private TextView lyricsText;private android.widget.ScrollView lyricsScroll;private JSONArray lyricLines;private int activeLyric=-2;private String lyricsTrack="";
@@ -129,6 +130,8 @@ public final class MainActivity extends Activity {
         ribbon=new RibbonView(this);ui.post(this::applyPremium);ribbon.meter(()->playback==null?0:playback.level());ribbon.bands(index->playback==null?0:playback.bandLevel(index));
         ribbon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         scene.addView(ribbon,new android.widget.FrameLayout.LayoutParams(-1,-1));
+        playerBackdrop=new android.widget.ImageView(this);playerBackdrop.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);playerBackdrop.setVisibility(View.GONE);scene.addView(playerBackdrop,new android.widget.FrameLayout.LayoutParams(-1,-1));
+        playerBackdropShade=new View(this);playerBackdropShade.setBackgroundColor(0x99000000);playerBackdropShade.setVisibility(View.GONE);scene.addView(playerBackdropShade,new android.widget.FrameLayout.LayoutParams(-1,-1));
         root=column();root.setPadding(dp(18),dp(10),dp(18),dp(8));
         scene.addView(root,new android.widget.FrameLayout.LayoutParams(-1,-1));setContentView(scene);
         root.setOnApplyWindowInsetsListener((v,insets)->{int top,bottom;if(Build.VERSION.SDK_INT>=30){android.graphics.Insets bars=insets.getInsets(WindowInsets.Type.systemBars());top=bars.top;bottom=Math.max(bars.bottom,insets.getInsets(WindowInsets.Type.ime()).bottom);}else{top=insets.getSystemWindowInsetTop();bottom=insets.getSystemWindowInsetBottom();}v.setPadding(dp(18),dp(10)+top,dp(18),dp(8)+bottom);return insets;});root.requestApplyInsets();
@@ -691,12 +694,12 @@ public final class MainActivity extends Activity {
     JSONObject current(){for(int i=0;i<queue.length();i++)if(queue.optJSONObject(i).optString("id").equals(currentID))return queue.optJSONObject(i);return null;}
     String iconLabel(String icon){switch(icon){case "⌕":return "Поиск музыки";case "☰":return "Открыть меню";case "⋯":return "Действия с треком";case "⌄":return "Свернуть плеер";case "×":return "Закрыть";case "|‹":return "Предыдущий трек";case "›|":return "Следующий трек";case "♡":case "♥":return "Избранное";case "⇄":return "Перемешать";case "↻":return "Повтор";default:return "Воспроизведение";}}
     void openPlayer(){
-        JSONObject track=current();if(track==null)return;full=true;if(atmosphere!=null)atmosphere.setVisibility(View.GONE);if(ribbon!=null){ribbon.running(false);ribbon.setVisibility(View.GONE);}dock.setVisibility(View.GONE);head.setVisibility(View.GONE);body.removeAllViews();
+        JSONObject track=current();if(track==null)return;full=true;playerBackdrop.setImageDrawable(null);playerBackdrop.setVisibility(View.GONE);playerBackdropShade.setVisibility(View.GONE);if(atmosphere!=null)atmosphere.setVisibility(View.GONE);if(ribbon!=null){ribbon.running(false);ribbon.setVisibility(View.GONE);}dock.setVisibility(View.GONE);head.setVisibility(View.GONE);body.removeAllViews();
         LinearLayout top=row();
         TextView close=iconButton("⌄",()->{full=false;build();});
         top.addView(close,new LinearLayout.LayoutParams(dp(48),dp(48)));
         LinearLayout center=column();center.setGravity(Gravity.CENTER);
-        fullAudioOutput=text("♫  "+audioOutputName()+"  ⌄",12);
+        fullAudioOutput=text("♫  "+audioOutputName()+"  ⌄",14);
         fullAudioOutput.setGravity(Gravity.CENTER);
         fullAudioOutput.setSingleLine(true);
         fullAudioOutput.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -705,13 +708,9 @@ public final class MainActivity extends Activity {
         fullAudioOutput.setBackground(touchSurface(0x6620222b,16));
         fullAudioOutput.setContentDescription("Устройство вывода: "+audioOutputName()+". Изменить");
         fullAudioOutput.setOnClickListener(v->chooseAudioOutput());
-        LinearLayout.LayoutParams routeParams=new LinearLayout.LayoutParams(-2,dp(30));
+        LinearLayout.LayoutParams routeParams=new LinearLayout.LayoutParams(-2,dp(42));
         routeParams.gravity=Gravity.CENTER_HORIZONTAL;
         center.addView(fullAudioOutput,routeParams);
-        TextView caption=text("Играет сейчас",16);
-        caption.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams captionParams=new LinearLayout.LayoutParams(-1,dp(24));
-        center.addView(caption,captionParams);
         top.addView(center,new LinearLayout.LayoutParams(0,dp(60),1));
         top.addView(iconButton("⋯",()->fullPlayerMenu(track)),new LinearLayout.LayoutParams(dp(48),dp(48)));
         body.addView(top);
@@ -726,8 +725,8 @@ public final class MainActivity extends Activity {
         fullLike.setContentDescription(likes.contains(track.optString("id"))?"Убрать из избранного":"Добавить в избранное");
         fullLike.setTextColor(likes.contains(track.optString("id"))?0xffffbc78:0xffa4a6b1);
         LinearLayout.LayoutParams likeParams=new LinearLayout.LayoutParams(dp(48),dp(48));likeParams.setMargins(dp(8),0,dp(4),0);metadata.addView(fullLike,likeParams);content.addView(metadata);
-        LinearLayout transport=column();transport.setPadding(dp(12),dp(12),dp(12),dp(6));transport.setBackground(new NativeSurfaceDrawable(transport,26));content.addView(transport);
-        seek=new SeekBar(this);seek.setMinimumHeight(dp(44));seek.setProgressTintList(android.content.res.ColorStateList.valueOf(0xffffb260));seek.setThumbTintList(android.content.res.ColorStateList.valueOf(0xffffcf96));seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar b,int p,boolean user){}public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){cancelMix();if(playback!=null)playback.seek(b.getProgress());}});transport.addView(seek);fullTime=text("",12);fullTime.setPadding(dp(8),0,dp(8),dp(12));fullTime.setTextColor(0xffc4b4d2);transport.addView(fullTime);
+        LinearLayout transport=column();transport.setPadding(dp(12),dp(12),dp(12),dp(6));content.addView(transport);
+        seek=new SeekBar(this);seek.setMinimumHeight(dp(44));seek.setProgressTintList(android.content.res.ColorStateList.valueOf(0xffeeeeF4));seek.setThumbTintList(android.content.res.ColorStateList.valueOf(0xffffffff));seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar b,int p,boolean user){}public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){cancelMix();if(playback!=null)playback.seek(b.getProgress());}});transport.addView(seek);fullTime=text("",12);fullTime.setPadding(dp(8),0,dp(8),dp(12));fullTime.setTextColor(0xffc4b4d2);transport.addView(fullTime);
         LinearLayout controls=row();controls.setGravity(Gravity.CENTER);
         TextView shuffleButton=iconButton("⇄",()->{if(playback!=null){playback.modes(playback.player.getRepeatMode(),!playback.player.getShuffleModeEnabled());}});
         TextView backward=iconButton("|‹",this::previous);
@@ -738,7 +737,7 @@ public final class MainActivity extends Activity {
             button.setBackground(null);button.setPadding(0,0,0,0);button.setTextSize(25);
         }
         backward.setTextSize(31);forward.setTextSize(31);
-        fullPlay.setTextColor(0xffffbc78);fullPlay.setTextSize(30);
+        fullPlay.setTextColor(0xffffffff);fullPlay.setTextSize(30);
         fullPlay.setBackground(touchSurface(0x442a2730,38));
         fullPlay.setPadding(0,0,0,0);
         controls.addView(shuffleButton,new LinearLayout.LayoutParams(0,dp(56),1));
@@ -749,10 +748,15 @@ public final class MainActivity extends Activity {
         controls.addView(forward,new LinearLayout.LayoutParams(0,dp(64),1));
         controls.addView(repeatButton,new LinearLayout.LayoutParams(0,dp(56),1));
         transport.addView(controls);
-        TextView queueButton=action("Дальше в очереди  ·  "+queue.length(),this::showQueue);queueButton.setTextSize(14);queueButton.setTextColor(0xffc4b4d2);transport.addView(queueButton);updatePlayback();
+        LinearLayout shortcuts=row();shortcuts.setGravity(Gravity.CENTER);shortcuts.setBackground(new NativeSurfaceDrawable(shortcuts,30));
+        TextView lyricButton=iconButton("☷",()->{JSONObject selected=current();if(selected!=null)showLyrics(selected);});lyricButton.setContentDescription("Текст песни");
+        TextView queueButton=iconButton("☰",this::showQueue);queueButton.setContentDescription("Очередь");
+        TextView eqButton=iconButton("☷",()->feature("sound"));eqButton.setContentDescription("Эквалайзер");
+        for(TextView button:new TextView[]{lyricButton,queueButton,eqButton}){button.setBackground(null);button.setTextSize(24);shortcuts.addView(button,new LinearLayout.LayoutParams(0,dp(64),1));}
+        LinearLayout.LayoutParams shortcutParams=new LinearLayout.LayoutParams(-1,dp(64));shortcutParams.topMargin=dp(20);content.addView(shortcuts,shortcutParams);updatePlayback();
     }
     void loadMiniCover(JSONObject track){if(miniCover==null)return;miniCover.setImageDrawable(null);if(track==null)return;String path=track.optString("cover_url"),id=track.optString("id");if(!path.startsWith("/api/covers/"))return;android.widget.ImageView target=miniCover;io.execute(()->{try{java.net.HttpURLConnection c=api.connection(path);byte[] bytes;try{bytes=NativeAPI.read(c.getInputStream(),5*1024*1024);}finally{c.disconnect();}android.graphics.BitmapFactory.Options options=new android.graphics.BitmapFactory.Options();options.inSampleSize=4;android.graphics.Bitmap bitmap=android.graphics.BitmapFactory.decodeByteArray(bytes,0,bytes.length,options);ui.post(()->{if(id.equals(currentID)&&target.isAttachedToWindow())target.setImageBitmap(bitmap);});}catch(Exception ignored){}});}
-    void addCover(JSONObject track,LinearLayout parent){android.widget.ImageView cover=new android.widget.ImageView(this);cover.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);android.view.GestureDetector detector=gestures(true);cover.setOnTouchListener((v,event)->detector.onTouchEvent(event));GradientDrawable corners=new GradientDrawable();corners.setColor(0x33251936);corners.setCornerRadius(dp(34));cover.setBackground(corners);cover.setClipToOutline(true);int edge=Math.max(160,Math.min((int)(getResources().getConfiguration().screenHeightDp*(getResources().getConfiguration().screenHeightDp<700?.25f:.36f)),Math.min(330,getResources().getConfiguration().screenWidthDp-44)));LinearLayout.LayoutParams coverLayout=new LinearLayout.LayoutParams(dp(edge),dp(edge));coverLayout.gravity=Gravity.CENTER_HORIZONTAL;parent.addView(cover,coverLayout);String path=track.optString("cover_url"),id=track.optString("id");if(!path.startsWith("/api/covers/"))return;io.execute(()->{try{java.net.HttpURLConnection c=api.connection(path);byte[] bytes;try{bytes=NativeAPI.read(c.getInputStream(),5*1024*1024);}finally{c.disconnect();}android.graphics.BitmapFactory.Options options=new android.graphics.BitmapFactory.Options();options.inSampleSize=2;android.graphics.Bitmap bitmap=android.graphics.BitmapFactory.decodeByteArray(bytes,0,bytes.length,options);ui.post(()->{if(full&&id.equals(currentID)&&cover.isAttachedToWindow())cover.setImageBitmap(bitmap);});}catch(Exception ignored){}});}
+    void addCover(JSONObject track,LinearLayout parent){android.widget.ImageView cover=new android.widget.ImageView(this);cover.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);android.view.GestureDetector detector=gestures(true);cover.setOnTouchListener((v,event)->detector.onTouchEvent(event));GradientDrawable corners=new GradientDrawable();corners.setColor(0x33251936);corners.setCornerRadius(dp(34));cover.setBackground(corners);cover.setClipToOutline(true);int edge=Math.max(160,Math.min((int)(getResources().getConfiguration().screenHeightDp*(getResources().getConfiguration().screenHeightDp<700?.25f:.36f)),Math.min(330,getResources().getConfiguration().screenWidthDp-44)));LinearLayout.LayoutParams coverLayout=new LinearLayout.LayoutParams(dp(edge),dp(edge));coverLayout.gravity=Gravity.CENTER_HORIZONTAL;parent.addView(cover,coverLayout);String path=track.optString("cover_url"),id=track.optString("id");if(!path.startsWith("/api/covers/"))return;io.execute(()->{try{java.net.HttpURLConnection c=api.connection(path);byte[] bytes;try{bytes=NativeAPI.read(c.getInputStream(),5*1024*1024);}finally{c.disconnect();}android.graphics.BitmapFactory.Options options=new android.graphics.BitmapFactory.Options();options.inSampleSize=2;android.graphics.Bitmap bitmap=android.graphics.BitmapFactory.decodeByteArray(bytes,0,bytes.length,options);ui.post(()->{if(full&&id.equals(currentID)&&cover.isAttachedToWindow()){cover.setImageBitmap(bitmap);if(bitmap!=null){android.graphics.Bitmap blurred=android.graphics.Bitmap.createScaledBitmap(bitmap,16,16,true);playerBackdrop.setImageBitmap(blurred);playerBackdrop.setVisibility(View.VISIBLE);playerBackdropShade.setVisibility(View.VISIBLE);}}});}catch(Exception ignored){}});}
     String[] trackNames(JSONArray items){String[] names=new String[items.length()];for(int i=0;i<names.length;i++)names[i]=items.optJSONObject(i).optString("title");return names;}
     JSONObject cachedLyrics(String id)throws Exception {
         java.io.File dir=new java.io.File(getCacheDir(),"native-lyrics");dir.mkdirs();java.io.File file=new java.io.File(dir,id+".json");
@@ -1162,3 +1166,4 @@ public final class MainActivity extends Activity {
         },label,dialog);
     }
 }
+
