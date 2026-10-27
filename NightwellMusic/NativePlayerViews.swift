@@ -103,7 +103,7 @@ struct RibbonScene: View {
                         let baseY = [0.76, 0.60, 0.40, 0.28][row]
                         let offset = Double.random(in: -0.14...0.14)
                         return CGPoint(x: max(0.12, min(0.88, (left ? baseX : 1 - baseX) + offset)),
-                                       y: max(0.20, min(0.85, baseY + Double.random(in: -0.10...0.10)))
+                                       y: max(0.20, min(0.85, baseY + Double.random(in: -0.10...0.10))))
                     }
                     lastMove = now
                 }
@@ -121,7 +121,7 @@ struct RibbonScene: View {
                         let baseY = [0.76, 0.60, 0.40, 0.28][row]
                         let offset = Double.random(in: -0.14...0.14)
                         return CGPoint(x: max(0.12, min(0.88, (left ? baseX : 1 - baseX) + offset)),
-                                       y: max(0.20, min(0.85, baseY + Double.random(in: -0.10...0.10)))
+                                       y: max(0.20, min(0.85, baseY + Double.random(in: -0.10...0.10))))
                     }
                 }
                 let blend = 1 - exp(-elapsed * 3.4 * motionSpeed)
