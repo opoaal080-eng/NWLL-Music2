@@ -142,12 +142,45 @@ public final class MainActivity extends Activity {
         LinearLayout labels=column();miniTitle=text("Выбери трек",15);miniTitle.setMaxLines(1);miniTitle.setTextSize(15);miniTitle.setLetterSpacing(-.015f);miniTitle.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);miniArtist=text("Nightwell Music",12);miniArtist.setMaxLines(1);miniArtist.setTextSize(12);miniArtist.setLetterSpacing(.005f);miniArtist.setTextColor(0xffa4a6b1);miniTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);miniArtist.setEllipsize(android.text.TextUtils.TruncateAt.END);labels.addView(miniTitle);labels.addView(miniArtist);labels.setOnClickListener(v->openPlayer());dock.addView(labels,new LinearLayout.LayoutParams(0,-2,1));miniPrev=action("|‹",()->previous());miniPlay=action("▶",()->toggle());miniNext=action("›|",()->{nextTrack();});miniLike=action("♡",()->toggleFavorite(current()));miniLike.setTextColor(0xffffb260);miniPlay.setTextSize(23);miniNext.setTextSize(24);miniPlay.setPadding(0,0,0,0);miniNext.setPadding(0,0,0,0);miniPlay.setTextColor(0xffffbc78);miniPlay.setBackground(null);miniPrev.setPadding(0,0,0,0);miniLike.setPadding(0,0,0,0);if(getResources().getConfiguration().screenWidthDp>=380)dock.addView(miniLike,new LinearLayout.LayoutParams(dp(40),dp(48)));dock.addView(miniPrev,new LinearLayout.LayoutParams(dp(40),dp(48)));dock.addView(miniPlay,new LinearLayout.LayoutParams(dp(48),dp(48)));dock.addView(miniNext,new LinearLayout.LayoutParams(dp(44),dp(48)));LinearLayout.LayoutParams dockParams=new LinearLayout.LayoutParams(-1,-2);dockParams.topMargin=dp(10);root.addView(dock,dockParams);if(backgroundOnly)dock.setVisibility(View.GONE);android.view.GestureDetector miniGestures=gestures(false);labels.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));dock.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));
         showScreen();updatePlayback();loadMiniCover(current());
     }
+    // Audio routing is controlled by Android. Report the current media route without
+    // changing the communication device (which would affect calls instead of music).
+    String audioOutputName(){
+        try{
+            android.media.MediaRouter router=(android.media.MediaRouter)getSystemService(MEDIA_ROUTER_SERVICE);
+            if(router!=null){
+                android.media.MediaRouter.RouteInfo route=router.getSelectedRoute(android.media.MediaRouter.ROUTE_TYPE_LIVE_AUDIO);
+                if(route!=null&&route.getName(this)!=null)return route.getName(this).toString();
+            }
+        }catch(Exception ignored){}
+        return "Аудиовыход Android";
+    }
+    void chooseAudioOutput(){
+        String[] options={"Настройки Bluetooth","Настройки звука"};
+        AlertDialog dialog=new AlertDialog.Builder(this)
+            .setTitle("Устройство вывода")
+            .setMessage("Сейчас: "+audioOutputName()+"\\nВыберите настройки Android для переключения устройства.")
+            .setItems(options,(d,which)->{
+                try{startActivity(new Intent(which==0?android.provider.Settings.ACTION_BLUETOOTH_SETTINGS:android.provider.Settings.ACTION_SOUND_SETTINGS));}
+                catch(Exception ignored){startActivity(new Intent(android.provider.Settings.ACTION_SETTINGS));}
+            }).setNegativeButton("Отмена",null).create();
+        dialog.show();styleSheet(dialog);
+    }
     void menu(){
         if(navigationPopup!=null)navigationPopup.dismiss();
         View anchor=head.getChildAt(head.getChildCount()-1);
         LinearLayout entries=column();entries.setPadding(0,dp(6),0,dp(6));
         TextView connectionHeading=text("Подключение",11);connectionHeading.setTextColor(0xffa6a4af);connectionHeading.setPadding(dp(14),dp(4),dp(14),dp(2));entries.addView(connectionHeading);
         TextView connectionState=text("Проверка…",15);connectionState.setPadding(dp(14),0,dp(14),dp(6));entries.addView(connectionState);
+        TextView outputHeading=text("Устройство вывода",11);
+        outputHeading.setTextColor(0xffa6a4af);
+        outputHeading.setPadding(dp(14),dp(7),dp(14),dp(2));
+        entries.addView(outputHeading);
+        TextView outputAction=sheetAction("♫  "+audioOutputName()+"  ·  Изменить",()->{
+            if(navigationPopup!=null)navigationPopup.dismiss();
+            chooseAudioOutput();
+        });
+        outputAction.setContentDescription("Устройство вывода: "+audioOutputName()+". Изменить");
+        entries.addView(outputAction,new LinearLayout.LayoutParams(-1,-2));
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(false);scroll.setVerticalScrollBarEnabled(false);scroll.addView(entries);
         android.graphics.Rect frame=new android.graphics.Rect();anchor.getWindowVisibleDisplayFrame(frame);int[] location=new int[2];anchor.getLocationOnScreen(location);
         int available=Math.max(dp(96),frame.bottom-location[1]-anchor.getHeight()-dp(12));
