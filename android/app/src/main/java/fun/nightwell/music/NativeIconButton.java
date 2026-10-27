@@ -7,7 +7,7 @@ import android.widget.TextView;
 final class NativeIconButton extends TextView {
     private final Paint ink=new Paint(Paint.ANTI_ALIAS_FLAG);
     NativeIconButton(Context c){super(c);setSingleLine(true);setHorizontallyScrolling(false);setIncludeFontPadding(false);setWillNotDraw(false);}
-    static boolean isIcon(String s){return s.matches("[▶Ⅱ⌕☰⋯♡♥⇄↻⌄×]|\\|‹|›\\|");}
+    static boolean isIcon(String s){return s.matches("[▶Ⅱ⌕☰⋯♡♥⇄↻⌄×▤☷]|\\|‹|›\\|");}
     @Override protected void onDraw(Canvas canvas){
         String symbol=getText().toString();if(!isIcon(symbol)){super.onDraw(canvas);return;}
         float size=Math.min(getWidth(),getHeight())*.44f;size=Math.min(size,Math.max(24*getResources().getDisplayMetrics().density,getTextSize()));
@@ -18,6 +18,8 @@ final class NativeIconButton extends TextView {
             case "▶":p.moveTo(7,3);p.lineTo(21,12);p.lineTo(7,21);p.close();ink.setStyle(Paint.Style.FILL);canvas.drawPath(p,ink);break;
             case "Ⅱ":canvas.drawLine(8,4,8,20,ink);canvas.drawLine(16,4,16,20,ink);break;
             case "⌕":canvas.drawCircle(10,10,7,ink);canvas.drawLine(15,15,22,22,ink);break;
+            case "▤":canvas.drawRoundRect(3,3,21,19,3,3,ink);canvas.drawLine(7,8,17,8,ink);canvas.drawLine(7,12,17,12,ink);p.moveTo(8,19);p.lineTo(8,22);p.lineTo(12,19);canvas.drawPath(p,ink);break;
+            case "☷":for(int x=5;x<=19;x+=7){canvas.drawLine(x,3,x,21,ink);canvas.drawCircle(x,x==12?9:15,2.5f,ink);}break;
             case "☰":for(int y=5;y<=19;y+=7)canvas.drawLine(3,y,21,y,ink);break;
             case "⋯":ink.setStyle(Paint.Style.FILL);for(int x=5;x<=19;x+=7)canvas.drawCircle(x,12,1.5f,ink);break;
             case "⌄":canvas.drawLine(4,8,12,16,ink);canvas.drawLine(12,16,20,8,ink);break;
@@ -31,3 +33,4 @@ final class NativeIconButton extends TextView {
         canvas.restore();
     }
 }
+
