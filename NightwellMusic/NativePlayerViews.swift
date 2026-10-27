@@ -163,6 +163,43 @@ struct RibbonScene: View {
     }
 }
 
+// Quiet decorative stars are independent of the audio engine and playback state.
+private struct HomeSparkles: View {
+    @Environment(\\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: reduceMotion)) { timeline in
+            Canvas(opaque: false, rendersAsynchronously: true) { context, size in
+                guard size.width > 1, size.height > 1 else { return }
+                let time = reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate
+                for index in 0..<36 {
+                    let seed = Double(index)
+                    let x = (sin(seed * 91.71 + 1.9) * 43758.5453).truncatingRemainder(dividingBy: 1)
+                    let y = (sin(seed * 37.43 + 7.1) * 12573.1341).truncatingRemainder(dividingBy: 1)
+                    let px = (x < 0 ? x + 1 : x) * size.width
+                    let py = (y < 0 ? y + 1 : y) * size.height
+                    let phase = seed * 1.618
+                    let shimmer = reduceMotion ? 0.55 : 0.5 + 0.5 * sin(time * (0.7 + seed.truncatingRemainder(dividingBy: 5) * 0.14) + phase)
+                    let alpha = 0.09 + shimmer * 0.37
+                    let radius = 0.55 + shimmer * 0.65
+                    let point = CGPoint(x: px, y: py)
+                    let bounds = CGRect(x: px - radius, y: py - radius, width: radius * 2, height: radius * 2)
+                    context.fill(Path(ellipseIn: bounds), with: .color(.white.opacity(alpha)))
+                    if index % 7 == 0 {
+                        let glow = CGRect(x: px - 4, y: py - 4, width: 8, height: 8)
+                        context.fill(Path(ellipseIn: glow), with: .radialGradient(
+                            Gradient(colors: [.white.opacity(alpha * 0.25), .clear]),
+                            center: point, startRadius: 0, endRadius: 4
+                        ))
+                    }
+                }
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
 struct NativeHome: View {
     let configureWave: () -> Void
     @State private var suppressMixTapUntil = Date.distantPast
@@ -233,6 +270,7 @@ struct NativeHome: View {
             }
             .padding(.horizontal, 24)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background { HomeSparkles() }
         }
     }
 }
