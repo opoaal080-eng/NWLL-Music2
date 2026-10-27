@@ -100,10 +100,10 @@ struct NativeSupportView: View {
                             Button { Task { await preview(ticket.id, attachment) } } label: { Label(attachment.name, systemImage: "doc") }.tint(pumpkin)
                         }
                         if ticket.status != "closed" {
-                            Button { showAttachmentSources = true } label: { Label(uploading ? "Загрузка…" : "Прикрепить файл до 10 МБ", systemImage: "paperclip") }.buttonStyle(.borderedProminent).tint(pumpkin).disabled(uploading)
+                            Button { showAttachmentSources = true } label: { Label(uploading ? "Загрузка…" : "Прикрепить файл до 10 МБ", systemImage: "paperclip") }.buttonStyle(.borderedProminent).tint(Color(white: 0.24)).foregroundStyle(.white).disabled(uploading)
                             TextField(adminMode ? "Ответ пользователю" : "Дополнить обращение", text: $message, axis: .vertical)
                                 .lineLimit(3...7).padding().frostedGlass()
-                            Button("Отправить") { Task { await reply(ticket.id) } }.buttonStyle(.borderedProminent).tint(pumpkin).disabled(message.isEmpty || busy)
+                            Button("Отправить") { Task { await reply(ticket.id) } }.buttonStyle(.borderedProminent).tint(Color(white: 0.24)).foregroundStyle(.white).disabled(message.isEmpty || busy)
                         }
                         if adminMode {
                             ForEach(statuses, id: \.self) { status in
