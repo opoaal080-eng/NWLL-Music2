@@ -101,7 +101,7 @@ struct PremiumPreferences: Codable {
                         .accessibilityLabel("Дополнительные настройки эквалайзера")
                 }
                 Button("Готово") { dismiss() }.font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(pumpkin).padding(.horizontal, 16).frame(height: 41).nightwellLiquidGlass(24)
+                    .foregroundStyle(.white).padding(.horizontal, 16).frame(height: 41).nightwellLiquidGlass(24)
             }.padding(.horizontal, 16).padding(.top, 6)
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
@@ -130,7 +130,7 @@ struct PremiumPreferences: Codable {
                     rules = []; statistics = nil; await premium.refresh(store); if premium.allowed { await load() }
                 }
                 .task { while !Task.isCancelled { soundReady = NativePlayer.shared.premiumSoundAvailable; soundStatus = NativePlayer.shared.premiumSoundStatus; do { try await Task.sleep(nanoseconds: 1_000_000_000) } catch { return } } }
-        }.modifier(NightwellSheetSurface(gradient: LinearGradient(colors: [Color(red: 0.18, green: 0.07, blue: 0.30), .black], startPoint: .topLeading, endPoint: .bottomTrailing)))
+        }.modifier(NightwellSheetSurface(gradient: LinearGradient(colors: [Color(white: 0.10), .black], startPoint: .topLeading, endPoint: .bottomTrailing)))
         .ignoresSafeArea(.container, edges: .bottom)
          .preferredColorScheme(.dark).presentationDetents([.fraction(0.77), .large]).presentationDragIndicator(.hidden)
     }
@@ -239,7 +239,7 @@ private struct PremiumGlassSection<Content: View>: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(title).font(.system(size: 17, weight: .semibold)).foregroundStyle(pumpkin)
+            Text(title).font(.system(size: 17, weight: .semibold)).foregroundStyle(.white)
             content
         }.font(.system(size: 17)).padding(17).frame(maxWidth: .infinity, alignment: .leading)
             .nightwellLiquidGlass(26)
