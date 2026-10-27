@@ -351,19 +351,20 @@ private struct NightwellAudioOutputControl: View {
         HStack(spacing: 5) {
             Image(systemName: "airplayaudio").font(.caption2)
             Text(output)
-                .font(.subheadline.weight(.medium))
+                .font(.system(size: 13, weight: .medium))
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
             Image(systemName: "chevron.down").font(.system(size: 9))
         }
         .foregroundStyle(.primary)
         .padding(.horizontal, 10)
-        .frame(height: 42)
-        .background(.ultraThinMaterial, in: Capsule())
+        .frame(height: 38)
+        .nightwellLiquidGlass(19)
+        .frame(minHeight: 44)
         .overlay {
             NightwellAudioRoutePicker()
                 .contentShape(Capsule())
-                .accessibilityLabel("Устройство вывода: \\(output). Изменить")
+                .accessibilityLabel("Устройство вывода: \(output). Изменить")
         }
         .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification)) { _ in
             output = Self.currentOutput()
@@ -432,8 +433,8 @@ struct FullPlayer: View {
             ArtworkColorBackground(url: clock.current?.cover_url.flatMap { URL(string: $0, relativeTo: store.origin) })
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
-            VStack(spacing: 16) {
-                HStack { Button { dismiss() } label: { Image(systemName: "chevron.down").frame(width: 46, height: 46).nightwellLiquidGlass(24) }; Spacer(); NightwellAudioOutputControl(); Spacer(); tools }
+            VStack(spacing: 14) {
+                HStack { Button { dismiss() } label: { Image(systemName: "chevron.down").frame(width: 44, height: 44).nightwellLiquidGlass(24) }; Spacer(); NightwellAudioOutputControl(); Spacer(); tools }
                 GeometryReader { box in
                     if showLyrics {
                         SharedLyricsPanel(model: store.lyrics, clock: clock)
@@ -442,7 +443,7 @@ struct FullPlayer: View {
                             .onTapGesture { withAnimation(.easeInOut(duration: 0.22)) { showLyrics = false } }
                     } else {
                         Cover(track: clock.current, origin: store.origin)
-                            .frame(width: min(box.size.width, box.size.height), height: min(box.size.width, box.size.height))
+                            .frame(width: min(box.size.width, box.size.height) * 0.9, height: min(box.size.width, box.size.height) * 0.9)
                             .clipShape(RoundedRectangle(cornerRadius: 26))
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .contentShape(Rectangle())
@@ -455,8 +456,8 @@ struct FullPlayer: View {
                             })
                     }
                 }
-                HStack { VStack(alignment: .leading, spacing: 8) { Text(clock.current?.title ?? "Выбери трек").font(.title2.bold()).lineLimit(2); Text(clock.current?.artist ?? "").font(.body).foregroundStyle(.secondary).lineLimit(1) }; Spacer(); if let track = clock.current { Button { Task { await store.like(track) } } label: { Image(systemName: store.likes.contains(track.id) ? "heart.fill" : "heart").font(.title2).foregroundStyle(store.likes.contains(track.id) ? pumpkin : .white).frame(width: 48, height: 48).nightwellLiquidGlass(24) } } }
-                VStack(spacing: 18) {
+                HStack { VStack(alignment: .leading, spacing: 8) { Text(clock.current?.title ?? "Выбери трек").font(.system(size: 20, weight: .bold)).lineLimit(2); Text(clock.current?.artist ?? "").font(.system(size: 15)).foregroundStyle(.secondary).lineLimit(1) }; Spacer(); if let track = clock.current { Button { Task { await store.like(track) } } label: { Image(systemName: store.likes.contains(track.id) ? "heart.fill" : "heart").font(.system(size: 20)).foregroundStyle(store.likes.contains(track.id) ? pumpkin : .white).frame(width: 44, height: 44).nightwellLiquidGlass(24) } } }
+                VStack(spacing: 16) {
                     VStack(spacing: 8) {
                         GlassSlider(value: Binding(get: { seeking ? scrub : min(clock.position, clock.duration) }, set: { scrub = $0 }), range: 0...clock.duration, accessibilityStep: 5, label: "Позиция трека", valueText: formatTime(seeking ? scrub : clock.position)) { editing in if editing { scrub = clock.position; seeking = true } else { NativePlayer.shared.seek(scrub); seeking = false } }
                         HStack { Text(formatTime(seeking ? scrub : clock.position)); Spacer(); Text("−" + formatTime(max(0, clock.duration - (seeking ? scrub : clock.position)))) }.font(.caption).foregroundStyle(.secondary).monospacedDigit()
@@ -464,18 +465,18 @@ struct FullPlayer: View {
                     HStack {
                         Button { shuffle.toggle(); NativePlayer.shared.modes(repeatMode: repeatMode, shuffle: shuffle) } label: { Image(systemName: "shuffle").foregroundStyle(shuffle ? pumpkin : .secondary) }; Spacer()
                         Button { NativePlayer.shared.step(-1) } label: { Image(systemName: "backward.end") }; Spacer()
-                        Button { clock.toggle() } label: { Image(systemName: clock.playing ? "pause" : "play.fill").font(.system(size: 27)).frame(width: 74, height: 74).nightwellLiquidGlass(37) }; Spacer()
+                        Button { clock.toggle() } label: { Image(systemName: clock.playing ? "pause" : "play.fill").font(.system(size: 25)).frame(width: 68, height: 68).nightwellLiquidGlass(34) }; Spacer()
                         Button { NativePlayer.shared.step(1) } label: { Image(systemName: "forward.end") }; Spacer()
                         Button { repeatMode = (repeatMode + 1) % 3; NativePlayer.shared.modes(repeatMode: repeatMode, shuffle: shuffle) } label: { Image(systemName: repeatMode == 2 ? "repeat.1" : "repeat").foregroundStyle(repeatMode > 0 ? pumpkin : .secondary) }
-                    }.font(.title2)
+                    }.font(.system(size: 20))
                 }
                 HStack {
-                    Button { withAnimation { showLyrics.toggle() } } label: { Image(systemName: "text.bubble").frame(maxWidth: .infinity, minHeight: 56) }.accessibilityLabel("Текст песни")
-                    Button { showQueue = true } label: { Image(systemName: "list.bullet").frame(maxWidth: .infinity, minHeight: 56) }.accessibilityLabel("Очередь")
-                    Button { feature = .sound } label: { Image(systemName: "slider.vertical.3").frame(maxWidth: .infinity, minHeight: 56) }.accessibilityLabel("Эквалайзер")
-                }.font(.title2).nightwellLiquidGlass(32)
+                    Button { withAnimation { showLyrics.toggle() } } label: { Image(systemName: "text.bubble").frame(maxWidth: .infinity, minHeight: 50) }.accessibilityLabel("Текст песни")
+                    Button { showQueue = true } label: { Image(systemName: "list.bullet").frame(maxWidth: .infinity, minHeight: 50) }.accessibilityLabel("Очередь")
+                    Button { feature = .sound } label: { Image(systemName: "slider.vertical.3").frame(maxWidth: .infinity, minHeight: 50) }.accessibilityLabel("Эквалайзер")
+                }.font(.system(size: 20)).nightwellLiquidGlass(32)
                 if !clock.failure.isEmpty { Text(clock.failure).font(.caption).foregroundStyle(pumpkin) }
-            }.padding(.horizontal, 22).padding(.vertical, 12)
+            }.padding(.horizontal, 26).padding(.vertical, 12)
         }.overlay { NativeFogLayer(active: !showQueue) }.tint(pumpkin)
         .onPreferenceChange(PlayerLyricsFramePreference.self) { lyricsFrame = $0 }
         .simultaneousGesture(DragGesture(minimumDistance: 24, coordinateSpace: .global).onEnded { value in
@@ -512,7 +513,7 @@ struct FullPlayer: View {
                 ShareLink(item: store.origin.appendingPathComponent("track/" + track.id)) { Label("Поделиться", systemImage: "square.and.arrow.up") }
                 Menu("Добавить в плейлист") { ForEach(store.playlists) { p in Button(p.name) { Task { await store.add(track, playlist: p) } } } }
             }
-        } label: { Image(systemName: "ellipsis").frame(width: 46, height: 46).nightwellLiquidGlass(24) }
+        } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44).nightwellLiquidGlass(24) }
     }
 }
 func formatTime(_ seconds: Double) -> String { let value = seconds.isFinite ? max(0, Int(seconds)) : 0; return String(format: "%d:%02d", value / 60, value % 60) }
