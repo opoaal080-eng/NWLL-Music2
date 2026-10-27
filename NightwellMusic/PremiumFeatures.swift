@@ -181,7 +181,12 @@ struct PremiumPreferences: Codable {
             Toggle("Средние частоты", isOn: $premium.preferences.aura_mid)
             Toggle("Высокие частоты", isOn: $premium.preferences.aura_high)
             Button("Сохранить оформление") { Task { await premium.saveAppearance(store) } }
+                .buttonStyle(.borderedProminent)
+                .tint(Color(white: 0.24))
+                .foregroundStyle(.white)
         }
+        .tint(Color(white: 0.78))
+        .foregroundStyle(.white)
     }
     private var smart: some View {
         Group {
