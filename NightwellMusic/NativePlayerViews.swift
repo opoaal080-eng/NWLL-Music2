@@ -21,7 +21,13 @@ struct RibbonScene: View {
     @Environment(\.scenePhase) private var scene
     @Environment(\.accessibilityReduceMotion) private var reduced
     @State private var pulse = 0.0
-    @State private var targets = (0..<8).map { _ in CGPoint(x: 0.5, y: 0.45) }
+    // Balanced crossed-beam choreography matching the reference.
+    @State private var targets: [CGPoint] = [
+        CGPoint(x: 0.76, y: 0.76), CGPoint(x: 0.24, y: 0.76),
+        CGPoint(x: 0.88, y: 0.60), CGPoint(x: 0.12, y: 0.60),
+        CGPoint(x: 0.76, y: 0.40), CGPoint(x: 0.24, y: 0.40),
+        CGPoint(x: 0.90, y: 0.28), CGPoint(x: 0.10, y: 0.28)
+    ]
     @State private var lamps = [Double](repeating: 0, count: 8)
     @State private var energy = 0.0
     @State private var frameDate = Date()
@@ -90,9 +96,14 @@ struct RibbonScene: View {
                         beatPeriod += (interval - beatPeriod) * 0.28
                     }
                     lastBeat = now
-                    desired = (0..<8).map { _ in
-                        CGPoint(x: Double.random(in: 0.08...0.92),
-                                y: Double.random(in: 0.25...0.75))
+                    desired = (0..<8).map { index in
+                        let left = index % 2 == 0
+                        let row = index / 2
+                        let baseX = [0.76, 0.88, 0.76, 0.90][row]
+                        let baseY = [0.76, 0.60, 0.40, 0.28][row]
+                        let offset = Double.random(in: -0.14...0.14)
+                        return CGPoint(x: max(0.12, min(0.88, (left ? baseX : 1 - baseX) + offset)),
+                                       y: max(0.20, min(0.85, baseY + Double.random(in: -0.10...0.10)))
                     }
                     lastMove = now
                 }
@@ -103,9 +114,14 @@ struct RibbonScene: View {
                 // For sustained passages without detected beats, move at a tempo-scaled interval.
                 if (overall > 0.018 || standbyGlow > 0.04) && now - lastMove > max(0.22, beatPeriod * 1.35) {
                     lastMove = now
-                    desired = (0..<8).map { _ in
-                        CGPoint(x: Double.random(in: 0.08...0.92),
-                                y: Double.random(in: 0.25...0.75))
+                    desired = (0..<8).map { index in
+                        let left = index % 2 == 0
+                        let row = index / 2
+                        let baseX = [0.76, 0.88, 0.76, 0.90][row]
+                        let baseY = [0.76, 0.60, 0.40, 0.28][row]
+                        let offset = Double.random(in: -0.14...0.14)
+                        return CGPoint(x: max(0.12, min(0.88, (left ? baseX : 1 - baseX) + offset)),
+                                       y: max(0.20, min(0.85, baseY + Double.random(in: -0.10...0.10)))
                     }
                 }
                 let blend = 1 - exp(-elapsed * 3.4 * motionSpeed)
@@ -149,7 +165,7 @@ struct RibbonScene: View {
             guard brightness > 0.001 else { continue }
             let left = light % 2 == 0
             let row = Double(light / 2)
-            let source = CGPoint(x: left ? w * 0.025 : w * 0.975, y: h * (0.23 + row * 0.17))
+            let source = CGPoint(x: left ? w * 0.035 : w * 0.965, y: h * (0.14 + row * 0.22))
             let target = CGPoint(x: w * targets[light].x, y: h * targets[light].y)
             let dx = target.x - source.x, dy = target.y - source.y
             let length = max(1, hypot(dx, dy))
@@ -157,11 +173,11 @@ struct RibbonScene: View {
             // Layered volumetric cone: feathered edges, dense central shaft and drifting haze.
             let perpendicular = CGPoint(x: -dy / length, y: dx / length)
             let time = date.timeIntervalSinceReferenceDate
-            let baseWidth = 13.0 + intensity * 13.0
+            let baseWidth = 22.0 + intensity * 17.0
             for layer in 0..<8 {
                 let fraction = Double(layer) / 7.0
-                let halfWidth = baseWidth * (2.8 - fraction * 2.55)
-                let opacity = min(0.44, (0.025 + fraction * 0.032) * brightness)
+                let halfWidth = baseWidth * (2.5 - fraction * 2.25)
+                let opacity = min(0.38, (0.022 + fraction * 0.028) * brightness)
                 let offset = sin(time * 0.38 + Double(light) * 2.3 + fraction * 5.0) * h * 0.004
                 let tip = CGPoint(x: end.x + perpendicular.x * offset, y: end.y + perpendicular.y * offset)
                 var shaft = Path()
@@ -199,7 +215,7 @@ struct RibbonScene: View {
                 let drift = sin(time * 0.55 + Double(particle) * 1.89 + Double(light)) * 10
                 let center = CGPoint(x: source.x + dx / length * h * 0.8 * distance + perpendicular.x * drift,
                                      y: source.y + dy / length * h * 0.8 * distance + perpendicular.y * drift)
-                let radius = 13.0 + distance * 30
+                let radius = 18.0 + distance * 35
                 let haze = CGRect(x: center.x - radius, y: center.y - radius,
                                   width: radius * 2, height: radius * 2)
                 context.fill(Path(ellipseIn: haze), with: .radialGradient(
@@ -209,8 +225,8 @@ struct RibbonScene: View {
             }
             let halo = CGRect(x: source.x - 14, y: source.y - 14, width: 28, height: 28)
             context.fill(Path(ellipseIn: halo), with: .radialGradient(
-                Gradient(colors: [.white.opacity(0.9 * brightness),
-                                  ice.opacity(0.32 * brightness), .clear]),
+                Gradient(colors: [.white.opacity(0.98 * brightness),
+                                  ice.opacity(0.55 * brightness), .clear]),
                 center: source, startRadius: 0, endRadius: 14
             ))
         }
