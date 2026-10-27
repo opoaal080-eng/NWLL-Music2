@@ -49,6 +49,7 @@ final class NativePlayer {
     private let independentMeter = IndependentAudioMeter()
     private var usesLiveMeter = true
     private var liveMeterStartUptime = ProcessInfo.processInfo.systemUptime
+    private var liveMeterLastSignalUptime = ProcessInfo.processInfo.systemUptime
     var onChange: (() -> Void)?
     private(set) var origin: URL?
     private var tracks: [NativeTrack] = []
@@ -244,6 +245,7 @@ final class NativePlayer {
         // Start once playable instead of waiting for a long forward buffer.
         audioMeter = LocalAudioMeter()
         liveMeterStartUptime = ProcessInfo.processInfo.systemUptime
+        liveMeterLastSignalUptime = liveMeterStartUptime
         configureAudioMeter(for: item)
         player.replaceCurrentItem(with: item)
         itemObservation = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
@@ -580,7 +582,8 @@ final class NativePlayer {
         // Live taps can take a moment to start, but avoid downloading a second
         // copy of the track once live PCM analysis is already available.
         if usesLiveMeter {
-            if audioMeter.processing { return }
+            if audioMeter.processing &&
+               ProcessInfo.processInfo.systemUptime - liveMeterLastSignalUptime < 2.0 { return }
             // Give the local PCM tap time to start before initiating a separate
             // network download and full-file envelope analysis.
             if ProcessInfo.processInfo.systemUptime - liveMeterStartUptime < 2.5 { return }
@@ -676,7 +679,18 @@ final class NativePlayer {
     }
     func auraLevels() -> [Double] {
         let playing = audible
-        if usesLiveMeter && audioMeter.processing { return audioMeter.frequencyLevels(playing: playing) }
+        if usesLiveMeter && audioMeter.processing {
+            let bands = audioMeter.frequencyLevels(playing: playing)
+            if bands.contains(where: { $0.isFinite && $0 > 0.003 }) {
+                liveMeterLastSignalUptime = ProcessInfo.processInfo.systemUptime
+                return bands
+            }
+            // A running PCM tap can stop delivering samples without reporting a failure.
+            // Prefer the independent track envelope after prolonged silence.
+            if !playing || ProcessInfo.processInfo.systemUptime - liveMeterLastSignalUptime < 2.0 {
+                return bands
+            }
+        }
         let fallback = independentMeter.level(at: playbackPosition, playing: playing)
         return [fallback, fallback, fallback, fallback]
     }
