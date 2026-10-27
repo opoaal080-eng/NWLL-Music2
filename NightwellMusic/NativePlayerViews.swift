@@ -334,16 +334,26 @@ private struct NightwellAudioOutputControl: View {
         AVAudioSession.sharedInstance().currentRoute.outputs.first?.portName ?? "iPhone"
     }
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "hifispeaker")
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Устройство вывода").font(.caption2).foregroundStyle(.secondary)
-                Text(output).font(.subheadline).lineLimit(1)
-            }
-            Spacer(minLength: 8)
+        HStack(spacing: 6) {
+            Image(systemName: "airplayaudio")
+                .font(.caption)
+            Text(output)
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+            Image(systemName: "chevron.down")
+                .font(.caption2)
+        }
+        .foregroundStyle(.primary)
+        .padding(.horizontal, 12)
+        .frame(height: 44)
+        .background(.ultraThinMaterial, in: Capsule())
+        .overlay {
+            // A transparent native route picker covers the whole label:
+            // tapping the device name opens Apple's output selection sheet.
             NightwellAudioRoutePicker()
-                .frame(width: 44, height: 44)
-                .accessibilityLabel("Изменить устройство вывода")
+                .opacity(0.02)
+                .accessibilityLabel("Устройство вывода: \\(output). Изменить")
         }
         .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification)) { _ in
             output = Self.currentOutput()
@@ -368,7 +378,7 @@ struct FullPlayer: View {
         ZStack {
             SeasonBackground()
             VStack(spacing: 20) {
-                HStack { Button { dismiss() } label: { Image(systemName: "chevron.down").frame(width: 46, height: 46).nightwellLiquidGlass(24) }; Spacer(); VStack(spacing: 5) { Text("HALLOWEEN EDITION").font(.caption2).tracking(3).foregroundStyle(pumpkin); Text("Играет сейчас").font(.headline) }; Spacer(); tools }
+                HStack { Button { dismiss() } label: { Image(systemName: "chevron.down").frame(width: 46, height: 46).nightwellLiquidGlass(24) }; Spacer(); VStack(spacing: 5) { NightwellAudioOutputControl(); Text("Играет сейчас").font(.headline) }; Spacer(); tools }
                 GeometryReader { box in
                     if showLyrics {
                         SharedLyricsPanel(model: store.lyrics, clock: clock)
@@ -403,8 +413,6 @@ struct FullPlayer: View {
                         Button { NativePlayer.shared.step(1) } label: { Image(systemName: "forward.end") }; Spacer()
                         Button { repeatMode = (repeatMode + 1) % 3; NativePlayer.shared.modes(repeatMode: repeatMode, shuffle: shuffle) } label: { Image(systemName: repeatMode == 2 ? "repeat.1" : "repeat").foregroundStyle(repeatMode > 0 ? pumpkin : .secondary) }
                     }.font(.title2)
-                    Divider()
-                    NightwellAudioOutputControl()
                     Divider()
                     Button { showQueue = true } label: { HStack { Image(systemName: "list.bullet"); Text("Дальше в очереди"); Spacer(); Text(String(clock.queue.count)).foregroundStyle(.secondary) } }.font(.subheadline)
                 }.padding(22).nightwellLiquidGlass(32)
