@@ -20,18 +20,28 @@ struct RibbonScene: View {
     let flash: Int
     @Environment(\.scenePhase) private var scene
     @Environment(\.accessibilityReduceMotion) private var reduced
-    @State private var flashDate = Date.distantPast
+    @State private var pulse = 0.0
+    @State private var targets = (0..<8).map { _ in CGPoint(x: 0.5, y: 0.45) }
+    @State private var lamps = [Double](repeating: 0, count: 8)
     @State private var energy = 0.0
     @State private var frameDate = Date()
     var body: some View {
         Canvas(opaque: false, rendersAsynchronously: true) { context, size in
             draw(context: context, size: size, date: frameDate)
         }
-        .onChange(of: flash) { _ in flashDate = frameDate }
-        .task(id: scene == .active && !reduced) { @MainActor in
-            guard scene == .active, !reduced else { return }
+        
+        .task(id: scene == .active && playing && !reduced) { @MainActor in
+            pulse = 0
+            energy = 0
+            guard scene == .active, playing, !reduced else { return }
             // A fresh frame loop starts on every foreground entry and view appearance.
             // Cancellation stops it when this scene is hidden or the app is inactive.
+            var baseline = 0.0
+            var lastLevel = 0.0
+            var lastBeat = -Double.infinity
+            var beatInterval = 0.5
+            var release = 0.18
+            var desired = targets
             var previous = ProcessInfo.processInfo.systemUptime
             while !Task.isCancelled {
                 let now = ProcessInfo.processInfo.systemUptime
@@ -44,12 +54,35 @@ struct RibbonScene: View {
                 let selected = zip(bands, enabled).compactMap { value, active in active && value.isFinite ? value : nil }
                 let raw = selected.isEmpty ? 0 : selected.reduce(0, +) / Double(selected.count)
                 let level = min(1, max(0, raw * (premium.allowed ? p.ribbon_intensity : 1)))
+                let onset = level > 0.035 && level > baseline * 1.3 + 0.012
+                    && level - lastLevel > 0.012 && now - lastBeat > 0.24
+                baseline += (level - baseline) * (1 - exp(-elapsed / 0.55))
+                lastLevel = level
                 var transaction = Transaction()
                 transaction.disablesAnimations = true
                 withTransaction(transaction) {
-                    energy += (level - energy) * (level > energy ? 0.55 : 0.2)
-                    // Do not jump through the time spent in the background.
-                    frameDate = frameDate.addingTimeInterval(elapsed * (premium.allowed ? premium.preferences.ribbon_speed : 1))
+                    energy = level
+                    if onset {
+                        let interval = now - lastBeat
+                        if interval >= 0.24 && interval <= 1.5 {
+                            beatInterval = beatInterval * 0.5 + interval * 0.5
+                        }
+                        lastBeat = now
+                        release = min(0.24, max(0.09, beatInterval * 0.36))
+                        pulse = 1
+                        let active = Set((0..<8).shuffled().prefix(Int.random(in: 3...8)))
+                        lamps = (0..<8).map { active.contains($0) ? Double.random(in: 0.65...1) : 0 }
+                        desired = (0..<8).map { _ in CGPoint(x: Double.random(in: 0.08...0.92), y: Double.random(in: 0.25...0.75)) }
+                    } else {
+                        pulse = max(0, pulse - elapsed / release)
+                    }
+                    if level < 0.008 { pulse = 0 }
+                    let speed = premium.allowed ? max(0.2, p.ribbon_speed) : 1
+                    let blend = 1 - exp(-elapsed * 9 * speed)
+                    targets = zip(targets, desired).map { old, next in
+                        CGPoint(x: old.x + (next.x - old.x) * blend,
+                                y: old.y + (next.y - old.y) * blend)
+                    }
                 }
                 do { try await Task.sleep(nanoseconds: 16_666_667) }
                 catch { return }
@@ -58,16 +91,17 @@ struct RibbonScene: View {
         .allowsHitTesting(false)
     }
     private func draw(context: GraphicsContext, size: CGSize, date: Date) {
-        guard size.width > 1 && size.height > 1 else { return }
-        let t = reduced ? 0 : date.timeIntervalSinceReferenceDate * 0.22
+        guard playing, !reduced, pulse > 0.001, size.width > 1 && size.height > 1 else { return }
         let w = Double(size.width), h = Double(size.height)
         let intensity = playing ? energy : 0.0
         let ice = Color(red: 0.70, green: 0.83, blue: 1)
         for light in 0..<8 {
+            let brightness = pulse * lamps[light]
+            guard brightness > 0.001 else { continue }
             let left = light % 2 == 0
             let row = Double(light / 2)
             let source = CGPoint(x: left ? w * 0.03 : w * 0.97, y: h * (0.23 + row * 0.17))
-            let target = CGPoint(x: w * (0.5 + sin(t + Double(light) * 1.7) * 0.42), y: h * (0.38 + cos(t * 0.7 + Double(light)) * 0.23))
+            let target = CGPoint(x: w * targets[light].x, y: h * targets[light].y)
             let dx = target.x - source.x, dy = target.y - source.y
             let length = max(1, hypot(dx, dy))
             let end = CGPoint(x: source.x + dx / length * h * 0.8, y: source.y + dy / length * h * 0.8)
@@ -81,10 +115,10 @@ struct RibbonScene: View {
                 cone.addLine(to: CGPoint(x: tip.x - dy / length * width, y: tip.y + dx / length * width))
                 cone.addLine(to: CGPoint(x: tip.x + dy / length * width, y: tip.y - dx / length * width))
                 cone.closeSubpath()
-                context.fill(cone, with: .linearGradient(Gradient(colors: [ice.opacity(0.22 + intensity * 0.2), ice.opacity(0.05), .clear]), startPoint: source, endPoint: tip))
+                context.fill(cone, with: .linearGradient(Gradient(colors: [ice.opacity((0.22 + intensity * 0.2) * brightness), ice.opacity(0.05 * brightness), .clear]), startPoint: source, endPoint: tip))
             }
             let halo = CGRect(x: source.x - 12, y: source.y - 12, width: 24, height: 24)
-            context.fill(Path(ellipseIn: halo), with: .radialGradient(Gradient(colors: [.white.opacity(0.8), ice.opacity(0.25), .clear]), center: source, startRadius: 0, endRadius: 12))
+            context.fill(Path(ellipseIn: halo), with: .radialGradient(Gradient(colors: [.white.opacity(0.8 * brightness), ice.opacity(0.25 * brightness), .clear]), center: source, startRadius: 0, endRadius: 12))
         }
     }
 }
@@ -119,10 +153,10 @@ struct NativeHome: View {
                         else { clock.toggle() }
                     } label: {
                         Image(systemName: clock.playing ? "pause.fill" : "play.fill")
-                            .font(.system(size: 40, weight: .light))
+                            .font(.system(size: 31, weight: .light))
                             .foregroundStyle(Color.white)
-                            .frame(width: 112, height: 112)
-                            .nightwellLiquidGlass(56)
+                            .frame(width: 88, height: 88)
+                            .nightwellLiquidGlass(44)
                             .shadow(color: Color.white.opacity(0.28), radius: 24)
                     }
                     .accessibilityLabel(clock.playing ? "Пауза" : "Воспроизвести")
@@ -828,6 +862,7 @@ struct NativeSettings: View {
 
     }
 }
+
 
 
 
