@@ -145,20 +145,52 @@ struct RibbonScene: View {
             let dx = target.x - source.x, dy = target.y - source.y
             let length = max(1, hypot(dx, dy))
             let end = CGPoint(x: source.x + dx / length * h * 0.8, y: source.y + dy / length * h * 0.8)
-            for ray in -2...2 {
-                let spread = Double(ray) * 0.025
-                let offset = h * spread
-                let tip = CGPoint(x: end.x - dy / length * offset, y: end.y + dx / length * offset)
-                let width = 9.0 + intensity * 13
-                var cone = Path()
-                cone.move(to: source)
-                cone.addLine(to: CGPoint(x: tip.x - dy / length * width, y: tip.y + dx / length * width))
-                cone.addLine(to: CGPoint(x: tip.x + dy / length * width, y: tip.y - dx / length * width))
-                cone.closeSubpath()
-                context.fill(cone, with: .linearGradient(Gradient(colors: [ice.opacity((0.22 + intensity * 0.2) * brightness), ice.opacity(0.05 * brightness), .clear]), startPoint: source, endPoint: tip))
+            // Layered volumetric cone: feathered edges, dense central shaft and drifting haze.
+            let perpendicular = CGPoint(x: -dy / length, y: dx / length)
+            let time = date.timeIntervalSinceReferenceDate
+            let baseWidth = 19.0 + intensity * 18.0
+            for layer in 0..<8 {
+                let fraction = Double(layer) / 7.0
+                let halfWidth = baseWidth * (2.1 - fraction * 1.75)
+                let opacity = min(0.32, (0.018 + fraction * 0.019) * brightness)
+                let offset = sin(time * 0.38 + Double(light) * 2.3 + fraction * 5.0) * h * 0.004
+                let tip = CGPoint(x: end.x + perpendicular.x * offset, y: end.y + perpendicular.y * offset)
+                var shaft = Path()
+                shaft.move(to: source)
+                shaft.addLine(to: CGPoint(x: tip.x + perpendicular.x * halfWidth,
+                                         y: tip.y + perpendicular.y * halfWidth))
+                shaft.addLine(to: CGPoint(x: tip.x - perpendicular.x * halfWidth,
+                                         y: tip.y - perpendicular.y * halfWidth))
+                shaft.closeSubpath()
+                context.fill(shaft, with: .linearGradient(
+                    Gradient(stops: [
+                        .init(color: .white.opacity(opacity * 0.85), location: 0),
+                        .init(color: ice.opacity(opacity), location: 0.26),
+                        .init(color: ice.opacity(opacity * 0.58), location: 0.72),
+                        .init(color: .clear, location: 1)
+                    ]), startPoint: source, endPoint: tip
+                ))
             }
-            let halo = CGRect(x: source.x - 12, y: source.y - 12, width: 24, height: 24)
-            context.fill(Path(ellipseIn: halo), with: .radialGradient(Gradient(colors: [.white.opacity(0.8 * brightness), ice.opacity(0.25 * brightness), .clear]), center: source, startRadius: 0, endRadius: 12))
+            // Delicate atmospheric wisps, positioned deterministically to avoid flicker.
+            for particle in 0..<9 {
+                let distance = 0.16 + Double(particle) * 0.079
+                let drift = sin(time * 0.55 + Double(particle) * 1.89 + Double(light)) * 10
+                let center = CGPoint(x: source.x + dx / length * h * 0.8 * distance + perpendicular.x * drift,
+                                     y: source.y + dy / length * h * 0.8 * distance + perpendicular.y * drift)
+                let radius = 9.0 + distance * 20
+                let haze = CGRect(x: center.x - radius, y: center.y - radius,
+                                  width: radius * 2, height: radius * 2)
+                context.fill(Path(ellipseIn: haze), with: .radialGradient(
+                    Gradient(colors: [.white.opacity(0.045 * brightness), .clear]),
+                    center: center, startRadius: 0, endRadius: radius
+                ))
+            }
+            let halo = CGRect(x: source.x - 14, y: source.y - 14, width: 28, height: 28)
+            context.fill(Path(ellipseIn: halo), with: .radialGradient(
+                Gradient(colors: [.white.opacity(0.9 * brightness),
+                                  ice.opacity(0.32 * brightness), .clear]),
+                center: source, startRadius: 0, endRadius: 14
+            ))
         }
     }
 }
