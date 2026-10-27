@@ -143,25 +143,25 @@ struct RibbonScene: View {
         guard playing, !reduced, pulse > 0.001, size.width > 1 && size.height > 1 else { return }
         let w = Double(size.width), h = Double(size.height)
         let intensity = playing ? energy : 0.0
-        let ice = Color(red: 0.70, green: 0.83, blue: 1)
+        let ice = Color.white
         for light in 0..<8 {
             let brightness = lamps[light]
             guard brightness > 0.001 else { continue }
             let left = light % 2 == 0
             let row = Double(light / 2)
-            let source = CGPoint(x: left ? w * 0.03 : w * 0.97, y: h * (0.23 + row * 0.17))
+            let source = CGPoint(x: left ? w * 0.025 : w * 0.975, y: h * (0.23 + row * 0.17))
             let target = CGPoint(x: w * targets[light].x, y: h * targets[light].y)
             let dx = target.x - source.x, dy = target.y - source.y
             let length = max(1, hypot(dx, dy))
-            let end = CGPoint(x: source.x + dx / length * h * 0.8, y: source.y + dy / length * h * 0.8)
+            let end = CGPoint(x: source.x + dx / length * h * 0.92, y: source.y + dy / length * h * 0.92)
             // Layered volumetric cone: feathered edges, dense central shaft and drifting haze.
             let perpendicular = CGPoint(x: -dy / length, y: dx / length)
             let time = date.timeIntervalSinceReferenceDate
-            let baseWidth = 19.0 + intensity * 18.0
+            let baseWidth = 13.0 + intensity * 13.0
             for layer in 0..<8 {
                 let fraction = Double(layer) / 7.0
-                let halfWidth = baseWidth * (2.1 - fraction * 1.75)
-                let opacity = min(0.32, (0.018 + fraction * 0.019) * brightness)
+                let halfWidth = baseWidth * (2.8 - fraction * 2.55)
+                let opacity = min(0.44, (0.025 + fraction * 0.032) * brightness)
                 let offset = sin(time * 0.38 + Double(light) * 2.3 + fraction * 5.0) * h * 0.004
                 let tip = CGPoint(x: end.x + perpendicular.x * offset, y: end.y + perpendicular.y * offset)
                 var shaft = Path()
@@ -171,6 +171,19 @@ struct RibbonScene: View {
                 shaft.addLine(to: CGPoint(x: tip.x - perpendicular.x * halfWidth,
                                          y: tip.y - perpendicular.y * halfWidth))
                 shaft.closeSubpath()
+                // A narrow inner shaft gives each beam a realistic focused hotspot.
+                if layer == 7 {
+                    var core = Path()
+                    let narrow = max(1.5, halfWidth * 0.19)
+                    core.move(to: source)
+                    core.addLine(to: CGPoint(x: tip.x + perpendicular.x * narrow, y: tip.y + perpendicular.y * narrow))
+                    core.addLine(to: CGPoint(x: tip.x - perpendicular.x * narrow, y: tip.y - perpendicular.y * narrow))
+                    core.closeSubpath()
+                    context.fill(core, with: .linearGradient(
+                        Gradient(colors: [.white.opacity(0.24 * brightness), .white.opacity(0.11 * brightness), .clear]),
+                        startPoint: source, endPoint: tip
+                    ))
+                }
                 context.fill(shaft, with: .linearGradient(
                     Gradient(stops: [
                         .init(color: .white.opacity(opacity * 0.85), location: 0),
@@ -186,11 +199,11 @@ struct RibbonScene: View {
                 let drift = sin(time * 0.55 + Double(particle) * 1.89 + Double(light)) * 10
                 let center = CGPoint(x: source.x + dx / length * h * 0.8 * distance + perpendicular.x * drift,
                                      y: source.y + dy / length * h * 0.8 * distance + perpendicular.y * drift)
-                let radius = 9.0 + distance * 20
+                let radius = 13.0 + distance * 30
                 let haze = CGRect(x: center.x - radius, y: center.y - radius,
                                   width: radius * 2, height: radius * 2)
                 context.fill(Path(ellipseIn: haze), with: .radialGradient(
-                    Gradient(colors: [.white.opacity(0.045 * brightness), .clear]),
+                    Gradient(colors: [.white.opacity(0.06 * brightness), .clear]),
                     center: center, startRadius: 0, endRadius: radius
                 ))
             }
