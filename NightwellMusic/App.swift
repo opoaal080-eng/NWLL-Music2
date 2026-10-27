@@ -26,7 +26,7 @@ enum ServerAddress {
         parts.path = "/"; return parts.url
     }
 }
-let pumpkin = Color(red: 1, green: 0.72, blue: 0.43)
+let pumpkin = Color.white
 let nightwellViolet = Color(red: 0.19, green: 0.10, blue: 0.29)
 let nightwellText = Color(red: 0.94, green: 0.88, blue: 0.97)
 extension View {
@@ -335,7 +335,7 @@ struct NativeRoot: View {
             Menu {
                 Section {
                     Label(store.connectionStatus, systemImage: store.connectionStatus == "Онлайн" ? "wifi" : store.connectionStatus == "Загрузка…" ? "arrow.triangle.2.circlepath" : "wifi.slash")
-                        .foregroundStyle(store.connectionStatus == "Онлайн" ? .green : store.connectionStatus == "Загрузка…" ? .orange : .red)
+                        .foregroundStyle(.white)
                 } header: {
                     Text("Состояние подключения")
                 }
@@ -602,7 +602,7 @@ private struct NightwellNativeTransfer: View {
                                 Button(saving ? "Добавляем…" : "Добавить") { Task { await commit() } }.buttonStyle(.borderedProminent).disabled(saving)
                             }
                             if activeStates.contains(job.state) {
-                                Button("Остановить") { Task { await cancel() } }.tint(.orange)
+                                Button("Остановить") { Task { await cancel() } }.tint(.white)
                             }
                         }.padding(18).nightwellLiquidGlass(24)
                     }
@@ -627,7 +627,7 @@ private struct NightwellNativeTransfer: View {
                         }
                         if historyExpanded {
                             if !historyError.isEmpty {
-                                Text(historyError).font(.caption).foregroundStyle(.orange)
+                                Text(historyError).font(.caption).foregroundStyle(.white)
                             }
                             let previous = history.filter { !activeStates.contains($0.state) && $0.id != job?.id }
                             if previous.isEmpty { Text("История пуста").font(.caption).foregroundStyle(.secondary) }
@@ -647,7 +647,7 @@ private struct NightwellNativeTransfer: View {
                             }
                         }
                     }
-                    if !errorText.isEmpty { Text(errorText).foregroundStyle(.orange).font(.caption) }
+                    if !errorText.isEmpty { Text(errorText).foregroundStyle(.white).font(.caption) }
 
                 }.padding(20)
             }
