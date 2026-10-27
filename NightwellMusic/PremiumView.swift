@@ -77,9 +77,9 @@ struct PremiumView: View {
                 VStack(spacing: 16) {
                     ZStack {
                         Circle()
-                            .fill(LinearGradient(colors: [Color(red: 0.34, green: 0.96, blue: 0.52), Color.green], startPoint: .topLeading, endPoint: .bottomTrailing))
+                            .fill(LinearGradient(colors: [Color.white, Color(white: 0.72)], startPoint: .topLeading, endPoint: .bottomTrailing))
                             .frame(width: 54, height: 54)
-                            .shadow(color: Color.green.opacity(0.28), radius: 18, y: 6)
+                            .shadow(color: Color.white.opacity(0.18), radius: 18, y: 6)
                         Image(systemName: "checkmark")
                             .font(.system(size: 32, weight: .bold))
                             .foregroundStyle(.black.opacity(0.78))
@@ -149,7 +149,7 @@ struct PremiumView: View {
                     }
                     .buttonStyle(.plain)
                     .font(.system(size: 17, weight: .regular))
-                    .foregroundStyle(Color.blue)
+                    .foregroundStyle(Color.white)
                     .disabled(checking)
                     .padding(.bottom, 8)
                 }
@@ -159,7 +159,7 @@ struct PremiumView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(
-            LinearGradient(colors: [Color(red: 0.24, green: 0.10, blue: 0.40).opacity(0.92), Color.black.opacity(0.95)], startPoint: .topLeading, endPoint: .bottomTrailing)
+            LinearGradient(colors: [Color(white: 0.09).opacity(0.96), Color.black.opacity(0.95)], startPoint: .topLeading, endPoint: .bottomTrailing)
         )
     }
 
@@ -200,7 +200,7 @@ struct PremiumView: View {
                 .disabled(!consent || !externalPayments || paying || checking)
                 Button(checking ? "Проверяем…" : "Проверить оплату") { Task { await refresh() } }
                     .buttonStyle(.plain)
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(.white)
                     .disabled(checking)
             }
             .padding(10)
@@ -367,7 +367,7 @@ private struct PremiumPaymentBrowser: UIViewControllerRepresentable {
         let controller = SFSafariViewController(url: url, configuration: configuration)
         controller.delegate = context.coordinator
         controller.dismissButtonStyle = .close
-        controller.preferredControlTintColor = .systemOrange
+        controller.preferredControlTintColor = .white
         return controller
     }
 
