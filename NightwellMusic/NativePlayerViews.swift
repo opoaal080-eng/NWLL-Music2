@@ -41,6 +41,11 @@ struct RibbonScene: View {
             var envelopes = [Double](repeating: 0, count: 8)
             var previousBands = [Double](repeating: 0, count: 4)
             var lastMove = ProcessInfo.processInfo.systemUptime
+            var beatBaseline = 0.04
+            var previousRhythm = 0.0
+            var lastBeat = -10.0
+            var beatPeriod = 0.52
+            var motionSpeed = 1.0
             var desired = targets
             var previous = ProcessInfo.processInfo.systemUptime
             while !Task.isCancelled {
@@ -63,15 +68,38 @@ struct RibbonScene: View {
                     levels[index] = min(1, max(0, normalized * gain))
                 }
                 let overall = levels.reduce(0, +) / 4
-                let speed = premium.allowed ? max(0.2, p.ribbon_speed) : 1.0
-                if now - lastMove > max(0.20, 0.48 / speed) && overall > 0.018 {
+                // Estimate tempo from low/mid-band transients, not from a fixed animation timer.
+                let rhythm = levels[1] * 0.62 + levels[2] * 0.28 + levels[0] * 0.10
+                beatBaseline += (rhythm - beatBaseline) * (1 - exp(-elapsed / 0.65))
+                let onset = rhythm - previousRhythm
+                previousRhythm = rhythm
+                if rhythm > 0.10 && onset > 0.055 && rhythm > beatBaseline * 1.12 &&
+                    now - lastBeat > 0.22 {
+                    let interval = now - lastBeat
+                    if interval >= 0.22 && interval <= 1.5 {
+                        // Smooth noisy intervals to avoid sudden jumps in stage-light movement.
+                        beatPeriod += (interval - beatPeriod) * 0.28
+                    }
+                    lastBeat = now
+                    desired = (0..<8).map { _ in
+                        CGPoint(x: Double.random(in: 0.08...0.92),
+                                y: Double.random(in: 0.25...0.75))
+                    }
+                    lastMove = now
+                }
+                let rate = min(2.7, max(0.55, 0.52 / beatPeriod))
+                let manualSpeed = premium.allowed ? max(0.2, p.ribbon_speed) : 1.0
+                let requestedSpeed = manualSpeed * rate * (0.72 + min(0.7, overall))
+                motionSpeed += (requestedSpeed - motionSpeed) * (1 - exp(-elapsed / 0.30))
+                // For sustained passages without detected beats, move at a tempo-scaled interval.
+                if overall > 0.018 && now - lastMove > max(0.22, beatPeriod * 1.35) {
                     lastMove = now
                     desired = (0..<8).map { _ in
                         CGPoint(x: Double.random(in: 0.08...0.92),
                                 y: Double.random(in: 0.25...0.75))
                     }
                 }
-                let blend = 1 - exp(-elapsed * 3.4 * speed)
+                let blend = 1 - exp(-elapsed * 3.4 * motionSpeed)
                 var nextLamps = lamps
                 for index in 0..<8 {
                     let bandIndex = [1, 0, 2, 3, 1, 2, 0, 3][index]
@@ -784,9 +812,9 @@ struct AuthSheet: View {
                     }
                 }.disabled(busy).padding(16).background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 25))
                 if !failure.isEmpty {
-                    Text(failure).font(.subheadline).foregroundStyle(.orange).padding(14)
+                    Text(failure).font(.subheadline).foregroundStyle(.white).padding(14)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.orange.opacity(0.15), in: RoundedRectangle(cornerRadius: 16))
+                        .background(Color.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 16))
                 }
                 Button {
                     guard !cannotSubmit else { return }
