@@ -510,7 +510,7 @@ struct FullPlayer: View {
                 }.font(.system(size: 20)).nightwellLiquidGlass(32)
                 if !clock.failure.isEmpty { Text(clock.failure).font(.caption).foregroundStyle(pumpkin) }
             }.padding(.horizontal, 26).padding(.top, 12).padding(.bottom, 4)
-        }.overlay { NativeFogLayer(active: !showQueue) }.tint(pumpkin)
+        }.tint(pumpkin)
         .environment(\.lyricsPalette, artworkTextColors)
         .onPreferenceChange(ArtworkPaletteKey.self) { colors in
             artworkTextColors = colors.isEmpty ? [.white, .white] : colors
