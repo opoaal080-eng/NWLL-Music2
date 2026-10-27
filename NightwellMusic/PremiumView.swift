@@ -196,7 +196,8 @@ struct PremiumView: View {
                     Task { await checkout() }
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(pumpkin)
+                .tint(Color(white: 0.24))
+                .foregroundStyle(.white)
                 .disabled(!consent || !externalPayments || paying || checking)
                 Button(checking ? "Проверяем…" : "Проверить оплату") { Task { await refresh() } }
                     .buttonStyle(.plain)
