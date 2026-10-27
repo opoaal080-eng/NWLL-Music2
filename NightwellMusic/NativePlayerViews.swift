@@ -46,6 +46,8 @@ struct RibbonScene: View {
             var lastBeat = -10.0
             var beatPeriod = 0.52
             var motionSpeed = 1.0
+            var lastAudioSignal = ProcessInfo.processInfo.systemUptime
+            var standbyGlow = 0.0
             var desired = targets
             var previous = ProcessInfo.processInfo.systemUptime
             while !Task.isCancelled {
@@ -68,6 +70,13 @@ struct RibbonScene: View {
                     levels[index] = min(1, max(0, normalized * gain))
                 }
                 let overall = levels.reduce(0, +) / 4
+                // Audio taps can temporarily stop reporting levels during an otherwise active track.
+                // Keep a subtle live stage instead of allowing every light to disappear.
+                let hasAudioSignal = incoming.contains { $0.isFinite && $0 > 0.003 }
+                if hasAudioSignal { lastAudioSignal = now }
+                let signalMissing = now - lastAudioSignal > 0.70
+                let standbyTarget = signalMissing ? 0.24 : 0.0
+                standbyGlow += (standbyTarget - standbyGlow) * (1 - exp(-elapsed / 0.85))
                 // Estimate tempo from low/mid-band transients, not from a fixed animation timer.
                 let rhythm = levels[1] * 0.62 + levels[2] * 0.28 + levels[0] * 0.10
                 beatBaseline += (rhythm - beatBaseline) * (1 - exp(-elapsed / 0.65))
@@ -92,7 +101,7 @@ struct RibbonScene: View {
                 let requestedSpeed = manualSpeed * rate * (0.72 + min(0.7, overall))
                 motionSpeed += (requestedSpeed - motionSpeed) * (1 - exp(-elapsed / 0.30))
                 // For sustained passages without detected beats, move at a tempo-scaled interval.
-                if overall > 0.018 && now - lastMove > max(0.22, beatPeriod * 1.35) {
+                if (overall > 0.018 || standbyGlow > 0.04) && now - lastMove > max(0.22, beatPeriod * 1.35) {
                     lastMove = now
                     desired = (0..<8).map { _ in
                         CGPoint(x: Double.random(in: 0.08...0.92),
@@ -105,7 +114,7 @@ struct RibbonScene: View {
                     let bandIndex = [1, 0, 2, 3, 1, 2, 0, 3][index]
                     let band = levels[bandIndex]
                     let attack = max(0, band - previousBands[bandIndex])
-                    let target = min(1, max(0, band * 0.84 + overall * 0.27 + attack * 0.38))
+                    let target = min(1, max(standbyGlow, band * 0.84 + overall * 0.27 + attack * 0.38))
                     let response = 1 - exp(-elapsed / (target > envelopes[index] ? 0.055 : 0.42))
                     envelopes[index] += (target - envelopes[index]) * response
                     nextLamps[index] = envelopes[index]
