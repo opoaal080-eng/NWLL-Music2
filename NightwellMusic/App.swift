@@ -224,6 +224,8 @@ struct NativeRoot: View {
                         .overlay(alignment: .bottom) {
                             if store.screen == .home {
                                 HomeLyricLine(model: store.lyrics, clock: store.clock)
+                                    .environment(\.lyricsPalette, [.white, Color(white: 0.82)])
+                                    .saturation(0)
                                     .frame(height: 60)
                                     .padding(.horizontal, 24)
                                     .offset(y: -85)
