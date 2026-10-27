@@ -32,7 +32,7 @@ public final class MainActivity extends Activity {
     private LinearLayout root,body,dock,head;
     private TextView status,miniTitle,miniArtist,miniPlay,miniPrev,miniNext,miniLike;
     private android.widget.ImageView miniCover;private android.graphics.drawable.ClipDrawable miniProgress;
-    private TextView fullTime,homePlay,fullPlay,fullLike;
+    private TextView fullTime,homePlay,fullPlay,fullLike,fullAudioOutput;
     private SeekBar seek;
     private EditText search;
     private TextView lyricsText;private android.widget.ScrollView lyricsScroll;private JSONArray lyricLines;private int activeLyric=-2;private String lyricsTrack="";
@@ -81,7 +81,7 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);setIntent(intent);acceptDeepLink(intent);}
 
-    private final Runnable tick=new Runnable(){public void run(){premiumTick();updatePlayback();String next=BackgroundDownloads.progress(MainActivity.this);if(!next.equals(downloadProgress)){downloadProgress=next;status.setText(next);}if(visible)ui.postDelayed(this,playback!=null&&playback.player.getPlayWhenReady()?500:1200);}};
+    private final Runnable tick=new Runnable(){public void run(){premiumTick();updatePlayback();if(fullAudioOutput!=null&&fullAudioOutput.isAttachedToWindow()){String output=audioOutputName();fullAudioOutput.setText("♫  "+output+"  ⌄");fullAudioOutput.setContentDescription("Устройство вывода: "+output+". Изменить");}String next=BackgroundDownloads.progress(MainActivity.this);if(!next.equals(downloadProgress)){downloadProgress=next;status.setText(next);}if(visible)ui.postDelayed(this,playback!=null&&playback.player.getPlayWhenReady()?500:1200);}};
     private final androidx.media3.common.Player.Listener playbackIntentObserver=new androidx.media3.common.Player.Listener(){
         @Override public void onPlayWhenReadyChanged(boolean ready,int reason){if(!ready&&mixing)cancelMix();}
         @Override public void onMediaItemTransition(androidx.media3.common.MediaItem item,int reason){if(mixing)cancelMix();}
@@ -121,7 +121,7 @@ public final class MainActivity extends Activity {
     void toggleBackgroundOnly(){backgroundOnly=!backgroundOnly;build();}
     void showQueue(){AlertDialog d=new AlertDialog.Builder(this).setTitle("Очередь воспроизведения").setItems(trackNames(queue),(dialog,index)->play(queue.optJSONObject(index),queue,false)).setNegativeButton("Закрыть",null).create();styleSheet(d);d.show();}
     void build(){
-        if(ribbon!=null)ribbon.running(false);full=false;lyricsOpen=false;seek=null;fullTime=null;fullPlay=null;fullLike=null;
+        if(ribbon!=null)ribbon.running(false);full=false;lyricsOpen=false;seek=null;fullTime=null;fullPlay=null;fullLike=null;fullAudioOutput=null;
         // Render scenery and aura across the window, outside the padded controls.
         android.widget.FrameLayout scene=new android.widget.FrameLayout(this);
         scene.setBackground(new NativeSceneryDrawable(this));
@@ -686,7 +686,29 @@ public final class MainActivity extends Activity {
     String iconLabel(String icon){switch(icon){case "⌕":return "Поиск музыки";case "☰":return "Открыть меню";case "⋯":return "Действия с треком";case "⌄":return "Свернуть плеер";case "×":return "Закрыть";case "|‹":return "Предыдущий трек";case "›|":return "Следующий трек";case "♡":case "♥":return "Избранное";case "⇄":return "Перемешать";case "↻":return "Повтор";default:return "Воспроизведение";}}
     void openPlayer(){
         JSONObject track=current();if(track==null)return;full=true;if(atmosphere!=null)atmosphere.setVisibility(View.GONE);if(ribbon!=null){ribbon.running(false);ribbon.setVisibility(View.GONE);}dock.setVisibility(View.GONE);head.setVisibility(View.GONE);body.removeAllViews();
-        LinearLayout top=row();TextView close=iconButton("⌄",()->{full=false;build();});top.addView(close,new LinearLayout.LayoutParams(dp(48),dp(48)));TextView caption=text("Играет сейчас",18);caption.setGravity(Gravity.CENTER);top.addView(caption,new LinearLayout.LayoutParams(0,dp(48),1));top.addView(iconButton("⋯",()->fullPlayerMenu(track)),new LinearLayout.LayoutParams(dp(48),dp(48)));body.addView(top);
+        LinearLayout top=row();
+        TextView close=iconButton("⌄",()->{full=false;build();});
+        top.addView(close,new LinearLayout.LayoutParams(dp(48),dp(48)));
+        LinearLayout center=column();center.setGravity(Gravity.CENTER);
+        fullAudioOutput=text("♫  "+audioOutputName()+"  ⌄",12);
+        fullAudioOutput.setGravity(Gravity.CENTER);
+        fullAudioOutput.setSingleLine(true);
+        fullAudioOutput.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        fullAudioOutput.setPadding(dp(10),0,dp(10),0);
+        fullAudioOutput.setMinHeight(0);
+        fullAudioOutput.setBackground(touchSurface(0x6620222b,16));
+        fullAudioOutput.setContentDescription("Устройство вывода: "+audioOutputName()+". Изменить");
+        fullAudioOutput.setOnClickListener(v->chooseAudioOutput());
+        LinearLayout.LayoutParams routeParams=new LinearLayout.LayoutParams(-2,dp(30));
+        routeParams.gravity=Gravity.CENTER_HORIZONTAL;
+        center.addView(fullAudioOutput,routeParams);
+        TextView caption=text("Играет сейчас",16);
+        caption.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams captionParams=new LinearLayout.LayoutParams(-1,dp(24));
+        center.addView(caption,captionParams);
+        top.addView(center,new LinearLayout.LayoutParams(0,dp(60),1));
+        top.addView(iconButton("⋯",()->fullPlayerMenu(track)),new LinearLayout.LayoutParams(dp(48),dp(48)));
+        body.addView(top);
         android.widget.ScrollView scroll=new android.widget.ScrollView(this);scroll.setFillViewport(true);scroll.setClipToPadding(false);LinearLayout content=column();content.setPadding(0,dp(16),0,dp(16));scroll.addView(content);body.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
         addCover(track,content);
         LinearLayout metadata=row();metadata.setGravity(Gravity.CENTER_VERTICAL);
