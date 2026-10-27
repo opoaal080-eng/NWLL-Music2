@@ -1,5 +1,7 @@
 import SwiftUI
 import Combine
+import AVKit
+import AVFoundation
 
 struct SeasonBackground: View {
     @ObservedObject private var premium = PremiumFeatureState.shared
@@ -314,6 +316,42 @@ struct GlassSlider: View {
     }
 }
 
+// System-managed AirPlay and Bluetooth output selector.
+private struct NightwellAudioRoutePicker: UIViewRepresentable {
+    func makeUIView(context: Context) -> AVRoutePickerView {
+        let picker = AVRoutePickerView(frame: .zero)
+        picker.prioritizesVideoDevices = false
+        picker.activeTintColor = UIColor.systemOrange
+        picker.tintColor = UIColor.white
+        return picker
+    }
+    func updateUIView(_ view: AVRoutePickerView, context: Context) {}
+}
+
+private struct NightwellAudioOutputControl: View {
+    @State private var output = Self.currentOutput()
+    private static func currentOutput() -> String {
+        AVAudioSession.sharedInstance().currentRoute.outputs.first?.portName ?? "iPhone"
+    }
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "hifispeaker")
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Устройство вывода").font(.caption2).foregroundStyle(.secondary)
+                Text(output).font(.subheadline).lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            NightwellAudioRoutePicker()
+                .frame(width: 44, height: 44)
+                .accessibilityLabel("Изменить устройство вывода")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification)) { _ in
+            output = Self.currentOutput()
+        }
+        .onAppear { output = Self.currentOutput() }
+    }
+}
+
 struct FullPlayer: View {
     @EnvironmentObject var store: MusicStore
     @ObservedObject var clock: PlaybackClock
@@ -365,6 +403,8 @@ struct FullPlayer: View {
                         Button { NativePlayer.shared.step(1) } label: { Image(systemName: "forward.end") }; Spacer()
                         Button { repeatMode = (repeatMode + 1) % 3; NativePlayer.shared.modes(repeatMode: repeatMode, shuffle: shuffle) } label: { Image(systemName: repeatMode == 2 ? "repeat.1" : "repeat").foregroundStyle(repeatMode > 0 ? pumpkin : .secondary) }
                     }.font(.title2)
+                    Divider()
+                    NightwellAudioOutputControl()
                     Divider()
                     Button { showQueue = true } label: { HStack { Image(systemName: "list.bullet"); Text("Дальше в очереди"); Spacer(); Text(String(clock.queue.count)).foregroundStyle(.secondary) } }.font(.subheadline)
                 }.padding(22).nightwellLiquidGlass(32)
