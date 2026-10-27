@@ -372,6 +372,48 @@ private struct NightwellAudioOutputControl: View {
     }
 }
 
+// Reduce the artwork to a small colour grid before enlarging it, so details
+// disappear while colours keep their positions from the original image.
+private struct ArtworkColorBackground: View {
+    let url: URL?
+    @State private var palette: UIImage?
+
+    var body: some View {
+        GeometryReader { geometry in
+            if let palette {
+                Image(uiImage: palette)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFill()
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+                    .clipped()
+                    .blur(radius: 30, opaque: true)
+                    .overlay(Color.black.opacity(0.35))
+                    .clipped()
+            } else {
+                Color.clear
+            }
+        }
+        .task(id: url) {
+            palette = nil
+            guard let url else { return }
+            do {
+                let (data, _) = try await URLSession.shared.data(from: url)
+                guard !Task.isCancelled, let original = UIImage(data: data) else { return }
+                let format = UIGraphicsImageRendererFormat()
+                format.scale = 1
+                format.opaque = true
+                let renderer = UIGraphicsImageRenderer(size: CGSize(width: 6, height: 6), format: format)
+                let colors = renderer.image { _ in
+                    original.draw(in: CGRect(x: 0, y: 0, width: 6, height: 6))
+                }
+                guard !Task.isCancelled else { return }
+                palette = colors
+            } catch { }
+        }
+    }
+}
+
 struct FullPlayer: View {
     @EnvironmentObject var store: MusicStore
     @ObservedObject var clock: PlaybackClock
@@ -387,18 +429,9 @@ struct FullPlayer: View {
     var body: some View {
         ZStack {
             SeasonBackground()
-            if clock.current != nil {
-                GeometryReader { geometry in
-                    Cover(track: clock.current, origin: store.origin)
-                        .frame(width: geometry.size.width, height: geometry.size.height)
-                        .clipped()
-                        .blur(radius: 55)
-                        .overlay(Color.black.opacity(0.55))
-                        .ignoresSafeArea()
-                        .allowsHitTesting(false)
-                }
+            ArtworkColorBackground(url: clock.current?.cover_url.flatMap { URL(string: $0, relativeTo: store.origin) })
                 .ignoresSafeArea()
-            }
+                .allowsHitTesting(false)
             VStack(spacing: 16) {
                 HStack { Button { dismiss() } label: { Image(systemName: "chevron.down").frame(width: 46, height: 46).nightwellLiquidGlass(24) }; Spacer(); NightwellAudioOutputControl(); Spacer(); tools }
                 GeometryReader { box in
