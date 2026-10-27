@@ -155,10 +155,18 @@ public final class MainActivity extends Activity {
         return "Аудиовыход Android";
     }
     void chooseAudioOutput(){
-        String[] options={"Настройки Bluetooth","Настройки звука"};
+        // On supported Android releases request the system media-output switcher.
+        // Reflection keeps the app compatible with older Android SDKs.
+        try{
+            android.media.MediaRouter2 router=android.media.MediaRouter2.getInstance(this);
+            java.lang.reflect.Method switcher=router.getClass().getMethod("showSystemOutputSwitcher");
+            Object result=switcher.invoke(router);
+            if(Boolean.TRUE.equals(result))return;
+        }catch(Exception ignored){}
+        String[] options={"Bluetooth","Настройки звука"};
         AlertDialog dialog=new AlertDialog.Builder(this)
             .setTitle("Устройство вывода")
-            .setMessage("Сейчас: "+audioOutputName()+"\\nВыберите настройки Android для переключения устройства.")
+            .setMessage("Сейчас: "+audioOutputName()+"\\nСистемное меню выбора недоступно на этом устройстве.")
             .setItems(options,(d,which)->{
                 try{startActivity(new Intent(which==0?android.provider.Settings.ACTION_BLUETOOTH_SETTINGS:android.provider.Settings.ACTION_SOUND_SETTINGS));}
                 catch(Exception ignored){startActivity(new Intent(android.provider.Settings.ACTION_SETTINGS));}
