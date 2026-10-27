@@ -230,6 +230,23 @@ struct RibbonScene: View {
                 center: source, startRadius: 0, endRadius: 14
             ))
         }
+        // Center ceiling spotlight anchors the composition in the reference image.
+        let centerSource = CGPoint(x: w * 0.50, y: 0)
+        let centerEnd = CGPoint(x: w * 0.50 + sin(date.timeIntervalSinceReferenceDate * 0.19) * w * 0.035, y: h * 0.60)
+        let centerPower = max(0.18, min(0.8, (lamps[0] + lamps[1]) * 0.52))
+        for layer in 0..<7 {
+            let fraction = Double(layer) / 6.0
+            let spread = (46.0 - fraction * 38.0) * w / 390.0
+            var path = Path()
+            path.move(to: centerSource)
+            path.addLine(to: CGPoint(x: centerEnd.x - spread, y: centerEnd.y))
+            path.addLine(to: CGPoint(x: centerEnd.x + spread, y: centerEnd.y))
+            path.closeSubpath()
+            context.fill(path, with: .linearGradient(
+                Gradient(colors: [.white.opacity(0.25 * centerPower), .white.opacity(0.10 * centerPower), .clear]),
+                startPoint: centerSource, endPoint: centerEnd
+            ))
+        }
     }
 }
 
