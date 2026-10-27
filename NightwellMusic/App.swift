@@ -27,8 +27,8 @@ enum ServerAddress {
     }
 }
 let pumpkin = Color.white
-let nightwellViolet = Color(red: 0.19, green: 0.10, blue: 0.29)
-let nightwellText = Color(red: 0.94, green: 0.88, blue: 0.97)
+let nightwellViolet = Color(red: 0.075, green: 0.075, blue: 0.085)
+let nightwellText = Color.white
 extension View {
     func glass(_ radius: CGFloat = 30) -> some View {
         self
@@ -455,7 +455,7 @@ struct Cover: View {
     let track: Track?
     let origin: URL
     var body: some View {
-        AsyncImage(url: track?.cover_url.flatMap { URL(string: $0, relativeTo: origin) }) { image in image.resizable().scaledToFill() } placeholder: { ZStack { Color.purple.opacity(0.2); Image(systemName: "music.note").font(.title).foregroundStyle(.white.opacity(0.7)) } }.clipped()
+        AsyncImage(url: track?.cover_url.flatMap { URL(string: $0, relativeTo: origin) }) { image in image.resizable().scaledToFill() } placeholder: { ZStack { Color.white.opacity(0.08); Image(systemName: "music.note").font(.title).foregroundStyle(.white.opacity(0.7)) } }.clipped()
     }
 }
 struct PlayingIndicator: View {
@@ -651,7 +651,7 @@ private struct NightwellNativeTransfer: View {
 
                 }.padding(20)
             }
-            .background(Color(red: 0.07, green: 0.04, blue: 0.12))
+            .background(Color(red: 0.045, green: 0.045, blue: 0.052))
             .task { await refreshHistory(); if let current = history.first(where: { activeStates.contains($0.state) }) { job = current; await poll(current.id) } }
             .navigationTitle("Перенос")
             .navigationBarTitleDisplayMode(.inline)
