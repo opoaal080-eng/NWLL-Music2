@@ -551,10 +551,13 @@ struct FullPlayer: View {
     @State private var shuffle = false
     var body: some View {
         ZStack {
-            SeasonBackground()
+            // Neutral home-style backdrop instead of the seasonal Halloween illustration.
+            Color.black.ignoresSafeArea()
             ArtworkColorBackground(url: clock.current?.cover_url.flatMap { URL(string: $0, relativeTo: store.origin) })
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
+            HomeSparkles()
+                .ignoresSafeArea()
             VStack(spacing: 14) {
                 HStack { Button { dismiss() } label: { Image(systemName: "chevron.down").frame(width: 44, height: 44).nightwellLiquidGlass(24) }; Spacer(); NightwellAudioOutputControl(); Spacer(); tools }
                 GeometryReader { box in
