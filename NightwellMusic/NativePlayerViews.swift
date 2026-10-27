@@ -375,9 +375,24 @@ private struct NightwellAudioOutputControl: View {
 
 // Reduce the artwork to a small colour grid before enlarging it, so details
 // disappear while colours keep their positions from the original image.
+private struct ArtworkPaletteKey: PreferenceKey {
+    static var defaultValue: [Color] = []
+    static func reduce(value: inout [Color], nextValue: () -> [Color]) { value = nextValue() }
+}
+private struct LyricsPaletteKey: EnvironmentKey {
+    static let defaultValue: [Color] = [.white, .white]
+}
+private extension EnvironmentValues {
+    var lyricsPalette: [Color] {
+        get { self[LyricsPaletteKey.self] }
+        set { self[LyricsPaletteKey.self] = newValue }
+    }
+}
+
 private struct ArtworkColorBackground: View {
     let url: URL?
     @State private var palette: UIImage?
+    @State private var textColors: [Color] = []
 
     var body: some View {
         GeometryReader { geometry in
@@ -395,7 +410,9 @@ private struct ArtworkColorBackground: View {
                 Color.clear
             }
         }
+        .preference(key: ArtworkPaletteKey.self, value: textColors)
         .task(id: url) {
+            textColors = []
             palette = nil
             guard let url else { return }
             do {
@@ -410,12 +427,28 @@ private struct ArtworkColorBackground: View {
                 }
                 guard !Task.isCancelled else { return }
                 palette = colors
+                if let cgImage = original.cgImage {
+                    var pixels = [UInt8](repeating: 0, count: 12)
+                    pixels.withUnsafeMutableBytes { buffer in
+                        if let context = CGContext(data: buffer.baseAddress, width: 3, height: 1, bitsPerComponent: 8, bytesPerRow: 12, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) {
+                            context.interpolationQuality = .high
+                            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: 3, height: 1))
+                        }
+                    }
+                    textColors = (0..<3).map { index in
+                        let offset = index * 4
+                        return Color(red: 0.55 + Double(pixels[offset]) / 255 * 0.45,
+                                     green: 0.55 + Double(pixels[offset + 1]) / 255 * 0.45,
+                                     blue: 0.55 + Double(pixels[offset + 2]) / 255 * 0.45)
+                    }
+                }
             } catch { }
         }
     }
 }
 
 struct FullPlayer: View {
+    @State private var artworkTextColors: [Color] = [.white, .white]
     @EnvironmentObject var store: MusicStore
     @ObservedObject var clock: PlaybackClock
     @Environment(\.dismiss) private var dismiss
@@ -476,8 +509,12 @@ struct FullPlayer: View {
                     Button { feature = .sound } label: { Image(systemName: "slider.vertical.3").frame(maxWidth: .infinity, minHeight: 50) }.accessibilityLabel("Эквалайзер")
                 }.font(.system(size: 20)).nightwellLiquidGlass(32)
                 if !clock.failure.isEmpty { Text(clock.failure).font(.caption).foregroundStyle(pumpkin) }
-            }.padding(.horizontal, 26).padding(.vertical, 12)
+            }.padding(.horizontal, 26).padding(.top, 12).padding(.bottom, 4)
         }.overlay { NativeFogLayer(active: !showQueue) }.tint(pumpkin)
+        .environment(\.lyricsPalette, artworkTextColors)
+        .onPreferenceChange(ArtworkPaletteKey.self) { colors in
+            artworkTextColors = colors.isEmpty ? [.white, .white] : colors
+        }
         .onPreferenceChange(PlayerLyricsFramePreference.self) { lyricsFrame = $0 }
         .simultaneousGesture(DragGesture(minimumDistance: 24, coordinateSpace: .global).onEnded { value in
             // Keep scrubbing, horizontal track changes and lyric scrolling independent.
@@ -576,6 +613,8 @@ private struct PlayerLyricsFramePreference: PreferenceKey {
 }
 
 struct LyricsView: View {
+    @Environment(\.lyricsPalette) private var artworkColors
+    private var artworkGradient: LinearGradient { LinearGradient(colors: artworkColors, startPoint: .leading, endPoint: .trailing) }
     let lyrics: Lyrics?
     let position: Double
     @State private var resumeFollowingAt = Date.distantPast
@@ -590,7 +629,8 @@ struct LyricsView: View {
                             ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
                                 Text(line.text)
                                     .font(.system(size: index == active ? 32 : 26, weight: .bold, design: .rounded))
-                                    .foregroundStyle(index == active ? nightwellText : Color.white.opacity(0.27))
+                                    .foregroundStyle(artworkGradient)
+                                    .opacity(index == active ? 1 : 0.4)
                                     .shadow(color: index == active ? nightwellText.opacity(0.32) : .clear, radius: 8)
                                     .shadow(color: index == active ? nightwellViolet : .clear, radius: 22)
                                     .multilineTextAlignment(.center)
@@ -600,7 +640,7 @@ struct LyricsView: View {
                         } else {
                             Text(lyrics.plain ?? lyrics.message ?? (lyrics.searching ? "Ищем текст…" : "Текст пока не найден"))
                                 .font(.system(size: 21, weight: .semibold))
-                                .foregroundStyle(nightwellText)
+                                .foregroundStyle(artworkGradient)
                                 .multilineTextAlignment(.center)
                                 .lineSpacing(10)
                         }
