@@ -213,18 +213,6 @@ struct NativeRoot: View {
                     .ignoresSafeArea()
                     .allowsHitTesting(false)
             }
-            // This lives behind the mini-player on every music tab, never above
-            // its controls. The flame baseline continues into the home indicator.
-            if !backgroundOnly {
-                VStack(spacing: 0) {
-                    Spacer(minLength: 0)
-                    MonochromeCampfire(playing: store.clock.playing)
-                        .frame(height: 255)
-                        .frame(maxWidth: .infinity)
-                }
-                .ignoresSafeArea(edges: .bottom)
-                .allowsHitTesting(false)
-            }
             if backgroundOnly { BackgroundOnlyScene(clock: store.clock, lyrics: store.lyrics, flash: store.likeFlash) }
             if backgroundOnly {
                 VStack { HStack { Button { backgroundOnly = false } label: { Image(systemName: "xmark").padding().glass() }; Spacer() }; Spacer() }.padding()
