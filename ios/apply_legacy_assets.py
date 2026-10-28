@@ -31,7 +31,7 @@ info['CFBundleIcons'] = {'CFBundlePrimaryIcon': {
     'CFBundleIconFiles': ['NightwellMonoIcon', 'NightwellMonoIcon@2x'],
     'UIPrerenderedIcon': True
 }}
-info.pop('CFBundleIconName', None)
+info['CFBundleIconName'] = 'NightwellMonoIcon'
 with info_path.open('wb') as stream:
     plistlib.dump(info, stream)
 print('Restored compiled graphics and set an explicit monochrome app icon.')
