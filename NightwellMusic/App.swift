@@ -269,7 +269,7 @@ struct NativeRoot: View {
         .animation(.spring(response: 0.3, dampingFraction: 0.86), value: store.authPresented)
         .tint(pumpkin)
         .sheet(isPresented: $premiumPresented) { PremiumView(api: store.api) }
-        .overlay { if launching { NativeLaunch().transition(.opacity) } }
+        .overlay { if launching { MonochromeNightwellLaunch().transition(.opacity) } }
         .task { try? await Task.sleep(nanoseconds: reducedMotion ? 150_000_000 : 1_200_000_000); withAnimation(.easeOut(duration: 0.3)) { launching = false } }
         .task { await store.start()
             #if DEBUG
@@ -795,3 +795,50 @@ private struct NightwellImportFilePicker: UIViewControllerRepresentable {
 }
 
 
+
+
+private struct MonochromeNightwellLaunch: View {
+    var body: some View {
+        ZStack {
+            LinearGradient(colors: [Color(white: 0.085), .black], startPoint: .top, endPoint: .bottom)
+                .ignoresSafeArea()
+            GeometryReader { geometry in
+                Canvas { context, size in
+                    let w = size.width, h = size.height
+                    for index in 0..<6 {
+                        let left = index.isMultiple(of: 2)
+                        let origin = CGPoint(x: left ? 0 : w, y: h * (0.16 + CGFloat(index / 2) * 0.22))
+                        let target = CGPoint(x: w * (left ? 0.69 : 0.31), y: h * 0.53)
+                        let spread: CGFloat = 60
+                        var beam = Path()
+                        beam.move(to: origin)
+                        beam.addLine(to: CGPoint(x: target.x - spread, y: target.y + 160))
+                        beam.addLine(to: CGPoint(x: target.x + spread, y: target.y + 160))
+                        beam.closeSubpath()
+                        context.fill(beam, with: .linearGradient(
+                            Gradient(colors: [.white.opacity(0.19), .white.opacity(0.06), .clear]),
+                            startPoint: origin, endPoint: CGPoint(x: w / 2, y: h * 0.82)
+                        ))
+                    }
+                }
+                .blur(radius: 20)
+                .allowsHitTesting(false)
+            }
+            VStack(spacing: 14) {
+                Text("N")
+                    .font(.system(size: 92, weight: .black, design: .rounded))
+                    .foregroundStyle(.white)
+                    .shadow(color: .white.opacity(0.22), radius: 24)
+                Text("NIGHTWELL")
+                    .font(.system(size: 24, weight: .bold, design: .rounded))
+                    .tracking(5)
+                Text("M U S I C")
+                    .font(.system(size: 10, weight: .medium))
+                    .tracking(5)
+                    .foregroundStyle(.white.opacity(0.58))
+            }
+            .foregroundStyle(.white)
+        }
+        .accessibilityLabel("Nightwell Music")
+    }
+}
