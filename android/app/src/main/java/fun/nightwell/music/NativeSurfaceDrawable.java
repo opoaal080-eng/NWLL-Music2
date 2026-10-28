@@ -7,7 +7,8 @@ import android.view.View;
 /** Opaque Android surface. No scenery sampling, blur or reflective borders. */
 final class NativeSurfaceDrawable extends GradientDrawable {
     NativeSurfaceDrawable(View view,float corners){
-        setColor(Color.rgb(32,34,40));
+        setColor(Color.rgb(28,28,28));
         setCornerRadius(Math.min(corners,18)*view.getResources().getDisplayMetrics().density);
     }
 }
+

@@ -3,89 +3,72 @@ import android.content.Context;
 import android.graphics.*;
 import android.view.View;
 
-/** Audio reactive ribbons on one native canvas. */
+/** Ambient Flow: soft monochrome waves driven by decoded music, never the microphone. */
 final class RibbonView extends View {
- private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
- private final Path path=new Path();
- private boolean running,playing;
- private long flashAt,lastFrame;
- private double phase,colorPhase,energy;
- double colorSpeed=1;
- private boolean auraVoice=true,auraLow=true,auraMid=true,auraHigh=true;
- void setAuraResponse(boolean voice,boolean low,boolean mid,boolean high){auraVoice=voice;auraLow=low;auraMid=mid;auraHigh=high;invalidate();}
- double premiumSpeed=1,premiumIntensity=1;String premiumTheme="nightwell";
- private java.util.function.DoubleSupplier meter=()->0;
- private java.util.function.IntToDoubleFunction bands=i->0;
- RibbonView(Context c){super(c);setLayerType(View.LAYER_TYPE_HARDWARE,null);}
- void meter(java.util.function.DoubleSupplier m){meter=m;}
- void bands(java.util.function.IntToDoubleFunction b){bands=b;}
- void running(boolean value){running=value;lastFrame=0;if(value)postInvalidateOnAnimation();}
- void playing(boolean value){playing=value;if(running)postInvalidateOnAnimation();}
- void flash(){flashAt=android.os.SystemClock.uptimeMillis();invalidate();}
- @Override protected void onAttachedToWindow(){super.onAttachedToWindow();if(running)postInvalidateOnAnimation();}
- private static final int[][] PALETTE={{135,87,255},{239,98,193},{255,153,92},{91,189,255}};
- private static final int[][] AUTUMN_PALETTE={{255,120,62},{195,87,255},{77,182,255},{255,88,183}};
- private int auraColor(double phase){
-  int[][] palette=premiumTheme.equals("nightwell")?AUTUMN_PALETTE:PALETTE;
-  double wrapped=(phase%4+4)%4;int index=(int)wrapped;
-  double f=wrapped-index,blend=f*f*(3-2*f);
-  int[] a=palette[index],b=palette[(index+1)%4];
-  return Color.rgb((int)(a[0]+(b[0]-a[0])*blend),(int)(a[1]+(b[1]-a[1])*blend),(int)(a[2]+(b[2]-a[2])*blend));
- }
- private double deltaForSmoothing(){
-  long now=android.os.SystemClock.uptimeMillis();
-  return lastFrame==0?1.0/30:Math.max(0.001,Math.min(.1,(now-lastFrame)/1000.0));
- }
- @Override protected void onDraw(Canvas canvas){
-  super.onDraw(canvas);
-  final float w=getWidth(),h=getHeight();if(w<1||h<1)return;
-  double raw=0;try{raw=meter.getAsDouble();}catch(RuntimeException ignored){}
-  if(!Double.isFinite(raw))raw=0;
-  raw=playing?Math.max(0,Math.min(1,raw*premiumIntensity)):0;
-  // Use independently measured PCM envelopes; combine any enabled ranges.
-  double selected=0;int enabled=0;
-  boolean[] choices={auraVoice,auraLow,auraMid,auraHigh};
-  for(int i=0;i<4;i++)if(choices[i]){
-   double value=0;try{value=bands.applyAsDouble(i);}catch(RuntimeException ignored){}
-   if(Double.isFinite(value)){selected+=Math.max(0,Math.min(1,value));enabled++;}
-  }
-  raw=playing&&enabled>0?Math.min(1,selected/enabled*premiumIntensity):0;
-  // Gentle dynamic range compression makes quiet tracks visible without
-  // forcing loud tracks to remain at maximum brightness.
-  raw=Math.pow(raw,0.72);
-  double rise=1-Math.exp(-deltaForSmoothing()*13.0);
-  double fall=1-Math.exp(-deltaForSmoothing()*5.0);
-  energy+=(raw-energy)*(raw>energy?rise:fall);
-  long now=android.os.SystemClock.uptimeMillis();
-  double delta=lastFrame==0?1.0/30:Math.min(.1,(now-lastFrame)/1000.0);lastFrame=now;
-  phase+=delta*.8*premiumSpeed;
-  colorPhase+=delta*.9*colorSpeed;
-  float density=getResources().getDisplayMetrics().density;
-  float burst=Math.max(0,1-(now-flashAt)/700f);
-  paint.setStyle(Paint.Style.STROKE);paint.setStrokeCap(Paint.Cap.ROUND);
-  final double cx=w*.5,cy=h*.54;
-  for(int side=0;side<3;side++){
-   double dx=side==0?-w*.72:side==1?w*.72:0,dy=side==2?-h*.78:-h*.36;
-   double length=Math.hypot(dx,dy);
-   double hue=colorPhase+side*.8+(premiumTheme.equals("aurora")?1:premiumTheme.equals("ocean")?2:premiumTheme.equals("sunset")?3:0);
-   paint.setShader(new LinearGradient((float)cx,(float)cy,(float)(cx+dx),(float)(cy+dy),
-    new int[]{Color.TRANSPARENT,Color.TRANSPARENT,auraColor(hue),auraColor(hue+.6),auraColor(hue+1.2)},new float[]{0,.08f,.3f,.68f,1},Shader.TileMode.CLAMP));
-   for(int band=17;band>=0;band--){
-    double lane=(band-8.5)/17.0;
-    path.reset();
-    for(int i=6;i<=64;i++){
-     double u=i/64.0;
-     double spread=Math.sin(u*Math.PI*.5);
-     double bend=(Math.sin(u*9-phase+lane*3)*(.045+energy*.045)+lane*.26)*Math.min(w,h)*spread;
-     double x=cx+dx*u-dy/length*bend,y=cy+dy*u+dx/length*bend;
-     if(i==6)path.moveTo((float)x,(float)y);else path.lineTo((float)x,(float)y);
+    private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Path path = new Path();
+    private final AmbientFlowState flow = new AmbientFlowState();
+    private final double[] incoming = new double[4];
+    private final boolean[] enabled = {true,true,true,true};
+    private boolean running, playing;
+    private long lastFrame;
+    double premiumSpeed=1,premiumIntensity=1,colorSpeed=1;
+    String premiumTheme="nightwell";
+    private java.util.function.IntToDoubleFunction bands=i->0;
+    RibbonView(Context c) { super(c); setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO); setClickable(false); }
+    void meter(java.util.function.DoubleSupplier unused) { }
+    void bands(java.util.function.IntToDoubleFunction value) { bands=value; }
+    void setAuraResponse(boolean voice,boolean low,boolean mid,boolean high) {
+        enabled[0]=voice;enabled[1]=low;enabled[2]=mid;enabled[3]=high;invalidate();
     }
-    int alpha=(int)(255*Math.min(.82,(.24+energy*.30+burst*.16)*(1-Math.abs(lane)*.9)));
-    paint.setAlpha(alpha);paint.setStrokeWidth((float)((9+band*.8+energy*19)*density));
-    canvas.drawPath(path,paint);
-   }
-  }
-  paint.setShader(null);
-  if(running&&isShown()&&getWindowVisibility()==VISIBLE)postInvalidateOnAnimation();
- }
+    void running(boolean value) {
+        if(running!=value){running=value;lastFrame=0;flow.reset();invalidate();}
+    }
+    void playing(boolean value) {
+        if(playing!=value){playing=value;lastFrame=0;if(!value)flow.reset();invalidate();}
+    }
+    void flash() { invalidate(); } // Likes do not synthesize an audio beat.
+    @Override protected void onAttachedToWindow(){super.onAttachedToWindow();lastFrame=0;invalidate();}
+    @Override protected void onDetachedFromWindow(){lastFrame=0;flow.reset();super.onDetachedFromWindow();}
+    @Override protected void onWindowVisibilityChanged(int visibility){super.onWindowVisibilityChanged(visibility);lastFrame=0;if(visibility==VISIBLE)invalidate();}
+    @Override protected void onDraw(Canvas canvas) {
+        super.onDraw(canvas);
+        if(!running||!playing||!isShown()||getWindowVisibility()!=VISIBLE||!android.animation.ValueAnimator.areAnimatorsEnabled())return;
+        float w=getWidth(),h=getHeight(),scale=Math.min(w,h);
+        if(scale<=1)return;
+        long now=android.os.SystemClock.uptimeMillis();
+        double dt=lastFrame==0?1.0/30:(now-lastFrame)/1000.0;lastFrame=now;
+        for(int i=0;i<4;i++){try{incoming[i]=bands.applyAsDouble(i);}catch(RuntimeException ignored){incoming[i]=0;}}
+        flow.update(incoming,enabled,premiumIntensity,premiumSpeed,dt);
+        for(int stream=0;stream<4;stream++) {
+            double level=flow.levels[stream],phase=flow.time+stream*1.7;
+            if(level<.001)continue;
+            path.reset();
+            for(int step=0;step<=48;step++) {
+                double u=step/48.0;
+                float x=(float)(w*(-.16+u*1.32));
+                float y=(float)(h*(.28+stream*.15+Math.sin(u*5.4+phase)*(.055+level*.055)+Math.sin(u*10.2-phase*.7+stream)*.022));
+                if(step==0)path.moveTo(x,y);else path.lineTo(x,y);
+            }
+            paint.setStyle(Paint.Style.STROKE);paint.setStrokeCap(Paint.Cap.ROUND);paint.setStrokeJoin(Paint.Join.ROUND);
+            paint.setShader(new LinearGradient(-w*.16f,0,w*1.16f,0,
+                    new int[]{0x00ffffff,0xffffffff,0xffffffff,0xffffffff,0x00ffffff},
+                    new float[]{0,.2f,.54f,.82f,1},Shader.TileMode.CLAMP));
+            // Nested low-opacity strokes feather the edge on Android 8+ without a full-screen software blur.
+            for(int layer=11;layer>=0;layer--) {
+                double fraction=layer/11.0;
+                paint.setStrokeWidth((float)(scale*(.025+fraction*.20+level*.035)));
+                paint.setAlpha((int)(255*level*(.018+(1-fraction)*.012)));
+                canvas.drawPath(path,paint);
+            }
+            float cx=(float)(w*(.5+Math.sin(phase*.62)*.34));
+            float cy=(float)(h*(.30+stream*.14+Math.cos(phase*.48)*.07));
+            float radius=(float)(scale*(.30+level*.12));
+            paint.setStyle(Paint.Style.FILL);paint.setAlpha(255);
+            paint.setShader(new RadialGradient(cx,cy,radius,new int[]{Color.argb((int)(255*level*.065),255,255,255),0x00ffffff},null,Shader.TileMode.CLAMP));
+            canvas.drawCircle(cx,cy,radius,paint);
+        }
+        paint.setShader(null);paint.setAlpha(255);
+        postInvalidateDelayed(33);
+    }
 }

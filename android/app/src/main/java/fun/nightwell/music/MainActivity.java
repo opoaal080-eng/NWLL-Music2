@@ -40,7 +40,11 @@ public final class MainActivity extends Activity {
     private ListView list;
     private TrackAdapter adapter;
     private RibbonView ribbon;
-    private HalloweenAtmosphere atmosphere;
+    private HomeSparklesView atmosphere;
+    private FrameLayout coverSlot;
+    private int lyricsRequest;
+    private ImageView fullCover;
+    private TextView fullShuffle,fullRepeat;
     private Runnable pendingSearch;
     private PopupWindow navigationPopup;
     private static final int PLAYLIST_DOCUMENT = 633;
@@ -106,43 +110,44 @@ public final class MainActivity extends Activity {
     int dp(float n){return (int)(n*getResources().getDisplayMetrics().density+.5f);}
     LinearLayout column(){LinearLayout v=new LinearLayout(this);v.setOrientation(LinearLayout.VERTICAL);return v;}
     LinearLayout row(){LinearLayout v=new LinearLayout(this);v.setGravity(Gravity.CENTER_VERTICAL);return v;}
-    TextView text(String label,int size){TextView v=new TextView(this);v.setText(label);v.setTextSize(size);v.setTextColor(0xfff3f3f5);v.setFontFeatureSettings("kern");v.setIncludeFontPadding(false);v.setBreakStrategy(android.text.Layout.BREAK_STRATEGY_HIGH_QUALITY);v.setHyphenationFrequency(android.text.Layout.HYPHENATION_FREQUENCY_NORMAL);return v;}
-    GradientDrawable surface(){GradientDrawable d=new GradientDrawable();d.setColor(0xf01b1e25);d.setCornerRadius(dp(30));d.setStroke(dp(1),0x33ffffff);return d;}
+    TextView text(String label,int size){TextView v=new TextView(this);v.setText(label);v.setTextSize(size);v.setTextColor(0xfff3f3f3);v.setFontFeatureSettings("kern");v.setIncludeFontPadding(false);v.setBreakStrategy(android.text.Layout.BREAK_STRATEGY_HIGH_QUALITY);v.setHyphenationFrequency(android.text.Layout.HYPHENATION_FREQUENCY_NORMAL);return v;}
+    GradientDrawable surface(){GradientDrawable d=new GradientDrawable();d.setColor(0xf01e1e1e);d.setCornerRadius(dp(30));d.setStroke(dp(1),0x33ffffff);return d;}
     GradientDrawable fieldSurface(int color,int corners){GradientDrawable fill=new GradientDrawable();fill.setColor(color);fill.setCornerRadius(dp(corners));fill.setStroke(dp(1),0x26ffffff);return fill;}
     android.graphics.drawable.Drawable touchSurface(int color,int corners){GradientDrawable fill=fieldSurface(color,corners);GradientDrawable mask=new GradientDrawable();mask.setColor(Color.WHITE);mask.setCornerRadius(dp(corners));return new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x30ffffff),fill,mask);}
-    TextView sectionLabel(String label){TextView v=text(label.toUpperCase(java.util.Locale.ROOT),11);v.setLetterSpacing(0.08f);v.setTextColor(0xffd1a46d);v.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);v.setPadding(dp(6),dp(8),dp(6),dp(6));return v;}
-    void styleField(EditText view){view.setTextColor(0xfff4f4f7);view.setHintTextColor(0xff8f95a5);view.setTextSize(15);view.setBackground(fieldSurface(0x88262a33,18));view.setPadding(dp(16),dp(14),dp(16),dp(14));}
-    void styleSwitch(android.widget.Switch view){view.setTextColor(0xfff0f1f6);view.setTextSize(15);view.setPadding(dp(2),dp(10),dp(2),dp(10));}
+    TextView sectionLabel(String label){TextView v=text(label.toUpperCase(java.util.Locale.ROOT),11);v.setLetterSpacing(0.08f);v.setTextColor(0xffffffff);v.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);v.setPadding(dp(6),dp(8),dp(6),dp(6));return v;}
+    void styleField(EditText view){view.setTextColor(0xfff4f4f4);view.setHintTextColor(0xff959595);view.setTextSize(15);view.setBackground(fieldSurface(0x882a2a2a,18));view.setPadding(dp(16),dp(14),dp(16),dp(14));}
+    void styleSwitch(android.widget.Switch view){view.setTextColor(0xfff1f1f1);view.setTextSize(15);view.setPadding(dp(2),dp(10),dp(2),dp(10));}
     void styleSheet(AlertDialog dialog){dialog.setOnShowListener(ignored->{android.view.Window window=dialog.getWindow();if(window!=null){window.setBackgroundDrawable(surface());window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);WindowManager.LayoutParams params=window.getAttributes();params.dimAmount=.72f;window.setAttributes(params);int width=Math.min(dp(540),getResources().getDisplayMetrics().widthPixels-dp(28));window.setLayout(width,WindowManager.LayoutParams.WRAP_CONTENT);window.getDecorView().setPadding(dp(6),dp(6),dp(6),dp(8));window.getDecorView().post(()->{int limit=getResources().getDisplayMetrics().heightPixels-dp(64);if(window.getDecorView().getHeight()>limit)window.setLayout(width,limit);});}
-        for(int which:new int[]{AlertDialog.BUTTON_POSITIVE,AlertDialog.BUTTON_NEGATIVE,AlertDialog.BUTTON_NEUTRAL}){Button b=dialog.getButton(which);if(b==null)continue;b.setAllCaps(false);b.setTextColor(which==AlertDialog.BUTTON_NEGATIVE?0xffb6bac7:0xffffc58b);b.setTextSize(15);}
+        for(int which:new int[]{AlertDialog.BUTTON_POSITIVE,AlertDialog.BUTTON_NEGATIVE,AlertDialog.BUTTON_NEUTRAL}){Button b=dialog.getButton(which);if(b==null)continue;b.setAllCaps(false);b.setTextColor(which==AlertDialog.BUTTON_NEGATIVE?0xffbababa:0xffffffff);b.setTextSize(15);}
     });}
-    TextView sheetAction(String label,Runnable run){TextView v=action(label,run);v.setTextSize(14);v.setMaxLines(2);v.setEllipsize(android.text.TextUtils.TruncateAt.END);v.setGravity(Gravity.CENTER_VERTICAL);v.setTextColor(0xfff2f2f5);v.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);v.setPadding(dp(16),dp(14),dp(16),dp(14));v.setBackground(touchSurface(0xaa262b34,24));return v;}
-    TextView action(String label,Runnable run){TextView v=NativeIconButton.isIcon(label)?new NativeIconButton(this):text(label,16);v.setText(label);v.setTextColor(0xfff3f3f5);v.setTextSize(NativeIconButton.isIcon(label)?20:16);if(NativeIconButton.isIcon(label))v.setContentDescription(iconLabel(label));v.setGravity(Gravity.CENTER);v.setPadding(dp(14),dp(12),dp(14),dp(12));v.setMinHeight(dp(50));v.setOnClickListener(x->run.run());return v;}
-    TextView iconButton(String label,Runnable run){TextView v=action(label,run);v.setPadding(0,0,0,0);v.setTextSize(20);v.setTextColor(0xfff1f1f6);v.setBackground(touchSurface(0xa61f232c,24));return v;}
+    TextView sheetAction(String label,Runnable run){TextView v=action(label,run);v.setTextSize(14);v.setMaxLines(2);v.setEllipsize(android.text.TextUtils.TruncateAt.END);v.setGravity(Gravity.CENTER_VERTICAL);v.setTextColor(0xfff2f2f2);v.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);v.setPadding(dp(16),dp(14),dp(16),dp(14));v.setBackground(touchSurface(0xaa2b2b2b,24));return v;}
+    TextView action(String label,Runnable run){TextView v=NativeIconButton.isIcon(label)?new NativeIconButton(this):text(label,16);v.setText(label);v.setTextColor(0xfff3f3f3);v.setTextSize(NativeIconButton.isIcon(label)?20:16);if(NativeIconButton.isIcon(label))v.setContentDescription(iconLabel(label));v.setGravity(Gravity.CENTER);v.setPadding(dp(14),dp(12),dp(14),dp(12));v.setMinHeight(dp(50));v.setOnClickListener(x->run.run());return v;}
+    TextView iconButton(String label,Runnable run){TextView v=action(label,run);v.setPadding(0,0,0,0);v.setTextSize(20);v.setTextColor(0xfff1f1f1);v.setBackground(touchSurface(0xa6232323,24));return v;}
     void toggleBackgroundOnly(){backgroundOnly=!backgroundOnly;build();}
     void showQueue(){AlertDialog d=new AlertDialog.Builder(this).setTitle("Очередь воспроизведения").setItems(trackNames(queue),(dialog,index)->play(queue.optJSONObject(index),queue,false)).setNegativeButton("Закрыть",null).create();styleSheet(d);d.show();}
     void build(){
-        if(ribbon!=null)ribbon.running(false);full=false;lyricsOpen=false;seek=null;fullTime=null;fullRemaining=null;fullPlay=null;fullLike=null;fullAudioOutput=null;
+        if(ribbon!=null)ribbon.running(false);full=false;lyricsOpen=false;lyricsRequest++;coverSlot=null;fullCover=null;lyricsText=null;lyricsScroll=null;fullShuffle=null;fullRepeat=null;seek=null;fullTime=null;fullRemaining=null;fullPlay=null;fullLike=null;fullAudioOutput=null;
         // Render scenery and aura across the window, outside the padded controls.
         android.widget.FrameLayout scene=new android.widget.FrameLayout(this);
         scene.setBackground(new NativeSceneryDrawable(this));
-        atmosphere=new HalloweenAtmosphere(this);scene.addView(atmosphere,new android.widget.FrameLayout.LayoutParams(-1,-1));
+        atmosphere=new HomeSparklesView(this);
         ribbon=new RibbonView(this);ui.post(this::applyPremium);ribbon.meter(()->playback==null?0:playback.level());ribbon.bands(index->playback==null?0:playback.bandLevel(index));
         ribbon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         scene.addView(ribbon,new android.widget.FrameLayout.LayoutParams(-1,-1));
         playerBackdrop=new android.widget.ImageView(this);playerBackdrop.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);playerBackdrop.setVisibility(View.GONE);scene.addView(playerBackdrop,new android.widget.FrameLayout.LayoutParams(-1,-1));
         playerBackdropShade=new View(this);playerBackdropShade.setBackgroundColor(0x99000000);playerBackdropShade.setVisibility(View.GONE);scene.addView(playerBackdropShade,new android.widget.FrameLayout.LayoutParams(-1,-1));
+        scene.addView(atmosphere,new android.widget.FrameLayout.LayoutParams(-1,-1));
         root=column();root.setPadding(dp(18),dp(10),dp(18),dp(8));
         scene.addView(root,new android.widget.FrameLayout.LayoutParams(-1,-1));setContentView(scene);
         root.setOnApplyWindowInsetsListener((v,insets)->{int top,bottom;if(Build.VERSION.SDK_INT>=30){android.graphics.Insets bars=insets.getInsets(WindowInsets.Type.systemBars());top=bars.top;bottom=Math.max(bars.bottom,insets.getInsets(WindowInsets.Type.ime()).bottom);}else{top=insets.getSystemWindowInsetTop();bottom=insets.getSystemWindowInsetBottom();}v.setPadding(dp(18),dp(10)+top,dp(18),dp(8)+bottom);return insets;});root.requestApplyInsets();
-        head=row();android.widget.ImageView brand=new android.widget.ImageView(this);brand.setImageResource(R.drawable.brand_logo);brand.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);brand.setOnClickListener(v->navigate("Главная"));head.addView(brand,new LinearLayout.LayoutParams(dp(42),dp(42)));LinearLayout wordmark=column();wordmark.setGravity(Gravity.CENTER_VERTICAL);wordmark.setPadding(dp(9),0,0,0);
-        TextView brandName=text("Nightwell",27);brandName.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);brandName.setTextColor(0xfff3f3f5);brandName.setIncludeFontPadding(false);brandName.setSingleLine(true);brandName.setAutoSizeTextTypeUniformWithConfiguration(20,27,1,android.util.TypedValue.COMPLEX_UNIT_SP);
+        head=row();android.widget.ImageView brand=new android.widget.ImageView(this);brand.setImageResource(R.drawable.nightwell_mark);brand.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);brand.setOnClickListener(v->navigate("Главная"));head.addView(brand,new LinearLayout.LayoutParams(dp(42),dp(42)));LinearLayout wordmark=column();wordmark.setGravity(Gravity.CENTER_VERTICAL);wordmark.setPadding(dp(9),0,0,0);
+        TextView brandName=text("Nightwell",27);brandName.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);brandName.setTextColor(0xfff3f3f3);brandName.setIncludeFontPadding(false);brandName.setSingleLine(true);brandName.setAutoSizeTextTypeUniformWithConfiguration(20,27,1,android.util.TypedValue.COMPLEX_UNIT_SP);
         wordmark.addView(brandName,new LinearLayout.LayoutParams(-1,dp(33)));
-        TextView brandCaption=text("M U S I C",12);brandCaption.setIncludeFontPadding(false);brandCaption.setSingleLine(true);brandCaption.setTextColor(0xff92959f);LinearLayout.LayoutParams captionParams=new LinearLayout.LayoutParams(-1,-2);captionParams.topMargin=dp(1);wordmark.addView(brandCaption,captionParams);
-        wordmark.setOnClickListener(v->navigate("Главная"));wordmark.setContentDescription("Nightwell Music, на главный экран");head.addView(wordmark,new LinearLayout.LayoutParams(0,-2,1));TextView searchButton=iconButton("⌕",()->navigate("Поиск"));searchButton.setBackground(touchSurface(0x40202228,24));head.addView(searchButton,new LinearLayout.LayoutParams(dp(48),dp(48)));TextView menuButton=iconButton("☰",this::menu);menuButton.setBackground(touchSurface(0x40202228,24));head.addView(menuButton,new LinearLayout.LayoutParams(dp(48),dp(48)));LinearLayout.LayoutParams headerParams=new LinearLayout.LayoutParams(-1,dp(58));headerParams.bottomMargin=dp(12);root.addView(head,headerParams);if(backgroundOnly)head.setVisibility(View.GONE);
-        body=column();root.addView(body,new LinearLayout.LayoutParams(-1,0,1));status=text("",12);root.addView(status);dock=row();dock.setPadding(dp(10),dp(8),dp(10),dp(8));GradientDrawable fill=new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,new int[]{0x12ffbc78,0x12ffbc78});fill.setCornerRadius(dp(34));miniProgress=new android.graphics.drawable.ClipDrawable(fill,Gravity.LEFT,android.graphics.drawable.ClipDrawable.HORIZONTAL);GradientDrawable glassDock=new GradientDrawable();glassDock.setColor(0x8c202228);glassDock.setCornerRadius(dp(34));glassDock.setStroke(dp(1),0x38ffffff);dock.setBackground(new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{glassDock,miniProgress}));dock.setClipToOutline(true);
-        miniCover=new android.widget.ImageView(this);miniCover.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);GradientDrawable coverShape=new GradientDrawable();coverShape.setColor(0x443e2d52);coverShape.setCornerRadius(dp(16));miniCover.setBackground(coverShape);miniCover.setClipToOutline(true);miniCover.setOnClickListener(v->openPlayer());LinearLayout.LayoutParams coverParams=new LinearLayout.LayoutParams(dp(44),dp(44));coverParams.rightMargin=dp(10);dock.addView(miniCover,coverParams);
-        LinearLayout labels=column();miniTitle=text("Выбери трек",15);miniTitle.setMaxLines(1);miniTitle.setTextSize(15);miniTitle.setLetterSpacing(-.015f);miniTitle.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);miniArtist=text("Nightwell Music",12);miniArtist.setMaxLines(1);miniArtist.setTextSize(12);miniArtist.setLetterSpacing(.005f);miniArtist.setTextColor(0xffa4a6b1);miniTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);miniArtist.setEllipsize(android.text.TextUtils.TruncateAt.END);labels.addView(miniTitle);labels.addView(miniArtist);labels.setOnClickListener(v->openPlayer());dock.addView(labels,new LinearLayout.LayoutParams(0,-2,1));miniPrev=action("|‹",()->previous());miniPlay=action("▶",()->toggle());miniNext=action("›|",()->{nextTrack();});miniLike=action("♡",()->toggleFavorite(current()));miniLike.setTextColor(0xffffb260);miniPlay.setTextSize(23);miniNext.setTextSize(24);miniPlay.setPadding(0,0,0,0);miniNext.setPadding(0,0,0,0);miniPlay.setTextColor(0xffffbc78);miniPlay.setBackground(null);miniPrev.setPadding(0,0,0,0);miniLike.setPadding(0,0,0,0);if(getResources().getConfiguration().screenWidthDp>=380)dock.addView(miniLike,new LinearLayout.LayoutParams(dp(40),dp(48)));dock.addView(miniPrev,new LinearLayout.LayoutParams(dp(40),dp(48)));dock.addView(miniPlay,new LinearLayout.LayoutParams(dp(48),dp(48)));dock.addView(miniNext,new LinearLayout.LayoutParams(dp(44),dp(48)));LinearLayout.LayoutParams dockParams=new LinearLayout.LayoutParams(-1,-2);dockParams.topMargin=dp(10);root.addView(dock,dockParams);if(backgroundOnly)dock.setVisibility(View.GONE);android.view.GestureDetector miniGestures=gestures(false);labels.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));dock.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));
+        TextView brandCaption=text("M U S I C",12);brandCaption.setIncludeFontPadding(false);brandCaption.setSingleLine(true);brandCaption.setTextColor(0xff959595);LinearLayout.LayoutParams captionParams=new LinearLayout.LayoutParams(-1,-2);captionParams.topMargin=dp(1);wordmark.addView(brandCaption,captionParams);
+        wordmark.setOnClickListener(v->navigate("Главная"));wordmark.setContentDescription("Nightwell Music, на главный экран");head.addView(wordmark,new LinearLayout.LayoutParams(0,-2,1));TextView searchButton=iconButton("⌕",()->navigate("Поиск"));searchButton.setBackground(touchSurface(0x40222222,24));head.addView(searchButton,new LinearLayout.LayoutParams(dp(48),dp(48)));TextView menuButton=iconButton("☰",this::menu);menuButton.setBackground(touchSurface(0x40222222,24));head.addView(menuButton,new LinearLayout.LayoutParams(dp(48),dp(48)));LinearLayout.LayoutParams headerParams=new LinearLayout.LayoutParams(-1,dp(58));headerParams.bottomMargin=dp(12);root.addView(head,headerParams);if(backgroundOnly)head.setVisibility(View.GONE);
+        body=column();root.addView(body,new LinearLayout.LayoutParams(-1,0,1));status=text("",12);root.addView(status);dock=row();dock.setPadding(dp(10),dp(8),dp(10),dp(8));GradientDrawable fill=new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,new int[]{0x12ffffff,0x12ffffff});fill.setCornerRadius(dp(34));miniProgress=new android.graphics.drawable.ClipDrawable(fill,Gravity.LEFT,android.graphics.drawable.ClipDrawable.HORIZONTAL);GradientDrawable glassDock=new GradientDrawable();glassDock.setColor(0x8c222222);glassDock.setCornerRadius(dp(34));glassDock.setStroke(dp(1),0x38ffffff);dock.setBackground(new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{glassDock,miniProgress}));dock.setClipToOutline(true);
+        miniCover=new android.widget.ImageView(this);miniCover.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);GradientDrawable coverShape=new GradientDrawable();coverShape.setColor(0x44333333);coverShape.setCornerRadius(dp(16));miniCover.setBackground(coverShape);miniCover.setClipToOutline(true);miniCover.setOnClickListener(v->openPlayer());LinearLayout.LayoutParams coverParams=new LinearLayout.LayoutParams(dp(44),dp(44));coverParams.rightMargin=dp(10);dock.addView(miniCover,coverParams);
+        LinearLayout labels=column();miniTitle=text("Выбери трек",15);miniTitle.setMaxLines(1);miniTitle.setTextSize(15);miniTitle.setLetterSpacing(-.015f);miniTitle.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);miniArtist=text("Nightwell Music",12);miniArtist.setMaxLines(1);miniArtist.setTextSize(12);miniArtist.setLetterSpacing(.005f);miniArtist.setTextColor(0xffa6a6a6);miniTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);miniArtist.setEllipsize(android.text.TextUtils.TruncateAt.END);labels.addView(miniTitle);labels.addView(miniArtist);labels.setOnClickListener(v->openPlayer());dock.addView(labels,new LinearLayout.LayoutParams(0,-2,1));miniPrev=action("|‹",()->previous());miniPlay=action("▶",()->toggle());miniNext=action("›|",()->{nextTrack();});miniLike=action("♡",()->toggleFavorite(current()));miniLike.setTextColor(0xffffffff);miniPlay.setTextSize(23);miniNext.setTextSize(24);miniPlay.setPadding(0,0,0,0);miniNext.setPadding(0,0,0,0);miniPlay.setTextColor(0xffffffff);miniPlay.setBackground(glassSurface(24));miniPrev.setPadding(0,0,0,0);miniLike.setPadding(0,0,0,0);if(getResources().getConfiguration().screenWidthDp>=380)dock.addView(miniLike,new LinearLayout.LayoutParams(dp(40),dp(48)));dock.addView(miniPrev,new LinearLayout.LayoutParams(dp(40),dp(48)));dock.addView(miniPlay,new LinearLayout.LayoutParams(dp(48),dp(48)));dock.addView(miniNext,new LinearLayout.LayoutParams(dp(44),dp(48)));LinearLayout.LayoutParams dockParams=new LinearLayout.LayoutParams(-1,-2);dockParams.topMargin=dp(10);root.addView(dock,dockParams);if(backgroundOnly)dock.setVisibility(View.GONE);android.view.GestureDetector miniGestures=gestures(false);labels.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));dock.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));
         showScreen();updatePlayback();loadMiniCover(current());
     }
     // Audio routing is controlled by Android. Report the current media route without
@@ -172,7 +177,7 @@ public final class MainActivity extends Activity {
         try{
             new AlertDialog.Builder(this)
                 .setTitle("Устройство вывода")
-                .setMessage("Сейчас: "+audioOutputName()+"\\nВыберите настройки подключения устройства.")
+                .setMessage("Сейчас: "+audioOutputName()+"\nВыберите настройки подключения устройства.")
                 .setItems(new String[]{"Bluetooth","Настройки звука"},(dialog,which)->{
                     try{
                         Intent intent=new Intent(which==0
@@ -196,7 +201,7 @@ public final class MainActivity extends Activity {
         if(navigationPopup!=null)navigationPopup.dismiss();
         View anchor=head.getChildAt(head.getChildCount()-1);
         LinearLayout entries=column();entries.setPadding(0,dp(6),0,dp(6));
-        TextView connectionHeading=text("Подключение",11);connectionHeading.setTextColor(0xffa6a4af);connectionHeading.setPadding(dp(14),dp(4),dp(14),dp(2));entries.addView(connectionHeading);
+        TextView connectionHeading=text("Подключение",11);connectionHeading.setTextColor(0xffa5a5a5);connectionHeading.setPadding(dp(14),dp(4),dp(14),dp(2));entries.addView(connectionHeading);
         TextView connectionState=text("Проверка…",15);connectionState.setPadding(dp(14),0,dp(14),dp(6));entries.addView(connectionState);
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(false);scroll.setVerticalScrollBarEnabled(false);scroll.addView(entries);
         android.graphics.Rect frame=new android.graphics.Rect();anchor.getWindowVisibleDisplayFrame(frame);int[] location=new int[2];anchor.getLocationOnScreen(location);
@@ -204,26 +209,26 @@ public final class MainActivity extends Activity {
         int width=Math.min(dp(278),frame.width()-dp(32));
         PopupWindow popup=new PopupWindow(scroll,width,WindowManager.LayoutParams.WRAP_CONTENT,true);
         navigationPopup=popup;popup.setOnDismissListener(()->{if(navigationPopup==popup)navigationPopup=null;});
-        GradientDrawable glass=new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0xf2322b40,0xf222202b});glass.setCornerRadius(dp(22));glass.setStroke(dp(1),0x30ffffff);
+        GradientDrawable glass=new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0xf22e2e2e,0xf2212121});glass.setCornerRadius(dp(22));glass.setStroke(dp(1),0x30ffffff);
         popup.setBackgroundDrawable(glass);popup.setElevation(dp(24));popup.setOutsideTouchable(true);popup.setInputMethodMode(PopupWindow.INPUT_METHOD_NOT_NEEDED);scroll.setClipToOutline(true);scroll.setBackground(glass);
         String[] tabs={"Главная","Поиск","Избранное","Плейлисты","Офлайн",backgroundOnly?"Показать интерфейс":"Только фон","Моя статистика","Nightwell Premium","Перенести музыку","Настройки","Настройка подборки","Обращения",user.isEmpty()?"Войти":"Выйти"};
         String[] icons={"home","search","heart","list","download","sparkles","stats","star","download","settings","sliders","mail","person"};
         for(int i=0;i<tabs.length;i++){
             View divider=new View(this);divider.setBackgroundColor(i==0||i==5||i==12?0x44000000:0x20ffffff);entries.addView(divider,new LinearLayout.LayoutParams(-1,dp(i==0||i==5||i==12?4:1)));
             final String tab=tabs[i];boolean selected=tab.equals(screen)||(tab.equals("Плейлисты")&&!selectedPlaylist.isEmpty());
-            int color=tab.equals("Выйти")?0xffff6b76:0xfff4f1f7;
+            int color=tab.equals("Выйти")?0xff8b8b8b:0xfff2f2f2;
             LinearLayout item=row();item.setPadding(dp(16),0,dp(16),0);item.setMinimumHeight(dp(48));item.setSelected(selected);
             TextView label=text(tab.equals("Обращения")?"Обращения и поддержка":tab,15);label.setTextColor(color);if(selected)label.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
             item.addView(label,new LinearLayout.LayoutParams(0,-2,1));
-            if(selected){TextView mark=text("✓",17);mark.setTextColor(0xffffbc78);item.addView(mark,new LinearLayout.LayoutParams(dp(26),-2));}
+            if(selected){TextView mark=text("✓",17);mark.setTextColor(0xffffffff);item.addView(mark,new LinearLayout.LayoutParams(dp(26),-2));}
             item.addView(new NavigationMenuIcon(this,icons[i],color),new LinearLayout.LayoutParams(dp(20),dp(20)));
             item.setBackground(new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x30ffffff),new android.graphics.drawable.ColorDrawable(selected?0x18ffffff:Color.TRANSPARENT),null));
             item.setContentDescription(label.getText());item.setOnClickListener(v->{popup.dismiss();selectMenu(tab);});entries.addView(item,new LinearLayout.LayoutParams(-1,-2));
         }
         entries.measure(View.MeasureSpec.makeMeasureSpec(width,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(0,View.MeasureSpec.UNSPECIFIED));popup.setHeight(Math.min(entries.getMeasuredHeight()+dp(12),available));
         popup.showAsDropDown(anchor,0,dp(6),Gravity.END);
-        if(smokeMode){connectionState.setText("Онлайн");connectionState.setTextColor(0xff64d98b);}
-        else {final NativeAPI client=api;io.execute(()->{boolean online;try{client.request("api/me");online=true;}catch(Exception ignored){online=false;}final boolean connected=online;ui.post(()->{if(popup.isShowing()){connectionState.setText(connected?"Онлайн":"Оффлайн");connectionState.setTextColor(connected?0xff64d98b:0xffff787f);}});});}
+        if(smokeMode){connectionState.setText("Онлайн");connectionState.setTextColor(0xffbababa);}
+        else {final NativeAPI client=api;io.execute(()->{boolean online;try{client.request("api/me");online=true;}catch(Exception ignored){online=false;}final boolean connected=online;ui.post(()->{if(popup.isShowing()){connectionState.setText(connected?"Онлайн":"Оффлайн");connectionState.setTextColor(connected?0xffbababa:0xff959595);}});});}
     }
     void selectMenu(String tab){
         if(tab.equals("Перенести музыку")){nativeTransfer();return;}
@@ -242,9 +247,9 @@ public final class MainActivity extends Activity {
         LinearLayout card=column();card.setPadding(dp(16),dp(13),dp(16),dp(13));
         TextView name=text(subject,16);name.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
         TextView stateView=text(state.equals("new")?"Новое":state.equals("in_progress")?"В работе":state.equals("waiting_user")?"Ожидает ответа":state.equals("resolved")?"Решено":"Закрыто",12);
-        stateView.setTextColor(0xffffb561);
+        stateView.setTextColor(0xffbfbfbf);
         card.addView(name);card.addView(stateView);
-        card.setBackground(touchSurface(0xaa252a33,26));
+        card.setBackground(touchSurface(0xaa2a2a2a,26));
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(0,dp(8),0,dp(8));card.setLayoutParams(lp);card.setOnClickListener(v->click.run());
         return card;
     }
@@ -321,7 +326,7 @@ public final class MainActivity extends Activity {
         Spinner kindPicker=new Spinner(this);
         String[] labels={"Вопрос","Ошибка","Предложение","Аккаунт","Другое"};
         String[] values={"question","bug","suggestion","account","other"};
-        kindPicker.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,labels));kindPicker.setBackground(fieldSurface(0x88262a33,18));
+        kindPicker.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,labels));kindPicker.setBackground(fieldSurface(0x882a2a2a,18));
         form.addView(kindPicker);form.addView(body);
         AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Новое обращение").setView(form).setNegativeButton("Отмена",null).setPositiveButton("Отправить",null).create();
         styleSheet(dialog);dialog.show();
@@ -376,9 +381,9 @@ public final class MainActivity extends Activity {
     View supportMessage(JSONObject m){
         boolean administrator="admin".equals(m.optString("author_role"));
         LinearLayout bubble=column();bubble.setPadding(dp(14),dp(12),dp(14),dp(12));
-        TextView caption=text(administrator?"Поддержка":"Пользователь",12);caption.setTextColor(0xffffb561);
+        TextView caption=text(administrator?"Поддержка":"Пользователь",12);caption.setTextColor(0xffbfbfbf);
         bubble.addView(caption);bubble.addView(text(m.optString("body"),15));
-        GradientDrawable bg=new GradientDrawable();bg.setCornerRadius(dp(22));bg.setColor(administrator?0x663e3051:0x55333340);
+        GradientDrawable bg=new GradientDrawable();bg.setCornerRadius(dp(22));bg.setColor(administrator?0x66353535:0x55343434);
         bubble.setBackground(bg);
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(0,dp(5),0,dp(5));bubble.setLayoutParams(lp);
         return bubble;
@@ -427,7 +432,7 @@ public final class MainActivity extends Activity {
         boolean liked=likes.contains(currentID);
         for(TextView button:new TextView[]{miniLike,fullLike})if(button!=null){
             setLabel(button,liked?"♥":"♡");button.setContentDescription(liked?"Убрать из избранного":"Добавить в избранное");
-            button.setTextColor(liked?0xffffbc78:0xffa4a6b1);
+            button.setTextColor(liked?0xffffffff:0xffa6a6a6);
         }
     }
     void navigate(String next){generation++;api.cancelSearch();if(pendingSearch!=null)ui.removeCallbacks(pendingSearch);screen=next;selectedPlaylist="";query="";if(full)build();else showScreen();}
@@ -439,18 +444,18 @@ public final class MainActivity extends Activity {
             boolean compact=getResources().getConfiguration().orientation==android.content.res.Configuration.ORIENTATION_LANDSCAPE;
             android.widget.FrameLayout stage=new android.widget.FrameLayout(this);body.addView(stage,new LinearLayout.LayoutParams(-1,0,1));
             ribbon.setVisibility(View.VISIBLE);ribbon.running(visible&&!smokeMode);
-            LinearLayout intro=column();TextView edition=text("H A L L O W E E N   E D I T I O N",10);edition.setTextColor(0xffffb260);edition.setPadding(0,dp(14),0,dp(18));intro.addView(edition);if(compact)edition.setVisibility(View.GONE);
-            TextView theme=text(compact?"Твой тёмный ритм":"Твой тёмный\nритм",compact?30:Math.min(46,getResources().getConfiguration().screenWidthDp/8));theme.setTypeface(android.graphics.Typeface.create("sans-serif",android.graphics.Typeface.BOLD));theme.setLetterSpacing(-.035f);theme.setIncludeFontPadding(false);theme.setLineSpacing(0,.92f);theme.setMaxLines(2);theme.setAutoSizeTextTypeUniformWithConfiguration(26,46,1,android.util.TypedValue.COMPLEX_UNIT_SP);intro.addView(theme);stage.addView(intro,new android.widget.FrameLayout.LayoutParams(-1,-2,Gravity.TOP));
-            homePlay=action("▶",()->{if(currentID.isEmpty())wave();else toggle();});homePlay.setTextColor(0xffffb260);homePlay.setTextSize(40);homePlay.setBackground(null);android.widget.FrameLayout.LayoutParams playParams=new android.widget.FrameLayout.LayoutParams(dp(104),dp(104),Gravity.CENTER);if(compact){playParams.gravity=Gravity.CENTER_VERTICAL|Gravity.RIGHT;playParams.rightMargin=dp(50);}else playParams.topMargin=dp(30);stage.addView(homePlay,playParams);
-            TextView mix=action("Новая подборка",this::wave);mix.setOnLongClickListener(v->{waveSettings();return true;});mix.setContentDescription("Новая подборка. Удерживай, чтобы настроить");mix.setTextSize(14);mix.setBackground(touchSurface(0x40202228,24));mix.setTextColor(0xffffbc78);mix.setTypeface(null,android.graphics.Typeface.BOLD);android.widget.FrameLayout.LayoutParams mixParams=new android.widget.FrameLayout.LayoutParams(dp(184),dp(44),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL);mixParams.bottomMargin=dp(compact?20:124);stage.addView(mix,mixParams);
-            homeLyric=text("",16);homeLyric.setGravity(Gravity.CENTER);homeLyric.setTextColor(0xffffdcc0);homeLyric.setMaxLines(2);homeLyric.setOnClickListener(v->{JSONObject t=current();if(t!=null)showLyrics(t);});android.widget.FrameLayout.LayoutParams lyricParams=new android.widget.FrameLayout.LayoutParams(-1,dp(50),Gravity.BOTTOM);stage.addView(homeLyric,lyricParams);if(compact)homeLyric.setVisibility(View.GONE);
+            LinearLayout intro=column();intro.setPadding(0,dp(18),0,0);
+            TextView theme=text("Твой ритм",compact?30:Math.min(48,getResources().getConfiguration().screenWidthDp/8));theme.setTypeface(android.graphics.Typeface.create("sans-serif",android.graphics.Typeface.BOLD));theme.setLetterSpacing(-.035f);theme.setIncludeFontPadding(false);theme.setLineSpacing(0,.92f);theme.setMaxLines(2);theme.setAutoSizeTextTypeUniformWithConfiguration(26,46,1,android.util.TypedValue.COMPLEX_UNIT_SP);intro.addView(theme);TextView subtitle=text("Музыка под твоё настроение",16);subtitle.setTextColor(0xffaaaaaa);subtitle.setPadding(0,dp(10),0,0);intro.addView(subtitle);stage.addView(intro,new android.widget.FrameLayout.LayoutParams(-1,-2,Gravity.TOP));
+            homePlay=action("▶",()->{if(currentID.isEmpty())wave();else toggle();});homePlay.setTextColor(0xffffffff);homePlay.setTextSize(31);homePlay.setBackground(glassSurface(44));android.widget.FrameLayout.LayoutParams playParams=new android.widget.FrameLayout.LayoutParams(dp(88),dp(88),Gravity.CENTER);if(compact){playParams.gravity=Gravity.CENTER_VERTICAL|Gravity.RIGHT;playParams.rightMargin=dp(50);}else playParams.topMargin=dp(30);stage.addView(homePlay,playParams);
+            TextView mix=action("Новая подборка",this::wave);mix.setOnLongClickListener(v->{waveSettings();return true;});mix.setContentDescription("Новая подборка. Удерживай, чтобы настроить");mix.setTextSize(14);mix.setBackground(touchSurface(0x40222222,24));mix.setTextColor(0xffffffff);mix.setTypeface(null,android.graphics.Typeface.BOLD);android.widget.FrameLayout.LayoutParams mixParams=new android.widget.FrameLayout.LayoutParams(dp(184),dp(44),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL);mixParams.bottomMargin=dp(compact?20:124);stage.addView(mix,mixParams);
+            homeLyric=text("",16);homeLyric.setGravity(Gravity.CENTER);homeLyric.setTextColor(0xffe1e1e1);homeLyric.setMaxLines(2);homeLyric.setOnClickListener(v->{JSONObject t=current();if(t!=null)showLyrics(t);});android.widget.FrameLayout.LayoutParams lyricParams=new android.widget.FrameLayout.LayoutParams(-1,dp(50),Gravity.BOTTOM);stage.addView(homeLyric,lyricParams);if(compact)homeLyric.setVisibility(View.GONE);
             if(backgroundOnly){
                 intro.setVisibility(View.GONE);
                 mix.setVisibility(View.GONE);
                 homePlay.setVisibility(View.GONE);
                 homeLyric.setTextSize(27);homeLyric.setAutoSizeTextTypeUniformWithConfiguration(19,29,1,android.util.TypedValue.COMPLEX_UNIT_SP);homeLyric.setLineSpacing(dp(4),1.05f);
                 homeLyric.setTypeface(android.graphics.Typeface.create("sans-serif",android.graphics.Typeface.BOLD));
-                homeLyric.setTextColor(0xffffe7ce);
+                homeLyric.setTextColor(0xffeaeaea);
                 homeLyric.setMaxLines(5);
                 homeLyric.setGravity(Gravity.CENTER);
                 homeLyric.setPadding(dp(18),dp(12),dp(18),dp(12));
@@ -463,7 +468,7 @@ public final class MainActivity extends Activity {
                 stage.addView(restore,new android.widget.FrameLayout.LayoutParams(dp(48),dp(48),Gravity.TOP|Gravity.LEFT));
             }return;
         }
-        if(screen.equals("Поиск")){search=new EditText(this);search.setTextColor(Color.WHITE);search.setSingleLine(true);search.setTextSize(16);search.setHintTextColor(0xff999ca8);search.setPadding(dp(16),dp(14),dp(16),dp(14));search.setBackground(touchSurface(0xff202228,24));search.setHint("Трек или исполнитель");body.addView(search);search.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int st,int c,int a){}public void onTextChanged(CharSequence s,int st,int before,int count){query=s.toString();search(query);}public void afterTextChanged(Editable e){}});shown=new JSONArray();}
+        if(screen.equals("Поиск")){search=new EditText(this);search.setTextColor(Color.WHITE);search.setSingleLine(true);search.setTextSize(16);search.setHintTextColor(0xff9c9c9c);search.setPadding(dp(16),dp(14),dp(16),dp(14));search.setBackground(touchSurface(0xff222222,24));search.setHint("Трек или исполнитель");body.addView(search);search.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int st,int c,int a){}public void onTextChanged(CharSequence s,int st,int before,int count){query=s.toString();search(query);}public void afterTextChanged(Editable e){}});shown=new JSONArray();}
         else if(screen.equals("Избранное")){shown=new JSONArray();for(int i=0;i<catalog.length();i++)if(likes.contains(catalog.optJSONObject(i).optString("id")))shown.put(catalog.optJSONObject(i));shown=sortedFavorites(shown);LinearLayout actionsRow=column();actionsRow.setGravity(Gravity.RIGHT);TextView sort=iconButton("⇅",()->favoriteSortMenu());actionsRow.addView(sort);TextView more=iconButton("⋯",()->collectionMenu("likes",""));LinearLayout.LayoutParams moreParams=new LinearLayout.LayoutParams(dp(52),dp(48));moreParams.gravity=Gravity.RIGHT;actionsRow.addView(more,moreParams);body.addView(actionsRow);}
         else if(screen.equals("Плейлисты")){android.widget.ScrollView scroll=new android.widget.ScrollView(this);LinearLayout entries=column();scroll.addView(entries);body.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));entries.addView(sheetAction("Умные плейлисты · Premium",()->feature("smart")));entries.addView(sheetAction("Подборки дня · обновляются ежедневно",this::dailyPublicPlaylists));entries.addView(action("＋ Создать плейлист",()->input("Новый плейлист",name->task(()->api.request("api/playlists","POST",new JSONObject().put("name",name)),v->load()))));for(int i=0;i<playlists.length();i++){JSONObject p=playlists.optJSONObject(i);LinearLayout r=row();r.setBackground(surface());r.addView(action(p.optString("name"),()->openPlaylist(p)),new LinearLayout.LayoutParams(0,-2,1));r.addView(action("⋯",()->collectionMenu("playlist",p.optString("id"))));LinearLayout.LayoutParams gap=new LinearLayout.LayoutParams(-1,-2);gap.bottomMargin=dp(10);entries.addView(r,gap);}return;}
         else if(screen.equals("Офлайн")){body.addView(action("Добавить аудиофайлы",this::importFiles));task(()->new JSONObject(OfflineStore.operation(this,origin,"{\"op\":\"listAll\"}")),v->{if(screen.equals("Офлайн")){shown=v.optJSONArray("tracks");updateList();}});shown=new JSONArray();}
@@ -594,7 +599,7 @@ public final class MainActivity extends Activity {
             }catch(Exception ignored){}
         });
     }
-    void smokeFixture(String page){try{user="smoke";catalog=new JSONArray();for(int i=0;i<24;i++)catalog.put(new JSONObject().put("id",String.format(java.util.Locale.ROOT,"%032x",i+1)).put("title",i==0?"Очень длинное название трека, которое должно аккуратно поместиться":"Трек "+(i+1)).put("artist","Nightwell Music · Исполнитель"));queue=catalog;playlists=new JSONArray();for(int i=0;i<16;i++)playlists.put(new JSONObject().put("id","fixture"+i).put("name","Мой плейлист "+(i+1)));for(int i=0;i<catalog.length();i++)likes.add(catalog.getJSONObject(i).getString("id"));currentID=catalog.getJSONObject(0).getString("id");miniTitle.setText(catalog.getJSONObject(0).getString("title"));miniArtist.setText("Nightwell Music");if("transfer".equals(page)){nativeTransfer();}else if("menu".equals(page)){head.post(this::menu);}else if("player".equals(page))openPlayer();else if("settings".equals(page))settings();else if("premium-sound".equals(page)||"premium-appearance".equals(page)){premiumOwner=user;premiumUntil=System.currentTimeMillis()+3600000;premiumChecked=System.currentTimeMillis();premiumPrefs=new JSONObject().put("bands",new JSONArray("[0,0,0,0,0]")).put("presets",new JSONObject()).put("theme","nightwell").put("ribbon_speed",1).put("ribbon_intensity",1);if("premium-sound".equals(page))equalizerPanel();else appearancePanel();}else if("wave-settings".equals(page))waveSettings();else if("auth".equals(page))auth();else if("queue".equals(page))showQueue();else if(page!=null)navigate(page);}catch(JSONException e){throw new IllegalStateException(e);}}
+    void smokeFixture(String page){try{user="smoke";catalog=new JSONArray();for(int i=0;i<24;i++)catalog.put(new JSONObject().put("id",String.format(java.util.Locale.ROOT,"%032x",i+1)).put("title",i==0?"Очень длинное название трека, которое должно аккуратно поместиться":"Трек "+(i+1)).put("artist","Nightwell Music · Исполнитель"));queue=catalog;playlists=new JSONArray();for(int i=0;i<16;i++)playlists.put(new JSONObject().put("id","fixture"+i).put("name","Мой плейлист "+(i+1)));for(int i=0;i<catalog.length();i++)likes.add(catalog.getJSONObject(i).getString("id"));currentID=catalog.getJSONObject(0).getString("id");miniTitle.setText(catalog.getJSONObject(0).getString("title"));miniArtist.setText("Nightwell Music");if("transfer".equals(page)){nativeTransfer();}else if("menu".equals(page)){head.post(this::menu);}else if("player".equals(page))openPlayer();else if("lyrics".equals(page)){openPlayer();showLyrics(current());}else if("settings".equals(page))settings();else if("premium-sound".equals(page)||"premium-appearance".equals(page)){premiumOwner=user;premiumUntil=System.currentTimeMillis()+3600000;premiumChecked=System.currentTimeMillis();premiumPrefs=new JSONObject().put("bands",new JSONArray("[0,0,0,0,0]")).put("presets",new JSONObject()).put("theme","nightwell").put("ribbon_speed",1).put("ribbon_intensity",1);if("premium-sound".equals(page))equalizerPanel();else appearancePanel();}else if("wave-settings".equals(page))waveSettings();else if("auth".equals(page))auth();else if("queue".equals(page))showQueue();else if(page!=null)navigate(page);}catch(JSONException e){throw new IllegalStateException(e);}}
     String friendly(Exception error){if(error instanceof java.net.UnknownHostException||error instanceof java.net.ConnectException||error instanceof java.net.SocketTimeoutException)return "Нет соединения. Офлайн-файлы доступны в меню.";String message=error.getMessage();return message!=null&&!message.startsWith("Unable")&&message.length()<180?message:"Не удалось выполнить действие. Повтори попытку.";}
     interface Work{JSONObject run()throws Exception;} interface Done{void run(JSONObject value);}
     void task(Work work,Done done){io.execute(()->{try{JSONObject value=work.run();ui.post(()->{if(!isDestroyed())done.run(value);});}catch(Exception ex){ui.post(()->{if(!isDestroyed())status.setText(friendly(ex));});}});}
@@ -610,23 +615,23 @@ public final class MainActivity extends Activity {
         final String account=user;
         WaveSettings draft=WaveSettings.read(this,origin,account);
         LinearLayout panel=column();panel.setPadding(dp(20),dp(10),dp(20),dp(14));
-        TextView hint=text("Выбери, что хочется услышать сейчас",15);hint.setTextColor(0xffd8c6ea);hint.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);panel.addView(hint);
-        TextView caption=text("Удерживай «Новая подборка», чтобы быстро открыть это окно прямо с главного экрана.",13);caption.setTextColor(0xff9ea6b9);caption.setPadding(0,dp(4),0,dp(8));panel.addView(caption);
+        TextView hint=text("Выбери, что хочется услышать сейчас",15);hint.setTextColor(0xffcccccc);hint.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);panel.addView(hint);
+        TextView caption=text("Удерживай «Новая подборка», чтобы быстро открыть это окно прямо с главного экрана.",13);caption.setTextColor(0xffa6a6a6);caption.setPadding(0,dp(4),0,dp(8));panel.addView(caption);
         final Runnable[] render={null};
         render[0]=()->{
             while(panel.getChildCount()>2)panel.removeViewAt(2);
             for(int group=0;group<3;group++){
-                final int section=group;TextView title=text(WaveSettings.TITLES[group],15);title.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);title.setTextColor(0xfff2f2f6);title.setPadding(0,dp(10),0,dp(5));panel.addView(title);
+                final int section=group;TextView title=text(WaveSettings.TITLES[group],15);title.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);title.setTextColor(0xfff2f2f2);title.setPadding(0,dp(10),0,dp(5));panel.addView(title);
                 for(int start=0;start<WaveSettings.VALUES[group].length;start+=2){LinearLayout line=row();
                     for(int option=start;option<Math.min(start+2,WaveSettings.VALUES[group].length);option++){
                         final int choice=option;boolean checked=draft.selected[section]==choice;
                         TextView chip=action((checked?"✓  ":"")+WaveSettings.LABELS[section][choice],()->{draft.selected[section]=choice;render[0].run();});
-                        chip.setTextSize(13);chip.setTextColor(checked?0xff201914:0xfff0e7f7);GradientDrawable chipFill=new GradientDrawable();chipFill.setCornerRadius(dp(24));chipFill.setColor(checked?0xffffc287:0xaa282c35);chipFill.setStroke(dp(1),checked?0x4dfff0d0:0x20ffffff);chip.setBackground(chipFill);chip.setSelected(checked);
+                        chip.setTextSize(13);chip.setTextColor(checked?0xff1a1a1a:0xffeaeaea);GradientDrawable chipFill=new GradientDrawable();chipFill.setCornerRadius(dp(24));chipFill.setColor(checked?0xffffffff:0xaa2c2c2c);chipFill.setStroke(dp(1),checked?0x4df1f1f1:0x20ffffff);chip.setBackground(chipFill);chip.setSelected(checked);
                         LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(0,dp(44),1);params.setMargins(dp(3),dp(3),dp(3),dp(3));line.addView(chip,params);
                     }panel.addView(line);
                 }
             }
-            TextView note=text("Настроение и язык определяются по описанию треков и могут совпадать не точно.",12);note.setTextColor(0xffbba6cf);note.setPadding(0,dp(8),0,0);panel.addView(note);
+            TextView note=text("Настроение и язык определяются по описанию треков и могут совпадать не точно.",12);note.setTextColor(0xffadadad);note.setPadding(0,dp(8),0,0);panel.addView(note);
         };render[0].run();
         android.widget.ScrollView scroll=new android.widget.ScrollView(this);scroll.addView(panel);
         AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Настроить подборку").setView(scroll).setPositiveButton("Применить",null).setNeutralButton("Сбросить",null).setNegativeButton("Отмена",null).create();
@@ -677,7 +682,7 @@ public final class MainActivity extends Activity {
     }
 
     void setLabel(TextView view,String value){if(view!=null&&!android.text.TextUtils.equals(view.getText(),value))view.setText(value);}
-    void updatePlayback(){if(smokeMode||playback==null)return;try{JSONObject state=new JSONObject(playback.snapshot(false));String next=state.optString("id");if(!currentID.equals(next)||queue.length()!=state.optInt("queueCount")){queue=new JSONObject(playback.snapshot(true)).optJSONArray("queueTracks");}if(queue==null)queue=new JSONArray();JSONObject t=null;for(int i=0;i<queue.length();i++)if(queue.optJSONObject(i).optString("id").equals(next)){t=queue.optJSONObject(i);break;}setLabel(miniTitle,t==null?"Выбери трек":t.optString("title"));setLabel(miniArtist,t==null?"Nightwell Music":t.optString("artist"));refreshFavoriteButtons();if(miniProgress!=null)miniProgress.setLevel((int)Math.max(0,Math.min(10000,10000*state.optDouble("position")/Math.max(1,state.optDouble("duration")))));setLabel(miniPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(homePlay!=null)setLabel(homePlay,state.optBoolean("playing")?"Ⅱ":"▶");if(fullPlay!=null)setLabel(fullPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(ribbon!=null)ribbon.playing(state.optBoolean("playing"));if(!currentID.equals(next)){currentID=next;if(!next.isEmpty()){mixRecent.remove(next);mixRecent.addLast(next);while(mixRecent.size()>120)mixRecent.removeFirst();}activeLyrics=null;homeLine="";loadMiniCover(t);fetchLyricsAndPreload();animateTrackTransition();updateList();if(full)openPlayer();}if(seek!=null&&!seek.isPressed()){seek.setMax((int)Math.max(1,state.optDouble("duration")));seek.setProgress((int)state.optDouble("position"));}if(fullTime!=null)setLabel(fullTime,time(state.optDouble("position")));if(fullRemaining!=null)setLabel(fullRemaining,"−"+time(Math.max(0,state.optDouble("duration")-state.optDouble("position"))));if(!state.optString("error").isEmpty())status.setText(state.optString("error"));syncLyrics(state.optDouble("position"));syncHomeLyrics(state.optDouble("position"));if(lastPlaying!=state.optBoolean("playing")){lastPlaying=state.optBoolean("playing");updateList();}}catch(Exception ignored){}}
+    void updatePlayback(){if(smokeMode||playback==null)return;try{JSONObject state=new JSONObject(playback.snapshot(false));String next=state.optString("id");if(!currentID.equals(next)||queue.length()!=state.optInt("queueCount")){queue=new JSONObject(playback.snapshot(true)).optJSONArray("queueTracks");}if(queue==null)queue=new JSONArray();JSONObject t=null;for(int i=0;i<queue.length();i++)if(queue.optJSONObject(i).optString("id").equals(next)){t=queue.optJSONObject(i);break;}setLabel(miniTitle,t==null?"Выбери трек":t.optString("title"));setLabel(miniArtist,t==null?"Nightwell Music":t.optString("artist"));refreshFavoriteButtons();if(miniProgress!=null)miniProgress.setLevel((int)Math.max(0,Math.min(10000,10000*state.optDouble("position")/Math.max(1,state.optDouble("duration")))));setLabel(miniPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(homePlay!=null)setLabel(homePlay,state.optBoolean("playing")?"Ⅱ":"▶");if(fullPlay!=null)setLabel(fullPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(ribbon!=null)ribbon.playing(state.optBoolean("playing"));if(fullShuffle!=null){boolean active=playback.player.getShuffleModeEnabled();fullShuffle.setAlpha(active?1f:.5f);fullShuffle.setSelected(active);fullShuffle.setContentDescription(active?"Перемешивание включено":"Перемешивание выключено");}if(fullRepeat!=null){int repeat=playback.player.getRepeatMode();fullRepeat.setAlpha(repeat>0?1f:.5f);fullRepeat.setSelected(repeat>0);fullRepeat.setText(repeat==1?"↻1":"↻");fullRepeat.setContentDescription(repeat==1?"Повтор одного трека":repeat==2?"Повтор очереди":"Повтор выключен");}if(!currentID.equals(next)){currentID=next;if(!next.isEmpty()){mixRecent.remove(next);mixRecent.addLast(next);while(mixRecent.size()>120)mixRecent.removeFirst();}activeLyrics=null;homeLine="";loadMiniCover(t);fetchLyricsAndPreload();animateTrackTransition();updateList();if(full)openPlayer();}if(seek!=null&&!seek.isPressed()){seek.setMax((int)Math.max(1,state.optDouble("duration")));seek.setProgress((int)state.optDouble("position"));}if(fullTime!=null)setLabel(fullTime,time(state.optDouble("position")));if(fullRemaining!=null)setLabel(fullRemaining,"−"+time(Math.max(0,state.optDouble("duration")-state.optDouble("position"))));if(!state.optString("error").isEmpty())status.setText(state.optString("error"));syncLyrics(state.optDouble("position"));syncHomeLyrics(state.optDouble("position"));if(lastPlaying!=state.optBoolean("playing")){lastPlaying=state.optBoolean("playing");updateList();}}catch(Exception ignored){}}
     void animateTrackTransition(){
         if(dock==null||!dock.isShown())return;
         final float slide=dp(24)*trackTransitionDirection;
@@ -694,7 +699,7 @@ public final class MainActivity extends Activity {
     JSONObject current(){for(int i=0;i<queue.length();i++)if(queue.optJSONObject(i).optString("id").equals(currentID))return queue.optJSONObject(i);return null;}
     String iconLabel(String icon){switch(icon){case "⌕":return "Поиск музыки";case "☰":return "Открыть меню";case "⋯":return "Действия с треком";case "⌄":return "Свернуть плеер";case "×":return "Закрыть";case "|‹":return "Предыдущий трек";case "›|":return "Следующий трек";case "♡":case "♥":return "Избранное";case "⇄":return "Перемешать";case "↻":return "Повтор";default:return "Воспроизведение";}}
     void openPlayer(){
-        JSONObject track=current();if(track==null)return;full=true;playerBackdrop.setImageDrawable(null);playerBackdrop.setVisibility(View.GONE);playerBackdropShade.setVisibility(View.GONE);if(atmosphere!=null)atmosphere.setVisibility(View.GONE);if(ribbon!=null){ribbon.running(false);ribbon.setVisibility(View.GONE);}dock.setVisibility(View.GONE);head.setVisibility(View.GONE);body.removeAllViews();
+        JSONObject track=current();if(track==null)return;boolean restoreLyrics=full&&lyricsOpen;lyricsRequest++;lyricsOpen=false;lyricsText=null;lyricsScroll=null;full=true;playerBackdrop.setImageDrawable(null);playerBackdrop.setVisibility(View.GONE);playerBackdropShade.setVisibility(View.GONE);if(atmosphere!=null)atmosphere.setVisibility(View.VISIBLE);if(ribbon!=null){ribbon.running(false);ribbon.setVisibility(View.GONE);}dock.setVisibility(View.GONE);head.setVisibility(View.GONE);body.removeAllViews();
         LinearLayout top=row();
         TextView close=iconButton("⌄",()->{full=false;build();});
         top.addView(close,new LinearLayout.LayoutParams(dp(48),dp(48)));
@@ -705,7 +710,7 @@ public final class MainActivity extends Activity {
         fullAudioOutput.setEllipsize(android.text.TextUtils.TruncateAt.END);
         fullAudioOutput.setPadding(dp(10),0,dp(10),0);
         fullAudioOutput.setMinHeight(0);
-        fullAudioOutput.setBackground(touchSurface(0x6620222b,16));
+        fullAudioOutput.setBackground(glassSurface(19));
         fullAudioOutput.setContentDescription("Устройство вывода: "+audioOutputName()+". Изменить");
         fullAudioOutput.setOnClickListener(v->chooseAudioOutput());
         LinearLayout.LayoutParams routeParams=new LinearLayout.LayoutParams(-2,dp(42));
@@ -718,47 +723,62 @@ public final class MainActivity extends Activity {
         addCover(track,content);
         LinearLayout metadata=row();metadata.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout names=column();
-        TextView title=text(track.optString("title"),25);title.setMaxLines(2);title.setLetterSpacing(-.025f);title.setLineSpacing(dp(2),1f);title.setAutoSizeTextTypeUniformWithConfiguration(19,25,1,android.util.TypedValue.COMPLEX_UNIT_SP);title.setEllipsize(android.text.TextUtils.TruncateAt.END);title.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);title.setPadding(dp(8),dp(18),dp(8),dp(6));names.addView(title);
-        TextView artist=text(track.optString("artist"),16);artist.setTextColor(0xffa4a6b1);artist.setMaxLines(2);artist.setEllipsize(android.text.TextUtils.TruncateAt.END);artist.setPadding(dp(8),0,dp(8),dp(18));names.addView(artist);
+        TextView title=text(track.optString("title"),20);title.setMaxLines(2);title.setLetterSpacing(-.025f);title.setLineSpacing(dp(2),1f);title.setAutoSizeTextTypeUniformWithConfiguration(17,20,1,android.util.TypedValue.COMPLEX_UNIT_SP);title.setEllipsize(android.text.TextUtils.TruncateAt.END);title.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);title.setPadding(dp(8),dp(26),dp(8),dp(6));names.addView(title);
+        TextView artist=text(track.optString("artist"),15);artist.setTextColor(0xffa6a6a6);artist.setMaxLines(2);artist.setEllipsize(android.text.TextUtils.TruncateAt.END);artist.setPadding(dp(8),0,dp(8),dp(18));names.addView(artist);
         metadata.addView(names,new LinearLayout.LayoutParams(0,-2,1));
         fullLike=iconButton(likes.contains(track.optString("id"))?"♥":"♡",()->toggleFavorite(current()));
         fullLike.setContentDescription(likes.contains(track.optString("id"))?"Убрать из избранного":"Добавить в избранное");
-        fullLike.setTextColor(likes.contains(track.optString("id"))?0xffffbc78:0xffa4a6b1);
+        fullLike.setTextColor(likes.contains(track.optString("id"))?0xffffffff:0xffa6a6a6);
         LinearLayout.LayoutParams likeParams=new LinearLayout.LayoutParams(dp(48),dp(48));likeParams.setMargins(dp(8),0,dp(4),0);metadata.addView(fullLike,likeParams);content.addView(metadata);
         LinearLayout transport=column();transport.setPadding(dp(12),dp(12),dp(12),dp(6));content.addView(transport);
-        seek=new SeekBar(this);seek.setMinimumHeight(dp(44));seek.setProgressTintList(android.content.res.ColorStateList.valueOf(0xffeeeeF4));seek.setThumbTintList(android.content.res.ColorStateList.valueOf(0xffffffff));seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar b,int p,boolean user){}public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){cancelMix();if(playback!=null)playback.seek(b.getProgress());}});transport.addView(seek);LinearLayout times=row();fullTime=text("0:00",12);fullTime.setTextColor(0xffc4b4d2);fullRemaining=text("−0:00",12);fullRemaining.setTextColor(0xffc4b4d2);fullRemaining.setGravity(Gravity.RIGHT);times.setPadding(dp(8),0,dp(8),dp(12));times.addView(fullTime,new LinearLayout.LayoutParams(0,-2,1));times.addView(fullRemaining,new LinearLayout.LayoutParams(0,-2,1));transport.addView(times);
+        seek=new SeekBar(this);seek.setMinimumHeight(dp(44));seek.setProgressTintList(android.content.res.ColorStateList.valueOf(0xffeeeeee));seek.setThumbTintList(android.content.res.ColorStateList.valueOf(0xffffffff));seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar b,int p,boolean user){}public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){cancelMix();if(playback!=null)playback.seek(b.getProgress());}});transport.addView(seek);LinearLayout times=row();fullTime=text("0:00",12);fullTime.setTextColor(0xffbababa);fullRemaining=text("−0:00",12);fullRemaining.setTextColor(0xffbababa);fullRemaining.setGravity(Gravity.RIGHT);times.setPadding(dp(8),0,dp(8),dp(12));times.addView(fullTime,new LinearLayout.LayoutParams(0,-2,1));times.addView(fullRemaining,new LinearLayout.LayoutParams(0,-2,1));transport.addView(times);
         LinearLayout controls=row();controls.setGravity(Gravity.CENTER);
         TextView shuffleButton=iconButton("⇄",()->{if(playback!=null){playback.modes(playback.player.getRepeatMode(),!playback.player.getShuffleModeEnabled());}});
         TextView backward=iconButton("|‹",this::previous);
         fullPlay=iconButton(playback!=null&&playback.player.getPlayWhenReady()?"Ⅱ":"▶",this::toggle);
         TextView forward=iconButton("›|",this::nextTrack);
         TextView repeatButton=iconButton("↻",()->{if(playback!=null)playback.modes((playback.player.getRepeatMode()+1)%3,playback.player.getShuffleModeEnabled());});
+        fullShuffle=shuffleButton;fullRepeat=repeatButton;
         for(TextView button:new TextView[]{shuffleButton,backward,forward,repeatButton}){
-            button.setBackground(null);button.setPadding(0,0,0,0);button.setTextSize(25);
+            button.setBackground(null);button.setPadding(0,0,0,0);button.setTextSize(20);
         }
-        backward.setTextSize(31);forward.setTextSize(31);
-        fullPlay.setTextColor(0xffffffff);fullPlay.setTextSize(30);
-        fullPlay.setBackground(touchSurface(0x442a2730,38));
+        backward.setTextSize(24);forward.setTextSize(24);
+        fullPlay.setTextColor(0xffffffff);fullPlay.setTextSize(25);
+        fullPlay.setBackground(glassSurface(34));
         fullPlay.setPadding(0,0,0,0);
         controls.addView(shuffleButton,new LinearLayout.LayoutParams(0,dp(56),1));
         controls.addView(backward,new LinearLayout.LayoutParams(0,dp(64),1));
-        LinearLayout.LayoutParams centerPlay=new LinearLayout.LayoutParams(dp(76),dp(76));
+        LinearLayout.LayoutParams centerPlay=new LinearLayout.LayoutParams(dp(68),dp(68));
         centerPlay.leftMargin=dp(2);centerPlay.rightMargin=dp(2);
         controls.addView(fullPlay,centerPlay);
         controls.addView(forward,new LinearLayout.LayoutParams(0,dp(64),1));
         controls.addView(repeatButton,new LinearLayout.LayoutParams(0,dp(56),1));
         transport.addView(controls);
-        LinearLayout shortcuts=row();shortcuts.setGravity(Gravity.CENTER);shortcuts.setBackground(new NativeSurfaceDrawable(shortcuts,30));
+        LinearLayout shortcuts=row();shortcuts.setGravity(Gravity.CENTER);shortcuts.setBackground(glassSurface(28));
         TextView lyricButton=iconButton("▤",()->{JSONObject selected=current();if(selected!=null)showLyrics(selected);});lyricButton.setContentDescription("Текст песни");
         TextView queueButton=iconButton("☰",this::showQueue);queueButton.setContentDescription("Очередь");
         TextView eqButton=iconButton("☷",()->feature("sound"));eqButton.setContentDescription("Эквалайзер");
-        for(TextView button:new TextView[]{lyricButton,queueButton,eqButton}){button.setBackground(null);button.setTextSize(24);shortcuts.addView(button,new LinearLayout.LayoutParams(0,dp(64),1));}
-        LinearLayout.LayoutParams shortcutParams=new LinearLayout.LayoutParams(-1,dp(64));shortcutParams.topMargin=dp(20);content.addView(shortcuts,shortcutParams);updatePlayback();
+        for(TextView button:new TextView[]{lyricButton,queueButton,eqButton}){button.setBackground(null);button.setTextSize(20);shortcuts.addView(button,new LinearLayout.LayoutParams(0,dp(50),1));}
+        LinearLayout.LayoutParams shortcutParams=new LinearLayout.LayoutParams(-1,dp(50));shortcutParams.topMargin=dp(20);content.addView(shortcuts,shortcutParams);updatePlayback();if(restoreLyrics)showLyrics(track);
     }
     void loadMiniCover(JSONObject track){if(miniCover==null)return;miniCover.setImageDrawable(null);if(track==null)return;String path=track.optString("cover_url"),id=track.optString("id");if(!path.startsWith("/api/covers/"))return;android.widget.ImageView target=miniCover;io.execute(()->{try{java.net.HttpURLConnection c=api.connection(path);byte[] bytes;try{bytes=NativeAPI.read(c.getInputStream(),5*1024*1024);}finally{c.disconnect();}android.graphics.BitmapFactory.Options options=new android.graphics.BitmapFactory.Options();options.inSampleSize=4;android.graphics.Bitmap bitmap=android.graphics.BitmapFactory.decodeByteArray(bytes,0,bytes.length,options);ui.post(()->{if(id.equals(currentID)&&target.isAttachedToWindow())target.setImageBitmap(bitmap);});}catch(Exception ignored){}});}
-    void addCover(JSONObject track,LinearLayout parent){android.widget.ImageView cover=new android.widget.ImageView(this);cover.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);android.view.GestureDetector detector=gestures(true);cover.setOnTouchListener((v,event)->detector.onTouchEvent(event));GradientDrawable corners=new GradientDrawable();corners.setColor(0x33251936);corners.setCornerRadius(dp(34));cover.setBackground(corners);cover.setClipToOutline(true);int edge=Math.max(160,Math.min((int)(getResources().getConfiguration().screenHeightDp*(getResources().getConfiguration().screenHeightDp<700?.25f:.36f)),Math.min(330,getResources().getConfiguration().screenWidthDp-44)));LinearLayout.LayoutParams coverLayout=new LinearLayout.LayoutParams(dp(edge),dp(edge));coverLayout.gravity=Gravity.CENTER_HORIZONTAL;parent.addView(cover,coverLayout);String path=track.optString("cover_url"),id=track.optString("id");if(!path.startsWith("/api/covers/"))return;io.execute(()->{try{java.net.HttpURLConnection c=api.connection(path);byte[] bytes;try{bytes=NativeAPI.read(c.getInputStream(),5*1024*1024);}finally{c.disconnect();}android.graphics.BitmapFactory.Options options=new android.graphics.BitmapFactory.Options();options.inSampleSize=2;android.graphics.Bitmap bitmap=android.graphics.BitmapFactory.decodeByteArray(bytes,0,bytes.length,options);ui.post(()->{if(full&&id.equals(currentID)&&cover.isAttachedToWindow()){cover.setImageBitmap(bitmap);if(bitmap!=null){android.graphics.Bitmap blurred=android.graphics.Bitmap.createScaledBitmap(bitmap,6,6,true);playerBackdrop.setImageBitmap(blurred);if(Build.VERSION.SDK_INT>=31)playerBackdrop.setRenderEffect(android.graphics.RenderEffect.createBlurEffect(dp(24),dp(24),android.graphics.Shader.TileMode.CLAMP));playerBackdrop.setVisibility(View.VISIBLE);playerBackdropShade.setVisibility(View.VISIBLE);}}});}catch(Exception ignored){}});}
+    void addCover(JSONObject track,LinearLayout parent){android.widget.ImageView cover=new android.widget.ImageView(this);cover.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);cover.setImageResource(R.drawable.nightwell_mark);android.view.GestureDetector detector=gestures(true);cover.setOnTouchListener((v,event)->detector.onTouchEvent(event));GradientDrawable corners=new GradientDrawable();corners.setColor(0x331e1e1e);corners.setCornerRadius(dp(34));cover.setBackground(corners);cover.setClipToOutline(true);int edge=Math.max(160,Math.min((int)(getResources().getConfiguration().screenHeightDp*(getResources().getConfiguration().screenHeightDp<700?.25f:.36f)),Math.min(330,getResources().getConfiguration().screenWidthDp-44)));LinearLayout.LayoutParams coverLayout=new LinearLayout.LayoutParams(dp(edge),dp(edge));coverLayout.gravity=Gravity.CENTER_HORIZONTAL;coverSlot=new FrameLayout(this);fullCover=cover;parent.addView(coverSlot,coverLayout);coverSlot.addView(cover,new FrameLayout.LayoutParams(-1,-1));cover.setContentDescription("Показать текст песни");cover.setOnClickListener(v->showLyrics(track));String path=track.optString("cover_url"),id=track.optString("id");if(!path.startsWith("/api/covers/"))return;io.execute(()->{try{java.net.HttpURLConnection c=api.connection(path);byte[] bytes;try{bytes=NativeAPI.read(c.getInputStream(),5*1024*1024);}finally{c.disconnect();}android.graphics.BitmapFactory.Options options=new android.graphics.BitmapFactory.Options();options.inSampleSize=2;android.graphics.Bitmap bitmap=android.graphics.BitmapFactory.decodeByteArray(bytes,0,bytes.length,options);ui.post(()->{if(full&&id.equals(currentID)&&cover.isAttachedToWindow()){cover.setImageBitmap(bitmap);if(bitmap!=null){android.graphics.Bitmap blurred=android.graphics.Bitmap.createScaledBitmap(bitmap,6,6,true);playerBackdrop.setImageBitmap(blurred);if(Build.VERSION.SDK_INT>=31)playerBackdrop.setRenderEffect(android.graphics.RenderEffect.createBlurEffect(dp(24),dp(24),android.graphics.Shader.TileMode.CLAMP));playerBackdrop.setVisibility(lyricsOpen?View.GONE:View.VISIBLE);playerBackdropShade.setVisibility(lyricsOpen?View.GONE:View.VISIBLE);}}});}catch(Exception ignored){}});}
+    void closeInlineLyrics(){
+        lyricsOpen=false;lyricsRequest++;
+        if(coverSlot!=null&&lyricsScroll!=null)coverSlot.removeView(lyricsScroll);
+        lyricsText=null;lyricsScroll=null;lyricLines=null;
+        if(fullCover!=null)fullCover.setVisibility(View.VISIBLE);
+        if(playerBackdrop.getDrawable()!=null){playerBackdrop.setVisibility(View.VISIBLE);playerBackdropShade.setVisibility(View.VISIBLE);}
+    }
+    android.graphics.drawable.Drawable glassSurface(int radius){
+        GradientDrawable fill=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{0x554c4c4c,0x99202020,0x66333333});
+        fill.setCornerRadius(dp(radius));fill.setStroke(dp(1),0x66ffffff);
+        GradientDrawable mask=new GradientDrawable();mask.setColor(Color.WHITE);mask.setCornerRadius(dp(radius));
+        return new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x30ffffff),fill,mask);
+    }
     String[] trackNames(JSONArray items){String[] names=new String[items.length()];for(int i=0;i<names.length;i++)names[i]=items.optJSONObject(i).optString("title");return names;}
     JSONObject cachedLyrics(String id)throws Exception {
+        if(smokeMode)return new JSONObject().put("status","found").put("synced",false).put("plain","Твой ритм\n\nМузыка под твоё настроение\n\nБелый свет в тишине\n\nNightwell Music").put("source","Preview");
         java.io.File dir=new java.io.File(getCacheDir(),"native-lyrics");dir.mkdirs();java.io.File file=new java.io.File(dir,id+".json");
         if(file.isFile()&&file.length()<2*1024*1024){try{JSONObject cached=new JSONObject(new String(java.nio.file.Files.readAllBytes(file.toPath()),java.nio.charset.StandardCharsets.UTF_8));long ttl=cached.optBoolean("lookup_complete",true)?30L*86400000:3600000;if(System.currentTimeMillis()-file.lastModified()<ttl&&cached.optString("status").equals("found"))return cached;}catch(Exception ignored){}}
         JSONObject value=api.request("api/lyrics/"+id);if(value.optString("status").equals("found"))java.nio.file.Files.write(file.toPath(),value.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));return value;
@@ -800,13 +820,14 @@ public final class MainActivity extends Activity {
             }
         }
     }
-    void showLyrics(JSONObject track){String id=track.optString("id");status.setText("Ищем текст…");task(()->cachedLyrics(id),v->{
-        if(!currentID.equals(id))return;acceptLyrics(id,v);lyricLines=v.optBoolean("synced")?v.optJSONArray("lines"):null;lyricsTrack=id;activeLyric=-2;
-        lyricsScroll=new android.widget.ScrollView(this);lyricsText=text("",26);lyricsText.setGravity(Gravity.CENTER);lyricsText.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);lyricsText.setPadding(dp(22),dp(28),dp(22),dp(28));lyricsText.setLineSpacing(dp(16),1);lyricsScroll.addView(lyricsText);
+    void showLyrics(JSONObject track){if(full&&lyricsOpen){closeInlineLyrics();return;}String id=track.optString("id");final int request=++lyricsRequest;final FrameLayout requestedSlot=full?coverSlot:null;status.setText("Ищем текст…");task(()->cachedLyrics(id),v->{
+        if(request!=lyricsRequest||!currentID.equals(id)||(requestedSlot!=null&&(!full||coverSlot!=requestedSlot)))return;acceptLyrics(id,v);lyricLines=v.optBoolean("synced")?v.optJSONArray("lines"):null;lyricsTrack=id;activeLyric=-2;
+        lyricsScroll=new android.widget.ScrollView(this);lyricsText=text("",26);lyricsText.setGravity(Gravity.CENTER);lyricsText.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);lyricsText.setPadding(dp(22),dp(28),dp(22),dp(28));lyricsText.setLineSpacing(dp(16),1);lyricsScroll.addView(lyricsText);lyricsScroll.setOnTouchListener((view,event)->{view.getParent().requestDisallowInterceptTouchEvent(event.getActionMasked()!=MotionEvent.ACTION_UP&&event.getActionMasked()!=MotionEvent.ACTION_CANCEL);return false;});
         if(lyricLines==null||lyricLines.length()==0)lyricsText.setText(v.optString("plain",v.optString("message",lyricsPending(v)?"Ищем подходящий текст…":"Текст пока не найден")));
+        if(full&&coverSlot!=null){lyricsOpen=true;fullCover.setVisibility(View.GONE);coverSlot.addView(lyricsScroll,new FrameLayout.LayoutParams(-1,-1));lyricsText.setOnClickListener(x->closeInlineLyrics());playerBackdrop.setVisibility(View.GONE);playerBackdropShade.setVisibility(View.GONE);status.setText("");syncLyrics(playback==null?0:playback.player.getCurrentPosition()/1000.0);return;}
         AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Текст песни · "+v.optString("source")).setView(lyricsScroll).setPositiveButton("Закрыть",null).create();dialog.setOnDismissListener(d->{lyricsText=null;lyricsScroll=null;lyricLines=null;});styleSheet(dialog);dialog.show();status.setText("");syncLyrics(playback==null?0:playback.player.getCurrentPosition()/1000.0);
     });}
-    void syncLyrics(double position){if(lyricsText==null||lyricLines==null||!currentID.equals(lyricsTrack))return;int current=-1;for(int i=0;i<lyricLines.length();i++)if(lyricLines.optJSONObject(i).optDouble("time")<=position)current=i;if(current==activeLyric)return;activeLyric=current;StringBuilder all=new StringBuilder();int start=0,end=0;for(int i=0;i<lyricLines.length();i++){if(i==current)start=all.length();all.append(lyricLines.optJSONObject(i).optString("text")).append("\n\n");if(i==current)end=all.length();}android.text.SpannableString styled=new android.text.SpannableString(all);styled.setSpan(new android.text.style.ForegroundColorSpan(0xff9e8daa),0,styled.length(),0);if(current>=0){styled.setSpan(new android.text.style.ForegroundColorSpan(0xffffeedc),start,end,0);styled.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD),start,end,0);}lyricsText.setText(styled);final int offset=start;lyricsText.post(()->{if(lyricsText==null||lyricsScroll==null||lyricsText.getLayout()==null)return;int line=lyricsText.getLayout().getLineForOffset(Math.min(offset,lyricsText.length()));lyricsScroll.smoothScrollTo(0,Math.max(0,lyricsText.getLayout().getLineTop(line)-lyricsScroll.getHeight()/3));});}
+    void syncLyrics(double position){if(lyricsText==null||lyricLines==null||!currentID.equals(lyricsTrack))return;int current=-1;for(int i=0;i<lyricLines.length();i++)if(lyricLines.optJSONObject(i).optDouble("time")<=position)current=i;if(current==activeLyric)return;activeLyric=current;StringBuilder all=new StringBuilder();int start=0,end=0;for(int i=0;i<lyricLines.length();i++){if(i==current)start=all.length();all.append(lyricLines.optJSONObject(i).optString("text")).append("\n\n");if(i==current)end=all.length();}android.text.SpannableString styled=new android.text.SpannableString(all);styled.setSpan(new android.text.style.ForegroundColorSpan(0xff939393),0,styled.length(),0);if(current>=0){styled.setSpan(new android.text.style.ForegroundColorSpan(0xfff0f0f0),start,end,0);styled.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD),start,end,0);}lyricsText.setText(styled);final int offset=start;lyricsText.post(()->{if(lyricsText==null||lyricsScroll==null||lyricsText.getLayout()==null)return;int line=lyricsText.getLayout().getLineForOffset(Math.min(offset,lyricsText.length()));lyricsScroll.smoothScrollTo(0,Math.max(0,lyricsText.getLayout().getLineTop(line)-lyricsScroll.getHeight()/3));});}
 
     void fullPlayerMenu(JSONObject track){nightwellOptions("Плеер",new String[]{"Эквалайзер","Действия с треком"},n->{if(n==0)feature("sound");else trackMenu(track);});}
     void trackMenu(JSONObject track){AlertDialog actions=new AlertDialog.Builder(this).setTitle(track.optString("title")).setItems(new String[]{likes.contains(track.optString("id"))?"Убрать из избранного":"В избранное","Скачать","Поделиться","Добавить в плейлист"},(d,n)->{String id=track.optString("id");if(n==0){toggleFavorite(track);}else if(n==1)download(new JSONArray().put(track));else if(n==2)share(origin+"track/"+id);else{String[] names=new String[playlists.length()];for(int i=0;i<names.length;i++)names[i]=playlists.optJSONObject(i).optString("name");new AlertDialog.Builder(this).setTitle("В плейлист").setItems(names,(x,i)->task(()->api.request("api/playlists/"+playlists.optJSONObject(i).getString("id")+"/tracks/"+id,"POST",null),v->{})).show();}}).create();styleSheet(actions);actions.show();}
@@ -829,7 +850,7 @@ public final class MainActivity extends Activity {
     }
     void nightwellOptions(String title,String[] options,java.util.function.IntConsumer selected){
         LinearLayout panel=column();panel.setPadding(dp(18),dp(14),dp(18),dp(16));
-        TextView heading=text(title,21);heading.setTextColor(0xffffe9d4);heading.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);heading.setPadding(dp(8),dp(4),dp(8),dp(16));panel.addView(heading);
+        TextView heading=text(title,21);heading.setTextColor(0xffececec);heading.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);heading.setPadding(dp(8),dp(4),dp(8),dp(16));panel.addView(heading);
         AlertDialog dialog=new AlertDialog.Builder(this).setView(panel).create();
         for(int index=0;index<options.length;index++){
             final int choice=index;
@@ -850,7 +871,7 @@ public final class MainActivity extends Activity {
     void download(JSONArray items){if(items==null)return;if(user.isEmpty()){auth();return;}String account=user;status.setText("Добавляем в фоновую очередь…");task(()->{if(!api.request("api/premium/me").optBoolean("premium"))throw new java.io.IOException("Скачивание доступно с Premium — 150 ₽ за 30 дней.");BackgroundDownloads.enqueue(this,origin,account,items);return new JSONObject();},v->status.setText(BackgroundDownloads.progress(this)));}
     interface InputDone{void run(String value);}
     void input(String title,InputDone done){EditText field=new EditText(this);AlertDialog dialog=new AlertDialog.Builder(this).setTitle(title).setView(field).setPositiveButton("Сохранить",(d,n)->done.run(field.getText().toString())).setNegativeButton("Отмена",null).create();styleSheet(dialog);dialog.show();}
-    void settings(){LinearLayout panel=column();panel.setPadding(dp(20),dp(16),dp(20),dp(16));TextView subtitle=text("Оформи приложение под себя и настрой поведение плеера.",14);subtitle.setTextColor(0xff9fa6b8);subtitle.setPadding(0,0,0,dp(10));panel.addView(subtitle);panel.addView(sectionLabel("Оформление"));panel.addView(sheetAction("Темы и ленты · Premium",()->feature("appearance")));panel.addView(sectionLabel("Воспроизведение"));TextView label=text("Переход между треками · 0.8 с",15);label.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);panel.addView(label);SeekBar duration=new SeekBar(this);duration.setMax(50);duration.setProgress((int)(getSharedPreferences("playback",MODE_PRIVATE).getFloat("nw-transition-seconds",.8f)*10));duration.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar b,int p,boolean user){label.setText("Переход между треками · "+p/10.0+" с");if(playback!=null)playback.transitionDuration(p/10.0);}public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}});panel.addView(duration);android.widget.Switch ambient=new android.widget.Switch(this);ambient.setText("Показывать текст рядом с лентами");styleSwitch(ambient);ambient.setChecked(getSharedPreferences("appearance",MODE_PRIVATE).getBoolean("ambient-lyrics",true));ambient.setOnCheckedChangeListener((button,checked)->getSharedPreferences("appearance",MODE_PRIVATE).edit().putBoolean("ambient-lyrics",checked).apply());panel.addView(ambient);AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Настройки").setView(panel).setPositiveButton("Готово",null).create();styleSheet(dialog);dialog.show();}
+    void settings(){LinearLayout panel=column();panel.setPadding(dp(20),dp(16),dp(20),dp(16));TextView subtitle=text("Оформи приложение под себя и настрой поведение плеера.",14);subtitle.setTextColor(0xffa6a6a6);subtitle.setPadding(0,0,0,dp(10));panel.addView(subtitle);panel.addView(sectionLabel("Оформление"));panel.addView(sheetAction("Темы и ленты · Premium",()->feature("appearance")));panel.addView(sectionLabel("Воспроизведение"));TextView label=text("Переход между треками · 0.8 с",15);label.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);panel.addView(label);SeekBar duration=new SeekBar(this);duration.setMax(50);duration.setProgress((int)(getSharedPreferences("playback",MODE_PRIVATE).getFloat("nw-transition-seconds",.8f)*10));duration.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar b,int p,boolean user){label.setText("Переход между треками · "+p/10.0+" с");if(playback!=null)playback.transitionDuration(p/10.0);}public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}});panel.addView(duration);android.widget.Switch ambient=new android.widget.Switch(this);ambient.setText("Показывать текст рядом с лентами");styleSwitch(ambient);ambient.setChecked(getSharedPreferences("appearance",MODE_PRIVATE).getBoolean("ambient-lyrics",true));ambient.setOnCheckedChangeListener((button,checked)->getSharedPreferences("appearance",MODE_PRIVATE).edit().putBoolean("ambient-lyrics",checked).apply());panel.addView(ambient);AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Настройки").setView(panel).setPositiveButton("Готово",null).create();styleSheet(dialog);dialog.show();}
     private JSONObject premiumPrefs=new JSONObject();private String premiumOwner="";private long premiumUntil,premiumChecked;private boolean premiumLoading;
     boolean premiumAllowed(){return !user.isEmpty()&&user.equals(premiumOwner)&&System.currentTimeMillis()<premiumUntil;}
     void applyPremium(){
@@ -859,9 +880,9 @@ public final class MainActivity extends Activity {
         if(ribbon!=null){ribbon.premiumSpeed=allowed?premiumPrefs.optDouble("ribbon_speed",1):1;ribbon.premiumIntensity=allowed?premiumPrefs.optDouble("ribbon_intensity",1):1;ribbon.premiumTheme=allowed?premiumPrefs.optString("theme","nightwell"):"nightwell";ribbon.colorSpeed=allowed?getSharedPreferences("aura-color-speed",MODE_PRIVATE).getFloat(user,1):1;}
         if(ribbon!=null){
             android.content.SharedPreferences aura=getSharedPreferences("aura-response",MODE_PRIVATE);
-            ribbon.setAuraResponse(aura.getBoolean(user+"|aura_voice",true),aura.getBoolean(user+"|aura_low",true),aura.getBoolean(user+"|aura_mid",true),aura.getBoolean(user+"|aura_high",true));
+            ribbon.setAuraResponse(!allowed||aura.getBoolean(user+"|aura_voice",true),!allowed||aura.getBoolean(user+"|aura_low",true),!allowed||aura.getBoolean(user+"|aura_mid",true),!allowed||aura.getBoolean(user+"|aura_high",true));
         }
-        if(root!=null){String theme=allowed?premiumPrefs.optString("theme"):"";int tint=theme.equals("aurora")?0x66105a45:theme.equals("ocean")?0x660c3f73:theme.equals("sunset")?0x6682282d:Color.TRANSPARENT;root.setBackgroundColor(tint);}
+        if(root!=null)root.setBackgroundColor(Color.TRANSPARENT);
     }
     void premiumTick(){if(!premiumOwner.equals(user)||premiumUntil>0&&!premiumAllowed()){premiumUntil=0;premiumPrefs=new JSONObject();premiumOwner=user;premiumChecked=0;applyPremium();}if(!premiumLoading&&System.currentTimeMillis()-premiumChecked>300000)loadPremium(()->{});}
     void loadPremium(Runnable done){if(premiumLoading)return;premiumLoading=true;premiumChecked=System.currentTimeMillis();String owner=user;premiumUntil=0;applyPremium();io.execute(()->{
@@ -875,13 +896,13 @@ public final class MainActivity extends Activity {
     LinearLayout premiumCard(LinearLayout parent,String title){
         LinearLayout card=column();card.setPadding(dp(14),dp(12),dp(14),dp(12));card.setBackground(new NativeSurfaceDrawable(card,26));
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(9);parent.addView(card,lp);
-        if(!title.isEmpty()){TextView label=text(title,17);label.setTextColor(0xfff3f3f5);label.setTypeface(null,android.graphics.Typeface.BOLD);label.setPadding(0,0,0,dp(8));card.addView(label);}return card;
+        if(!title.isEmpty()){TextView label=text(title,17);label.setTextColor(0xfff3f3f3);label.setTypeface(null,android.graphics.Typeface.BOLD);label.setPadding(0,0,0,dp(8));card.addView(label);}return card;
     }
-    TextView premiumAction(String label,Runnable action){TextView button=sheetAction(label,action);button.setMinHeight(dp(48));button.setPadding(dp(14),dp(10),dp(14),dp(10));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.topMargin=dp(8);button.setLayoutParams(lp);if(label.startsWith("Сохранить")||label.equals("Проверить оплату")){button.setGravity(Gravity.CENTER);button.setTypeface(null,android.graphics.Typeface.BOLD);button.setTextColor(0xff191a20);button.setBackground(touchSurface(0xffffbc78,24));}return button;}
-    EditText premiumInput(String hint,int limit){EditText input=new EditText(this);input.setHint(hint);input.setTextColor(Color.WHITE);input.setHintTextColor(0xff999ca8);input.setSingleLine(true);input.setFilters(new InputFilter[]{new InputFilter.LengthFilter(limit)});input.setPadding(dp(12),dp(12),dp(12),dp(12));input.setBackground(touchSurface(0xff292c33,22));return input;}
+    TextView premiumAction(String label,Runnable action){TextView button=sheetAction(label,action);button.setMinHeight(dp(48));button.setPadding(dp(14),dp(10),dp(14),dp(10));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.topMargin=dp(8);button.setLayoutParams(lp);if(label.startsWith("Сохранить")||label.equals("Проверить оплату")){button.setGravity(Gravity.CENTER);button.setTypeface(null,android.graphics.Typeface.BOLD);button.setTextColor(0xff1a1a1a);button.setBackground(touchSurface(0xffffffff,24));}return button;}
+    EditText premiumInput(String hint,int limit){EditText input=new EditText(this);input.setHint(hint);input.setTextColor(Color.WHITE);input.setHintTextColor(0xff9c9c9c);input.setSingleLine(true);input.setFilters(new InputFilter[]{new InputFilter.LengthFilter(limit)});input.setPadding(dp(12),dp(12),dp(12),dp(12));input.setBackground(touchSurface(0xff2c2c2c,22));return input;}
     Dialog premiumSheet(String title,LinearLayout panel,boolean compact,Runnable extra){
-        Dialog dialog=new Dialog(this);LinearLayout shell=column();shell.setPadding(dp(14),dp(8),dp(14),dp(10));GradientDrawable sheet=surface();sheet.setColor(0xff17191f);sheet.setCornerRadius(dp(30));shell.setBackground(sheet);
-        View handle=new View(this);GradientDrawable bar=new GradientDrawable();bar.setColor(0xff454852);bar.setCornerRadius(dp(3));handle.setBackground(bar);LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(dp(36),dp(4));hp.gravity=Gravity.CENTER_HORIZONTAL;hp.bottomMargin=dp(8);shell.addView(handle,hp);
+        Dialog dialog=new Dialog(this);LinearLayout shell=column();shell.setPadding(dp(14),dp(8),dp(14),dp(10));GradientDrawable sheet=surface();sheet.setColor(0xff191919);sheet.setCornerRadius(dp(30));shell.setBackground(sheet);
+        View handle=new View(this);GradientDrawable bar=new GradientDrawable();bar.setColor(0xff484848);bar.setCornerRadius(dp(3));handle.setBackground(bar);LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(dp(36),dp(4));hp.gravity=Gravity.CENTER_HORIZONTAL;hp.bottomMargin=dp(8);shell.addView(handle,hp);
         LinearLayout header=row();TextView heading=text(title,21);heading.setTypeface(null,android.graphics.Typeface.BOLD);header.addView(heading,new LinearLayout.LayoutParams(0,-2,1));
         if(extra!=null){TextView more=iconButton("⋯",extra);more.setContentDescription("Дополнительные настройки эквалайзера");header.addView(more,new LinearLayout.LayoutParams(dp(48),dp(48)));}
         TextView close=iconButton("×",dialog::dismiss);close.setContentDescription("Готово");header.addView(close,new LinearLayout.LayoutParams(dp(48),dp(48)));shell.addView(header);
@@ -894,7 +915,7 @@ public final class MainActivity extends Activity {
     void featureDialog(String title,LinearLayout panel){if(featureWindow!=null)featureWindow.dismiss();Dialog dialog=premiumSheet(title,panel,false,title.equals("Эквалайзер")?presetAction:null);featureWindow=dialog;dialog.setOnDismissListener(d->{if(featureWindow==dialog)featureWindow=null;});dialog.show();}
     void equalizerPanel(){
         LinearLayout panel=column(),card=premiumCard(panel,"Звук под вас · ±6 дБ");
-        TextView note=text("Настройте звучание под себя",14);note.setTextColor(0xffa4a6b1);note.setPadding(0,0,0,dp(12));card.addView(note);
+        TextView note=text("Настройте звучание под себя",14);note.setTextColor(0xffa6a6a6);note.setPadding(0,0,0,dp(12));card.addView(note);
         final String[] names={"Без изменений","Бас","Вокал","Мягкий звук"};final double[][] presets={{0,0,0,0,0},{4,2,0,-1,0},{-2,0,3,2,-1},{1,0,-1,-2,-3}};
         final String[] chosen={""};SeekBar[] sliders=new SeekBar[5];
         final TextView[] selectorRef=new TextView[1];
@@ -906,7 +927,7 @@ public final class MainActivity extends Activity {
             });
         });selectorRef[0]=selector;card.addView(selector);
         LinearLayout rack=row();rack.setPadding(0,dp(16),0,dp(16));card.addView(rack);String[] frequencies={"60","250","1k","4k","12k"};JSONArray values=premiumPrefs.optJSONArray("bands");
-        for(int i=0;i<5;i++){final int band=i;LinearLayout lane=column();lane.setGravity(Gravity.CENTER);rack.addView(lane,new LinearLayout.LayoutParams(0,-2,1));double initial=values==null?0:values.optDouble(i);TextView label=text(String.format(Locale.ROOT,"%+.1f",initial),12);lane.addView(label);VerticalEqualizerSlider slider=new VerticalEqualizerSlider(this);slider.setContentDescription(new String[]{"60 Гц","250 Гц","1 кГц","4 кГц","12 кГц"}[i]);slider.setProgressTintList(android.content.res.ColorStateList.valueOf(0xffffbc78));slider.setThumbTintList(android.content.res.ColorStateList.valueOf(0xffffbc78));slider.setProgress((int)((initial+6)*2));sliders[i]=slider;
+        for(int i=0;i<5;i++){final int band=i;LinearLayout lane=column();lane.setGravity(Gravity.CENTER);rack.addView(lane,new LinearLayout.LayoutParams(0,-2,1));double initial=values==null?0:values.optDouble(i);TextView label=text(String.format(Locale.ROOT,"%+.1f",initial),12);lane.addView(label);VerticalEqualizerSlider slider=new VerticalEqualizerSlider(this);slider.setContentDescription(new String[]{"60 Гц","250 Гц","1 кГц","4 кГц","12 кГц"}[i]);slider.setProgressTintList(android.content.res.ColorStateList.valueOf(0xffffffff));slider.setThumbTintList(android.content.res.ColorStateList.valueOf(0xffffffff));slider.setProgress((int)((initial+6)*2));sliders[i]=slider;
             slider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar b,int value,boolean fromUser){double db=value/2.0-6;try{premiumPrefs.getJSONArray("bands").put(band,db);}catch(Exception ignored){}label.setText(String.format(Locale.ROOT,"%+.1f",db));if(fromUser){chosen[0]="";selector.setText("Пресет · Свои настройки  ▾");}applyPremium();}public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){savePremium(note);}});
             slider.onCommit=()->{chosen[0]="";selector.setText("Пресет · Свои настройки  ▾");savePremium(note);};lane.addView(slider,new LinearLayout.LayoutParams(dp(40),dp(180)));lane.addView(text(frequencies[i],12));
         }
@@ -919,14 +940,14 @@ public final class MainActivity extends Activity {
         featureDialog("Эквалайзер",panel);
     }
     void appearancePanel(){
-        LinearLayout panel=column(),card=premiumCard(panel,"Ваше оформление");TextView note=text("Цвет и движение музыкальной ауры",14);note.setTextColor(0xffa4a6b1);note.setPadding(0,0,0,dp(12));card.addView(note);
+        LinearLayout panel=column(),card=premiumCard(panel,"Ваше оформление");TextView note=text("Цвет и движение музыкальной ауры",14);note.setTextColor(0xffa6a6a6);note.setPadding(0,0,0,dp(12));card.addView(note);
         String[][] options={{"Nightwell","Северное сияние","Океан","Закат"},{"Медленно","Обычно","Быстро"},{"Мягко","Обычно","Ярко"},{"Медленно","Обычно","Быстро"}};String[] keys={"theme","ribbon_speed","ribbon_intensity","aura_color_speed"},titles={"Фон","Скорость лент","Выразительность","Смена цветов"},themes={"nightwell","aurora","ocean","sunset"};
         for(int i=0;i<4;i++){final int key=i;int selected=i==0?Math.max(0,Arrays.asList(themes).indexOf(premiumPrefs.optString("theme"))):(i==3?getSharedPreferences("aura-color-speed",MODE_PRIVATE).getFloat(user,1):premiumPrefs.optDouble(keys[i],1))==.5?0:(i==3?getSharedPreferences("aura-color-speed",MODE_PRIVATE).getFloat(user,1):premiumPrefs.optDouble(keys[i],1))==1?1:2;
             TextView choice=premiumAction(titles[i]+" · "+options[i][selected]+"  ▾",()->{});choice.setOnClickListener(v->nightwellOptions(titles[key],options[key],n->{try{premiumPrefs.put(keys[key],key==0?themes[n]:new double[]{.5,1,1.5}[n]);if(key==3)getSharedPreferences("aura-color-speed",MODE_PRIVATE).edit().putFloat(user,(float)new double[]{.5,1,1.5}[n]).apply();choice.setText(titles[key]+" · "+options[key][n]+"  ▾");applyPremium();}catch(Exception ignored){}}));card.addView(choice);
         }
         card.addView(sectionLabel("Реакция ауры"));
         TextView explanation=text("Выбери, на какие составляющие музыки будет реагировать аура. Можно включить несколько сразу.",13);
-        explanation.setTextColor(0xffa9aec0);explanation.setPadding(0,dp(4),0,dp(8));card.addView(explanation);
+        explanation.setTextColor(0xffaeaeae);explanation.setPadding(0,dp(4),0,dp(8));card.addView(explanation);
         String[] auraLabels={"Голос","Низкие частоты","Средние частоты","Высокие частоты"};
         String[] names={"aura_voice","aura_low","aura_mid","aura_high"};
         android.content.SharedPreferences appearance=getSharedPreferences("aura-response",MODE_PRIVATE);
@@ -973,20 +994,20 @@ public final class MainActivity extends Activity {
         LinearLayout panel=column();panel.setPadding(dp(20),dp(14),dp(20),dp(20));
         TextView summary=text("150 ₽ за 30 дней. Автопродление зависит от условий Lava.\nМузыку можно слушать бесплатно. Premium открывает скачивания, эквалайзер с пресетами, оформление, умные плейлисты и статистику. Эквалайзер — в трёх точках плеера; оформление — в настройках; умные подборки — в плейлистах; статистика — в меню.",16);panel.addView(summary);
         LinearLayout active=column();active.setGravity(Gravity.CENTER_HORIZONTAL);active.setVisibility(View.GONE);panel.addView(active);
-        TextView checkmark=text("✓",56);checkmark.setTextColor(0xff101d13);checkmark.setGravity(Gravity.CENTER);GradientDrawable medallion=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{0xff90ffc0,0xff29c76c});medallion.setShape(GradientDrawable.OVAL);checkmark.setBackground(medallion);checkmark.setElevation(dp(10));LinearLayout.LayoutParams checkParams=new LinearLayout.LayoutParams(dp(80),dp(80));checkParams.gravity=Gravity.CENTER_HORIZONTAL;checkParams.bottomMargin=dp(10);active.addView(checkmark,checkParams);
+        TextView checkmark=text("✓",56);checkmark.setTextColor(0xff1a1a1a);checkmark.setGravity(Gravity.CENTER);GradientDrawable medallion=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{0xffe3e3e3,0xff9f9f9f});medallion.setShape(GradientDrawable.OVAL);checkmark.setBackground(medallion);checkmark.setElevation(dp(10));LinearLayout.LayoutParams checkParams=new LinearLayout.LayoutParams(dp(80),dp(80));checkParams.gravity=Gravity.CENTER_HORIZONTAL;checkParams.bottomMargin=dp(10);active.addView(checkmark,checkParams);
         TextView activeTitle=text("Подписка активна",27);activeTitle.setGravity(Gravity.CENTER);active.addView(activeTitle);
         TextView activeDate=text("",17);activeDate.setGravity(Gravity.CENTER);active.addView(activeDate);
         LinearLayout hints=column();hints.setVisibility(View.GONE);
         TextView features=premiumAction("Функции Premium  ▾",()->{android.animation.LayoutTransition transition=new android.animation.LayoutTransition();transition.setDuration(260);active.setLayoutTransition(transition);hints.setVisibility(hints.getVisibility()==View.VISIBLE?View.GONE:View.VISIBLE);});active.addView(features);active.addView(hints);
         String[][] items={{"Скачивания","Меню трека → Скачать"},{"Эквалайзер","Три точки в большом плеере"},{"Оформление","Меню приложения → Настройки"},{"Умные плейлисты","Плейлисты → Умные плейлисты"},{"Статистика","Меню приложения → Моя статистика"}};
-        for(String[] item:items){LinearLayout itemView=premiumCard(hints,item[0]);TextView hint=text(item[1],14);hint.setTextColor(0xffaab4c7);itemView.addView(hint);}
+        for(String[] item:items){LinearLayout itemView=premiumCard(hints,item[0]);TextView hint=text(item[1],14);hint.setTextColor(0xffb3b3b3);itemView.addView(hint);}
         TextView renewalNote=text("",14);active.addView(renewalNote);
         TextView renewalCancel=premiumAction("Отключить автопродление",()->{});renewalCancel.setVisibility(View.GONE);active.addView(renewalCancel);
         TextView note=text("Проверяем подписку…",15);panel.addView(note);
         TextView terms=text(PremiumTerms.TEXT,15);terms.setTextIsSelectable(true);terms.setVisibility(View.GONE);
         TextView read=sheetAction("Условия подписки",()->terms.setVisibility(terms.getVisibility()==View.VISIBLE?View.GONE:View.VISIBLE));panel.addView(read);panel.addView(terms);
         // Seller details remain available in the expandable Premium terms, not in the purchase sheet.
-        CheckBox consent=new CheckBox(this);consent.setText("Я ознакомился с условиями Premium и согласен с оплатой на указанный срок");consent.setTextColor(0xfff3f3f5);consent.setMinHeight(dp(48));panel.addView(consent);
+        CheckBox consent=new CheckBox(this);consent.setText("Я ознакомился с условиями Premium и согласен с оплатой на указанный срок");consent.setTextColor(0xfff3f3f3);consent.setMinHeight(dp(48));panel.addView(consent);
         panel.addView(text("Оплата откроется в браузере. Войдите на сайте в тот же аккаунт, что и в приложении, и подтвердите актуальные условия. Доступность оплаты проверяется на сайте.",14));
         Button pay=new Button(this);pay.setText("Перейти к оплате на сайте");pay.setEnabled(false);panel.addView(pay);
         consent.setOnCheckedChangeListener((button,checked)->pay.setEnabled(checked&&BuildConfig.EXTERNAL_PREMIUM_PAYMENTS));
@@ -1012,13 +1033,13 @@ public final class MainActivity extends Activity {
     void auth(){
         if(activeAuthDialog!=null&&activeAuthDialog.isShowing())return;
         LinearLayout form=column();form.setPadding(dp(20),dp(4),dp(20),dp(8));
-        TextView caption=text("Войди в аккаунт Nightwell Music или создай новый.",14);caption.setTextColor(0xff9fa6b8);caption.setPadding(0,0,0,dp(10));form.addView(caption);
+        TextView caption=text("Войди в аккаунт Nightwell Music или создай новый.",14);caption.setTextColor(0xffa6a6a6);caption.setPadding(0,0,0,dp(10));form.addView(caption);
         EditText email=new EditText(this),password=new EditText(this);
         email.setHint("Email");email.setInputType(33);password.setHint("Пароль");password.setInputType(129);
         styleField(email);styleField(password);
         LinearLayout.LayoutParams field=new LinearLayout.LayoutParams(-1,-2);field.bottomMargin=dp(10);
         form.addView(email,field);form.addView(password);
-        TextView feedback=text("",13);feedback.setTextColor(0xffffb1b1);feedback.setPadding(0,dp(8),0,dp(4));feedback.setVisibility(View.GONE);form.addView(feedback);
+        TextView feedback=text("",13);feedback.setTextColor(0xffc2c2c2);feedback.setPadding(0,dp(8),0,dp(4));feedback.setVisibility(View.GONE);form.addView(feedback);
         AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Вход").setView(form)
             .setPositiveButton("Войти",null).setNeutralButton("Регистрация",null)
             .setNegativeButton("Отмена",null).create();
@@ -1030,11 +1051,11 @@ public final class MainActivity extends Activity {
     void loginFromDialog(AlertDialog dialog,EditText email,EditText password,TextView feedback,boolean register){
         String address=email.getText().toString().trim(),secret=password.getText().toString();
         if(address.isEmpty()||secret.isEmpty()){feedback.setText("Введи email и пароль.");feedback.setVisibility(View.VISIBLE);return;}
-        feedback.setText(register?"Регистрируем аккаунт…":"Выполняем вход…");feedback.setTextColor(0xffffcf9e);feedback.setVisibility(View.VISIBLE);
+        feedback.setText(register?"Регистрируем аккаунт…":"Выполняем вход…");feedback.setTextColor(0xffd6d6d6);feedback.setVisibility(View.VISIBLE);
         Button accept=dialog.getButton(AlertDialog.BUTTON_POSITIVE),signup=dialog.getButton(AlertDialog.BUTTON_NEUTRAL);
         accept.setEnabled(false);signup.setEnabled(false);
         final boolean[] pending={true};
-        ui.postDelayed(()->{if(!pending[0]||isDestroyed()||!dialog.isShowing())return;pending[0]=false;accept.setEnabled(true);signup.setEnabled(true);feedback.setTextColor(0xffffb1b1);feedback.setText("Вход не завершился за 35 секунд. Сервер не отвечает приложению. Попробуй снова.");},35000);
+        ui.postDelayed(()->{if(!pending[0]||isDestroyed()||!dialog.isShowing())return;pending[0]=false;accept.setEnabled(true);signup.setEnabled(true);feedback.setTextColor(0xffc2c2c2);feedback.setText("Вход не завершился за 35 секунд. Сервер не отвечает приложению. Попробуй снова.");},35000);
         io.execute(()->{
             try{
                 JSONObject response=api.request(register?"api/register":"api/login","POST",
@@ -1051,7 +1072,7 @@ public final class MainActivity extends Activity {
                 ui.post(()->{
                     if(!pending[0]||isDestroyed()||!dialog.isShowing())return;
                     pending[0]=false;accept.setEnabled(true);signup.setEnabled(true);
-                    feedback.setTextColor(0xffffb1b1);
+                    feedback.setTextColor(0xffc2c2c2);
                     feedback.setText("Не удалось войти: "+friendly(error));
                     feedback.setVisibility(View.VISIBLE);
                 });
@@ -1059,12 +1080,12 @@ public final class MainActivity extends Activity {
         });
     }
     android.view.GestureDetector gestures(boolean expanded){return new android.view.GestureDetector(this,new android.view.GestureDetector.SimpleOnGestureListener(){public boolean onDown(android.view.MotionEvent e){return true;}public boolean onSingleTapUp(android.view.MotionEvent e){if(expanded){JSONObject track=current();if(track!=null)showLyrics(track);}else openPlayer();return true;}public boolean onFling(android.view.MotionEvent start,android.view.MotionEvent end,float vx,float vy){if(start==null||end==null)return false;float dx=end.getX()-start.getX(),dy=end.getY()-start.getY();if(Math.abs(dx)>dp(65)&&Math.abs(dx)>Math.abs(dy)*1.25f){if(playback==null)return false;if(dx<0)nextTrack();else previous();return true;}if(expanded&&dy>dp(90)&&dy>Math.abs(dx)*1.35f){full=false;build();return true;}return false;}});}
-    @Override public void onBackPressed(){if(backgroundOnly){backgroundOnly=false;build();}else if(full){full=false;build();}else if(!screen.equals("Главная"))navigate("Главная");else super.onBackPressed();}
+    @Override public void onBackPressed(){if(full&&lyricsOpen){closeInlineLyrics();return;}if(backgroundOnly){backgroundOnly=false;build();}else if(full){full=false;build();}else if(!screen.equals("Главная"))navigate("Главная");else super.onBackPressed();}
     void importFiles(){Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("audio/*").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true);startActivityForResult(i,72);}
     void handleAudioImportResult(int request,int result,Intent data){if(request!=72||result!=RESULT_OK||data==null)return;ArrayList<Uri> uris=new ArrayList<>();if(data.getClipData()!=null)for(int i=0;i<data.getClipData().getItemCount();i++)uris.add(data.getClipData().getItemAt(i).getUri());else if(data.getData()!=null)uris.add(data.getData());io.execute(()->{for(Uri uri:uris)try{OfflineStore.importFile(this,origin,uri);}catch(Exception ex){ui.post(()->status.setText("Не удалось импортировать файл"));}ui.post(()->navigate("Офлайн"));});}
     final class TrackAdapter extends BaseAdapter {
         public int getCount(){return shown.length();}public Object getItem(int p){return shown.optJSONObject(p);}public long getItemId(int p){return p;}
-        public View getView(int position,View recycled,ViewGroup parent){LinearLayout r;TextView title,artist,more;if(recycled==null){r=row();r.setPadding(dp(12),dp(12),dp(8),dp(12));LinearLayout labels=column();title=text("",16);title.setMaxLines(2);artist=text("",12);artist.setMaxLines(1);labels.addView(title);labels.addView(artist);r.addView(labels,new LinearLayout.LayoutParams(0,-2,1));r.addView(new PlayingIndicator(MainActivity.this),new LinearLayout.LayoutParams(dp(20),dp(20)));more=action("⋯",()->{});r.addView(more);r.setTag(new TextView[]{title,artist,more});}else r=(LinearLayout)recycled;TextView[] holder=(TextView[])r.getTag();JSONObject t=shown.optJSONObject(position);holder[0].setText(t.optString("title"));PlayingIndicator indicator=(PlayingIndicator)r.getChildAt(1);indicator.setVisibility(currentID.equals(t.optString("id"))?View.VISIBLE:View.GONE);indicator.playing(lastPlaying);holder[1].setText(t.optString("artist"));holder[2].setOnClickListener(v->trackMenu(t));r.setBackgroundColor(currentID.equals(t.optString("id"))?0x22ffb260:Color.TRANSPARENT);return r;}
+        public View getView(int position,View recycled,ViewGroup parent){LinearLayout r;TextView title,artist,more;if(recycled==null){r=row();r.setPadding(dp(12),dp(12),dp(8),dp(12));LinearLayout labels=column();title=text("",16);title.setMaxLines(2);artist=text("",12);artist.setMaxLines(1);labels.addView(title);labels.addView(artist);r.addView(labels,new LinearLayout.LayoutParams(0,-2,1));r.addView(new PlayingIndicator(MainActivity.this),new LinearLayout.LayoutParams(dp(20),dp(20)));more=action("⋯",()->{});r.addView(more);r.setTag(new TextView[]{title,artist,more});}else r=(LinearLayout)recycled;TextView[] holder=(TextView[])r.getTag();JSONObject t=shown.optJSONObject(position);holder[0].setText(t.optString("title"));PlayingIndicator indicator=(PlayingIndicator)r.getChildAt(1);indicator.setVisibility(currentID.equals(t.optString("id"))?View.VISIBLE:View.GONE);indicator.playing(lastPlaying);holder[1].setText(t.optString("artist"));holder[2].setOnClickListener(v->trackMenu(t));r.setBackgroundColor(currentID.equals(t.optString("id"))?0x22ffffff:Color.TRANSPARENT);return r;}
     }
     private String favoriteOrder="recent";
     private void favoriteSortMenu(){
@@ -1166,4 +1187,5 @@ public final class MainActivity extends Activity {
         },label,dialog);
     }
 }
+
 

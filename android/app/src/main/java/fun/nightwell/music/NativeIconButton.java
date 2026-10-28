@@ -7,7 +7,7 @@ import android.widget.TextView;
 final class NativeIconButton extends TextView {
     private final Paint ink=new Paint(Paint.ANTI_ALIAS_FLAG);
     NativeIconButton(Context c){super(c);setSingleLine(true);setHorizontallyScrolling(false);setIncludeFontPadding(false);setWillNotDraw(false);}
-    static boolean isIcon(String s){return s.matches("[▶Ⅱ⌕☰⋯♡♥⇄↻⌄×▤☷]|\\|‹|›\\|");}
+    static boolean isIcon(String s){return s.equals("↻1")||s.matches("[▶Ⅱ⌕☰⋯♡♥⇄↻⌄×▤☷]|\\|‹|›\\|");}
     @Override protected void onDraw(Canvas canvas){
         String symbol=getText().toString();if(!isIcon(symbol)){super.onDraw(canvas);return;}
         float size=Math.min(getWidth(),getHeight())*.44f;size=Math.min(size,Math.max(24*getResources().getDisplayMetrics().density,getTextSize()));
@@ -27,10 +27,11 @@ final class NativeIconButton extends TextView {
             case "♡":case "♥":p.moveTo(12,21);p.cubicTo(-8,9,6,-4,12,6);p.cubicTo(18,-4,32,9,12,21);if(symbol.equals("♥"))ink.setStyle(Paint.Style.FILL);canvas.drawPath(p,ink);break;
             case "|‹":canvas.drawLine(4,4,4,20,ink);p.moveTo(20,4);p.lineTo(6,12);p.lineTo(20,20);p.close();canvas.drawPath(p,ink);break;
             case "›|":canvas.drawLine(20,4,20,20,ink);p.moveTo(4,4);p.lineTo(18,12);p.lineTo(4,20);p.close();canvas.drawPath(p,ink);break;
-            case "↻":p.moveTo(4,8);p.cubicTo(7,1,19,1,21,10);p.lineTo(21,4);p.moveTo(21,10);p.lineTo(15,10);p.moveTo(20,16);p.cubicTo(17,23,5,23,3,14);p.lineTo(3,20);p.moveTo(3,14);p.lineTo(9,14);canvas.drawPath(p,ink);break;
+            case "↻1":case "↻":p.moveTo(4,8);p.cubicTo(7,1,19,1,21,10);p.lineTo(21,4);p.moveTo(21,10);p.lineTo(15,10);p.moveTo(20,16);p.cubicTo(17,23,5,23,3,14);p.lineTo(3,20);p.moveTo(3,14);p.lineTo(9,14);canvas.drawPath(p,ink);if(symbol.equals("↻1")){ink.setStyle(Paint.Style.FILL);ink.setTextSize(10);ink.setTextAlign(Paint.Align.CENTER);canvas.drawText("1",12,16,ink);}break;
             case "⇄":p.moveTo(3,5);p.cubicTo(12,5,12,19,21,19);p.moveTo(17,15);p.lineTo(21,19);p.lineTo(17,23);p.moveTo(3,19);p.cubicTo(12,19,12,5,21,5);p.moveTo(17,1);p.lineTo(21,5);p.lineTo(17,9);canvas.drawPath(p,ink);break;
         }
         canvas.restore();
     }
 }
+
 

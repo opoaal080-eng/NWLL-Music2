@@ -2,7 +2,7 @@
 from pathlib import Path
 import subprocess,time,xml.etree.ElementTree as ET,re
 from PIL import Image
-out=Path('android/native-smoke');out.mkdir(parents=True,exist_ok=True)
+out=Path(__file__).resolve().parent/'native-smoke';out.mkdir(parents=True,exist_ok=True)
 def adb(*args):return subprocess.run(['adb',*args],check=True,capture_output=True,text=True,timeout=35).stdout
 def capture(name):
     last_error=""
@@ -27,7 +27,7 @@ def capture(name):
     assert not any('isn\'t responding' in n.get('text','') for n in nodes),name
     texts=[n.get('text','') for n in nodes]
     if name.startswith('player'):
-        assert 'Играет сейчас' in texts,(name,texts)
+        assert any(n.get('content-desc','').startswith('Устройство вывода:') for n in nodes),(name,'Audio route missing')
         assert not any(n.get('text')=='Nightwell Music' for n in nodes),'Mini player overlaps full player'
         if name in ['player-720','player-1080']:
             assert any(n.get('content-desc') in ['Добавить в избранное','Убрать из избранного'] and n.get('clickable')=='true' for n in nodes),(name,'Favourite action missing')
@@ -57,6 +57,9 @@ def capture(name):
         if n.get('clickable')!='true' or n.get('enabled')!='true':continue
         values=list(map(int,re.findall(r'\d+',n.get('bounds',''))))
         if len(values)==4:assert values[2]>values[0] and values[3]>values[1],(name,n.attrib)
+    if name.startswith('lyrics-'):
+        assert any('Белый свет' in text for text in texts),(name,'Inline lyrics missing')
+        assert any(n.get('content-desc','').startswith('Устройство вывода:') for n in nodes),(name,'Lyrics hid player controls')
     if name.startswith('Главная'):
         image=Image.open(out/(name+'.png')).convert('RGB')
         for symbol in ['⌕','☰','▶']:
@@ -70,7 +73,7 @@ def capture(name):
 try:
     for width,height,density in [(1080,2400,420),(720,1280,320)]:
         adb('shell','wm','size',f'{width}x{height}');adb('shell','wm','density',str(density))
-        for page in ['premium-sound','premium-appearance','Главная','Поиск','Избранное','Плейлисты','player','settings','auth','queue','menu','wave-settings']:
+        for page in ['premium-sound','premium-appearance','Главная','Поиск','Избранное','Плейлисты','Офлайн','player','lyrics','settings','auth','queue','menu','wave-settings']:
             adb('shell','am','force-stop','fun.nightwell.music')
             adb('shell','am','start','-W','-n','fun.nightwell.music/.MainActivity','--ez','nativeSmoke','true','--es','screen',page)
             time.sleep(1);capture(page+'-'+str(width))
@@ -81,4 +84,5 @@ try:
 finally:
     adb('shell','wm','size','reset');adb('shell','wm','density','reset');adb('shell','settings','put','system','user_rotation','0')
 print('Android native screens and custom protocol activation passed')
+
 

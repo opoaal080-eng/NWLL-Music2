@@ -2,11 +2,12 @@
 <resources>
     <style name="AppTheme" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:fontFamily">sans</item>
-        <item name="android:colorAccent">#FFBC78</item>
-        <item name="android:windowBackground">#101017</item>
-        <item name="android:statusBarColor">#101017</item>
-        <item name="android:navigationBarColor">#101017</item>
+        <item name="android:colorAccent">#FFFFFF</item>
+        <item name="android:windowBackground">@drawable/nightwell_launch</item>
+        <item name="android:statusBarColor">#101010</item>
+        <item name="android:navigationBarColor">#101010</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowActionModeOverlay">true</item>
     </style>
 </resources>
+
