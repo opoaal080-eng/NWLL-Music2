@@ -4,7 +4,7 @@ This restores compiled resources from the older IPA build. It does not
 restore editable image sources or the older executable's functionality.
 """
 from pathlib import Path
-import shutil, sys, subprocess
+import shutil, sys, subprocess, plistlib
 base=Path(__file__).resolve().parent/'LegacyCompiledAssets'
 app=Path(sys.argv[1]).resolve()
 assert app.is_dir() and app.suffix=='.app', f'Invalid app bundle: {app}'
@@ -18,4 +18,20 @@ icon = Path(__file__).resolve().parent.parent/'NightwellMusic/Assets.xcassets/Ap
 assert icon.is_file(), 'Missing generated icon'
 for name, pixels in [('AppIcon60x60@2x.png',120), ('AppIcon76x76@2x~ipad.png',152)]:
     subprocess.run(['sips','-s','format','png','-z',str(pixels),str(pixels),str(icon),'--out',str(app/name)],check=True,stdout=subprocess.DEVNULL)
-print('Restored legacy assets and installed monochrome app icons.')
+# Explicit icon filenames prevent the old compiled AppIcon rendition in Assets.car
+# from overriding the new monochrome icon on iOS.
+for name, pixels in [('NightwellMonoIcon.png', 120), ('NightwellMonoIcon@2x.png', 180)]:
+    subprocess.run(['sips', '-s', 'format', 'png', '-z', str(pixels), str(pixels),
+                    str(icon), '--out', str(app/name)], check=True, stdout=subprocess.DEVNULL)
+info_path = app/'Info.plist'
+with info_path.open('rb') as stream:
+    info = plistlib.load(stream)
+info.pop('CFBundleIcons', None)
+info['CFBundleIcons'] = {'CFBundlePrimaryIcon': {
+    'CFBundleIconFiles': ['NightwellMonoIcon', 'NightwellMonoIcon@2x'],
+    'UIPrerenderedIcon': True
+}}
+info.pop('CFBundleIconName', None)
+with info_path.open('wb') as stream:
+    plistlib.dump(info, stream)
+print('Restored compiled graphics and set an explicit monochrome app icon.')
