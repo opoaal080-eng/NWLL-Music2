@@ -430,7 +430,14 @@ struct TrackList: View {
                 if tracks.isEmpty { Text(store.account == nil && store.screen != .offline ? "Войди в аккаунт или открой офлайн-файлы" : "Здесь пока нет треков").foregroundStyle(.secondary).padding(.top, 30) }
                 ForEach(tracks) { track in NativeTrackRow(track: track, queue: tracks, status: store.clock.status, playlist: playlist) }
             }
-        }.scrollDismissesKeyboard(.interactively)
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .task(id: tracks.prefix(6).map { $0.id }.joined(separator: "|")) {
+            let urls = tracks.prefix(6).compactMap { track in
+                track.cover_url.flatMap { URL(string: $0, relativeTo: store.origin)?.absoluteURL }
+            }
+            await CoverImagePipeline.shared.prefetch(urls)
+        }
     }
 }
 struct NativeTrackRow: View {
@@ -468,8 +475,31 @@ struct NativeTrackRow: View {
 struct Cover: View {
     let track: Track?
     let origin: URL
+    var pixelWidth = 160
+    @State private var artwork: UIImage?
+
+    private var coverURL: URL? {
+        track?.cover_url.flatMap { URL(string: $0, relativeTo: origin)?.absoluteURL }
+    }
     var body: some View {
-        AsyncImage(url: track?.cover_url.flatMap { URL(string: $0, relativeTo: origin) }) { image in image.resizable().scaledToFill() } placeholder: { ZStack { Color.white.opacity(0.08); Image(systemName: "music.note").font(.title).foregroundStyle(.white.opacity(0.7)) } }.clipped()
+        ZStack {
+            if let artwork {
+                Image(uiImage: artwork).resizable().scaledToFill()
+            } else {
+                Color.white.opacity(0.08)
+                Image(systemName: "music.note")
+                    .font(.title)
+                    .foregroundStyle(.white.opacity(0.7))
+            }
+        }
+        .clipped()
+        .task(id: "\(coverURL?.absoluteString ?? "")#\(pixelWidth)") {
+            artwork = nil
+            guard let coverURL else { return }
+            let image = await CoverImagePipeline.shared.image(for: coverURL, maxPixel: pixelWidth)
+            guard !Task.isCancelled else { return }
+            artwork = image
+        }
     }
 }
 struct PlayingIndicator: View {
