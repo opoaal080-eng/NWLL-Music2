@@ -46,6 +46,8 @@ struct RibbonScene: View {
             var lastBeat = -10.0
             var beatPeriod = 0.52
             var motionSpeed = 1.0
+            var lastAudioSignal = ProcessInfo.processInfo.systemUptime
+            var standbyGlow = 0.0
             var desired = targets
             var previous = ProcessInfo.processInfo.systemUptime
             while !Task.isCancelled {
@@ -68,6 +70,13 @@ struct RibbonScene: View {
                     levels[index] = min(1, max(0, normalized * gain))
                 }
                 let overall = levels.reduce(0, +) / 4
+                // Audio taps can temporarily stop reporting levels during an otherwise active track.
+                // Keep a subtle live stage instead of allowing every light to disappear.
+                let hasAudioSignal = incoming.contains { $0.isFinite && $0 > 0.003 }
+                if hasAudioSignal { lastAudioSignal = now }
+                let signalMissing = now - lastAudioSignal > 0.70
+                let standbyTarget = signalMissing ? 0.24 : 0.0
+                standbyGlow += (standbyTarget - standbyGlow) * (1 - exp(-elapsed / 0.85))
                 // Estimate tempo from low/mid-band transients, not from a fixed animation timer.
                 let rhythm = levels[1] * 0.62 + levels[2] * 0.28 + levels[0] * 0.10
                 beatBaseline += (rhythm - beatBaseline) * (1 - exp(-elapsed / 0.65))
@@ -92,7 +101,7 @@ struct RibbonScene: View {
                 let requestedSpeed = manualSpeed * rate * (0.72 + min(0.7, overall))
                 motionSpeed += (requestedSpeed - motionSpeed) * (1 - exp(-elapsed / 0.30))
                 // For sustained passages without detected beats, move at a tempo-scaled interval.
-                if overall > 0.018 && now - lastMove > max(0.22, beatPeriod * 1.35) {
+                if (overall > 0.018 || standbyGlow > 0.04) && now - lastMove > max(0.22, beatPeriod * 1.35) {
                     lastMove = now
                     desired = (0..<8).map { _ in
                         CGPoint(x: Double.random(in: 0.08...0.92),
@@ -105,7 +114,7 @@ struct RibbonScene: View {
                     let bandIndex = [1, 0, 2, 3, 1, 2, 0, 3][index]
                     let band = levels[bandIndex]
                     let attack = max(0, band - previousBands[bandIndex])
-                    let target = min(1, max(0, band * 0.84 + overall * 0.27 + attack * 0.38))
+                    let target = min(1, max(standbyGlow, band * 0.84 + overall * 0.27 + attack * 0.38))
                     let response = 1 - exp(-elapsed / (target > envelopes[index] ? 0.055 : 0.42))
                     envelopes[index] += (target - envelopes[index]) * response
                     nextLamps[index] = envelopes[index]
@@ -134,31 +143,76 @@ struct RibbonScene: View {
         guard playing, !reduced, pulse > 0.001, size.width > 1 && size.height > 1 else { return }
         let w = Double(size.width), h = Double(size.height)
         let intensity = playing ? energy : 0.0
-        let ice = Color(red: 0.70, green: 0.83, blue: 1)
+        let ice = Color.white
         for light in 0..<8 {
             let brightness = lamps[light]
             guard brightness > 0.001 else { continue }
             let left = light % 2 == 0
             let row = Double(light / 2)
-            let source = CGPoint(x: left ? w * 0.03 : w * 0.97, y: h * (0.23 + row * 0.17))
+            let source = CGPoint(x: left ? w * 0.025 : w * 0.975, y: h * (0.23 + row * 0.17))
             let target = CGPoint(x: w * targets[light].x, y: h * targets[light].y)
             let dx = target.x - source.x, dy = target.y - source.y
             let length = max(1, hypot(dx, dy))
-            let end = CGPoint(x: source.x + dx / length * h * 0.8, y: source.y + dy / length * h * 0.8)
-            for ray in -2...2 {
-                let spread = Double(ray) * 0.025
-                let offset = h * spread
-                let tip = CGPoint(x: end.x - dy / length * offset, y: end.y + dx / length * offset)
-                let width = 9.0 + intensity * 13
-                var cone = Path()
-                cone.move(to: source)
-                cone.addLine(to: CGPoint(x: tip.x - dy / length * width, y: tip.y + dx / length * width))
-                cone.addLine(to: CGPoint(x: tip.x + dy / length * width, y: tip.y - dx / length * width))
-                cone.closeSubpath()
-                context.fill(cone, with: .linearGradient(Gradient(colors: [ice.opacity((0.22 + intensity * 0.2) * brightness), ice.opacity(0.05 * brightness), .clear]), startPoint: source, endPoint: tip))
+            let end = CGPoint(x: source.x + dx / length * h * 0.92, y: source.y + dy / length * h * 0.92)
+            // Layered volumetric cone: feathered edges, dense central shaft and drifting haze.
+            let perpendicular = CGPoint(x: -dy / length, y: dx / length)
+            let time = date.timeIntervalSinceReferenceDate
+            let baseWidth = 13.0 + intensity * 13.0
+            for layer in 0..<8 {
+                let fraction = Double(layer) / 7.0
+                let halfWidth = baseWidth * (2.8 - fraction * 2.55)
+                let opacity = min(0.44, (0.025 + fraction * 0.032) * brightness)
+                let offset = sin(time * 0.38 + Double(light) * 2.3 + fraction * 5.0) * h * 0.004
+                let tip = CGPoint(x: end.x + perpendicular.x * offset, y: end.y + perpendicular.y * offset)
+                var shaft = Path()
+                shaft.move(to: source)
+                shaft.addLine(to: CGPoint(x: tip.x + perpendicular.x * halfWidth,
+                                         y: tip.y + perpendicular.y * halfWidth))
+                shaft.addLine(to: CGPoint(x: tip.x - perpendicular.x * halfWidth,
+                                         y: tip.y - perpendicular.y * halfWidth))
+                shaft.closeSubpath()
+                // A narrow inner shaft gives each beam a realistic focused hotspot.
+                if layer == 7 {
+                    var core = Path()
+                    let narrow = max(1.5, halfWidth * 0.19)
+                    core.move(to: source)
+                    core.addLine(to: CGPoint(x: tip.x + perpendicular.x * narrow, y: tip.y + perpendicular.y * narrow))
+                    core.addLine(to: CGPoint(x: tip.x - perpendicular.x * narrow, y: tip.y - perpendicular.y * narrow))
+                    core.closeSubpath()
+                    context.fill(core, with: .linearGradient(
+                        Gradient(colors: [.white.opacity(0.24 * brightness), .white.opacity(0.11 * brightness), .clear]),
+                        startPoint: source, endPoint: tip
+                    ))
+                }
+                context.fill(shaft, with: .linearGradient(
+                    Gradient(stops: [
+                        .init(color: .white.opacity(opacity * 0.85), location: 0),
+                        .init(color: ice.opacity(opacity), location: 0.26),
+                        .init(color: ice.opacity(opacity * 0.58), location: 0.72),
+                        .init(color: .clear, location: 1)
+                    ]), startPoint: source, endPoint: tip
+                ))
             }
-            let halo = CGRect(x: source.x - 12, y: source.y - 12, width: 24, height: 24)
-            context.fill(Path(ellipseIn: halo), with: .radialGradient(Gradient(colors: [.white.opacity(0.8 * brightness), ice.opacity(0.25 * brightness), .clear]), center: source, startRadius: 0, endRadius: 12))
+            // Delicate atmospheric wisps, positioned deterministically to avoid flicker.
+            for particle in 0..<9 {
+                let distance = 0.16 + Double(particle) * 0.079
+                let drift = sin(time * 0.55 + Double(particle) * 1.89 + Double(light)) * 10
+                let center = CGPoint(x: source.x + dx / length * h * 0.8 * distance + perpendicular.x * drift,
+                                     y: source.y + dy / length * h * 0.8 * distance + perpendicular.y * drift)
+                let radius = 13.0 + distance * 30
+                let haze = CGRect(x: center.x - radius, y: center.y - radius,
+                                  width: radius * 2, height: radius * 2)
+                context.fill(Path(ellipseIn: haze), with: .radialGradient(
+                    Gradient(colors: [.white.opacity(0.06 * brightness), .clear]),
+                    center: center, startRadius: 0, endRadius: radius
+                ))
+            }
+            let halo = CGRect(x: source.x - 14, y: source.y - 14, width: 28, height: 28)
+            context.fill(Path(ellipseIn: halo), with: .radialGradient(
+                Gradient(colors: [.white.opacity(0.9 * brightness),
+                                  ice.opacity(0.32 * brightness), .clear]),
+                center: source, startRadius: 0, endRadius: 14
+            ))
         }
     }
 }
