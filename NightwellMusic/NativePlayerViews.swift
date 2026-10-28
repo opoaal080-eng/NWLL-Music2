@@ -609,9 +609,16 @@ struct FullPlayer: View {
         ZStack {
             // Neutral home-style backdrop instead of the seasonal Halloween illustration.
             Color.black.ignoresSafeArea()
-            ArtworkColorBackground(url: clock.current?.cover_url.flatMap { URL(string: $0, relativeTo: store.origin) })
-                .ignoresSafeArea()
-                .allowsHitTesting(false)
+            if !showLyrics {
+                ArtworkColorBackground(url: clock.current?.cover_url.flatMap { URL(string: $0, relativeTo: store.origin) })
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+            } else {
+                LinearGradient(colors: [Color(white: 0.085), Color(white: 0.025), .black],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+            }
             HomeSparkles()
                 .ignoresSafeArea()
             VStack(spacing: 14) {
@@ -779,10 +786,9 @@ struct LyricsView: View {
                             ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
                                 Text(line.text)
                                     .font(.system(size: index == active ? 32 : 26, weight: .bold, design: .rounded))
-                                    .foregroundStyle(artworkGradient)
-                                    .opacity(index == active ? 1 : 0.4)
+                                    .foregroundStyle(index == active ? Color.white : Color.white.opacity(0.42))
                                     .shadow(color: index == active ? nightwellText.opacity(0.32) : .clear, radius: 8)
-                                    .shadow(color: index == active ? nightwellViolet : .clear, radius: 22)
+                                    .shadow(color: index == active ? Color.white.opacity(0.10) : .clear, radius: 18)
                                     .multilineTextAlignment(.center)
                                     .frame(maxWidth: .infinity)
                                     .id(index)
@@ -790,7 +796,7 @@ struct LyricsView: View {
                         } else {
                             Text(lyrics.plain ?? lyrics.message ?? (lyrics.searching ? "Ищем текст…" : "Текст пока не найден"))
                                 .font(.system(size: 21, weight: .semibold))
-                                .foregroundStyle(artworkGradient)
+                                .foregroundStyle(Color.white)
                                 .multilineTextAlignment(.center)
                                 .lineSpacing(10)
                         }
