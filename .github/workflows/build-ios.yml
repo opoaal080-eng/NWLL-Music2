@@ -9,6 +9,7 @@ on:
       - 'NativeTests/**'
       - 'project.yml'
       - 'scripts/verify-native-source.py'
+      - 'scripts/generate-monochrome-icon.py'
       - 'scripts/test-*.swift'
       - '.github/workflows/build-ios.yml'
 permissions:
@@ -64,6 +65,8 @@ jobs:
           subprocess.run(['sudo', 'xcode-select', '-s', developer], check=True)
           print('Selected Xcode', version)
           PYCODE
+      - name: Generate monochrome icon
+        run: python3 scripts/generate-monochrome-icon.py
       - name: Generate project
         run: |
           sed -i '' "s/SOURCE_COMMIT/$GITHUB_SHA/" project.yml
