@@ -327,7 +327,12 @@ struct NativeRoot: View {
                 }
             } label: {
                 HStack(spacing: 9) {
-                    Image("BrandLogo").resizable().scaledToFit().frame(width: 42, height: 42)
+                    Text("N")
+                        .font(.system(size: 29, weight: .black, design: .rounded))
+                        .foregroundStyle(.white)
+                        .frame(width: 42, height: 42)
+                        .background(Color(white: 0.07), in: RoundedRectangle(cornerRadius: 12))
+                        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.white.opacity(0.20), lineWidth: 0.8))
                     VStack(alignment: .leading, spacing: 1) {
                         Text("Nightwell").font(.system(size: 25, weight: .bold))
                         Text("M U S I C").font(.caption).foregroundStyle(.secondary)
