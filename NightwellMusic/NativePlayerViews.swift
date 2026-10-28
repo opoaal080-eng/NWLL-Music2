@@ -64,7 +64,7 @@ struct RibbonScene: View {
                     // Integrate only foreground time so resuming never jumps ahead.
                     flowTime += elapsed * safeSpeed * (0.16 + energy * 0.48)
                 }
-                do { try await Task.sleep(nanoseconds: 33_333_333) }
+                do { try await Task.sleep(nanoseconds: 40_000_000) }
                 catch { return }
             }
         }
@@ -103,14 +103,14 @@ struct RibbonScene: View {
                 .init(color: .clear, location: 1)
             ])
             // Blur each layer independently: no hard cone edges or point light sources.
-            for layer in 0..<3 {
+            for layer in 0..<2 {
                 var soft = context
-                soft.addFilter(.blur(radius: scale * (0.025 + Double(layer) * 0.025)))
-                soft.opacity = 0.65 - Double(layer) * 0.15
+                soft.addFilter(.blur(radius: scale * (0.018 + Double(layer) * 0.023)))
+                soft.opacity = 0.70 - Double(layer) * 0.18
                 soft.stroke(path, with: .linearGradient(gradient,
                     startPoint: CGPoint(x: -w * 0.16, y: h * 0.5),
                     endPoint: CGPoint(x: w * 1.16, y: h * 0.5)),
-                    style: StrokeStyle(lineWidth: scale * (0.035 + Double(layer) * 0.05 + level * 0.035),
+                    style: StrokeStyle(lineWidth: scale * (0.055 + Double(layer) * 0.07 + level * 0.035),
                                        lineCap: .round, lineJoin: .round))
             }
             let center = CGPoint(x: w * (0.5 + sin(phase * 0.62) * 0.34),
@@ -132,11 +132,11 @@ private struct HomeSparkles: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: reduceMotion)) { timeline in
+        TimelineView(.animation(minimumInterval: 1.0 / 15.0, paused: reduceMotion)) { timeline in
             Canvas(opaque: false, rendersAsynchronously: true) { context, size in
                 guard size.width > 1, size.height > 1 else { return }
                 let time = reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate
-                for index in 0..<36 {
+                for index in 0..<28 {
                     let seed = Double(index)
                     let x = (sin(seed * 91.71 + 1.9) * 43758.5453).truncatingRemainder(dividingBy: 1)
                     let y = (sin(seed * 37.43 + 7.1) * 12573.1341).truncatingRemainder(dividingBy: 1)
@@ -469,8 +469,8 @@ private struct ArtworkColorBackground: View {
             palette = nil
             guard let url else { return }
             do {
-                let (data, _) = try await URLSession.shared.data(from: url)
-                guard !Task.isCancelled, let original = UIImage(data: data) else { return }
+                guard let original = await CoverImagePipeline.shared.image(for: url, maxPixel: 128),
+                      !Task.isCancelled else { return }
                 let format = UIGraphicsImageRendererFormat()
                 format.scale = 1
                 format.opaque = true
@@ -538,7 +538,7 @@ struct FullPlayer: View {
                             .background { GeometryReader { proxy in Color.clear.preference(key: PlayerLyricsFramePreference.self, value: proxy.frame(in: .global)) } }
                             .onTapGesture { withAnimation(.easeInOut(duration: 0.22)) { showLyrics = false } }
                     } else {
-                        Cover(track: clock.current, origin: store.origin)
+                        Cover(track: clock.current, origin: store.origin, pixelWidth: 1024)
                             .frame(width: min(box.size.width, box.size.height) * 0.9, height: min(box.size.width, box.size.height) * 0.9)
                             .clipShape(RoundedRectangle(cornerRadius: 26))
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
