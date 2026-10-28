@@ -21,7 +21,7 @@ struct RibbonScene: View {
     @Environment(\.scenePhase) private var scene
     @Environment(\.accessibilityReduceMotion) private var reduced
     @State private var pulse = 0.0
-    @State private var targets = (0..<8).map { _ in CGPoint(x: 0.5, y: 0.45) }
+    @State private var targets = (0..<8).map { _ in CGPoint(x: 0.5, y: 0.53) }
     @State private var lamps = [Double](repeating: 0, count: 8)
     @State private var energy = 0.0
     @State private var frameDate = Date()
@@ -64,9 +64,9 @@ struct RibbonScene: View {
                     let sample = index < incoming.count && enabled[index] && incoming[index].isFinite
                         ? max(0, min(1, incoming[index])) : 0
                     // Slowly follow track loudness so quieter songs still illuminate the scene.
-                    let follow = 1 - exp(-elapsed / (sample > adaptive[index] ? 1.8 : 7.0))
+                    let follow = 1 - exp(-elapsed / (sample > adaptive[index] ? 1.0 : 3.0))
                     adaptive[index] += (sample - adaptive[index]) * follow
-                    let normalized = sample / max(0.045, adaptive[index] * 1.65)
+                    let normalized = sample / max(0.010, adaptive[index] * 1.35)
                     levels[index] = min(1, max(0, normalized * gain))
                 }
                 let overall = levels.reduce(0, +) / 4
@@ -75,7 +75,7 @@ struct RibbonScene: View {
                 let hasAudioSignal = incoming.contains { $0.isFinite && $0 > 0.003 }
                 if hasAudioSignal { lastAudioSignal = now }
                 let signalMissing = now - lastAudioSignal > 0.70
-                let standbyTarget = signalMissing ? 0.24 : 0.0
+                let standbyTarget = signalMissing ? 0.20 : 0.0
                 standbyGlow += (standbyTarget - standbyGlow) * (1 - exp(-elapsed / 0.85))
                 // Estimate tempo from low/mid-band transients, not from a fixed animation timer.
                 let rhythm = levels[1] * 0.62 + levels[2] * 0.28 + levels[0] * 0.10
@@ -90,9 +90,10 @@ struct RibbonScene: View {
                         beatPeriod += (interval - beatPeriod) * 0.28
                     }
                     lastBeat = now
-                    desired = (0..<8).map { _ in
-                        CGPoint(x: Double.random(in: 0.08...0.92),
-                                y: Double.random(in: 0.25...0.75))
+                    desired = (0..<8).map { index in
+                        let left = index % 2 == 0
+                        return CGPoint(x: Double.random(in: left ? 0.40...0.79 : 0.21...0.60),
+                                       y: Double.random(in: 0.30...0.72))
                     }
                     lastMove = now
                 }
@@ -103,9 +104,10 @@ struct RibbonScene: View {
                 // For sustained passages without detected beats, move at a tempo-scaled interval.
                 if (overall > 0.018 || standbyGlow > 0.04) && now - lastMove > max(0.22, beatPeriod * 1.35) {
                     lastMove = now
-                    desired = (0..<8).map { _ in
-                        CGPoint(x: Double.random(in: 0.08...0.92),
-                                y: Double.random(in: 0.25...0.75))
+                    desired = (0..<8).map { index in
+                        let left = index % 2 == 0
+                        return CGPoint(x: Double.random(in: left ? 0.40...0.79 : 0.21...0.60),
+                                       y: Double.random(in: 0.30...0.72))
                     }
                 }
                 let blend = 1 - exp(-elapsed * 3.4 * motionSpeed)
