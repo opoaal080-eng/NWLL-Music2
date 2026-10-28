@@ -201,11 +201,13 @@ struct NativeRoot: View {
     @Environment(\.accessibilityReduceMotion) private var reducedMotion
     @ViewBuilder private var mainScene: some View {
         ZStack {
-            if store.screen == .home || backgroundOnly {
-                LinearGradient(colors: [Color(red: 0.025, green: 0.035, blue: 0.045), .black], startPoint: .top, endPoint: .bottom).ignoresSafeArea()
-            } else {
-                SeasonBackground()
-            }
+            // Shared monochrome background for Home, Search, Favorites, Playlists and Offline.
+            LinearGradient(
+                colors: [Color(red: 0.055, green: 0.062, blue: 0.074), Color(white: 0.025), .black],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
             if !backgroundOnly && store.screen == .home {
                 RibbonScene(playing: store.clock.playing, flash: store.likeFlash)
                     .ignoresSafeArea()
