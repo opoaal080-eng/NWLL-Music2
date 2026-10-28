@@ -83,17 +83,17 @@ struct MonochromeCampfire: View {
     ) -> Path {
         func center(_ p: Double) -> Double {
             let current = time * (1.05 + noise(seed * 2.9) * 0.55)
-            let drift = sin(current + seed * 2.6 + p * 4.5) * width * 0.22
-                      + sin(current * 0.61 - seed + p * 8.4) * width * 0.095
+            let drift = sin(current + seed * 2.6 + p * 4.5) * width * 0.40
+                      + sin(current * 0.61 - seed + p * 8.4) * width * 0.14
             // Lean becomes significant only near the end of the flame.
-            let curlingTip = sin(current * 1.45 + seed * 4.1) * width * 0.38
-            return x + lean * p * p + drift * p + curlingTip * pow(p, 3.3)
+            let curlingTip = sin(current * 1.45 + seed * 4.1) * width * 1.10
+            return x + lean * p * p + drift * p + curlingTip * pow(p, 3.1)
         }
         func radius(_ p: Double, side: Double) -> Double {
-            let taper = pow(max(0, 1 - p), 0.77)
+            let taper = pow(max(0, 1 - p), 0.64)
             let breathing = 0.80 + 0.13 * sin(time * 3.3 + seed * 2.1 - p * 13.0)
-            let ragged = 1 + 0.18 * sin(p * 13.5 + seed * 3.1 - time * 2.2 + side)
-                             + 0.10 * sin(p * 24.2 + seed - time * 3.6 + side * 2.0)
+            let ragged = 1 + 0.12 * sin(p * 13.5 + seed * 3.1 - time * 2.2 + side)
+                             + 0.08 * sin(p * 24.2 + seed - time * 3.6 + side * 2.0)
             // One side may fold inward while the other fans outward.
             let lobe = 1 + 0.20 * sin(p * 7.7 + seed * 1.6 + side * 1.8 - time)
             return max(0, width * taper * breathing * ragged * lobe)
@@ -170,10 +170,10 @@ struct MonochromeCampfire: View {
 
             // Broad tongues arc away from a common base. Differing lifetimes,
             // curls and local oscillations make their movement unpredictable.
-            for index in 0..<9 {
+            for index in 0..<8 {
                 let seed = Double(index) + 8.4
-                let distribution = (Double(index) / 8 - 0.5)
-                let birthX = centerX + w * distribution * 0.31
+                let distribution = (Double(index) / 7 - 0.5)
+                let birthX = centerX + w * distribution * 0.34
                 let highAtCenter = 1 - abs(distribution) * 0.6
                 let pulse = 0.82
                           + sin(time * (1.65 + noise(seed * 5.1) * 1.4) + seed * 2.7) * 0.17
@@ -181,7 +181,7 @@ struct MonochromeCampfire: View {
                 let extent = h * (0.42 + noise(seed * 6.3) * 0.22)
                            * highAtCenter * pulse * heightGain
                 let width = w * (0.106 + noise(seed * 2.7) * 0.054)
-                let lean = w * distribution * (0.11 + noise(seed * 4.5) * 0.09)
+                let lean = w * (distribution * 0.26 + (noise(seed * 12) - 0.5) * 0.12)
                 let flame = flamePath(x: birthX, base: base, width: width,
                                       height: extent, lean: lean, seed: seed, time: time)
                 let alpha = heat * (0.34 + noise(seed * 3.2) * 0.13)
