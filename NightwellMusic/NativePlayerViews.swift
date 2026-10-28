@@ -709,8 +709,10 @@ struct PlaybackQueue: View {
     private var currentIndex: Int { clock.queue.firstIndex { $0.id == clock.id } ?? -1 }
     var body: some View {
         ZStack {
-            SeasonBackground().blur(radius: 22)
-            Color.black.opacity(0.28).ignoresSafeArea()
+            LinearGradient(colors: [Color(white: 0.10), Color(white: 0.035), .black],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+                .ignoresSafeArea()
+            Color.black.opacity(0.16).ignoresSafeArea()
             VStack(spacing: 20) {
                 HStack(alignment: .center) {
                     VStack(alignment: .leading, spacing: 6) {
