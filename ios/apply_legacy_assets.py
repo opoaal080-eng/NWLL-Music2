@@ -8,7 +8,8 @@ import shutil, sys
 base=Path(__file__).resolve().parent/'LegacyCompiledAssets'
 app=Path(sys.argv[1]).resolve()
 assert app.is_dir() and app.suffix=='.app', f'Invalid app bundle: {app}'
-for name in ['Assets.car','AppIcon60x60@2x.png','AppIcon76x76@2x~ipad.png']:
+for name in ['Assets.car']:
+    # Keep newly compiled app icon PNGs instead of restoring the old purple icon.
     assert (base/name).is_file(), f'Missing resource: {name}'
     shutil.copy2(base/name, app/name)
 print('Restored original compiled graphics. Check runtime compatibility before distribution.')
