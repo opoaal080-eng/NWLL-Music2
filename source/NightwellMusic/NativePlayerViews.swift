@@ -12,102 +12,118 @@ struct SeasonBackground: View {
     }
     private var themeColor: Color { switch premium.preferences.theme { case "aurora": return Color(red: 0.04, green: 0.4, blue: 0.28); case "ocean": return Color(red: 0.03, green: 0.22, blue: 0.5); case "sunset": return Color(red: 0.5, green: 0.12, blue: 0.16); default: return .clear } }
 }
+// Ambient Flow keeps the existing scene interface and audio source.
 struct RibbonScene: View {
     @ObservedObject private var premium = PremiumFeatureState.shared
     let playing: Bool
     let flash: Int
     @Environment(\.scenePhase) private var scene
     @Environment(\.accessibilityReduceMotion) private var reduced
-    @State private var flashDate = Date.distantPast
-    @State private var energy = 0.0
-    @State private var frameDate = Date()
+    @State private var bands = [Double](repeating: 0, count: 4)
+    @State private var flowTime = 0.0
+
     var body: some View {
         Canvas(opaque: false, rendersAsynchronously: true) { context, size in
-            draw(context: context, size: size, date: frameDate)
+            draw(context: context, size: size)
         }
-        .onChange(of: flash) { _ in flashDate = frameDate }
-        .task(id: scene == .active && !reduced) { @MainActor in
-            guard scene == .active, !reduced else { return }
-            // A fresh frame loop starts on every foreground entry and view appearance.
-            // Cancellation stops it when this scene is hidden or the app is inactive.
+        .task(id: scene == .active && playing && !reduced) { @MainActor in
+            bands = [Double](repeating: 0, count: 4)
+            guard scene == .active, playing, !reduced else { return }
+            var adaptive = [Double](repeating: 0.07, count: 4)
             var previous = ProcessInfo.processInfo.systemUptime
             while !Task.isCancelled {
                 let now = ProcessInfo.processInfo.systemUptime
                 let elapsed = min(0.1, max(0, now - previous))
                 previous = now
-                let p = premium.preferences
-                let bands = NativePlayer.shared.auraLevels()
-                let choices = [p.aura_voice, p.aura_low, p.aura_mid, p.aura_high]
-                let enabled = premium.allowed ? choices : [true, true, true, true]
-                let selected = zip(bands, enabled).compactMap { value, active in active && value.isFinite ? value : nil }
-                let raw = selected.isEmpty ? 0 : selected.reduce(0, +) / Double(selected.count)
-                let level = min(1, max(0, raw * (premium.allowed ? p.ribbon_intensity : 1)))
+                let preferences = premium.preferences
+                let incoming = NativePlayer.shared.auraLevels()
+                let enabled = premium.allowed
+                    ? [preferences.aura_voice, preferences.aura_low, preferences.aura_mid, preferences.aura_high]
+                    : [true, true, true, true]
+                let intensity = premium.allowed ? preferences.ribbon_intensity : 1.0
+                let gain = intensity.isFinite ? min(3, max(0, intensity)) : 1.0
+                let speed = premium.allowed ? preferences.ribbon_speed : 1.0
+                let safeSpeed = speed.isFinite ? min(3, max(0.2, speed)) : 1.0
+                var next = bands
+                for index in 0..<4 {
+                    let sample = index < incoming.count && enabled[index] && incoming[index].isFinite
+                        ? min(1, max(0, incoming[index])) : 0
+                    adaptive[index] += (sample - adaptive[index]) * (1 - exp(-elapsed / 2.0))
+                    let target = enabled[index] ? min(1, sample / max(0.025, adaptive[index] * 1.5) * gain) : 0
+                    let response = 1 - exp(-elapsed / (target > bands[index] ? 0.09 : 0.55))
+                    next[index] += (target - next[index]) * response
+                    if !enabled[index] || gain == 0 { next[index] = 0 }
+                }
+                let energy = next.reduce(0, +) / 4
                 var transaction = Transaction()
                 transaction.disablesAnimations = true
                 withTransaction(transaction) {
-                    energy += (level - energy) * (level > energy ? 0.55 : 0.2)
-                    // Do not jump through the time spent in the background.
-                    frameDate = frameDate.addingTimeInterval(elapsed * (premium.allowed ? premium.preferences.ribbon_speed : 1))
+                    bands = next
+                    // Integrate only foreground time so resuming never jumps ahead.
+                    flowTime += elapsed * safeSpeed * (0.16 + energy * 0.48)
                 }
                 do { try await Task.sleep(nanoseconds: 33_333_333) }
                 catch { return }
             }
         }
         .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
-    private func auraColor(_ phase: Double) -> Color {
-        let palette: [(Double, Double, Double)] = [
-            (135, 87, 255), (239, 98, 193), (255, 153, 92), (91, 189, 255)
-        ]
-        let wrapped = (phase.truncatingRemainder(dividingBy: 4) + 4).truncatingRemainder(dividingBy: 4)
-        let index = Int(wrapped)
-        let fraction = wrapped - Double(index)
-        let blend = fraction * fraction * (3 - 2 * fraction)
-        let a = palette[index], b = palette[(index + 1) % 4]
-        return Color(red: (a.0 + (b.0 - a.0) * blend) / 255,
-                     green: (a.1 + (b.1 - a.1) * blend) / 255,
-                     blue: (a.2 + (b.2 - a.2) * blend) / 255)
-    }
-    private func draw(context: GraphicsContext, size: CGSize, date: Date) {
-        let t = reduced ? 0 : date.timeIntervalSinceReferenceDate * 0.24
-        let burst = max(0, 1 - date.timeIntervalSince(flashDate) / 0.7)
-        guard size.width > 1 && size.height > 1 else { return }
+
+    private func draw(context: GraphicsContext, size: CGSize) {
+        guard scene == .active, playing, !reduced, size.width > 1, size.height > 1 else { return }
         let w = Double(size.width), h = Double(size.height)
-        // Three streams emerge from the center and carry their waves beyond the top and sides.
-        let cx = w * 0.5, cy = h * 0.54
-        for side in 0..<3 {
-            let dx = side == 0 ? -w * 0.72 : side == 1 ? w * 0.72 : 0
-            let dy = side == 2 ? -h * 0.78 : -h * 0.36
-            let length = hypot(dx, dy)
-            for band in (0..<18).reversed() {
-                let lane = (Double(band) - 8.5) / 17
-                var path = Path()
-                for step in 0...64 {
-                    let u = Double(step) / 64
-                    let spread = sin(u * .pi * 0.5)
-                    let bend = (sin(u * 9 - t + lane * 3) * (0.045 + energy * 0.045)
-                        + lane * 0.26) * min(w, h) * spread
-                    let x = cx + dx * u - dy / length * bend
-                    let y = cy + dy * u + dx / length * bend
-                    let p = CGPoint(x: x, y: y)
-                    if step == 0 { path.move(to: p) } else { path.addLine(to: p) }
-                }
-                let opacity = min(0.52, (0.11 + energy * 0.20 + burst * 0.12) * (1 - abs(lane) * 0.9))
-                let hue = t * 0.4 + Double(side) * 0.8
-                let gradient = Gradient(stops: [
-                    .init(color: .clear, location: 0),
-                    .init(color: .clear, location: 0.08),
-                    .init(color: auraColor(hue).opacity(opacity), location: 0.3),
-                    .init(color: auraColor(hue + 0.6).opacity(opacity), location: 0.68),
-                    .init(color: auraColor(hue + 1.2).opacity(opacity), location: 1)
-                ])
-                context.stroke(path, with: .linearGradient(gradient,
-                    startPoint: CGPoint(x: cx, y: cy), endPoint: CGPoint(x: cx + dx, y: cy + dy)),
-                               style: StrokeStyle(lineWidth: 8 + Double(band) * 0.68 + energy * 16, lineCap: .round))
+        let scale = min(w, h)
+        let energy = bands.reduce(0, +) / 4
+        guard energy > 0.001 else { return }
+        // Broad, feathered ribbons cross the edges and leave the controls readable.
+        for stream in 0..<4 {
+            let seed = Double(stream)
+            let level = bands[stream]
+            guard level > 0.001 else { continue }
+            let phase = flowTime + seed * 1.7
+            var path = Path()
+            for step in 0...48 {
+                let u = Double(step) / 48
+                let x = w * (-0.16 + u * 1.32)
+                let base = 0.28 + seed * 0.15
+                let wave = sin(u * 5.4 + phase) * (0.055 + level * 0.055)
+                let fold = sin(u * 10.2 - phase * 0.7 + seed) * 0.022
+                let point = CGPoint(x: x, y: h * (base + wave + fold))
+                if step == 0 { path.move(to: point) } else { path.addLine(to: point) }
             }
+            let tint = Color(red: 0.82 + seed * 0.04, green: 0.88 + seed * 0.025, blue: 1)
+            let gradient = Gradient(stops: [
+                .init(color: .clear, location: 0),
+                .init(color: tint.opacity(level * 0.20), location: 0.20),
+                .init(color: .white.opacity(level * 0.28), location: 0.54),
+                .init(color: tint.opacity(level * 0.18), location: 0.82),
+                .init(color: .clear, location: 1)
+            ])
+            // Blur each layer independently: no hard cone edges or point light sources.
+            for layer in 0..<3 {
+                var soft = context
+                soft.addFilter(.blur(radius: scale * (0.025 + Double(layer) * 0.025)))
+                soft.opacity = 0.65 - Double(layer) * 0.15
+                soft.stroke(path, with: .linearGradient(gradient,
+                    startPoint: CGPoint(x: -w * 0.16, y: h * 0.5),
+                    endPoint: CGPoint(x: w * 1.16, y: h * 0.5)),
+                    style: StrokeStyle(lineWidth: scale * (0.035 + Double(layer) * 0.05 + level * 0.035),
+                                       lineCap: .round, lineJoin: .round))
+            }
+            let center = CGPoint(x: w * (0.5 + sin(phase * 0.62) * 0.34),
+                                 y: h * (0.30 + seed * 0.14 + cos(phase * 0.48) * 0.07))
+            let radius = scale * (0.30 + level * 0.12)
+            let haze = CGRect(x: center.x - radius, y: center.y - radius,
+                              width: radius * 2, height: radius * 2)
+            context.fill(Path(ellipseIn: haze), with: .radialGradient(
+                Gradient(colors: [tint.opacity(level * 0.065), .clear]),
+                center: center, startRadius: 0, endRadius: radius))
         }
     }
 }
+
+
 struct NativeHome: View {
     let configureWave: () -> Void
     @State private var suppressMixTapUntil = Date.distantPast

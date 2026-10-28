@@ -14,210 +14,118 @@ struct SeasonBackground: View {
     }
     private var themeColor: Color { switch premium.preferences.theme { case "aurora": return Color(red: 0.04, green: 0.4, blue: 0.28); case "ocean": return Color(red: 0.03, green: 0.22, blue: 0.5); case "sunset": return Color(red: 0.5, green: 0.12, blue: 0.16); default: return .clear } }
 }
+// Ambient Flow keeps the existing scene interface and audio source.
 struct RibbonScene: View {
     @ObservedObject private var premium = PremiumFeatureState.shared
     let playing: Bool
     let flash: Int
     @Environment(\.scenePhase) private var scene
     @Environment(\.accessibilityReduceMotion) private var reduced
-    @State private var pulse = 0.0
-    @State private var targets = (0..<8).map { _ in CGPoint(x: 0.5, y: 0.53) }
-    @State private var lamps = [Double](repeating: 0, count: 8)
-    @State private var energy = 0.0
-    @State private var frameDate = Date()
+    @State private var bands = [Double](repeating: 0, count: 4)
+    @State private var flowTime = 0.0
+
     var body: some View {
         Canvas(opaque: false, rendersAsynchronously: true) { context, size in
-            draw(context: context, size: size, date: frameDate)
+            draw(context: context, size: size)
         }
-        
         .task(id: scene == .active && playing && !reduced) { @MainActor in
-            pulse = 0
-            energy = 0
+            bands = [Double](repeating: 0, count: 4)
             guard scene == .active, playing, !reduced else { return }
-            // A fresh frame loop starts on every foreground entry and view appearance.
-            // Cancellation stops it when this scene is hidden or the app is inactive.
-            // Continuous, multi-band music response with adaptive gain and independent lamp envelopes.
             var adaptive = [Double](repeating: 0.07, count: 4)
-            var envelopes = [Double](repeating: 0, count: 8)
-            var previousBands = [Double](repeating: 0, count: 4)
-            var lastMove = ProcessInfo.processInfo.systemUptime
-            var beatBaseline = 0.04
-            var previousRhythm = 0.0
-            var lastBeat = -10.0
-            var beatPeriod = 0.52
-            var motionSpeed = 1.0
-            var lastAudioSignal = ProcessInfo.processInfo.systemUptime
-            var standbyGlow = 0.0
-            var desired = targets
             var previous = ProcessInfo.processInfo.systemUptime
             while !Task.isCancelled {
                 let now = ProcessInfo.processInfo.systemUptime
                 let elapsed = min(0.1, max(0, now - previous))
                 previous = now
-                let p = premium.preferences
+                let preferences = premium.preferences
                 let incoming = NativePlayer.shared.auraLevels()
-                let choices = [p.aura_voice, p.aura_low, p.aura_mid, p.aura_high]
-                let enabled = premium.allowed ? choices : [true, true, true, true]
-                let gain = premium.allowed ? max(0.1, p.ribbon_intensity) : 1.0
-                var levels = [Double](repeating: 0, count: 4)
+                let enabled = premium.allowed
+                    ? [preferences.aura_voice, preferences.aura_low, preferences.aura_mid, preferences.aura_high]
+                    : [true, true, true, true]
+                let intensity = premium.allowed ? preferences.ribbon_intensity : 1.0
+                let gain = intensity.isFinite ? min(3, max(0, intensity)) : 1.0
+                let speed = premium.allowed ? preferences.ribbon_speed : 1.0
+                let safeSpeed = speed.isFinite ? min(3, max(0.2, speed)) : 1.0
+                var next = bands
                 for index in 0..<4 {
                     let sample = index < incoming.count && enabled[index] && incoming[index].isFinite
-                        ? max(0, min(1, incoming[index])) : 0
-                    // Slowly follow track loudness so quieter songs still illuminate the scene.
-                    let follow = 1 - exp(-elapsed / (sample > adaptive[index] ? 1.0 : 3.0))
-                    adaptive[index] += (sample - adaptive[index]) * follow
-                    let normalized = sample / max(0.010, adaptive[index] * 1.35)
-                    levels[index] = min(1, max(0, normalized * gain))
+                        ? min(1, max(0, incoming[index])) : 0
+                    adaptive[index] += (sample - adaptive[index]) * (1 - exp(-elapsed / 2.0))
+                    let target = enabled[index] ? min(1, sample / max(0.025, adaptive[index] * 1.5) * gain) : 0
+                    let response = 1 - exp(-elapsed / (target > bands[index] ? 0.09 : 0.55))
+                    next[index] += (target - next[index]) * response
+                    if !enabled[index] || gain == 0 { next[index] = 0 }
                 }
-                let overall = levels.reduce(0, +) / 4
-                // Audio taps can temporarily stop reporting levels during an otherwise active track.
-                // Keep a subtle live stage instead of allowing every light to disappear.
-                let hasAudioSignal = incoming.contains { $0.isFinite && $0 > 0.003 }
-                if hasAudioSignal { lastAudioSignal = now }
-                let signalMissing = now - lastAudioSignal > 0.70
-                let standbyTarget = signalMissing ? 0.20 : 0.0
-                standbyGlow += (standbyTarget - standbyGlow) * (1 - exp(-elapsed / 0.85))
-                // Estimate tempo from low/mid-band transients, not from a fixed animation timer.
-                let rhythm = levels[1] * 0.62 + levels[2] * 0.28 + levels[0] * 0.10
-                beatBaseline += (rhythm - beatBaseline) * (1 - exp(-elapsed / 0.65))
-                let onset = rhythm - previousRhythm
-                previousRhythm = rhythm
-                if rhythm > 0.10 && onset > 0.055 && rhythm > beatBaseline * 1.12 &&
-                    now - lastBeat > 0.22 {
-                    let interval = now - lastBeat
-                    if interval >= 0.22 && interval <= 1.5 {
-                        // Smooth noisy intervals to avoid sudden jumps in stage-light movement.
-                        beatPeriod += (interval - beatPeriod) * 0.28
-                    }
-                    lastBeat = now
-                    desired = (0..<8).map { index in
-                        let left = index % 2 == 0
-                        return CGPoint(x: Double.random(in: left ? 0.40...0.79 : 0.21...0.60),
-                                       y: Double.random(in: 0.30...0.72))
-                    }
-                    lastMove = now
-                }
-                let rate = min(2.7, max(0.55, 0.52 / beatPeriod))
-                let manualSpeed = premium.allowed ? max(0.2, p.ribbon_speed) : 1.0
-                let requestedSpeed = manualSpeed * rate * (0.72 + min(0.7, overall))
-                motionSpeed += (requestedSpeed - motionSpeed) * (1 - exp(-elapsed / 0.30))
-                // For sustained passages without detected beats, move at a tempo-scaled interval.
-                if (overall > 0.018 || standbyGlow > 0.04) && now - lastMove > max(0.22, beatPeriod * 1.35) {
-                    lastMove = now
-                    desired = (0..<8).map { index in
-                        let left = index % 2 == 0
-                        return CGPoint(x: Double.random(in: left ? 0.40...0.79 : 0.21...0.60),
-                                       y: Double.random(in: 0.30...0.72))
-                    }
-                }
-                let blend = 1 - exp(-elapsed * 3.4 * motionSpeed)
-                var nextLamps = lamps
-                for index in 0..<8 {
-                    let bandIndex = [1, 0, 2, 3, 1, 2, 0, 3][index]
-                    let band = levels[bandIndex]
-                    let attack = max(0, band - previousBands[bandIndex])
-                    let target = min(1, max(standbyGlow, band * 0.84 + overall * 0.27 + attack * 0.38))
-                    let response = 1 - exp(-elapsed / (target > envelopes[index] ? 0.055 : 0.42))
-                    envelopes[index] += (target - envelopes[index]) * response
-                    nextLamps[index] = envelopes[index]
-                }
-                previousBands = levels
+                let energy = next.reduce(0, +) / 4
                 var transaction = Transaction()
                 transaction.disablesAnimations = true
                 withTransaction(transaction) {
-                    energy = overall
-                    pulse = nextLamps.max() ?? 0
-                    lamps = nextLamps
-                    targets = zip(targets, desired).map { old, next in
-                        CGPoint(x: old.x + (next.x - old.x) * blend,
-                                y: old.y + (next.y - old.y) * blend)
-                    }
-                    // Force Canvas redraw even when sampled audio changes without SwiftUI notifications.
-                    frameDate = frameDate.addingTimeInterval(max(elapsed, 0.001))
+                    bands = next
+                    // Integrate only foreground time so resuming never jumps ahead.
+                    flowTime += elapsed * safeSpeed * (0.16 + energy * 0.48)
                 }
-                do { try await Task.sleep(nanoseconds: 16_666_667) }
+                do { try await Task.sleep(nanoseconds: 33_333_333) }
                 catch { return }
             }
         }
         .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
-    private func draw(context: GraphicsContext, size: CGSize, date: Date) {
-        guard playing, !reduced, pulse > 0.001, size.width > 1 && size.height > 1 else { return }
+
+    private func draw(context: GraphicsContext, size: CGSize) {
+        guard scene == .active, playing, !reduced, size.width > 1, size.height > 1 else { return }
         let w = Double(size.width), h = Double(size.height)
-        let intensity = playing ? energy : 0.0
-        let ice = Color.white
-        for light in 0..<8 {
-            let brightness = lamps[light]
-            guard brightness > 0.001 else { continue }
-            let left = light % 2 == 0
-            let row = Double(light / 2)
-            let source = CGPoint(x: left ? w * 0.025 : w * 0.975, y: h * (0.23 + row * 0.17))
-            let target = CGPoint(x: w * targets[light].x, y: h * targets[light].y)
-            let dx = target.x - source.x, dy = target.y - source.y
-            let length = max(1, hypot(dx, dy))
-            let end = CGPoint(x: source.x + dx / length * h * 0.92, y: source.y + dy / length * h * 0.92)
-            // Layered volumetric cone: feathered edges, dense central shaft and drifting haze.
-            let perpendicular = CGPoint(x: -dy / length, y: dx / length)
-            let time = date.timeIntervalSinceReferenceDate
-            let baseWidth = 13.0 + intensity * 13.0
-            for layer in 0..<8 {
-                let fraction = Double(layer) / 7.0
-                let halfWidth = baseWidth * (2.8 - fraction * 2.55)
-                let opacity = min(0.44, (0.025 + fraction * 0.032) * brightness)
-                let offset = sin(time * 0.38 + Double(light) * 2.3 + fraction * 5.0) * h * 0.004
-                let tip = CGPoint(x: end.x + perpendicular.x * offset, y: end.y + perpendicular.y * offset)
-                var shaft = Path()
-                shaft.move(to: source)
-                shaft.addLine(to: CGPoint(x: tip.x + perpendicular.x * halfWidth,
-                                         y: tip.y + perpendicular.y * halfWidth))
-                shaft.addLine(to: CGPoint(x: tip.x - perpendicular.x * halfWidth,
-                                         y: tip.y - perpendicular.y * halfWidth))
-                shaft.closeSubpath()
-                // A narrow inner shaft gives each beam a realistic focused hotspot.
-                if layer == 7 {
-                    var core = Path()
-                    let narrow = max(1.5, halfWidth * 0.19)
-                    core.move(to: source)
-                    core.addLine(to: CGPoint(x: tip.x + perpendicular.x * narrow, y: tip.y + perpendicular.y * narrow))
-                    core.addLine(to: CGPoint(x: tip.x - perpendicular.x * narrow, y: tip.y - perpendicular.y * narrow))
-                    core.closeSubpath()
-                    context.fill(core, with: .linearGradient(
-                        Gradient(colors: [.white.opacity(0.24 * brightness), .white.opacity(0.11 * brightness), .clear]),
-                        startPoint: source, endPoint: tip
-                    ))
-                }
-                context.fill(shaft, with: .linearGradient(
-                    Gradient(stops: [
-                        .init(color: .white.opacity(opacity * 0.85), location: 0),
-                        .init(color: ice.opacity(opacity), location: 0.26),
-                        .init(color: ice.opacity(opacity * 0.58), location: 0.72),
-                        .init(color: .clear, location: 1)
-                    ]), startPoint: source, endPoint: tip
-                ))
+        let scale = min(w, h)
+        let energy = bands.reduce(0, +) / 4
+        guard energy > 0.001 else { return }
+        // Broad, feathered ribbons cross the edges and leave the controls readable.
+        for stream in 0..<4 {
+            let seed = Double(stream)
+            let level = bands[stream]
+            guard level > 0.001 else { continue }
+            let phase = flowTime + seed * 1.7
+            var path = Path()
+            for step in 0...48 {
+                let u = Double(step) / 48
+                let x = w * (-0.16 + u * 1.32)
+                let base = 0.28 + seed * 0.15
+                let wave = sin(u * 5.4 + phase) * (0.055 + level * 0.055)
+                let fold = sin(u * 10.2 - phase * 0.7 + seed) * 0.022
+                let point = CGPoint(x: x, y: h * (base + wave + fold))
+                if step == 0 { path.move(to: point) } else { path.addLine(to: point) }
             }
-            // Delicate atmospheric wisps, positioned deterministically to avoid flicker.
-            for particle in 0..<9 {
-                let distance = 0.16 + Double(particle) * 0.079
-                let drift = sin(time * 0.55 + Double(particle) * 1.89 + Double(light)) * 10
-                let center = CGPoint(x: source.x + dx / length * h * 0.8 * distance + perpendicular.x * drift,
-                                     y: source.y + dy / length * h * 0.8 * distance + perpendicular.y * drift)
-                let radius = 13.0 + distance * 30
-                let haze = CGRect(x: center.x - radius, y: center.y - radius,
-                                  width: radius * 2, height: radius * 2)
-                context.fill(Path(ellipseIn: haze), with: .radialGradient(
-                    Gradient(colors: [.white.opacity(0.06 * brightness), .clear]),
-                    center: center, startRadius: 0, endRadius: radius
-                ))
+            let tint = Color(red: 0.82 + seed * 0.04, green: 0.88 + seed * 0.025, blue: 1)
+            let gradient = Gradient(stops: [
+                .init(color: .clear, location: 0),
+                .init(color: tint.opacity(level * 0.20), location: 0.20),
+                .init(color: .white.opacity(level * 0.28), location: 0.54),
+                .init(color: tint.opacity(level * 0.18), location: 0.82),
+                .init(color: .clear, location: 1)
+            ])
+            // Blur each layer independently: no hard cone edges or point light sources.
+            for layer in 0..<3 {
+                var soft = context
+                soft.addFilter(.blur(radius: scale * (0.025 + Double(layer) * 0.025)))
+                soft.opacity = 0.65 - Double(layer) * 0.15
+                soft.stroke(path, with: .linearGradient(gradient,
+                    startPoint: CGPoint(x: -w * 0.16, y: h * 0.5),
+                    endPoint: CGPoint(x: w * 1.16, y: h * 0.5)),
+                    style: StrokeStyle(lineWidth: scale * (0.035 + Double(layer) * 0.05 + level * 0.035),
+                                       lineCap: .round, lineJoin: .round))
             }
-            let halo = CGRect(x: source.x - 14, y: source.y - 14, width: 28, height: 28)
-            context.fill(Path(ellipseIn: halo), with: .radialGradient(
-                Gradient(colors: [.white.opacity(0.9 * brightness),
-                                  ice.opacity(0.32 * brightness), .clear]),
-                center: source, startRadius: 0, endRadius: 14
-            ))
+            let center = CGPoint(x: w * (0.5 + sin(phase * 0.62) * 0.34),
+                                 y: h * (0.30 + seed * 0.14 + cos(phase * 0.48) * 0.07))
+            let radius = scale * (0.30 + level * 0.12)
+            let haze = CGRect(x: center.x - radius, y: center.y - radius,
+                              width: radius * 2, height: radius * 2)
+            context.fill(Path(ellipseIn: haze), with: .radialGradient(
+                Gradient(colors: [tint.opacity(level * 0.065), .clear]),
+                center: center, startRadius: 0, endRadius: radius))
         }
     }
 }
+
+
 
 // Quiet decorative stars are independent of the audio engine and playback state.
 private struct HomeSparkles: View {
