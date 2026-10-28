@@ -43,16 +43,24 @@ def capture(name):
     if name.startswith('premium-appearance-'):
         assert 'Ваше оформление' in texts,(name,texts)
     if name.startswith('menu-'):
-        assert all(tab in texts for tab in ['Главная','Поиск','Избранное','Плейлисты','Офлайн','Настройки']),(name,texts)
-        if 'Выйти' not in texts:
-            scroller=next(n for n in nodes if n.get('scrollable')=='true')
+        # On compact screens the bottom menu entries are intentionally scrollable.
+        # Check reachability across the scroll, not visibility in a single viewport.
+        required={'Главная','Поиск','Избранное','Плейлисты','Офлайн','Настройки','Выйти'}
+        seen=set(texts)
+        for scroll_index in range(4):
+            if required.issubset(seen):
+                break
+            scroller=next((n for n in nodes if n.get('scrollable')=='true'),None)
+            assert scroller is not None,(name,'Menu must be scrollable when entries are hidden',sorted(required-seen))
             left,top,right,bottom=map(int,re.findall(r'\d+',scroller.get('bounds')))
             adb('shell','input','swipe',str((left+right)//2),str(bottom-20),str((left+right)//2),str(top+20),'350')
             time.sleep(.5)
             adb('shell','uiautomator','dump','/sdcard/menu-bottom.xml')
-            adb('pull','/sdcard/menu-bottom.xml',str(out/(name+'-bottom.xml')))
-            bottom_nodes=list(ET.parse(out/(name+'-bottom.xml')).getroot().iter('node'))
-            assert any(n.get('text')=='Выйти' for n in bottom_nodes),(name,'Logout not reachable by scrolling')
+            adb('pull','/sdcard/menu-bottom.xml',str(out/(name+f'-scroll-{scroll_index}.xml')))
+            nodes_after=list(ET.parse(out/(name+f'-scroll-{scroll_index}.xml')).getroot().iter('node'))
+            seen.update(n.get('text','') for n in nodes_after)
+            nodes=nodes_after
+        assert required.issubset(seen),(name,'Menu entries not reachable',sorted(required-seen))
     for n in nodes:
         if n.get('clickable')!='true' or n.get('enabled')!='true':continue
         values=list(map(int,re.findall(r'\d+',n.get('bounds',''))))
