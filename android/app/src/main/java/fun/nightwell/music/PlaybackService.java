@@ -137,6 +137,7 @@ public final class PlaybackService extends MediaSessionService {
                 fadeInActive=transitionSeconds>0 && (reason==Player.MEDIA_ITEM_TRANSITION_REASON_AUTO || reason==Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT);
                 player.setVolume(fadeInActive?0:baseVolume);
                 if(waveActive && item!=null){waveSeen.addLast(item.mediaId);while(waveSeen.size()>120)waveSeen.removeFirst();}
+                if(item!=null && !item.mediaId.isEmpty())rememberPlayed(item.mediaId);
                 refillWave();
             }
             @Override public void onIsPlayingChanged(boolean playing) {
@@ -295,6 +296,21 @@ public final class PlaybackService extends MediaSessionService {
     private void cancelWaveRequest() {
         waveGeneration++;waveLoading=false;waveRequest.cancel();
     }
+    private void rememberPlayed(String id) {
+        if(origin.isEmpty())return;
+        String account=offlineAccount.isEmpty()?"device":offlineAccount;
+        String scope=origin+"|"+account;
+        android.content.SharedPreferences prefs=getSharedPreferences("recommendation-history",MODE_PRIVATE);
+        try {
+            JSONArray prior=new JSONArray(prefs.getString(scope,"[]")),updated=new JSONArray();
+            for(int i=Math.max(0,prior.length()-119);i<prior.length();i++) {
+                String previous=prior.optString(i);
+                if(!previous.isEmpty()&&!previous.equals(id))updated.put(previous);
+            }
+            updated.put(id);
+            prefs.edit().putString(scope,updated.toString()).apply();
+        }catch(Exception ignored){}
+    }
     private void refillWave() {
         if(!waveActive||waveLoading||!player.getPlayWhenReady()||player.getCurrentMediaItem()==null||System.currentTimeMillis()<waveRetryAt)return;
         int index=player.getCurrentMediaItemIndex();
@@ -326,7 +342,9 @@ public final class PlaybackService extends MediaSessionService {
             JSONObject result=null;String failure="Не удалось пополнить волну. Повторим запрос.";
             try {
                 if(!waveRequest.pending(ticket))return;
-                String query=URLEncoder.encode(String.join(",",excluded),"UTF-8");
+                java.util.List<String> ids=new java.util.ArrayList<>(excluded);
+                String query=URLEncoder.encode(String.join(",",ids.subList(
+                    Math.max(0,ids.size()-160),ids.size())),"UTF-8");
                 result=client.search("api/wave?exclude="+query+settingsQuery);
             }catch(Exception ignored){}
             finally{client.close();}

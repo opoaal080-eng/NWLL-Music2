@@ -106,7 +106,7 @@ public final class MainActivity extends Activity {
         super.onSaveInstanceState(saved);
     }
 
-    @Override protected void onResume(){super.onResume();visible=true;if(!smokeMode&&sessionReady&&SystemClock.elapsedRealtime()-lastResumeRefresh>30000)load();if(premiumRefresh!=null)premiumRefresh.run();BackgroundDownloads.reconcile(this);if(ribbon!=null)ribbon.running(!smokeMode&&!full&&screen.equals("Главная"));ui.removeCallbacks(tick);if(!smokeMode)ui.post(tick);}
+    @Override protected void onResume(){super.onResume();restoreRecent();visible=true;if(!smokeMode&&sessionReady&&SystemClock.elapsedRealtime()-lastResumeRefresh>30000)load();if(premiumRefresh!=null)premiumRefresh.run();BackgroundDownloads.reconcile(this);if(ribbon!=null)ribbon.running(!smokeMode&&!full&&screen.equals("Главная"));ui.removeCallbacks(tick);if(!smokeMode)ui.post(tick);}
     @Override protected void onPause(){super.onPause();ui.removeCallbacks(connectionRecovery);if(navigationPopup!=null)navigationPopup.dismiss();if(playback!=null)playback.persistPlayback(true);visible=false;if(ribbon!=null)ribbon.running(false);ui.removeCallbacks(tick);}
     @Override protected void onDestroy(){generation++;cancelMix();accountRequest.cancel();if(api!=null)api.close();ui.removeCallbacksAndMessages(null);if(artworkCache!=null)artworkCache.close();io.shutdownNow();prefetch.shutdownNow();if(playback!=null)playback.player.removeListener(playbackIntentObserver);if(bindingRegistered){unbindService(connection);bindingRegistered=false;}super.onDestroy();}
     int dp(float n){return (int)(n*getResources().getDisplayMetrics().density+.5f);}
@@ -618,6 +618,10 @@ public final class MainActivity extends Activity {
     }
     private String hiddenRecommendationKey() { return origin + "|" + (user.isEmpty() ? "device" : user); }
     private String recentKey() { return origin + "|" + (user.isEmpty() ? "device" : user); }
+    private static String limitedExclusions(java.util.Set<String> values) {
+        java.util.List<String> items=new java.util.ArrayList<>(values);
+        return android.text.TextUtils.join(",",items.subList(Math.max(0,items.size()-160),items.size()));
+    }
     private void restoreRecent() {
         mixRecent.clear();
         String encoded=getSharedPreferences("recommendation-history",MODE_PRIVATE).getString(recentKey(),"[]");
@@ -786,7 +790,7 @@ public final class MainActivity extends Activity {
             try{
                 if(!waveRequest.pending(ticket))return;
                 String nonce=UUID.randomUUID().toString();
-                JSONObject value=client.search("api/wave?mix="+nonce+settings.query()+"&exclude="+java.net.URLEncoder.encode(android.text.TextUtils.join(",",excluded),"UTF-8"));
+                JSONObject value=client.search("api/wave?mix="+nonce+settings.query()+"&exclude="+java.net.URLEncoder.encode(limitedExclusions(excluded),"UTF-8"));
                 JSONArray raw=value.optJSONArray("tracks");
                 if((raw==null||raw.length()==0)&&!playingID.isEmpty())raw=client.search("api/wave?mix="+nonce+settings.query()+"&exclude="+playingID).optJSONArray("tracks");
                 final JSONArray fresh=new JSONArray();
