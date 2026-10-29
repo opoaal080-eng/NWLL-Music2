@@ -193,9 +193,8 @@ private struct StableNavigationSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     private func choose(_ action: StableNavigationAction) {
-        dismiss()
-        // Let the sheet finish its transition before a second presentation.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.26) { select(action) }
+        // Parent will dismiss and deliver the navigation event in onDismiss.
+        select(action)
     }
     private func entry(_ title: String, icon: String, action: StableNavigationAction) -> some View {
         Button { choose(action) } label: {
@@ -263,6 +262,7 @@ struct NativeRoot: View {
     @State private var feature: PremiumFeatureView.Kind?
     @State private var settings = false
     @State private var navigationMenuPresented = false
+    @State private var pendingNavigation: StableNavigationAction?
     @State private var waveSettingsPresented = false
     @State private var supportPresented = false
     @State private var premiumPresented = false
@@ -351,24 +351,14 @@ struct NativeRoot: View {
         .animation(.spring(response: 0.3, dampingFraction: 0.86), value: settings)
         .animation(.spring(response: 0.3, dampingFraction: 0.86), value: store.authPresented)
         .tint(pumpkin)
-        .sheet(isPresented: $navigationMenuPresented) {
+        .sheet(isPresented: $navigationMenuPresented, onDismiss: {
+            guard let destination = pendingNavigation else { return }
+            pendingNavigation = nil
+            openNavigation(destination)
+        }) {
             StableNavigationSheet(status: store.connectionStatus, signedIn: store.account != nil) { action in
+                pendingNavigation = action
                 navigationMenuPresented = false
-                // Dismiss first, then open a destination. The native menu does not share
-                // identity with the live-updating player, so scrolling never restarts.
-                switch action {
-                case .screen(let screen): store.screen = screen
-                case .backgroundOnly: backgroundOnly = true
-                case .statistics: feature = .statistics
-                case .premium: premiumPresented = true
-                case .transfer: transferPresented = true
-                case .settings: settings = true
-                case .waveSettings: waveSettingsPresented = true
-                case .support: supportPresented = true
-                case .authentication:
-                    if store.account == nil { store.authPresented = true }
-                    else { Task { await store.logout() } }
-                }
             }
             .environmentObject(store)
         }
@@ -411,6 +401,21 @@ struct NativeRoot: View {
         }
         .alert("Новый плейлист", isPresented: $createPlaylist) { TextField("Название", text: $playlistName); Button("Создать") { Task { await store.createPlaylist(playlistName); playlistName = "" } }; Button("Отмена", role: .cancel) {} }
         .alert("Nightwell Music", isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })) { Button("Понятно") { store.error = nil } } message: { Text(store.error ?? "") }
+    }
+    private func openNavigation(_ action: StableNavigationAction) {
+        switch action {
+        case .screen(let screen): store.screen = screen
+        case .backgroundOnly: backgroundOnly = true
+        case .statistics: feature = .statistics
+        case .premium: premiumPresented = true
+        case .transfer: transferPresented = true
+        case .settings: settings = true
+        case .waveSettings: waveSettingsPresented = true
+        case .support: supportPresented = true
+        case .authentication:
+            if store.account == nil { store.authPresented = true }
+            else { Task { await store.logout() } }
+        }
     }
     private func openSharedURL(_ url: URL) {
         guard let id = DeepLink.trackID(from: url) else { return }

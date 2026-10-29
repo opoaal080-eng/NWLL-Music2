@@ -22,6 +22,9 @@ struct PremiumView: View {
     @State private var paying = false
     @State private var payment: PremiumPaymentSession?
     @State private var activeExpiry: Double?
+    @State private var isActivePremium = false
+    @State private var statusChecked = false
+    @State private var statusAvailable = false
     @State private var showFeatures = false
     @State private var renewal: PremiumRenewal?
     @State private var cancellingRenewal = false
@@ -32,8 +35,12 @@ struct PremiumView: View {
 
     var body: some View {
         Group {
-            if let expiry = activeExpiry, expiry > Date().timeIntervalSince1970 {
-                activeSheet(expiry: expiry)
+            if !statusChecked {
+                verificationSheet
+            } else if isActivePremium && (activeExpiry == nil || activeExpiry! > Date().timeIntervalSince1970) {
+                activeSheet(expiry: activeExpiry)
+            } else if !statusAvailable {
+                verificationSheet
             } else {
                 inactiveSheet
             }
@@ -70,7 +77,28 @@ struct PremiumView: View {
         Capsule().fill(.white.opacity(0.45)).frame(width: 57, height: 4).padding(.top, 10)
     }
 
-    @ViewBuilder private func activeSheet(expiry: Double) -> some View {
+    private var verificationSheet: some View {
+        VStack(spacing: 20) {
+            handle
+            Spacer(minLength: 8)
+            Image(systemName: "person.crop.circle.badge.checkmark")
+                .font(.system(size: 44, weight: .ultraLight)).foregroundStyle(.white.opacity(0.75))
+            Text(statusChecked ? "Не удалось проверить подписку" : "Проверяем Nightwell Premium…")
+                .font(.system(size: 21, weight: .semibold)).multilineTextAlignment(.center)
+            if !statusChecked {
+                ProgressView().tint(.white)
+            } else {
+                Text(message).foregroundStyle(.white.opacity(0.65)).multilineTextAlignment(.center)
+                Button(checking ? "Проверяем…" : "Повторить проверку") { Task { await refresh() } }
+                    .buttonStyle(.borderedProminent).tint(Color(white: 0.24)).disabled(checking)
+            }
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(24).background(Color(white: 0.07))
+    }
+
+    @ViewBuilder private func activeSheet(expiry: Double?) -> some View {
         VStack(spacing: 0) {
             handle
             ScrollView(showsIndicators: false) {
@@ -90,9 +118,15 @@ struct PremiumView: View {
                         Text("Подписка активна")
                             .font(.system(size: 26, weight: .bold))
                             .multilineTextAlignment(.center)
-                        Text("Активна до " + Date(timeIntervalSince1970: expiry).formatted(.dateTime.day().month(.wide).year().locale(Locale(identifier: "ru_RU"))))
-                            .foregroundStyle(.white.opacity(0.62))
-                            .font(.system(size: 17, weight: .regular))
+                        if let expiry {
+                            Text("Активна до " + Date(timeIntervalSince1970: expiry).formatted(.dateTime.day().month(.wide).year().locale(Locale(identifier: "ru_RU"))))
+                                .foregroundStyle(.white.opacity(0.62))
+                                .font(.system(size: 17, weight: .regular))
+                        } else {
+                            Text("Статус подтверждён сервером")
+                                .foregroundStyle(.white.opacity(0.62))
+                                .font(.system(size: 17, weight: .regular))
+                        }
                     }
 
                     Button {
@@ -223,7 +257,8 @@ struct PremiumView: View {
     }
 
     @MainActor private func checkout() async {
-        guard consent, externalPayments, !paying, !checking else { return }
+        guard consent, externalPayments, statusChecked, statusAvailable, !isActivePremium,
+              !paying, !checking else { return }
         paying = true
         defer { paying = false }
         do {
@@ -231,6 +266,14 @@ struct PremiumView: View {
             guard identity.user != nil else { throw APIError(message: "Войди в аккаунт перед оплатой.") }
             await api.setCSRF(identity.csrf)
             let before: PremiumStatus = try await api.request("api/premium/me")
+            if before.premium {
+                isActivePremium = true
+                statusChecked = true
+                statusAvailable = true
+                activeExpiry = before.expires_at
+                message = "Premium уже активен."
+                return
+            }
             struct Checkout: Decodable { let confirmation_url: String }
             let result: Checkout = try await api.request("api/premium/lava/checkout", method: "POST")
             guard let url = URL(string: result.confirmation_url), url.scheme == "https",
@@ -258,6 +301,9 @@ struct PremiumView: View {
                     guard identity.user?.id == session.accountID else {
                         payment = nil
                         activeExpiry = nil
+                        isActivePremium = false
+                        statusChecked = true
+                        statusAvailable = false
                         message = "Аккаунт изменился. Открой Premium заново."
                         return
                     }
@@ -272,6 +318,9 @@ struct PremiumView: View {
                     guard after.user?.id == session.accountID else {
                         payment = nil
                         activeExpiry = nil
+                        isActivePremium = false
+                        statusChecked = true
+                        statusAvailable = false
                         message = "Аккаунт изменился. Открой Premium заново."
                         return
                     }
@@ -280,6 +329,9 @@ struct PremiumView: View {
                             expiry: current.expires_at, previousExpiry: session.previousExpiry,
                             now: Date().timeIntervalSince1970) {
                         activeExpiry = current.expires_at
+                        isActivePremium = true
+                        statusChecked = true
+                        statusAvailable = true
                         message = "Оплата подтверждена. Premium активен."
                         payment = nil
                         return
@@ -316,33 +368,59 @@ struct PremiumView: View {
     @MainActor private func refresh() async {
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--native-smoke-premium") {
-            activeExpiry = 1824076800; return
+            activeExpiry = 1824076800
+            isActivePremium = true; statusAvailable = true; statusChecked = true
+            return
         }
         #endif
         guard !checking else { return }
         checking = true
-        defer { checking = false }
+        defer { checking = false; statusChecked = true }
         do {
             let identity: Identity = try await api.request("api/me")
-            await api.setCSRF(identity.csrf)
-            if identity.user != nil {
-                struct Verified: Decodable { let expires_at: Double? }
-                let _: Verified? = try? await api.request("api/premium/lava/verify", method: "POST")
+            guard identity.user != nil else {
+                isActivePremium = false
+                activeExpiry = nil
+                statusAvailable = false
+                renewal = nil
+                message = "Войди в аккаунт, чтобы проверить Premium."
+                return
             }
-            let status: PremiumStatus = try await api.request("api/premium/me")
+            await api.setCSRF(identity.csrf)
+            // Read cached server entitlement before contacting the payment provider.
+            // The provider can time out, but a subscriber must still see their status.
+            var status: PremiumStatus = try await api.request("api/premium/me")
+            if !status.premium {
+                struct Verified: Decodable { let expires_at: Double? }
+                if let verified: Verified = try? await api.request("api/premium/lava/verify", method: "POST"),
+                   let expiry = verified.expires_at, expiry > Date().timeIntervalSince1970 {
+                    status = try await api.request("api/premium/me")
+                }
+            }
+            isActivePremium = status.premium
             activeExpiry = status.premium ? status.expires_at : nil
+            statusAvailable = true
             renewal = status.premium ? (try? await api.request("api/premium/lava/renewal")) : nil
-            if status.premium, let expiry = status.expires_at {
-                message = "Premium активен до " + Date(timeIntervalSince1970: expiry).formatted(date: .abbreviated, time: .omitted)
+            if status.premium {
+                if let expiry = status.expires_at {
+                    message = "Premium активен до " + Date(timeIntervalSince1970: expiry).formatted(date: .abbreviated, time: .omitted)
+                } else {
+                    message = "Premium активен."
+                }
             } else if status.test_premium {
                 message = "Тестовый платёж подтверждён. Платная подписка не активирована."
             } else {
                 message = "Активной подписки нет."
             }
         } catch {
-            activeExpiry = nil
-            renewal = nil
-            message = "Статус недоступен. Войдите в аккаунт и проверьте соединение."
+            // Keep previously verified Premium in a temporary outage.
+            // Never replace it with a checkout form when verification fails.
+            if !isActivePremium || (activeExpiry != nil && activeExpiry! <= Date().timeIntervalSince1970) {
+                isActivePremium = false
+                activeExpiry = nil
+            }
+            statusAvailable = false
+            message = "Не удалось связаться с сервером. Повтори проверку статуса."
         }
     }
 }
