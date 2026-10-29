@@ -263,7 +263,7 @@ final class NativePlayer {
                     self.requestedPosition = target; self.lastPosition = target
                     if target <= 0 {
                         self.waitingForReady = false
-                        if self.wantsPlay { self.player.play() }
+                        if self.wantsPlay && !self.enginePlayback.ready { self.player.play() }
                         self.publish(); return
                     }
                     self.seekCurrentItem(to: target)
@@ -643,7 +643,7 @@ final class NativePlayer {
         if wantsPlay && !waitingForReady && !recovery.pending && player.currentItem?.status == .readyToPlay {
             switch reason {
             case .newDeviceAvailable, .override, .routeConfigurationChange:
-                player.playImmediately(atRate: 1)
+                player.play()
             default: break
             }
         }
