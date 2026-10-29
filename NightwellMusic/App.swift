@@ -362,6 +362,9 @@ struct NativeRoot: View {
             }
             .environmentObject(store)
         }
+        .sheet(item: $feature) { kind in
+            PremiumFeatureView(kind: kind).environmentObject(store)
+        }
         .sheet(isPresented: $premiumPresented) { PremiumView(api: store.api) }
         .overlay { if launching { MonochromeNightwellLaunch().transition(.opacity) } }
         .task { try? await Task.sleep(nanoseconds: reducedMotion ? 150_000_000 : 1_200_000_000); withAnimation(.easeOut(duration: 0.3)) { launching = false } }
