@@ -37,6 +37,11 @@ enum RecommendationOrder {
         }.map(\.element)
     }
 
+    static func presentedSearchResults<T>(current: [T], incoming: [T], pending: Bool) -> [T] {
+        // A pending provider's empty response is not a completed "no results".
+        pending && incoming.isEmpty ? current : incoming
+    }
+
     static func arrange<T>(_ values: [T], recent: Set<String> = [], hidden: Set<String> = [], hiddenArtists: Set<String> = [], current: String = "", identity: (T) -> String, title: (T) -> String, artist: (T) -> String) -> [T] {
         var ids = Set<String>(), recordings = Set<String>()
         var pool = values.prefix(200).enumerated().filter { _, value in

@@ -1,5 +1,7 @@
 import SwiftUI
 import Combine
+import AVKit
+import AVFoundation
 
 struct SeasonBackground: View {
     @ObservedObject private var premium = PremiumFeatureState.shared
@@ -49,7 +51,10 @@ struct RibbonScene: View {
                     // Do not jump through the time spent in the background.
                     frameDate = frameDate.addingTimeInterval(elapsed * (premium.allowed ? premium.preferences.ribbon_speed : 1))
                 }
-                do { try await Task.sleep(nanoseconds: 33_333_333) }
+                // Full refresh while sound reacts; throttle idle frames and low-power rendering.
+                let interval: UInt64 = ProcessInfo.processInfo.isLowPowerModeEnabled ? 33_333_333 :
+                    (energy < 0.02 && level < 0.02 ? 66_666_667 : 16_666_667)
+                do { try await Task.sleep(nanoseconds: interval) }
                 catch { return }
             }
         }
@@ -161,7 +166,7 @@ struct NativeHome: View {
                             .foregroundStyle(pumpkin)
                             .padding(.horizontal, 18)
                             .frame(height: 40)
-                            .frostedGlass(22, bordered: false, intensity: 0.55)
+                            .frostedGlass(22, bordered: false, intensity: 0.20)
                         }
                         .disabled(store.loading)
                         .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in
@@ -314,6 +319,62 @@ struct GlassSlider: View {
     }
 }
 
+// System-managed AirPlay and Bluetooth output selector.
+// AVRoutePickerView owns the system route selection UI. Expand its native button
+// to cover the complete capsule so tapping the device name works too.
+private final class ExpandedAudioRoutePicker: AVRoutePickerView {
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        for case let button as UIButton in subviews {
+            button.frame = bounds
+        }
+    }
+}
+
+private struct NightwellAudioRoutePicker: UIViewRepresentable {
+    func makeUIView(context: Context) -> AVRoutePickerView {
+        let picker = ExpandedAudioRoutePicker(frame: .zero)
+        picker.prioritizesVideoDevices = false
+        // Keep the real UIKit picker fully interactive; only its icon is hidden.
+        picker.tintColor = .clear
+        picker.activeTintColor = .clear
+        picker.backgroundColor = .clear
+        picker.isUserInteractionEnabled = true
+        return picker
+    }
+    func updateUIView(_ view: AVRoutePickerView, context: Context) {}
+}
+
+private struct NightwellAudioOutputControl: View {
+    @State private var output = Self.currentOutput()
+    private static func currentOutput() -> String {
+        AVAudioSession.sharedInstance().currentRoute.outputs.first?.portName ?? "iPhone"
+    }
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "airplayaudio").font(.caption2)
+            Text(output)
+                .font(.caption.weight(.medium))
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+            Image(systemName: "chevron.down").font(.system(size: 9))
+        }
+        .foregroundStyle(.primary)
+        .padding(.horizontal, 10)
+        .frame(height: 30)
+        .background(.ultraThinMaterial, in: Capsule())
+        .overlay {
+            NightwellAudioRoutePicker()
+                .contentShape(Capsule())
+                .accessibilityLabel("Устройство вывода: \\(output). Изменить")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification)) { _ in
+            output = Self.currentOutput()
+        }
+        .onAppear { output = Self.currentOutput() }
+    }
+}
+
 struct FullPlayer: View {
     @EnvironmentObject var store: MusicStore
     @ObservedObject var clock: PlaybackClock
@@ -330,7 +391,7 @@ struct FullPlayer: View {
         ZStack {
             SeasonBackground()
             VStack(spacing: 20) {
-                HStack { Button { dismiss() } label: { Image(systemName: "chevron.down").frame(width: 46, height: 46).nightwellLiquidGlass(24) }; Spacer(); VStack(spacing: 5) { Text("HALLOWEEN EDITION").font(.caption2).tracking(3).foregroundStyle(pumpkin); Text("Играет сейчас").font(.headline) }; Spacer(); tools }
+                HStack { Button { dismiss() } label: { Image(systemName: "chevron.down").frame(width: 46, height: 46).nightwellLiquidGlass(24) }; Spacer(); VStack(spacing: 5) { NightwellAudioOutputControl(); Text("Играет сейчас").font(.headline) }; Spacer(); tools }
                 GeometryReader { box in
                     if showLyrics {
                         SharedLyricsPanel(model: store.lyrics, clock: clock)

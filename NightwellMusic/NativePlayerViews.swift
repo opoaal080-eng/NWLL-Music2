@@ -51,7 +51,10 @@ struct RibbonScene: View {
                     // Do not jump through the time spent in the background.
                     frameDate = frameDate.addingTimeInterval(elapsed * (premium.allowed ? premium.preferences.ribbon_speed : 1))
                 }
-                do { try await Task.sleep(nanoseconds: 16_666_667) }
+                // Full refresh while sound reacts; throttle idle frames and low-power rendering.
+                let interval: UInt64 = ProcessInfo.processInfo.isLowPowerModeEnabled ? 33_333_333 :
+                    (energy < 0.02 && level < 0.02 ? 66_666_667 : 16_666_667)
+                do { try await Task.sleep(nanoseconds: interval) }
                 catch { return }
             }
         }

@@ -37,6 +37,8 @@ struct CheckRecommendations {
         let second = SkipFeedback.next(first, now: 2000)
         precondition(SkipFeedback.blocked(second, now: 2000))
         precondition(!SkipFeedback.blocked(second, now: 2000 + 48 * 3600))
-        print("Recommendation ranking, preferences and cooldown passed")
+        precondition(RecommendationOrder.presentedSearchResults(current: [1,2], incoming: [Int](), pending: true) == [1,2])
+        precondition(RecommendationOrder.presentedSearchResults(current: [1,2], incoming: [Int](), pending: false).isEmpty)
+        print("Recommendation ranking, preferences, search fallback and cooldown passed")
     }
 }

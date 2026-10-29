@@ -56,6 +56,11 @@ private actor LyricsStub: LyricsService {
             identity: { $0.id }, title: { $0.title }, artist: { $0.artist })
         XCTAssertTrue(removed.isEmpty)
     }
+    func testPendingSearchDoesNotEraseEarlierResults() {
+        let existing = [track("cached")]
+        XCTAssertEqual(RecommendationOrder.presentedSearchResults(current: existing, incoming: [Track](), pending: true), existing)
+        XCTAssertTrue(RecommendationOrder.presentedSearchResults(current: existing, incoming: [Track](), pending: false).isEmpty)
+    }
     func testShortSkipFeedbackExpires() {
         let first = SkipFeedback.next(nil, now: 1000)
         XCTAssertFalse(SkipFeedback.blocked(first, now: 1000))

@@ -202,6 +202,7 @@ import Network
                 if changedAccount {
                     self.libraryRefresh.cancel()
                     self.catalog = []; self.likes = []; self.playlists = []; self.lastWave = []; self.results = []
+                    self.searchTask?.cancel(); self.searchGeneration = UUID(); self.searchCache.removeAll()
                     NativePlayer.shared.stop()
                 }
                 self.account = identity.user
@@ -326,6 +327,7 @@ import Network
             if account?.id != identity.user?.id {
                 libraryRefresh.cancel()
                 catalog = []; likes = []; playlists = []; lastWave = []; results = []
+                searchTask?.cancel(); searchGeneration = UUID(); searchCache.removeAll()
                 NativePlayer.shared.stop()
             }
             account = identity.user
@@ -568,25 +570,37 @@ import Network
         searchTask?.cancel(); searchGeneration = UUID()
         let generation = searchGeneration, text = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { results = []; searchMessage = "Введи название трека или исполнителя"; return }
+        let cacheKey = text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        results = searchCache[cacheKey] ?? []
+        searchMessage = results.isEmpty ? "Ищем треки…" : ""
         searchTask = Task {
             do {
                 try await Task.sleep(nanoseconds: 250_000_000)
                 try Task.checkCancellation()
-                let local = catalog, key = text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-                let found = await Task.detached(priority: .userInitiated) { local.filter { ($0.title + " " + $0.artist).folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current).contains(key) } }.value
+                let local = catalog, key = cacheKey
+                let terms = text.split(whereSeparator: { $0.isWhitespace }).map { RecommendationOrder.key(String($0)) }.filter { !$0.isEmpty }
+                let found = await Task.detached(priority: .userInitiated) {
+                    local.filter { track in
+                        let combined = (track.title + " " + track.artist).folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+                        let compact = RecommendationOrder.key(track.title + " " + track.artist)
+                        return combined.contains(key) || (!terms.isEmpty && terms.allSatisfy { compact.contains($0) })
+                    }
+                }.value
                 guard generation == searchGeneration, !Task.isCancelled else { return }
-                results = searchCache[text] ?? RecommendationOrder.rankSearch(found, query: text, title: { $0.title }, artist: { $0.artist })
+                results = searchCache[cacheKey] ?? RecommendationOrder.rankSearch(found, query: text, title: { $0.title }, artist: { $0.artist })
                 searchMessage = "Ищем полные версии…"
                 let encoded = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed.subtracting(CharacterSet(charactersIn: "&+=?#"))) ?? ""
                 for _ in 0..<30 {
                     let response: TrackResult = try await api.request("/api/tracks?q=" + encoded)
                     guard generation == searchGeneration, !Task.isCancelled else { return }
                     let ranked = RecommendationOrder.rankSearch(response.tracks, query: text, title: { $0.title }, artist: { $0.artist })
-                    if results != ranked { results = ranked }
+                    let visible = RecommendationOrder.presentedSearchResults(
+                        current: results, incoming: ranked, pending: response.search_pending == true)
+                    if results != visible { results = visible }
                     searchMessage = response.search_message ?? ""
                     if response.search_pending != true {
                         if searchCache.count >= 20 { searchCache.removeAll(keepingCapacity: true) }
-                        searchCache[text] = ranked; return
+                        searchCache[cacheKey] = ranked; return
                     }
                     try await Task.sleep(nanoseconds: UInt64(max(1.5, min(10, response.search_retry_after ?? 2)) * 1_000_000_000))
                 }
