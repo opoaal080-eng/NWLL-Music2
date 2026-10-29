@@ -120,8 +120,10 @@ public final class PlaybackService extends MediaSessionService {
                     .setAudioProcessors(new androidx.media3.common.audio.AudioProcessor[]{premiumEqualizer,new androidx.media3.exoplayer.audio.TeeAudioProcessor(audioMeter)}).build();
             }
         };
+        // Small (350/1000 ms) restart buffers caused repeated audible stalls
+        // on bursty HLS streams. Keep a larger safety margin after rebuffers.
         androidx.media3.exoplayer.DefaultLoadControl buffering = new androidx.media3.exoplayer.DefaultLoadControl.Builder()
-            .setBufferDurationsMs(20000,45000,350,1000)
+            .setBufferDurationsMs(20000,60000,1000,3000)
             .setPrioritizeTimeOverSizeThresholds(true).build();
         player = new ExoPlayer.Builder(this,renderers).setLoadControl(buffering).setMediaSourceFactory(fileSources).build();
         player.setAudioAttributes(new AudioAttributes.Builder().setUsage(C.USAGE_MEDIA)

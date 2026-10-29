@@ -94,6 +94,9 @@ final class NativePlayer {
     private var current: NativeTrack? { tracks.indices.contains(index) ? tracks[index] : nil }
 
     private init() {
+        // Buffer intermittent HLS/HTTP streams instead of forcing immediate playback
+        // and risking short rebuffering gaps on fluctuating connections.
+        player.automaticallyWaitsToMinimizeStalling = true
         do { try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, policy: .longFormAudio) }
         catch { self.error = "Не удалось настроить звук." }
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.5, preferredTimescale: 600),
@@ -239,9 +242,11 @@ final class NativePlayer {
             ? nextAsset! : AVURLAsset(url: url, options: [AVURLAssetHTTPCookiesKey: cookies])
         nextAsset = nil; nextAssetID = nil
         let item = AVPlayerItem(asset: asset)
-        // Keep a useful forward buffer, but do not wait to fill it before starting.
-        item.preferredForwardBufferDuration = 6
-        // Start once playable instead of waiting for a long forward buffer.
+        // Give remote streams enough audio ahead to absorb network jitter.
+        // Locally downloaded tracks do not need forward network buffering.
+        item.preferredForwardBufferDuration = saved == nil ? 12 : 0
+        // Respect AVPlayer's buffering decisions rather than forcing playback
+        // immediately with too little media in the buffer.
         audioMeter = LocalAudioMeter()
         liveMeterStartUptime = ProcessInfo.processInfo.systemUptime
         configureAudioMeter(for: item)
@@ -258,7 +263,7 @@ final class NativePlayer {
                     self.requestedPosition = target; self.lastPosition = target
                     if target <= 0 {
                         self.waitingForReady = false
-                        if self.wantsPlay { self.player.playImmediately(atRate: 1) }
+                        if self.wantsPlay { self.player.play() }
                         self.publish(); return
                     }
                     self.seekCurrentItem(to: target)
@@ -325,7 +330,9 @@ final class NativePlayer {
                 try enginePlayback.play()
                 resumeAfterInterruption = false
                 wantsPlay = true; ended = false; error = ""
-                player.isMuted = true; player.playImmediately(atRate: 1)
+                // The local EQ engine now owns the audible stream. Do not keep
+                // a second network decoder running silently alongside it.
+                player.isMuted = true; player.pause()
                 updateFade(); publish(); return
             } catch { fallbackFromEngine() }
         }
@@ -345,7 +352,7 @@ final class NativePlayer {
         if rebuild { load(position: lastPosition) }
         guard wantsPlay else { return }
         updateFade()
-        if !waitingForReady { player.playImmediately(atRate: 1) }
+        if !waitingForReady { player.play() }
         refreshIndependentMeter()
         refillWave(); publish()
     }
@@ -386,7 +393,7 @@ final class NativePlayer {
                 DispatchQueue.main.async {
                     guard let self, self.itemGeneration == item, self.seekGeneration == seek else { return }
                     self.waitingForReady = false
-                    if self.wantsPlay && self.player.currentItem?.status == .readyToPlay { self.player.playImmediately(atRate: 1) }
+                    if self.wantsPlay && self.player.currentItem?.status == .readyToPlay && !self.enginePlayback.ready { self.player.play() }
                     self.publish()
                 }
             }
@@ -555,11 +562,14 @@ final class NativePlayer {
     private func activateEqualizerFile(_ file: URL, temporary: Bool, generation: UUID) {
         guard itemGeneration == generation else { if temporary { try? FileManager.default.removeItem(at: file) }; return }
         let position = waitingForReady ? requestedPosition : playbackPosition
-        player.isMuted = true
         do {
+            // Keep AVPlayer audible until the EQ engine has actually started.
+            // Muting it before loading the file caused a short silence at the
+            // moment the downloaded EQ file became available.
             try enginePlayback.load(file, temporary: temporary, position: position.isFinite ? position : lastPosition, playing: wantsPlay)
             enginePlayback.set(eqBands, until: eqExpiry)
             player.isMuted = true
+            player.pause()
             waitingForReady = false
             premiumSoundStatus = "Эквалайзер подключён к аудиовыходу."
             updateFade(); publish()

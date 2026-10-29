@@ -10,6 +10,7 @@ final class LocalAudioMeter {
     private var format = AudioStreamBasicDescription()
     private var low = 0.0, dc = 0.0, sum = 0.0, bassSum = 0.0
     private var lowAlpha = 0.0, dcAlpha = 0.0
+    private var midAlpha = 0.0, highAlpha = 0.0
     private var levels = [Double](repeating: 0, count: 4)
     private var bandSums = [Double](repeating: 0, count: 4)
     private var midFilter = 0.0, highFilter = 0.0
@@ -50,14 +51,23 @@ final class LocalAudioMeter {
                 let meter = Unmanaged<LocalAudioMeter>.fromOpaque(MTAudioProcessingTapGetStorage(tap)).takeUnretainedValue()
                 meter.consume(buffers, frames: Int(produced.pointee))
             })
+        #if compiler(>=6.2)
         var result: MTAudioProcessingTap?
+        #else
+        var result: Unmanaged<MTAudioProcessingTap>?
+        #endif
         let status = MTAudioProcessingTapCreate(kCFAllocatorDefault, &callbacks,
             kMTAudioProcessingTapCreationFlag_PostEffects, &result)
-        guard status == noErr, let result else {
+        #if compiler(>=6.2)
+        let tap = result
+        #else
+        let tap = result?.takeRetainedValue()
+        #endif
+        guard status == noErr, let tap else {
             Unmanaged<LocalAudioMeter>.fromOpaque(callbacks.clientInfo!).release(); return
         }
         let parameters = AVMutableAudioMixInputParameters(track: track)
-        parameters.audioTapProcessor = result
+        parameters.audioTapProcessor = tap
         let mix = AVMutableAudioMix(); mix.inputParameters = [parameters]
         item.audioMix = mix; attached = true
     }
@@ -67,6 +77,8 @@ final class LocalAudioMeter {
         let rate = max(1, description.mSampleRate)
         window = max(1, Int(rate / 20)); frames = 0; low = 0; dc = 0; sum = 0; bassSum = 0
         lowAlpha = 1 - exp(-2 * .pi * 220 / rate); dcAlpha = 1 - exp(-2 * .pi * 30 / rate)
+        midAlpha = 1 - exp(-2 * .pi * 1500 / rate)
+        highAlpha = 1 - exp(-2 * .pi * 4500 / rate)
     }
     private func consume(_ pointer: UnsafeMutablePointer<AudioBufferList>, frames count: Int) {
         guard format.mFormatID == kAudioFormatLinearPCM else { return }
@@ -74,9 +86,10 @@ final class LocalAudioMeter {
         let bits = Int(format.mBitsPerChannel), bytes = bits / 8
         guard (floating && bits == 32) || (!floating && bits == 16) else { return }
         let buffers = UnsafeMutableAudioBufferListPointer(pointer)
-        equalizer.prepare(rate: format.mSampleRate, channels: Int(format.mChannelsPerFrame))
+        // The live tap only drives visuals. Sound EQ is rendered by
+        // NativeEQPlayback, so do not run a five-band DSP or write back to
+        // decoder buffers on the real-time audio callback.
         for frame in 0..<count {
-            var channelIndex = 0
             var mono = 0.0, power = 0.0, channels = 0
             for buffer in buffers {
                 guard let data = buffer.mData else { continue }
@@ -85,20 +98,22 @@ final class LocalAudioMeter {
                     let offset = (frame * n + channel) * bytes
                     guard offset + bytes <= Int(buffer.mDataByteSize) else { continue }
                     let raw = floating ? Double(data.load(fromByteOffset: offset, as: Float.self)) : Double(data.load(fromByteOffset: offset, as: Int16.self)) / 32768
-                    let sample = equalizer.sample(raw.isFinite ? raw : 0, channel: channelIndex)
-                    channelIndex += 1
-                    if floating { data.storeBytes(of: Float(sample), toByteOffset: offset, as: Float.self) }
-                    else { data.storeBytes(of: Int16(max(-32768, min(32767, Int(sample * 32768)))), toByteOffset: offset, as: Int16.self) }
+                    let sample = raw.isFinite ? raw : 0
                     mono += sample; power += sample * sample; channels += 1
                 }
             }
             guard channels > 0 else { continue }
             mono /= Double(channels); power /= Double(channels)
             dc += dcAlpha * (mono - dc); low += lowAlpha * (mono - dc - low)
-            midFilter += (1 - exp(-2 * .pi * 1500 / max(1, format.mSampleRate))) * (mono - midFilter)
-            highFilter += (1 - exp(-2 * .pi * 4500 / max(1, format.mSampleRate))) * (mono - highFilter)
-            let components = [midFilter - low * 0.5, low, midFilter - low, mono - highFilter]
-            for i in 0..<4 { bandSums[i] += components[i] * components[i] }
+            midFilter += midAlpha * (mono - midFilter)
+            highFilter += highAlpha * (mono - highFilter)
+            let voice = midFilter - low * 0.5
+            let mid = midFilter - low
+            let treble = mono - highFilter
+            bandSums[0] += voice * voice
+            bandSums[1] += low * low
+            bandSums[2] += mid * mid
+            bandSums[3] += treble * treble
             sum += power; bassSum += low * low; frames += 1
             if frames >= window {
                 let level = min(1, sqrt(sum / Double(frames)) * 0.7 + sqrt(bassSum / Double(frames)) * 3.8)
@@ -119,6 +134,7 @@ final class LocalAudioMeter {
         return playing && age < 1 ? value * exp(-max(0, age - 0.15) * 3) : 0
     }
 }
+
 
 
 
