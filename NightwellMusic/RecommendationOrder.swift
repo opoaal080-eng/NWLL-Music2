@@ -36,11 +36,11 @@ enum RecommendationOrder {
         }.map(\.element)
     }
 
-    static func arrange<T>(_ values: [T], recent: Set<String> = [], hidden: Set<String> = [], current: String = "", identity: (T) -> String, title: (T) -> String, artist: (T) -> String) -> [T] {
+    static func arrange<T>(_ values: [T], recent: Set<String> = [], hidden: Set<String> = [], hiddenArtists: Set<String> = [], current: String = "", identity: (T) -> String, title: (T) -> String, artist: (T) -> String) -> [T] {
         var ids = Set<String>(), recordings = Set<String>()
         var pool = values.prefix(200).enumerated().filter { _, value in
             let id = identity(value), name = key(title(value)), performer = key(artist(value))
-            guard id != current, !hidden.contains(id), ids.insert(id).inserted else { return false }
+            guard id != current, !hidden.contains(id), !hiddenArtists.contains(performer), ids.insert(id).inserted else { return false }
             return name.isEmpty || performer.isEmpty || recordings.insert(performer + ":" + name).inserted
         }.map { (rank: $0.offset, value: $0.element) }
         var result: [T] = [], counts: [String: Int] = [:], previous = ""

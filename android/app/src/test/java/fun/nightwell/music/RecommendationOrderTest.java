@@ -20,5 +20,8 @@ public class RecommendationOrderTest {
         List<Song> filtered=RecommendationOrder.arrange(candidates,Collections.emptySet(),Collections.singleton("original"),"",s->s.id,s->s.title,s->s.artist);
         assertEquals(2,filtered.size());
         assertFalse(filtered.stream().anyMatch(s->s.id.equals("original")));
+        List<Song> withoutArtist=RecommendationOrder.arrange(candidates,Collections.emptySet(),
+            Collections.emptySet(),Collections.singleton("artist"),"",s->s.id,s->s.title,s->s.artist);
+        assertTrue(withoutArtist.isEmpty());
     }
 }

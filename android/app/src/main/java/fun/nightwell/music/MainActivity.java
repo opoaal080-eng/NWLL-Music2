@@ -629,6 +629,22 @@ public final class MainActivity extends Activity {
         getSharedPreferences("recommendation-history",MODE_PRIVATE).edit()
             .putString(recentKey(),new JSONArray(mixRecent).toString()).apply();
     }
+    private java.util.Set<String> hiddenArtists() {
+        return new java.util.HashSet<>(getSharedPreferences("recommendation-artists",MODE_PRIVATE)
+            .getStringSet(hiddenRecommendationKey(),java.util.Collections.emptySet()));
+    }
+    private boolean isArtistHidden(JSONObject track) {
+        return hiddenArtists().contains(RecommendationOrder.key(track.optString("artist")));
+    }
+    private void toggleArtistHidden(JSONObject track) {
+        String normalized=RecommendationOrder.key(track.optString("artist"));
+        if(normalized.isEmpty())return;
+        java.util.Set<String> artists=hiddenArtists();
+        if(!artists.add(normalized))artists.remove(normalized);
+        getSharedPreferences("recommendation-artists",MODE_PRIVATE).edit()
+            .putStringSet(hiddenRecommendationKey(),artists).apply();
+        status.setText(artists.contains(normalized)?"Исполнитель скрыт из подборок":"Исполнитель возвращён в подборки");
+    }
     private java.util.Set<String> hiddenRecommendations() {
         return new java.util.HashSet<>(getSharedPreferences("recommendation-hides", MODE_PRIVATE)
             .getStringSet(hiddenRecommendationKey(), java.util.Collections.emptySet()));
@@ -692,6 +708,7 @@ public final class MainActivity extends Activity {
         final String account=user,playingID=currentID;
         final WaveSettings settings=WaveSettings.read(this,origin,account);
         final java.util.Set<String> hidden=hiddenRecommendations();
+        final java.util.Set<String> blockedArtists=hiddenArtists();
         mixing=true;status.setText("Подбираем…");
         final java.util.LinkedHashSet<String> excluded=new java.util.LinkedHashSet<>(mixRecent);
         for(int i=0;i<Math.min(8,queue.length());i++)excluded.add(queue.optJSONObject(i).optString("id"));
@@ -715,7 +732,8 @@ public final class MainActivity extends Activity {
                     if(fresh.length()>0){
                         java.util.List<JSONObject> candidates=new java.util.ArrayList<>();for(int i=0;i<fresh.length();i++)candidates.add(fresh.optJSONObject(i));
                         JSONArray ordered=new JSONArray();
-                        for(JSONObject t:RecommendationOrder.arrange(candidates,new java.util.HashSet<>(mixRecent),hidden,playingID,t->t.optString("id"),t->t.optString("title"),t->t.optString("artist")))ordered.put(t);
+                        for(JSONObject t:RecommendationOrder.arrange(candidates,new java.util.HashSet<>(mixRecent),hidden,blockedArtists,playingID,t->t.optString("id"),t->t.optString("title"),t->t.optString("artist")))ordered.put(t);
+                        if(ordered.length()==0){status.setText("Все найденные треки скрыты фильтрами рекомендаций.");return;}
                         status.setText("");play(ordered.optJSONObject(0),ordered,true);
                     }else status.setText("Новых треков пока нет. Попробуй чуть позже.");
                 });
@@ -892,7 +910,8 @@ public final class MainActivity extends Activity {
         String[] options={
             likes.contains(id)?"Убрать из избранного":"В избранное",
             "Скачать", "Поделиться", "Добавить в плейлист",
-            hiddenRecommendations().contains(id)?"Вернуть в рекомендации":"Не рекомендовать"
+            hiddenRecommendations().contains(id)?"Вернуть в рекомендации":"Не рекомендовать",
+            isArtistHidden(track)?"Вернуть исполнителя":"Не рекомендовать исполнителя"
         };
         AlertDialog actions=new AlertDialog.Builder(this).setTitle(track.optString("title"))
             .setItems(options,(d,n)->{
@@ -900,6 +919,7 @@ public final class MainActivity extends Activity {
                 else if(n==1)download(new JSONArray().put(track));
                 else if(n==2)share(origin+"track/"+id);
                 else if(n==4)toggleRecommendationHidden(track);
+                else if(n==5)toggleArtistHidden(track);
                 else {
                     String[] names=new String[playlists.length()];
                     for(int i=0;i<names.length;i++)names[i]=playlists.optJSONObject(i).optString("name");

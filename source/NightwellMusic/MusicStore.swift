@@ -99,6 +99,24 @@ import Network
     private var hiddenRecommendationIDs: Set<String> {
         Set(UserDefaults.standard.stringArray(forKey: hiddenRecommendationsKey) ?? [])
     }
+    private var blockedArtistKey: String {
+        "nw-hidden-artists|" + origin.absoluteString + "|" + (account?.id ?? "device")
+    }
+    private var blockedArtists: Set<String> {
+        Set(UserDefaults.standard.stringArray(forKey: blockedArtistKey) ?? [])
+    }
+    func isArtistHidden(_ track: Track) -> Bool {
+        blockedArtists.contains(RecommendationOrder.key(track.artist))
+    }
+    func toggleArtistHidden(_ track: Track) {
+        let normalized = RecommendationOrder.key(track.artist)
+        guard !normalized.isEmpty else { return }
+        var artists = UserDefaults.standard.stringArray(forKey: blockedArtistKey) ?? []
+        if artists.contains(normalized) { artists.removeAll { $0 == normalized } }
+        else { artists.append(normalized) }
+        UserDefaults.standard.set(Array(artists.suffix(150)), forKey: blockedArtistKey)
+        objectWillChange.send()
+    }
     func isRecommendationHidden(_ track: Track) -> Bool { hiddenRecommendationIDs.contains(track.id) }
     func toggleRecommendationHidden(_ track: Track) {
         let key = hiddenRecommendationsKey
@@ -640,11 +658,11 @@ import Network
                 result = try await api.request("/api/wave?mix=" + nonce + settings.query + "&exclude=" + recent.joined(separator: ","))
             }
             guard account?.id == mixAccount else { return }
-            let fresh = RecommendationOrder.arrange(result.tracks, recent: Set(mixRecentIDs.suffix(20)), hidden: hidden, current: clock.id, identity: { $0.id }, title: { $0.title }, artist: { $0.artist })
+            let fresh = RecommendationOrder.arrange(result.tracks, recent: Set(mixRecentIDs.suffix(20)), hidden: hidden, hiddenArtists: blockedArtists, current: clock.id, identity: { $0.id }, title: { $0.title }, artist: { $0.artist })
             if let first = fresh.first { lastWave = fresh; saveSessionSnapshot(); play(first, in: fresh, wave: true) }
             else { error = result.message ?? "Нет подходящих треков. Измени настройки или попробуй позже." }
         } catch {
-            let cached = lastWave.filter { $0.id != clock.id && !hiddenRecommendationIDs.contains($0.id) }
+            let cached = lastWave.filter { $0.id != clock.id && !hiddenRecommendationIDs.contains($0.id) && !blockedArtists.contains(RecommendationOrder.key($0.artist)) }
             if let first = cached.first {
                 play(first, in: cached, wave: true)
             } else { self.error = error.localizedDescription }

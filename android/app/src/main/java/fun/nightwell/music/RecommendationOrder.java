@@ -52,6 +52,11 @@ final class RecommendationOrder {
     }
     static <T> List<T> arrange(List<T> input, Set<String> recent, Set<String> hidden, String current,
         Function<T,String> id, Function<T,String> title, Function<T,String> artist) {
+        return arrange(input,recent,hidden,Collections.emptySet(),current,id,title,artist);
+    }
+    static <T> List<T> arrange(List<T> input, Set<String> recent, Set<String> hidden,
+        Set<String> hiddenArtists, String current,
+        Function<T,String> id, Function<T,String> title, Function<T,String> artist) {
         List<T> pool = new ArrayList<>(), result = new ArrayList<>();
         Map<T,Integer> rank = new IdentityHashMap<>();
         Set<String> ids = new HashSet<>(), recordings = new HashSet<>();
@@ -60,7 +65,7 @@ final class RecommendationOrder {
         for (int i = 0; i < Math.min(200,input.size()); i++) {
             T item = input.get(i);
             String identity = id.apply(item), name = key(title.apply(item)), performer = key(artist.apply(item));
-            if (identity.equals(current) || hidden.contains(identity) || !ids.add(identity)
+            if (identity.equals(current) || hidden.contains(identity) || hiddenArtists.contains(performer) || !ids.add(identity)
                 || (!name.isEmpty() && !performer.isEmpty() && !recordings.add(performer + ":" + name))) continue;
             pool.add(item); rank.put(item,i);
         }

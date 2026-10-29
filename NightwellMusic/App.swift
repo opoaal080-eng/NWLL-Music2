@@ -447,6 +447,11 @@ struct NativeTrackRow: View {
                 Button(store.isRecommendationHidden(track) ? "Вернуть в рекомендации" : "Не рекомендовать", systemImage: "hand.thumbsdown") {
                     store.toggleRecommendationHidden(track)
                 }
+                if !track.artist.isEmpty {
+                    Button(store.isArtistHidden(track) ? "Вернуть исполнителя" : "Не рекомендовать исполнителя", systemImage: "person.crop.circle.badge.xmark") {
+                        store.toggleArtistHidden(track)
+                    }
+                }
                 Menu("Добавить в плейлист") { ForEach(store.playlists) { p in Button(p.name) { Task { await store.add(track, playlist: p) } } } }
                 if let playlist { Button("Убрать из плейлиста", role: .destructive) { Task { await store.add(track, playlist: playlist, remove: true) } } }
             } label: { Image(systemName: "ellipsis").frame(width: 34, height: 44) }

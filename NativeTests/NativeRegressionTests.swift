@@ -52,6 +52,9 @@ private actor LyricsStub: LyricsService {
         let filtered = RecommendationOrder.arrange(tracks, hidden: ["original"], identity: { $0.id }, title: { $0.title }, artist: { $0.artist })
         XCTAssertFalse(filtered.contains { $0.id == "original" })
         XCTAssertEqual(filtered.count, 2)
+        let removed = RecommendationOrder.arrange(tracks, hiddenArtists: ["artist"],
+            identity: { $0.id }, title: { $0.title }, artist: { $0.artist })
+        XCTAssertTrue(removed.isEmpty)
     }
     func testSharedTrackURLsValidateHostAndTrackID() {
         let id = "80adb8c0f574439fac645585493e955a"

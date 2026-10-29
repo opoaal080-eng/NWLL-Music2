@@ -304,6 +304,9 @@ public final class PlaybackService extends MediaSessionService {
         String scope=origin+"|"+(offlineAccount.isEmpty()?"device":offlineAccount);
         java.util.Set<String> hidden=new java.util.HashSet<>(getSharedPreferences("recommendation-hides",MODE_PRIVATE)
             .getStringSet(scope,java.util.Collections.emptySet()));
+        java.util.Set<String> blockedArtists=new java.util.HashSet<>(
+            getSharedPreferences("recommendation-artists",MODE_PRIVATE)
+                .getStringSet(scope,java.util.Collections.emptySet()));
         java.util.Set<String> recent=new java.util.LinkedHashSet<>();
         try {
             JSONArray history=new JSONArray(getSharedPreferences("recommendation-history",MODE_PRIVATE)
@@ -337,7 +340,7 @@ public final class PlaybackService extends MediaSessionService {
                     HashSet<String> waiting=new HashSet<>(waveSeen);
                     for(int i=player.getCurrentMediaItemIndex();i<player.getMediaItemCount();i++)waiting.add(player.getMediaItemAt(i).mediaId);
                     java.util.List<JSONObject> candidates=new ArrayList<>();for(int i=0;i<raw.length()&&i<20;i++)candidates.add(raw.getJSONObject(i));
-                    for(JSONObject track:RecommendationOrder.arrange(candidates,recent,hidden,player.getCurrentMediaItem()==null?"":player.getCurrentMediaItem().mediaId,t->t.optString("id"),t->t.optString("title"),t->t.optString("artist"))){
+                    for(JSONObject track:RecommendationOrder.arrange(candidates,recent,hidden,blockedArtists,player.getCurrentMediaItem()==null?"":player.getCurrentMediaItem().mediaId,t->t.optString("id"),t->t.optString("title"),t->t.optString("artist"))){
                         if(waiting.add(track.getString("id")))fresh.add(mediaSource(mediaItem(track,base)));
                     }
                     if(fresh.isEmpty()){error=data.optString("message","Новые треки пока не найдены.");return;}
