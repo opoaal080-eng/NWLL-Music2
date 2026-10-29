@@ -346,6 +346,7 @@ final class NativePlayer {
         guard wantsPlay else { return }
         updateFade()
         if !waitingForReady { player.playImmediately(atRate: 1) }
+        refreshIndependentMeter()
         refillWave(); publish()
     }
     func pause() { resumeAfterInterruption = false; recovery.cancel(); independentMeter.cancel(keepingEnvelope: true); wantsPlay = false; waveWaiting = false; enginePlayback.pause(); player.pause(); publish() }
@@ -584,7 +585,7 @@ final class NativePlayer {
         }
     }
     private func refreshIndependentMeter() {
-        guard appIsActive, audible,
+        guard appIsActive, (audible || wantsPlay),
               let current, let origin, !AVAudioSession.sharedInstance().currentRoute.outputs.isEmpty else { return }
         // Live taps can take a moment to start, but avoid downloading a second
         // copy of the track once live PCM analysis is already available.
@@ -687,7 +688,11 @@ final class NativePlayer {
         let playing = audible
         if usesLiveMeter && audioMeter.processing { return audioMeter.frequencyLevels(playing: playing) }
         let fallback = independentMeter.level(at: playbackPosition, playing: playing)
-        return [fallback, fallback, fallback, fallback]
+        // A quiet neutral ambient layer begins immediately while AirPods/Bluetooth
+        // visualization prepares a real amplitude envelope. No synthetic beat:
+        // reactive movement still comes from decoded audio once available.
+        let visible = playing && independentMeter.envelope == nil ? max(0.055, fallback) : fallback
+        return [visible, visible, visible, visible]
     }
     func audioLevel() -> Double {
         let playing = audible

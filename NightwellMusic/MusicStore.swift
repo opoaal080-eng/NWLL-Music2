@@ -331,6 +331,7 @@ import Network
                 NativePlayer.shared.stop()
             }
             account = identity.user
+            restoreAutoFavoritesSetting()
             cacheAccount()
             await client.setCSRF(identity.csrf)
             restoreSessionSnapshot()
@@ -456,6 +457,7 @@ import Network
                     let value: TrackResult = try await client.request("/api/tracks", timeout: 15)
                     guard current() else { return }
                     self.catalog = value.tracks
+                    self.syncFavoriteDownloadsIfEnabled()
                     successes += 1
                     self.connectionStatus = "Онлайн"
                     self.saveSessionSnapshot()
@@ -465,6 +467,7 @@ import Network
                     let value: LikeResult = try await client.request("/api/likes", timeout: 10)
                     guard current() else { return }
                     self.likes = Set(value.ids)
+                    self.syncFavoriteDownloadsIfEnabled()
                     successes += 1
                     self.connectionStatus = "Онлайн"
                     self.saveSessionSnapshot()
@@ -505,6 +508,7 @@ import Network
             searchTask?.cancel(); searchGeneration = UUID(); searchCache = [:]
         }
         account = user
+        restoreAutoFavoritesSetting()
         emailChallenge = nil
         cacheAccount()
         await api.setCSRF(response.csrf)
@@ -563,7 +567,7 @@ import Network
             NativePlayer.shared.stop(); preloadTask?.cancel(); preloadTask = nil; lastPreloadIDs = []; lastPreloadAt = .distantPast; searchTask?.cancel(); searchGeneration = UUID(); searchCache = [:]
             sessionGeneration = UUID(); starting = false; snapshotSaveTask?.cancel(); libraryRefresh.cancel()
             connectionCheck?.cancel(); connectionCheck = nil; connectionCheckGeneration = UUID(); sessionReady = false
-            account = nil; mixRecentIDs = []; cacheAccount(); catalog = []; results = []; likes = []; playlists = []; lastWave = []; query = ""; await api.setCSRF(nil)
+            account = nil; restoreAutoFavoritesSetting(); mixRecentIDs = []; cacheAccount(); catalog = []; results = []; likes = []; playlists = []; lastWave = []; query = ""; await api.setCSRF(nil)
         } catch { self.error = error.localizedDescription }
     }
     func search() {
@@ -689,6 +693,35 @@ import Network
             } else { self.error = error.localizedDescription }
         }
     }
+    @Published private(set) var automaticFavoritesDownload = false
+    private var lastAutoFavoritesCheck = Date.distantPast
+    private var autoFavoritesKey: String? {
+        guard let user = account?.id else { return nil }
+        return "nw-auto-favorites|" + origin.absoluteString + "|" + user
+    }
+    func restoreAutoFavoritesSetting() {
+        automaticFavoritesDownload = autoFavoritesKey.flatMap { UserDefaults.standard.object(forKey: $0) as? Bool } ?? false
+        lastAutoFavoritesCheck = .distantPast
+    }
+    func setAutomaticFavoritesDownload(_ enabled: Bool) {
+        guard let key = autoFavoritesKey else { authPresented = true; return }
+        UserDefaults.standard.set(enabled, forKey: key)
+        automaticFavoritesDownload = enabled
+        lastAutoFavoritesCheck = .distantPast
+        if enabled { syncFavoriteDownloadsIfEnabled(force: true) }
+    }
+    private func syncFavoriteDownloadsIfEnabled(force: Bool = false, newest: Track? = nil) {
+        guard automaticFavoritesDownload, account != nil else { return }
+        if let newest {
+            Task { await download([newest]) }
+            return
+        }
+        guard force || Date().timeIntervalSince(lastAutoFavoritesCheck) > 120 else { return }
+        let missing = catalog.filter { likes.contains($0.id) && !isDownloaded($0) }
+        guard !missing.isEmpty else { return }
+        lastAutoFavoritesCheck = Date()
+        Task { await download(Array(missing.prefix(500))) }
+    }
     private var likesInFlight: Set<String> = []
     func like(_ track: Track) async {
         guard account != nil else { authPresented = true; return }
@@ -714,7 +747,10 @@ import Network
             guard account?.id == owner else { return }
             likes = Set(response.ids)
             saveSessionSnapshot()
-            if likes.contains(track.id) == desired { return }
+            if likes.contains(track.id) == desired {
+                if desired { syncFavoriteDownloadsIfEnabled(newest: track) }
+                return
+            }
             self.error = failure?.localizedDescription ?? "Не удалось обновить избранное. Попробуйте ещё раз."
         } catch {
             guard account?.id == owner else { return }
@@ -817,7 +853,7 @@ import Network
         guard let url = ServerAddress.validated(value) else { error = "Нужен HTTPS-адрес без пути и параметров"; return }
         NativePlayer.shared.stop(); preloadTask?.cancel(); preloadTask = nil; lastPreloadIDs = []; lastPreloadAt = .distantPast; leaveSearch(); catalog = []; results = []; playlists = []; likes = []; account = nil; searchCache = [:]
         sessionGeneration = UUID(); starting = false; snapshotSaveTask?.cancel(); libraryRefresh.cancel(); connectionCheck?.cancel(); connectionCheck = nil; connectionCheckGeneration = UUID(); sessionReady = false
-        origin = url; api = MusicAPI(origin: url); lastWave = []; cacheAccount(); await api.setCSRF(nil); UserDefaults.standard.set(url.absoluteString, forKey: "nightwell.server"); await start()
+        origin = url; api = MusicAPI(origin: url); lastWave = []; restoreAutoFavoritesSetting(); cacheAccount(); await api.setCSRF(nil); UserDefaults.standard.set(url.absoluteString, forKey: "nightwell.server"); await start()
     }
 }
 

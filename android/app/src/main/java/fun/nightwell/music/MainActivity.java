@@ -418,12 +418,35 @@ public final class MainActivity extends Activity {
             styleSheet(dialog);dialog.show();
         });
     }
+    private boolean autoFavoritesEnabled() {
+        return !user.isEmpty() && getSharedPreferences("auto-favorites", MODE_PRIVATE).getBoolean(origin+"|"+user,false);
+    }
+    private void setAutoFavoritesEnabled(boolean enabled) {
+        if(user.isEmpty()){auth();return;}
+        getSharedPreferences("auto-favorites",MODE_PRIVATE).edit().putBoolean(origin+"|"+user,enabled).apply();
+        if(enabled)checkAutoFavoriteDownloads();
+    }
+    private long lastFavoriteDownloadCheck;
+    private void checkAutoFavoriteDownloads() {
+        if(!autoFavoritesEnabled()||catalog.length()==0||likes.isEmpty())return;
+        if(android.os.SystemClock.elapsedRealtime()-lastFavoriteDownloadCheck<120000)return;
+        lastFavoriteDownloadCheck=android.os.SystemClock.elapsedRealtime();
+        JSONArray missing=new JSONArray();
+        for(int i=0;i<catalog.length();i++){
+            JSONObject track=catalog.optJSONObject(i);
+            if(track==null||!likes.contains(track.optString("id")))continue;
+            if(OfflineStore.audio(this,origin,user,track.optString("id"))==null)missing.put(track);
+            if(missing.length()>=500)break;
+        }
+        if(missing.length()>0)download(missing);
+    }
     void toggleFavorite(JSONObject track){
         if(user.isEmpty()){auth();return;}if(track==null)return;
         final String id=track.optString("id");final boolean remove=likes.contains(id);
         task(()->api.request("api/likes/"+id,remove?"DELETE":"POST",null),v->{
             if(remove)likes.remove(id);else{likes.add(id);if(ribbon!=null)ribbon.flash();}
             refreshFavoriteButtons();updatePlayback();updateList();
+            if(!remove&&autoFavoritesEnabled())download(new JSONArray().put(track));
             Toast.makeText(this,remove?"Убрано из избранного":"Добавлено в избранное",Toast.LENGTH_SHORT).show();
         });
     }
@@ -577,7 +600,7 @@ public final class MainActivity extends Activity {
                 JSONObject value=client.request("api/tracks");
                 JSONArray tracks=value.optJSONArray("tracks");
                 ui.post(()->{if(!isDestroyed()&&client==api&&revision==libraryGeneration&&account.equals(user)&&tracks!=null){
-                    catalog=tracks;saveLibrarySnapshot();if(!full&&!screen.equals("Поиск"))showScreen();
+                    catalog=tracks;saveLibrarySnapshot();checkAutoFavoriteDownloads();if(!full&&!screen.equals("Поиск"))showScreen();
                 }});
             }catch(Exception ex){ui.post(()->{if(!isDestroyed()&&client==api&&revision==libraryGeneration&&account.equals(user))status.setText(friendly(ex));});}
         });
@@ -586,7 +609,7 @@ public final class MainActivity extends Activity {
                 JSONObject value=client.request("api/likes");
                 JSONArray ids=value.optJSONArray("ids");
                 ui.post(()->{if(!isDestroyed()&&client==api&&revision==libraryGeneration&&account.equals(user)&&ids!=null){
-                    likes.clear();for(int i=0;i<ids.length();i++)likes.add(ids.optString(i));saveLibrarySnapshot();
+                    likes.clear();for(int i=0;i<ids.length();i++)likes.add(ids.optString(i));saveLibrarySnapshot();checkAutoFavoriteDownloads();
                     if(!full&&screen.equals("Избранное"))showScreen();
                 }});
             }catch(Exception ignored){}
@@ -1060,7 +1083,7 @@ public final class MainActivity extends Activity {
     void download(JSONArray items){if(items==null)return;if(user.isEmpty()){auth();return;}String account=user;status.setText("Добавляем в фоновую очередь…");task(()->{if(!api.request("api/premium/me").optBoolean("premium"))throw new java.io.IOException("Скачивание доступно с Premium — 150 ₽ за 30 дней.");BackgroundDownloads.enqueue(this,origin,account,items);return new JSONObject();},v->status.setText(BackgroundDownloads.progress(this)));}
     interface InputDone{void run(String value);}
     void input(String title,InputDone done){EditText field=new EditText(this);AlertDialog dialog=new AlertDialog.Builder(this).setTitle(title).setView(field).setPositiveButton("Сохранить",(d,n)->done.run(field.getText().toString())).setNegativeButton("Отмена",null).create();styleSheet(dialog);dialog.show();}
-    void settings(){LinearLayout panel=column();panel.setPadding(dp(20),dp(16),dp(20),dp(16));TextView subtitle=text("Оформи приложение под себя и настрой поведение плеера.",14);subtitle.setTextColor(0xff9fa6b8);subtitle.setPadding(0,0,0,dp(10));panel.addView(subtitle);panel.addView(sectionLabel("Оформление"));panel.addView(sheetAction("Темы и ленты · Premium",()->feature("appearance")));panel.addView(sectionLabel("Воспроизведение"));TextView label=text("Переход между треками · 0.8 с",15);label.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);panel.addView(label);SeekBar duration=new SeekBar(this);duration.setMax(50);duration.setProgress((int)(getSharedPreferences("playback",MODE_PRIVATE).getFloat("nw-transition-seconds",.8f)*10));duration.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar b,int p,boolean user){label.setText("Переход между треками · "+p/10.0+" с");if(playback!=null)playback.transitionDuration(p/10.0);}public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}});panel.addView(duration);android.widget.Switch ambient=new android.widget.Switch(this);ambient.setText("Показывать текст рядом с лентами");styleSwitch(ambient);ambient.setChecked(getSharedPreferences("appearance",MODE_PRIVATE).getBoolean("ambient-lyrics",true));ambient.setOnCheckedChangeListener((button,checked)->getSharedPreferences("appearance",MODE_PRIVATE).edit().putBoolean("ambient-lyrics",checked).apply());panel.addView(ambient);AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Настройки").setView(panel).setPositiveButton("Готово",null).create();styleSheet(dialog);dialog.show();}
+    void settings(){LinearLayout panel=column();panel.setPadding(dp(20),dp(16),dp(20),dp(16));TextView subtitle=text("Оформи приложение под себя и настрой поведение плеера.",14);subtitle.setTextColor(0xff9fa6b8);subtitle.setPadding(0,0,0,dp(10));panel.addView(subtitle);panel.addView(sectionLabel("Оформление"));panel.addView(sheetAction("Темы и ленты · Premium",()->feature("appearance")));panel.addView(sectionLabel("Воспроизведение"));android.widget.Switch autoFavorites=new android.widget.Switch(this);autoFavorites.setText("Автоматически скачивать избранное · Premium");styleSwitch(autoFavorites);autoFavorites.setChecked(autoFavoritesEnabled());autoFavorites.setEnabled(!user.isEmpty());autoFavorites.setOnCheckedChangeListener((b,enabled)->setAutoFavoritesEnabled(enabled));panel.addView(autoFavorites);TextView label=text("Переход между треками · 0.8 с",15);label.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);panel.addView(label);SeekBar duration=new SeekBar(this);duration.setMax(50);duration.setProgress((int)(getSharedPreferences("playback",MODE_PRIVATE).getFloat("nw-transition-seconds",.8f)*10));duration.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar b,int p,boolean user){label.setText("Переход между треками · "+p/10.0+" с");if(playback!=null)playback.transitionDuration(p/10.0);}public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}});panel.addView(duration);android.widget.Switch ambient=new android.widget.Switch(this);ambient.setText("Показывать текст рядом с лентами");styleSwitch(ambient);ambient.setChecked(getSharedPreferences("appearance",MODE_PRIVATE).getBoolean("ambient-lyrics",true));ambient.setOnCheckedChangeListener((button,checked)->getSharedPreferences("appearance",MODE_PRIVATE).edit().putBoolean("ambient-lyrics",checked).apply());panel.addView(ambient);AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Настройки").setView(panel).setPositiveButton("Готово",null).create();styleSheet(dialog);dialog.show();}
     private JSONObject premiumPrefs=new JSONObject();private String premiumOwner="";private long premiumUntil,premiumChecked;private boolean premiumLoading;
     boolean premiumAllowed(){return !user.isEmpty()&&user.equals(premiumOwner)&&System.currentTimeMillis()<premiumUntil;}
     void applyPremium(){
@@ -1166,10 +1189,33 @@ public final class MainActivity extends Activity {
                 JSONObject playlist=items.optJSONObject(i);
                 if(playlist==null)continue;
                 JSONArray tracks=playlist.optJSONArray("tracks");
-                panel.addView(sheetAction("▶ "+playlist.optString("name")+" · "+playlist.optInt("count")+" треков",()->{
+                LinearLayout dailyRow=row();
+                TextView listen=sheetAction("▶ "+playlist.optString("name")+" · "+playlist.optInt("count")+" треков",()->{
                     if(tracks!=null&&tracks.length()>0)play(tracks.optJSONObject(0),tracks,false);
                     else status.setText("В подборке пока нет музыки");
-                }));
+                });
+                dailyRow.addView(listen,new LinearLayout.LayoutParams(0,-2,1));
+                TextView save=iconButton(playlist.optBoolean("saved")?"♥":"♡",()->{
+                    if(playlist.optBoolean("saved"))return;
+                    JSONArray trackIDs=new JSONArray();
+                    if(tracks!=null)for(int k=0;k<tracks.length();k++){
+                        JSONObject item=tracks.optJSONObject(k);if(item!=null)trackIDs.put(item.optString("id"));
+                    }
+                    final String savedOwner=user;
+                    task(()->api.request("api/daily-public-playlists/"+
+                       Uri.encode(playlist.optString("id"))+"/save","POST",
+                       new JSONObject().put("track_ids",trackIDs)),result->{
+                        if(!savedOwner.equals(user))return;
+                        save.setText("♥");save.setContentDescription("Сохранено в плейлисты с датой");
+                        playlist.remove("saved");
+                        try{playlist.put("saved",true);}catch(Exception ignored){}
+                        status.setText("Сохранено в плейлисты: "+result.optString("name"));
+                        loadLibrary(user);
+                    });
+                });
+                save.setContentDescription(playlist.optBoolean("saved")?"Сохранено в плейлисты":"Сохранить подборку в плейлисты");
+                dailyRow.addView(save,new LinearLayout.LayoutParams(dp(52),dp(56)));
+                panel.addView(dailyRow);
             }
             featureDialog("Подборки дня",outer);
         });
