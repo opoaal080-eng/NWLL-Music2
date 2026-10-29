@@ -87,6 +87,12 @@ import Network
     private var previousPlaying = false
     private var listeningDuration = 0.0, listeningPosition = 0.0
     private var mixRecentIDs: [String] = []
+    private var mixRecentKey: String {
+        "nw-recent-recommendations|" + origin.absoluteString + "|" + (account?.id ?? "device")
+    }
+    private func restoreRecent() {
+        mixRecentIDs = Array((UserDefaults.standard.stringArray(forKey: mixRecentKey) ?? []).suffix(120))
+    }
     private var hiddenRecommendationsKey: String {
         "nw-hidden-recommendations|" + origin.absoluteString + "|" + (account?.id ?? "device")
     }
@@ -115,6 +121,7 @@ import Network
         return "nw-session-v1-" + (origin.host ?? "server") + "-" + id
     }
     private func restoreSessionSnapshot() {
+        restoreRecent()
         guard let key = sessionCacheKey,
               let data = UserDefaults.standard.data(forKey: key) else { return }
         guard let cache = try? JSONDecoder().decode(SessionSnapshot.self, from: data),
@@ -363,7 +370,12 @@ import Network
         let now = ProcessInfo.processInfo.systemUptime, elapsed = min(1, max(0, now - lastTick)); lastTick = now
         if clock.id != listeningID {
             reportListening(skipped: previousPlaying && listeningSeconds < 30 && listeningPosition + 2 < listeningDuration); listeningID = clock.id; listeningSession = UUID().uuidString; listeningSeconds = 0
-            if !clock.id.isEmpty { mixRecentIDs.removeAll { $0 == clock.id }; mixRecentIDs.append(clock.id); mixRecentIDs = Array(mixRecentIDs.suffix(120)) }
+            if !clock.id.isEmpty {
+                mixRecentIDs.removeAll { $0 == clock.id }
+                mixRecentIDs.append(clock.id)
+                mixRecentIDs = Array(mixRecentIDs.suffix(120))
+                UserDefaults.standard.set(mixRecentIDs, forKey: mixRecentKey)
+            }
             lastSaved = .distantPast
             lyrics.select(clock.current, api: api, origin: origin, online: account != nil)
             preloadTask?.cancel()
@@ -383,6 +395,11 @@ import Network
                         let _: OK? = try? await api.request("/api/preload", method: "POST", body: ["ids": ids])
                         guard !Task.isCancelled else { return }
                         await lyrics.preload(Array(upcoming.prefix(3)), api: api, origin: origin)
+                        let covers = upcoming.prefix(3).compactMap { track -> URL? in
+                            guard let path = track.cover_url else { return nil }
+                            return URL(string: path, relativeTo: origin)?.absoluteURL
+                        }
+                        await ArtworkCache.shared.prefetch(covers)
                     }
                 }
             }
@@ -520,7 +537,7 @@ import Network
             NativePlayer.shared.stop(); preloadTask?.cancel(); preloadTask = nil; lastPreloadIDs = []; lastPreloadAt = .distantPast; searchTask?.cancel(); searchGeneration = UUID(); searchCache = [:]
             sessionGeneration = UUID(); starting = false; snapshotSaveTask?.cancel(); libraryRefresh.cancel()
             connectionCheck?.cancel(); connectionCheck = nil; connectionCheckGeneration = UUID(); sessionReady = false
-            account = nil; cacheAccount(); catalog = []; results = []; likes = []; playlists = []; lastWave = []; query = ""; await api.setCSRF(nil)
+            account = nil; mixRecentIDs = []; cacheAccount(); catalog = []; results = []; likes = []; playlists = []; lastWave = []; query = ""; await api.setCSRF(nil)
         } catch { self.error = error.localizedDescription }
     }
     func search() {

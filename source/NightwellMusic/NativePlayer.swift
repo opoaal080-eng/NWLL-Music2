@@ -48,6 +48,7 @@ final class NativePlayer {
     private var audible: Bool { enginePlayback.ready ? enginePlayback.playing : player.timeControlStatus == .playing }
     private let independentMeter = IndependentAudioMeter()
     private var usesLiveMeter = true
+    private var liveMeterStartUptime = ProcessInfo.processInfo.systemUptime
     var onChange: (() -> Void)?
     private(set) var origin: URL?
     private var tracks: [NativeTrack] = []
@@ -195,8 +196,17 @@ final class NativePlayer {
                   relativeTo: origin)?.absoluteURL else { return }
         let asset = AVURLAsset(url: url, options: [AVURLAssetHTTPCookiesKey: cookies])
         nextAsset = asset; nextAssetID = next.id
-        // Only warm metadata for one imminent track, never download the whole queue.
-        Task(priority: .utility) { let _ = try? await asset.load(.isPlayable) }
+        // Offline files are already on disk; analyse one upcoming track at low priority.
+        // Streaming tracks stay on the live tap path to avoid duplicate downloads.
+        if let saved {
+            let key = origin.absoluteString + "|" + offlineAccount + "|" + next.offlineAccount + "|" + next.id
+            independentMeter.prewarm(key: key, local: saved)
+        }
+        // Avoid a competing network request during startup on high-latency links.
+        // The next item still reuses its AVURLAsset when playback advances.
+        if saved != nil {
+            Task(priority: .utility) { let _ = try? await asset.load(.isPlayable) }
+        }
     }
 
     private func load(position: Double = 0, recovering: Bool = false) {
@@ -230,14 +240,18 @@ final class NativePlayer {
         nextAsset = nil; nextAssetID = nil
         let item = AVPlayerItem(asset: asset)
         // Keep a useful forward buffer, but do not wait to fill it before starting.
-        item.preferredForwardBufferDuration = 12
+        item.preferredForwardBufferDuration = 6
+        // Start once playable instead of waiting for a long forward buffer.
         audioMeter = LocalAudioMeter()
+        liveMeterStartUptime = ProcessInfo.processInfo.systemUptime
         configureAudioMeter(for: item)
         player.replaceCurrentItem(with: item)
         itemObservation = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
             DispatchQueue.main.async {
                 guard let self, self.itemGeneration == generation else { return }
                 if item.status == .readyToPlay {
+                    // Start fallback envelope preparation as soon as the stream is ready.
+                    // It runs independently from playback and must never block the first samples.
                     self.prewarmNextAsset()
                     let length = item.duration.seconds
                     let target = length.isFinite && self.requestedPosition >= length ? 0 : self.requestedPosition
@@ -445,8 +459,14 @@ final class NativePlayer {
     private func refillWave(force: Bool = false) {
         guard waveActive, wantsPlay, waveTask == nil, let origin, current != nil,
               Date() >= waveRetryAt, force || tracks.count - index - 1 <= 8 else { return }
+        let hiddenKey = "nw-hidden-recommendations|" + origin.absoluteString + "|" + offlineAccount
+        let historyKey = "nw-recent-recommendations|" + origin.absoluteString + "|" + offlineAccount
+        let hidden = Set(UserDefaults.standard.stringArray(forKey: hiddenKey) ?? [])
+        let recent = Array((UserDefaults.standard.stringArray(forKey: historyKey) ?? []).suffix(60))
         var excluded = waveSeen
         excluded.append(contentsOf: tracks.dropFirst(index).map { $0.id })
+        excluded.append(contentsOf: recent)
+        excluded.append(contentsOf: hidden.sorted().prefix(70))
         var seen = Set<String>()
         excluded = excluded.filter { seen.insert($0).inserted }
         guard let base = URL(string: "api/wave", relativeTo: origin)?.absoluteURL,
@@ -471,7 +491,7 @@ final class NativePlayer {
                 let fresh = raw.prefix(20).compactMap { item -> NativeTrack? in
                     guard let id = item["id"] as? String, !id.isEmpty, id.count <= 80,
                           id.unicodeScalars.allSatisfy({ allowed.contains($0) }),
-                          !waiting.contains(id), !self.waveSeen.contains(id), added.insert(id).inserted else { return nil }
+                          !waiting.contains(id), !hidden.contains(id), !self.waveSeen.contains(id), added.insert(id).inserted else { return nil }
                     return NativeTrack(id: id, title: item["title"] as? String ?? "",
                         artist: item["artist"] as? String ?? "", album: item["album"] as? String ?? "",
                         duration: (item["duration"] as? NSNumber)?.doubleValue ?? 0, cover: item["cover_url"] as? String, source: item["source"] as? String,
@@ -483,7 +503,8 @@ final class NativePlayer {
                 self.error = ""; self.waveRetryAt = Date().addingTimeInterval(30)
                 let removeCount = max(0, self.index - 5)
                 if removeCount > 0 { self.tracks.removeFirst(removeCount); self.index -= removeCount }
-                let ordered = RecommendationOrder.arrange(fresh, current: self.current?.id ?? "", identity: { $0.id }, title: { $0.title }, artist: { $0.artist })
+                let ordered = RecommendationOrder.arrange(fresh, recent: Set(recent), hidden: hidden,
+                    current: self.current?.id ?? "", identity: { $0.id }, title: { $0.title }, artist: { $0.artist })
                 self.tracks.append(contentsOf: ordered); self.queueRevision += 1
                 if self.waveWaiting && self.wantsPlay { self.waveWaiting = false; self.step(1) }
                 self.publish()
@@ -563,6 +584,14 @@ final class NativePlayer {
     private func refreshIndependentMeter() {
         guard appIsActive, audible,
               let current, let origin, !AVAudioSession.sharedInstance().currentRoute.outputs.isEmpty else { return }
+        // Live taps can take a moment to start, but avoid downloading a second
+        // copy of the track once live PCM analysis is already available.
+        if usesLiveMeter {
+            if audioMeter.processing { return }
+            // Give the local PCM tap time to start before initiating a separate
+            // network download and full-file envelope analysis.
+            if ProcessInfo.processInfo.systemUptime - liveMeterStartUptime < 2.5 { return }
+        }
         let key = origin.absoluteString + "|" + offlineAccount + "|" + current.offlineAccount + "|" + current.id
         guard independentMeter.needsPreparation(for: key) else { return }
         let local = OfflineStore.audio(origin: origin, account: current.offlineAccount.isEmpty ? offlineAccount : current.offlineAccount, id: current.id)

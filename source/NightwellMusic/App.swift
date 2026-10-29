@@ -456,8 +456,29 @@ struct NativeTrackRow: View {
 struct Cover: View {
     let track: Track?
     let origin: URL
+    @State private var artwork: UIImage?
+    private var coverURL: URL? {
+        guard let address = track?.cover_url,
+              let url = URL(string: address, relativeTo: origin)?.absoluteURL,
+              url.scheme?.lowercased() == "https" else { return nil }
+        return url
+    }
     var body: some View {
-        AsyncImage(url: track?.cover_url.flatMap { URL(string: $0, relativeTo: origin) }) { image in image.resizable().scaledToFill() } placeholder: { ZStack { Color.purple.opacity(0.2); Image(systemName: "music.note").font(.title).foregroundStyle(.white.opacity(0.7)) } }.clipped()
+        Group {
+            if let artwork {
+                Image(uiImage: artwork).resizable().scaledToFill()
+            } else {
+                ZStack {
+                    Color.purple.opacity(0.2)
+                    Image(systemName: "music.note").font(.title).foregroundStyle(.white.opacity(0.7))
+                }
+            }
+        }
+        .clipped()
+        .task(id: coverURL) {
+            artwork = nil
+            if let coverURL { artwork = await ArtworkCache.shared.image(coverURL) }
+        }
     }
 }
 struct PlayingIndicator: View {

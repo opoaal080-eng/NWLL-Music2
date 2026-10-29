@@ -459,8 +459,14 @@ final class NativePlayer {
     private func refillWave(force: Bool = false) {
         guard waveActive, wantsPlay, waveTask == nil, let origin, current != nil,
               Date() >= waveRetryAt, force || tracks.count - index - 1 <= 8 else { return }
+        let hiddenKey = "nw-hidden-recommendations|" + origin.absoluteString + "|" + offlineAccount
+        let historyKey = "nw-recent-recommendations|" + origin.absoluteString + "|" + offlineAccount
+        let hidden = Set(UserDefaults.standard.stringArray(forKey: hiddenKey) ?? [])
+        let recent = Array((UserDefaults.standard.stringArray(forKey: historyKey) ?? []).suffix(60))
         var excluded = waveSeen
         excluded.append(contentsOf: tracks.dropFirst(index).map { $0.id })
+        excluded.append(contentsOf: recent)
+        excluded.append(contentsOf: hidden.sorted().prefix(70))
         var seen = Set<String>()
         excluded = excluded.filter { seen.insert($0).inserted }
         guard let base = URL(string: "api/wave", relativeTo: origin)?.absoluteURL,
@@ -485,7 +491,7 @@ final class NativePlayer {
                 let fresh = raw.prefix(20).compactMap { item -> NativeTrack? in
                     guard let id = item["id"] as? String, !id.isEmpty, id.count <= 80,
                           id.unicodeScalars.allSatisfy({ allowed.contains($0) }),
-                          !waiting.contains(id), !self.waveSeen.contains(id), added.insert(id).inserted else { return nil }
+                          !waiting.contains(id), !hidden.contains(id), !self.waveSeen.contains(id), added.insert(id).inserted else { return nil }
                     return NativeTrack(id: id, title: item["title"] as? String ?? "",
                         artist: item["artist"] as? String ?? "", album: item["album"] as? String ?? "",
                         duration: (item["duration"] as? NSNumber)?.doubleValue ?? 0, cover: item["cover_url"] as? String, source: item["source"] as? String,
@@ -497,7 +503,8 @@ final class NativePlayer {
                 self.error = ""; self.waveRetryAt = Date().addingTimeInterval(30)
                 let removeCount = max(0, self.index - 5)
                 if removeCount > 0 { self.tracks.removeFirst(removeCount); self.index -= removeCount }
-                let ordered = RecommendationOrder.arrange(fresh, current: self.current?.id ?? "", identity: { $0.id }, title: { $0.title }, artist: { $0.artist })
+                let ordered = RecommendationOrder.arrange(fresh, recent: Set(recent), hidden: hidden,
+                    current: self.current?.id ?? "", identity: { $0.id }, title: { $0.title }, artist: { $0.artist })
                 self.tracks.append(contentsOf: ordered); self.queueRevision += 1
                 if self.waveWaiting && self.wantsPlay { self.waveWaiting = false; self.step(1) }
                 self.publish()
