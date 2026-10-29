@@ -26,9 +26,9 @@ enum ServerAddress {
         parts.path = "/"; return parts.url
     }
 }
-let pumpkin = Color(red: 1, green: 0.72, blue: 0.43)
-let nightwellViolet = Color(red: 0.19, green: 0.10, blue: 0.29)
-let nightwellText = Color(red: 0.94, green: 0.88, blue: 0.97)
+let pumpkin = Color.white
+let nightwellViolet = Color(red: 0.075, green: 0.075, blue: 0.085)
+let nightwellText = Color.white
 extension View {
     func glass(_ radius: CGFloat = 30) -> some View {
         self
@@ -199,12 +199,15 @@ struct NativeRoot: View {
     @State private var showShare = false
     @State private var launching = true
     @Environment(\.accessibilityReduceMotion) private var reducedMotion
-    var body: some View {
+    @ViewBuilder private var mainScene: some View {
         ZStack {
-            SeasonBackground()
-            NativeFogLayer(active: !fullPlayer)
-                .ignoresSafeArea()
-                .allowsHitTesting(false)
+            // Shared monochrome background for Home, Search, Favorites, Playlists and Offline.
+            LinearGradient(
+                colors: [Color(red: 0.055, green: 0.062, blue: 0.074), Color(white: 0.025), .black],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
             if !backgroundOnly && store.screen == .home {
                 RibbonScene(playing: store.clock.playing, flash: store.likeFlash)
                     .ignoresSafeArea()
@@ -223,6 +226,7 @@ struct NativeRoot: View {
                         .overlay(alignment: .bottom) {
                             if store.screen == .home {
                                 HomeLyricLine(model: store.lyrics, clock: store.clock)
+                                    .saturation(0)
                                     .frame(height: 60)
                                     .padding(.horizontal, 24)
                                     .offset(y: -85)
@@ -231,7 +235,9 @@ struct NativeRoot: View {
                 }
             }
         }
-        .overlay {
+    }
+
+    @ViewBuilder private var modalScene: some View {
             if store.authPresented {
                 NightwellPopup(title: "", close: { store.authPresented = false }) {
                     AuthSheet(close: { store.authPresented = false })
@@ -256,12 +262,16 @@ struct NativeRoot: View {
                         .id(playlist.id)
                 }
             }
-        }
+    }
+
+    var body: some View {
+        mainScene
+            .overlay { modalScene }
         .animation(.spring(response: 0.3, dampingFraction: 0.86), value: settings)
         .animation(.spring(response: 0.3, dampingFraction: 0.86), value: store.authPresented)
         .tint(pumpkin)
         .sheet(isPresented: $premiumPresented) { PremiumView(api: store.api) }
-        .overlay { if launching { NativeLaunch().transition(.opacity) } }
+        .overlay { if launching { MonochromeNightwellLaunch().transition(.opacity) } }
         .task { try? await Task.sleep(nanoseconds: reducedMotion ? 150_000_000 : 1_200_000_000); withAnimation(.easeOut(duration: 0.3)) { launching = false } }
         .task { await store.start()
             #if DEBUG
@@ -319,7 +329,12 @@ struct NativeRoot: View {
                 }
             } label: {
                 HStack(spacing: 9) {
-                    Image("BrandLogo").resizable().scaledToFit().frame(width: 42, height: 42)
+                    Text("N")
+                        .font(.system(size: 29, weight: .black, design: .rounded))
+                        .foregroundStyle(.white)
+                        .frame(width: 42, height: 42)
+                        .background(Color(white: 0.07), in: RoundedRectangle(cornerRadius: 12))
+                        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.white.opacity(0.20), lineWidth: 0.8))
                     VStack(alignment: .leading, spacing: 1) {
                         Text("Nightwell").font(.system(size: 25, weight: .bold))
                         Text("M U S I C").font(.caption).foregroundStyle(.secondary)
@@ -330,11 +345,11 @@ struct NativeRoot: View {
             .foregroundStyle(nightwellText)
             .accessibilityLabel("На главную")
             Spacer()
-            Button { if store.screen == .search { store.screen = .home } else { store.screen = .search } } label: { Image(systemName: store.screen == .search ? "xmark" : "magnifyingglass").font(.system(size: 19, weight: .medium)).foregroundStyle(pumpkin).frame(width: 44, height: 44).frostedGlass(22, bordered: false, intensity: 0.20) }.accessibilityLabel(store.screen == .search ? "Закрыть поиск" : "Поиск")
+            Button { if store.screen == .search { store.screen = .home } else { store.screen = .search } } label: { Image(systemName: store.screen == .search ? "xmark" : "magnifyingglass").font(.system(size: 19, weight: .medium)).foregroundStyle(.white).frame(width: 44, height: 44).frostedGlass(22, bordered: false, intensity: 0.20) }.accessibilityLabel(store.screen == .search ? "Закрыть поиск" : "Поиск")
             Menu {
                 Section {
                     Label(store.connectionStatus, systemImage: store.connectionStatus == "Онлайн" ? "wifi" : store.connectionStatus == "Загрузка…" ? "arrow.triangle.2.circlepath" : "wifi.slash")
-                        .foregroundStyle(store.connectionStatus == "Онлайн" ? .green : store.connectionStatus == "Загрузка…" ? .orange : .red)
+                        .foregroundStyle(.white)
                 } header: {
                     Text("Состояние подключения")
                 }
@@ -348,7 +363,7 @@ struct NativeRoot: View {
                 Button("Настройка подборки", systemImage: "slider.horizontal.3") { waveSettingsPresented = true }
                 Button("Обращения и поддержка", systemImage: "envelope") { supportPresented = true }
                 Button(store.account == nil ? "Войти" : "Выйти", systemImage: "person") { if store.account == nil { store.authPresented = true } else { Task { await store.logout() } } }
-            } label: { Image(systemName: "line.3.horizontal").font(.system(size: 19, weight: .medium)).foregroundStyle(pumpkin).frame(width: 44, height: 44).frostedGlass(22, bordered: false, intensity: 0.20) }.accessibilityLabel("Меню").sheet(item: $feature) { PremiumFeatureView(kind: $0).environmentObject(store) }
+            } label: { Image(systemName: "line.3.horizontal").font(.system(size: 19, weight: .medium)).foregroundStyle(.white).frame(width: 44, height: 44).frostedGlass(22, bordered: false, intensity: 0.20) }.accessibilityLabel("Меню").sheet(item: $feature) { PremiumFeatureView(kind: $0).environmentObject(store) }
         }.padding(.horizontal, 20).padding(.top, 8)
     }
     private var favoriteTracks: [Track] {
@@ -415,7 +430,14 @@ struct TrackList: View {
                 if tracks.isEmpty { Text(store.account == nil && store.screen != .offline ? "Войди в аккаунт или открой офлайн-файлы" : "Здесь пока нет треков").foregroundStyle(.secondary).padding(.top, 30) }
                 ForEach(tracks) { track in NativeTrackRow(track: track, queue: tracks, status: store.clock.status, playlist: playlist) }
             }
-        }.scrollDismissesKeyboard(.interactively)
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .task(id: tracks.prefix(6).map { $0.id }.joined(separator: "|")) {
+            let urls = tracks.prefix(6).compactMap { track in
+                track.cover_url.flatMap { URL(string: $0, relativeTo: store.origin)?.absoluteURL }
+            }
+            await CoverImagePipeline.shared.prefetch(urls)
+        }
     }
 }
 struct NativeTrackRow: View {
@@ -461,28 +483,30 @@ struct NativeTrackRow: View {
 struct Cover: View {
     let track: Track?
     let origin: URL
+    var pixelWidth = 160
     @State private var artwork: UIImage?
+
     private var coverURL: URL? {
-        guard let address = track?.cover_url,
-              let url = URL(string: address, relativeTo: origin)?.absoluteURL,
-              url.scheme?.lowercased() == "https" else { return nil }
-        return url
+        track?.cover_url.flatMap { URL(string: $0, relativeTo: origin)?.absoluteURL }
     }
     var body: some View {
-        Group {
+        ZStack {
             if let artwork {
                 Image(uiImage: artwork).resizable().scaledToFill()
             } else {
-                ZStack {
-                    Color.purple.opacity(0.2)
-                    Image(systemName: "music.note").font(.title).foregroundStyle(.white.opacity(0.7))
-                }
+                Color.white.opacity(0.08)
+                Image(systemName: "music.note")
+                    .font(.title)
+                    .foregroundStyle(.white.opacity(0.7))
             }
         }
         .clipped()
-        .task(id: coverURL) {
+        .task(id: "\(coverURL?.absoluteString ?? "")#\(pixelWidth)") {
             artwork = nil
-            if let coverURL { artwork = await ArtworkCache.shared.image(coverURL) }
+            guard let coverURL else { return }
+            let image = await CoverImagePipeline.shared.image(for: coverURL, maxPixel: pixelWidth)
+            guard !Task.isCancelled else { return }
+            artwork = image
         }
     }
 }
@@ -607,7 +631,7 @@ private struct NightwellNativeTransfer: View {
                     Button { showingFile = true } label: { Label(selectedFilename.isEmpty ? "Выбрать JSON, CSV или TXT" : selectedFilename, systemImage: "doc.badge.plus").frame(maxWidth: .infinity).padding(16) }
                         .nightwellLiquidGlass(20)
                     Button(busy ? "Обрабатываем…" : "Найти треки") { Task { await start() } }
-                        .buttonStyle(.borderedProminent).disabled(contents.isEmpty || busy)
+                        .buttonStyle(.borderedProminent).tint(Color(white: 0.24)).foregroundStyle(.white).disabled(contents.isEmpty || busy)
                     if let job {
                         VStack(alignment: .leading, spacing: 12) {
                             Text(job.message ?? "Поиск").font(.headline)
@@ -627,10 +651,10 @@ private struct NightwellNativeTransfer: View {
                                 .font(.caption).foregroundStyle(.secondary)
                             if !etaText.isEmpty { Text(etaText).font(.caption).foregroundStyle(.secondary) }
                             if (job.state == "ready" || job.state == "error") && job.matched > 0 {
-                                Button(saving ? "Добавляем…" : "Добавить") { Task { await commit() } }.buttonStyle(.borderedProminent).disabled(saving)
+                                Button(saving ? "Добавляем…" : "Добавить") { Task { await commit() } }.buttonStyle(.borderedProminent).tint(Color(white: 0.24)).foregroundStyle(.white).disabled(saving)
                             }
                             if activeStates.contains(job.state) {
-                                Button("Остановить") { Task { await cancel() } }.tint(.orange)
+                                Button("Остановить") { Task { await cancel() } }.tint(.white)
                             }
                         }.padding(18).nightwellLiquidGlass(24)
                     }
@@ -655,7 +679,7 @@ private struct NightwellNativeTransfer: View {
                         }
                         if historyExpanded {
                             if !historyError.isEmpty {
-                                Text(historyError).font(.caption).foregroundStyle(.orange)
+                                Text(historyError).font(.caption).foregroundStyle(.white)
                             }
                             let previous = history.filter { !activeStates.contains($0.state) && $0.id != job?.id }
                             if previous.isEmpty { Text("История пуста").font(.caption).foregroundStyle(.secondary) }
@@ -675,11 +699,11 @@ private struct NightwellNativeTransfer: View {
                             }
                         }
                     }
-                    if !errorText.isEmpty { Text(errorText).foregroundStyle(.orange).font(.caption) }
+                    if !errorText.isEmpty { Text(errorText).foregroundStyle(.white).font(.caption) }
 
                 }.padding(20)
             }
-            .background(Color(red: 0.07, green: 0.04, blue: 0.12))
+            .background(Color(red: 0.045, green: 0.045, blue: 0.052))
             .task { await refreshHistory(); if let current = history.first(where: { activeStates.contains($0.state) }) { job = current; await poll(current.id) } }
             .navigationTitle("Перенос")
             .navigationBarTitleDisplayMode(.inline)
@@ -810,3 +834,51 @@ private struct NightwellImportFilePicker: UIViewControllerRepresentable {
     }
 }
 
+
+
+
+private struct MonochromeNightwellLaunch: View {
+    var body: some View {
+        ZStack {
+            LinearGradient(colors: [Color(white: 0.085), .black], startPoint: .top, endPoint: .bottom)
+                .ignoresSafeArea()
+            GeometryReader { geometry in
+                Canvas { context, size in
+                    let w = size.width, h = size.height
+                    for index in 0..<6 {
+                        let left = index.isMultiple(of: 2)
+                        let origin = CGPoint(x: left ? 0 : w, y: h * (0.16 + CGFloat(index / 2) * 0.22))
+                        let target = CGPoint(x: w * (left ? 0.69 : 0.31), y: h * 0.53)
+                        let spread: CGFloat = 60
+                        var beam = Path()
+                        beam.move(to: origin)
+                        beam.addLine(to: CGPoint(x: target.x - spread, y: target.y + 160))
+                        beam.addLine(to: CGPoint(x: target.x + spread, y: target.y + 160))
+                        beam.closeSubpath()
+                        context.fill(beam, with: .linearGradient(
+                            Gradient(colors: [.white.opacity(0.19), .white.opacity(0.06), .clear]),
+                            startPoint: origin, endPoint: CGPoint(x: w / 2, y: h * 0.82)
+                        ))
+                    }
+                }
+                .blur(radius: 20)
+                .allowsHitTesting(false)
+            }
+            VStack(spacing: 14) {
+                Text("N")
+                    .font(.system(size: 92, weight: .black, design: .rounded))
+                    .foregroundStyle(.white)
+                    .shadow(color: .white.opacity(0.22), radius: 24)
+                Text("NIGHTWELL")
+                    .font(.system(size: 24, weight: .bold, design: .rounded))
+                    .tracking(5)
+                Text("M U S I C")
+                    .font(.system(size: 10, weight: .medium))
+                    .tracking(5)
+                    .foregroundStyle(.white.opacity(0.58))
+            }
+            .foregroundStyle(.white)
+        }
+        .accessibilityLabel("Nightwell Music")
+    }
+}
