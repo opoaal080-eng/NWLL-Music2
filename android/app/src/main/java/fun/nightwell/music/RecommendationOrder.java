@@ -13,7 +13,9 @@ final class RecommendationOrder {
     }
     private static final String[] ALTERNATIVE_VERSIONS = {
         "remix", "live", "cover", "slowed", "spedup", "nightcore",
-        "karaoke", "instrumental", "acoustic", "radioedit"
+        "karaoke", "instrumental", "acoustic", "radioedit",
+        "ремикс", "лайв", "кавер", "концерт", "караоке", "акустика",
+        "минус", "инструментал", "замедленная", "ускоренная"
     };
     static int searchScore(String query, String title, String artist) {
         String wanted = key(query), name = key(title), performer = key(artist);

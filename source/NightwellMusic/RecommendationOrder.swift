@@ -7,7 +7,8 @@ enum RecommendationOrder {
             .unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }.map(String.init).joined()
     }
 
-    private static let alternativeVersions = ["remix", "live", "cover", "slowed", "spedup", "nightcore", "karaoke", "instrumental", "acoustic", "radioedit"]
+    private static let alternativeVersions = ["remix", "live", "cover", "slowed", "spedup", "nightcore", "karaoke", "instrumental", "acoustic", "radioedit",
+        "ремикс", "лайв", "кавер", "концерт", "караоке", "акустика", "минус", "инструментал", "замедленная", "ускоренная"]
 
     static func searchScore(query: String, title: String, artist: String) -> Int {
         let wanted = key(query), name = key(title), performer = key(artist)
