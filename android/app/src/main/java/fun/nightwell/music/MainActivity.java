@@ -29,6 +29,12 @@ public final class MainActivity extends Activity {
     private final LatestRequest waveRequest=new LatestRequest(),accountRequest=new LatestRequest();
     private JSONArray catalog=new JSONArray(),shown=new JSONArray(),playlists=new JSONArray(),queue=new JSONArray();
     private final Set<String> likes=new HashSet<>();
+    private final java.util.LinkedHashMap<String,JSONArray> searchCache =
+        new java.util.LinkedHashMap<String,JSONArray>(24,0.75f,true) {
+            @Override protected boolean removeEldestEntry(java.util.Map.Entry<String,JSONArray> entry) {
+                return size()>24;
+            }
+        };
     private LinearLayout root,body,dock,head;
     private TextView status,miniTitle,miniArtist,miniPlay,miniPrev,miniNext,miniLike;
     private android.widget.ImageView miniCover;private android.graphics.drawable.ClipDrawable miniProgress;
@@ -232,7 +238,7 @@ public final class MainActivity extends Activity {
         else if(tab.equals("Обращения"))supportTickets(false);
         else if(tab.equals("Только фон")||tab.equals("Показать интерфейс"))toggleBackgroundOnly();
         else if(tab.equals("Войти"))auth();
-        else if(tab.equals("Выйти")){cancelMix();accountRequest.cancel();task(()->{api.request("api/logout","POST",null);new SessionStore(this).clear();clearLibrarySnapshot();return new JSONObject();},v->{libraryGeneration++;user="";playlists=new JSONArray();selectedPlaylist="";sessionReady=true;api.updateCSRF("");getSharedPreferences("native-api",MODE_PRIVATE).edit().putString("account","").apply();catalog=new JSONArray();shown=new JSONArray();likes.clear();if(playback!=null)playback.stop();navigate("Главная");});}
+        else if(tab.equals("Выйти")){cancelMix();accountRequest.cancel();task(()->{api.request("api/logout","POST",null);new SessionStore(this).clear();clearLibrarySnapshot();return new JSONObject();},v->{libraryGeneration++;user="";searchCache.clear();playlists=new JSONArray();selectedPlaylist="";sessionReady=true;api.updateCSRF("");getSharedPreferences("native-api",MODE_PRIVATE).edit().putString("account","").apply();catalog=new JSONArray();shown=new JSONArray();likes.clear();if(playback!=null)playback.stop();navigate("Главная");});}
         else navigate(tab);
     }
 
@@ -521,6 +527,7 @@ public final class MainActivity extends Activity {
                     }
                     boolean accountChanged=!nextAccount.equals(user);
                     user=nextAccount;
+                    if(!nextAccount.equals(getSharedPreferences("native-api",MODE_PRIVATE).getString("account","")))searchCache.clear();
                     if(accountChanged)restoreRecent();
                     getSharedPreferences("native-api",MODE_PRIVATE).edit().putString("account",user).apply();
                     sessionReady=true;
@@ -658,8 +665,67 @@ public final class MainActivity extends Activity {
             .putStringSet(hiddenRecommendationKey(), hidden).apply();
         status.setText(hidden.contains(id) ? "Трек больше не появится в новых подборках" : "Трек снова может появляться в подборках");
     }
-    void search(String value){search(value,0);}
-    void search(String value,int attempt){int gen=++generation;api.cancelSearch();if(pendingSearch!=null)ui.removeCallbacks(pendingSearch);if(value.trim().isEmpty()){shown=new JSONArray();updateList();status.setText("");return;}pendingSearch=()->{status.setText("Ищем полные версии…");io.execute(()->{try{String path="api/tracks?q="+java.net.URLEncoder.encode(value,"UTF-8");if(gen!=generation)return;JSONObject found=api.search(path);ui.post(()->{if(gen!=generation||!screen.equals("Поиск"))return;shown=rankSearchResults(found.optJSONArray("tracks"),value);updateList();status.setText(found.optString("search_message",""));if(found.optBoolean("search_pending")&&attempt<11)ui.postDelayed(()->{if(gen==generation)search(value,attempt+1);},Math.max(1500,Math.min(10000,found.optLong("search_retry_after",2)*1000)));});}catch(Exception ex){ui.post(()->{if(gen==generation)status.setText(friendly(ex));});}});};ui.postDelayed(pendingSearch,300);}
+    void search(String value) { search(value,0); }
+    void search(String value,int attempt) {
+        final int gen=++generation;
+        api.cancelSearch();
+        if(pendingSearch!=null)ui.removeCallbacks(pendingSearch);
+        final String text=value.trim();
+        if(text.isEmpty()) {
+            shown=new JSONArray();updateList();status.setText("");return;
+        }
+        final String cacheKey=hiddenRecommendationKey()+"|"+text.toLowerCase(java.util.Locale.ROOT);
+        final JSONArray cached=attempt==0?searchCache.get(cacheKey):null;
+        if(attempt==0) {
+            shown=cached==null?new JSONArray():cached;
+            updateList();
+        }
+        pendingSearch=()->{
+            status.setText("Ищем полные версии…");
+            io.execute(()->{
+                if(gen!=generation)return;
+                if(attempt==0&&cached==null) {
+                    java.util.List<JSONObject> local=new java.util.ArrayList<>();
+                    String target=RecommendationOrder.key(text);
+                    for(int i=0;i<Math.min(2000,catalog.length());i++) {
+                        JSONObject item=catalog.optJSONObject(i);
+                        if(item==null)continue;
+                        String label=RecommendationOrder.key(item.optString("title")+" "+item.optString("artist"));
+                        if(label.contains(target))local.add(item);
+                    }
+                    JSONArray quick=new JSONArray();
+                    for(JSONObject item:RecommendationOrder.rankSearch(local,text,
+                        t->t.optString("title"),t->t.optString("artist")))quick.put(item);
+                    ui.post(()->{
+                        if(gen==generation&&screen.equals("Поиск")) {
+                            shown=quick;updateList();
+                        }
+                    });
+                }
+                try {
+                    if(gen!=generation)return;
+                    JSONObject found=api.search("api/tracks?q="+java.net.URLEncoder.encode(text,"UTF-8"));
+                    ui.post(()->{
+                        if(gen!=generation||!screen.equals("Поиск"))return;
+                        JSONArray remote=rankSearchResults(found.optJSONArray("tracks"),text);
+                        boolean pending=found.optBoolean("search_pending");
+                        if(!pending||remote.length()>0) {
+                            shown=remote;updateList();
+                        }
+                        if(!pending)searchCache.put(cacheKey,remote);
+                        status.setText(found.optString("search_message",""));
+                        if(pending&&attempt<11)ui.postDelayed(()->{
+                            if(gen==generation)search(text,attempt+1);
+                        },Math.max(1500,Math.min(10000,found.optLong("search_retry_after",2)*1000)));
+                    });
+                }catch(Exception ex){
+                    ui.post(()->{if(gen==generation)status.setText(friendly(ex));});
+                }
+            });
+        };
+        ui.postDelayed(pendingSearch,attempt==0?300:0);
+    }
+
     void play(JSONObject track,JSONArray tracks,boolean wave){if(track==null)return;if(user.isEmpty()&&!track.optBoolean("_offline")){auth();return;}if(playback==null){status.setText("Аудиоплеер запускается. Повтори через секунду.");return;}try{cancelMix();playback.prepare(new JSONObject().put("id",track.getString("id")).put("queue",tracks).put("origin",origin).put("account",user.isEmpty()?"device":user).put("wave",wave).put("wave_preferences",WaveSettings.read(this,origin,user).json()).toString());playback.play();updatePlayback();}catch(Exception ex){status.setText(friendly(ex));}}
     void toggle(){cancelMix();if(playback!=null){if(playback.player.getPlayWhenReady())playback.pause();else playback.play();updatePlayback();}}
     private long lastPrevious;private String previousID="";
