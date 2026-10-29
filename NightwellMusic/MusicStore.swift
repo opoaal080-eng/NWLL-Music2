@@ -219,7 +219,7 @@ private struct LivePlaybackQueue: Decodable { let tracks: [Track] }
             liveBusy = false
         } catch {
             liveBusy = false
-            error = "Не удалось перенести воспроизведение: " + error.localizedDescription
+            self.error = "Не удалось перенести воспроизведение: " + error.localizedDescription
         }
     }
     private var starting = false
