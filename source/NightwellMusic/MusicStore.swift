@@ -87,6 +87,21 @@ import Network
     private var previousPlaying = false
     private var listeningDuration = 0.0, listeningPosition = 0.0
     private var mixRecentIDs: [String] = []
+    private var hiddenRecommendationsKey: String {
+        "nw-hidden-recommendations|" + origin.absoluteString + "|" + (account?.id ?? "device")
+    }
+    private var hiddenRecommendationIDs: Set<String> {
+        Set(UserDefaults.standard.stringArray(forKey: hiddenRecommendationsKey) ?? [])
+    }
+    func isRecommendationHidden(_ track: Track) -> Bool { hiddenRecommendationIDs.contains(track.id) }
+    func toggleRecommendationHidden(_ track: Track) {
+        let key = hiddenRecommendationsKey
+        var ids = UserDefaults.standard.stringArray(forKey: key) ?? []
+        if ids.contains(track.id) { ids.removeAll { $0 == track.id } }
+        else { ids.append(track.id) }
+        objectWillChange.send()
+        UserDefaults.standard.set(Array(ids.suffix(300)), forKey: key)
+    }
     private struct SessionSnapshot: Codable {
         let savedAt: Date
         let tracks: [Track]
@@ -519,17 +534,18 @@ import Network
                 let local = catalog, key = text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
                 let found = await Task.detached(priority: .userInitiated) { local.filter { ($0.title + " " + $0.artist).folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current).contains(key) } }.value
                 guard generation == searchGeneration, !Task.isCancelled else { return }
-                results = searchCache[text] ?? found
+                results = searchCache[text] ?? RecommendationOrder.rankSearch(found, query: text, title: { $0.title }, artist: { $0.artist })
                 searchMessage = "Ищем полные версии…"
                 let encoded = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed.subtracting(CharacterSet(charactersIn: "&+=?#"))) ?? ""
                 for _ in 0..<30 {
                     let response: TrackResult = try await api.request("/api/tracks?q=" + encoded)
                     guard generation == searchGeneration, !Task.isCancelled else { return }
-                    if results != response.tracks { results = response.tracks }
+                    let ranked = RecommendationOrder.rankSearch(response.tracks, query: text, title: { $0.title }, artist: { $0.artist })
+                    if results != ranked { results = ranked }
                     searchMessage = response.search_message ?? ""
                     if response.search_pending != true {
                         if searchCache.count >= 20 { searchCache.removeAll(keepingCapacity: true) }
-                        searchCache[text] = response.tracks; return
+                        searchCache[text] = ranked; return
                     }
                     try await Task.sleep(nanoseconds: UInt64(max(1.5, min(10, response.search_retry_after ?? 2)) * 1_000_000_000))
                 }
@@ -595,7 +611,9 @@ import Network
         let settings = WaveSettings.read(origin, mixAccount ?? "device")
         loading = true; defer { loading = false }
         do {
+            let hidden = hiddenRecommendationIDs
             var ids = Array(Set(mixRecentIDs + Array(clock.queue.prefix(8)).map(\.id)))
+            ids.append(contentsOf: hidden.sorted().prefix(80))
             if !clock.id.isEmpty { ids.removeAll { $0 == clock.id }; ids.append(clock.id) }
             let excluded = Array(ids.suffix(200)), nonce = UUID().uuidString
             let query = excluded.joined(separator: ",").addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
@@ -605,12 +623,12 @@ import Network
                 result = try await api.request("/api/wave?mix=" + nonce + settings.query + "&exclude=" + recent.joined(separator: ","))
             }
             guard account?.id == mixAccount else { return }
-            let fresh = RecommendationOrder.arrange(result.tracks, recent: Set(mixRecentIDs.suffix(20)), current: clock.id, identity: { $0.id }, title: { $0.title }, artist: { $0.artist })
+            let fresh = RecommendationOrder.arrange(result.tracks, recent: Set(mixRecentIDs.suffix(20)), hidden: hidden, current: clock.id, identity: { $0.id }, title: { $0.title }, artist: { $0.artist })
             if let first = fresh.first { lastWave = fresh; saveSessionSnapshot(); play(first, in: fresh, wave: true) }
             else { error = result.message ?? "Нет подходящих треков. Измени настройки или попробуй позже." }
         } catch {
-            if let first = lastWave.first(where: { $0.id != clock.id }) {
-                let cached = lastWave.filter { $0.id != clock.id }
+            let cached = lastWave.filter { $0.id != clock.id && !hiddenRecommendationIDs.contains($0.id) }
+            if let first = cached.first {
                 play(first, in: cached, wave: true)
             } else { self.error = error.localizedDescription }
         }

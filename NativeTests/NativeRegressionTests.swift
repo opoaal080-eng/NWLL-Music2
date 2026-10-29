@@ -39,6 +39,20 @@ private actor LyricsStub: LyricsService {
         XCTAssertFalse(fresh.contains { $0.id == "b" })
         XCTAssertNotEqual(fresh.first?.id, "a")
     }
+    func testHiddenRecommendationsAndExactSearchVersions() {
+        let tracks = [
+            Track(id: "remix", title: "Night Song (Remix)", artist: "Artist"),
+            Track(id: "original", title: "Night Song", artist: "Artist"),
+            Track(id: "live", title: "Night Song Live", artist: "Artist")
+        ]
+        let exact = RecommendationOrder.rankSearch(tracks, query: "Night Song", title: { $0.title }, artist: { $0.artist })
+        XCTAssertEqual(exact.first?.id, "original")
+        let remix = RecommendationOrder.rankSearch(tracks, query: "Night Song Remix", title: { $0.title }, artist: { $0.artist })
+        XCTAssertEqual(remix.first?.id, "remix")
+        let filtered = RecommendationOrder.arrange(tracks, hidden: ["original"], identity: { $0.id }, title: { $0.title }, artist: { $0.artist })
+        XCTAssertFalse(filtered.contains { $0.id == "original" })
+        XCTAssertEqual(filtered.count, 2)
+    }
     func testSharedTrackURLsValidateHostAndTrackID() {
         let id = "80adb8c0f574439fac645585493e955a"
         XCTAssertEqual(DeepLink.trackID(from: URL(string: "nightwell://track/" + id)!), id)

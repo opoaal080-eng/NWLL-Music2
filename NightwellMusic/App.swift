@@ -444,6 +444,9 @@ struct NativeTrackRow: View {
                     Button("Скачать", systemImage: "arrow.down.to.line") { Task { await store.download([track]) } }
                 }
                 ShareLink(item: store.origin.appendingPathComponent("track/" + track.id)) { Label("Поделиться", systemImage: "square.and.arrow.up") }
+                Button(store.isRecommendationHidden(track) ? "Вернуть в рекомендации" : "Не рекомендовать", systemImage: "hand.thumbsdown") {
+                    store.toggleRecommendationHidden(track)
+                }
                 Menu("Добавить в плейлист") { ForEach(store.playlists) { p in Button(p.name) { Task { await store.add(track, playlist: p) } } } }
                 if let playlist { Button("Убрать из плейлиста", role: .destructive) { Task { await store.add(track, playlist: playlist, remove: true) } } }
             } label: { Image(systemName: "ellipsis").frame(width: 34, height: 44) }

@@ -595,8 +595,33 @@ public final class MainActivity extends Activity {
     String friendly(Exception error){if(error instanceof java.net.UnknownHostException||error instanceof java.net.ConnectException||error instanceof java.net.SocketTimeoutException)return "Нет соединения. Офлайн-файлы доступны в меню.";String message=error.getMessage();return message!=null&&!message.startsWith("Unable")&&message.length()<180?message:"Не удалось выполнить действие. Повтори попытку.";}
     interface Work{JSONObject run()throws Exception;} interface Done{void run(JSONObject value);}
     void task(Work work,Done done){io.execute(()->{try{JSONObject value=work.run();ui.post(()->{if(!isDestroyed())done.run(value);});}catch(Exception ex){ui.post(()->{if(!isDestroyed())status.setText(friendly(ex));});}});}
+    JSONArray rankSearchResults(JSONArray tracks, String query) {
+        java.util.List<JSONObject> items = new java.util.ArrayList<>();
+        if (tracks != null) for (int i = 0; i < tracks.length(); i++) {
+            JSONObject track = tracks.optJSONObject(i);
+            if (track != null) items.add(track);
+        }
+        JSONArray ranked = new JSONArray();
+        for (JSONObject track : RecommendationOrder.rankSearch(items, query,
+            t -> t.optString("title"), t -> t.optString("artist"))) ranked.put(track);
+        return ranked;
+    }
+    private String hiddenRecommendationKey() { return origin + "|" + (user.isEmpty() ? "device" : user); }
+    private java.util.Set<String> hiddenRecommendations() {
+        return new java.util.HashSet<>(getSharedPreferences("recommendation-hides", MODE_PRIVATE)
+            .getStringSet(hiddenRecommendationKey(), java.util.Collections.emptySet()));
+    }
+    void toggleRecommendationHidden(JSONObject track) {
+        java.util.Set<String> hidden = hiddenRecommendations();
+        String id = track.optString("id");
+        if (id.isEmpty()) return;
+        if (!hidden.add(id)) hidden.remove(id);
+        getSharedPreferences("recommendation-hides", MODE_PRIVATE).edit()
+            .putStringSet(hiddenRecommendationKey(), hidden).apply();
+        status.setText(hidden.contains(id) ? "Трек больше не появится в новых подборках" : "Трек снова может появляться в подборках");
+    }
     void search(String value){search(value,0);}
-    void search(String value,int attempt){int gen=++generation;api.cancelSearch();if(pendingSearch!=null)ui.removeCallbacks(pendingSearch);if(value.trim().isEmpty()){shown=new JSONArray();updateList();status.setText("");return;}pendingSearch=()->{status.setText("Ищем полные версии…");io.execute(()->{try{String path="api/tracks?q="+java.net.URLEncoder.encode(value,"UTF-8");if(gen!=generation)return;JSONObject found=api.search(path);ui.post(()->{if(gen!=generation||!screen.equals("Поиск"))return;shown=found.optJSONArray("tracks");updateList();status.setText(found.optString("search_message",""));if(found.optBoolean("search_pending")&&attempt<11)ui.postDelayed(()->{if(gen==generation)search(value,attempt+1);},Math.max(1500,Math.min(10000,found.optLong("search_retry_after",2)*1000)));});}catch(Exception ex){ui.post(()->{if(gen==generation)status.setText(friendly(ex));});}});};ui.postDelayed(pendingSearch,300);}
+    void search(String value,int attempt){int gen=++generation;api.cancelSearch();if(pendingSearch!=null)ui.removeCallbacks(pendingSearch);if(value.trim().isEmpty()){shown=new JSONArray();updateList();status.setText("");return;}pendingSearch=()->{status.setText("Ищем полные версии…");io.execute(()->{try{String path="api/tracks?q="+java.net.URLEncoder.encode(value,"UTF-8");if(gen!=generation)return;JSONObject found=api.search(path);ui.post(()->{if(gen!=generation||!screen.equals("Поиск"))return;shown=rankSearchResults(found.optJSONArray("tracks"),value);updateList();status.setText(found.optString("search_message",""));if(found.optBoolean("search_pending")&&attempt<11)ui.postDelayed(()->{if(gen==generation)search(value,attempt+1);},Math.max(1500,Math.min(10000,found.optLong("search_retry_after",2)*1000)));});}catch(Exception ex){ui.post(()->{if(gen==generation)status.setText(friendly(ex));});}});};ui.postDelayed(pendingSearch,300);}
     void play(JSONObject track,JSONArray tracks,boolean wave){if(track==null)return;if(user.isEmpty()&&!track.optBoolean("_offline")){auth();return;}if(playback==null){status.setText("Аудиоплеер запускается. Повтори через секунду.");return;}try{cancelMix();playback.prepare(new JSONObject().put("id",track.getString("id")).put("queue",tracks).put("origin",origin).put("account",user.isEmpty()?"device":user).put("wave",wave).put("wave_preferences",WaveSettings.read(this,origin,user).json()).toString());playback.play();updatePlayback();}catch(Exception ex){status.setText(friendly(ex));}}
     void toggle(){cancelMix();if(playback!=null){if(playback.player.getPlayWhenReady())playback.pause();else playback.play();updatePlayback();}}
     private long lastPrevious;private String previousID="";
@@ -644,10 +669,14 @@ public final class MainActivity extends Activity {
         final long ticket=waveRequest.start(client::close);
         final String account=user,playingID=currentID;
         final WaveSettings settings=WaveSettings.read(this,origin,account);
+        final java.util.Set<String> hidden=hiddenRecommendations();
         mixing=true;status.setText("Подбираем…");
         final java.util.LinkedHashSet<String> excluded=new java.util.LinkedHashSet<>(mixRecent);
         for(int i=0;i<Math.min(8,queue.length());i++)excluded.add(queue.optJSONObject(i).optString("id"));
         if(!playingID.isEmpty())excluded.add(playingID);
+        java.util.List<String> hiddenForServer=new java.util.ArrayList<>(hidden);
+        java.util.Collections.sort(hiddenForServer);
+        for(int i=0;i<Math.min(hiddenForServer.size(),80);i++)excluded.add(hiddenForServer.get(i));
         io.execute(()->{
             try{
                 if(!waveRequest.pending(ticket))return;
@@ -656,7 +685,7 @@ public final class MainActivity extends Activity {
                 JSONArray raw=value.optJSONArray("tracks");
                 if((raw==null||raw.length()==0)&&!playingID.isEmpty())raw=client.search("api/wave?mix="+nonce+settings.query()+"&exclude="+playingID).optJSONArray("tracks");
                 final JSONArray fresh=new JSONArray();
-                if(raw!=null)for(int i=0;i<raw.length();i++)if(!playingID.equals(raw.optJSONObject(i).optString("id")))fresh.put(raw.optJSONObject(i));
+                if(raw!=null)for(int i=0;i<raw.length();i++)if(!playingID.equals(raw.optJSONObject(i).optString("id"))&&!hidden.contains(raw.optJSONObject(i).optString("id")))fresh.put(raw.optJSONObject(i));
                 ui.post(()->{
                     if(isDestroyed()||!waveRequest.complete(ticket))return;
                     mixing=false;
@@ -664,7 +693,7 @@ public final class MainActivity extends Activity {
                     if(fresh.length()>0){
                         java.util.List<JSONObject> candidates=new java.util.ArrayList<>();for(int i=0;i<fresh.length();i++)candidates.add(fresh.optJSONObject(i));
                         JSONArray ordered=new JSONArray();
-                        for(JSONObject t:RecommendationOrder.arrange(candidates,new java.util.HashSet<>(mixRecent),playingID,t->t.optString("id"),t->t.optString("title"),t->t.optString("artist")))ordered.put(t);
+                        for(JSONObject t:RecommendationOrder.arrange(candidates,new java.util.HashSet<>(mixRecent),hidden,playingID,t->t.optString("id"),t->t.optString("title"),t->t.optString("artist")))ordered.put(t);
                         status.setText("");play(ordered.optJSONObject(0),ordered,true);
                     }else status.setText("Новых треков пока нет. Попробуй чуть позже.");
                 });
@@ -805,7 +834,31 @@ public final class MainActivity extends Activity {
     void syncLyrics(double position){if(lyricsText==null||lyricLines==null||!currentID.equals(lyricsTrack))return;int current=-1;for(int i=0;i<lyricLines.length();i++)if(lyricLines.optJSONObject(i).optDouble("time")<=position)current=i;if(current==activeLyric)return;activeLyric=current;StringBuilder all=new StringBuilder();int start=0,end=0;for(int i=0;i<lyricLines.length();i++){if(i==current)start=all.length();all.append(lyricLines.optJSONObject(i).optString("text")).append("\n\n");if(i==current)end=all.length();}android.text.SpannableString styled=new android.text.SpannableString(all);styled.setSpan(new android.text.style.ForegroundColorSpan(0xff9e8daa),0,styled.length(),0);if(current>=0){styled.setSpan(new android.text.style.ForegroundColorSpan(0xffffeedc),start,end,0);styled.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD),start,end,0);}lyricsText.setText(styled);final int offset=start;lyricsText.post(()->{if(lyricsText==null||lyricsScroll==null||lyricsText.getLayout()==null)return;int line=lyricsText.getLayout().getLineForOffset(Math.min(offset,lyricsText.length()));lyricsScroll.smoothScrollTo(0,Math.max(0,lyricsText.getLayout().getLineTop(line)-lyricsScroll.getHeight()/3));});}
 
     void fullPlayerMenu(JSONObject track){nightwellOptions("Плеер",new String[]{"Эквалайзер","Действия с треком"},n->{if(n==0)feature("sound");else trackMenu(track);});}
-    void trackMenu(JSONObject track){AlertDialog actions=new AlertDialog.Builder(this).setTitle(track.optString("title")).setItems(new String[]{likes.contains(track.optString("id"))?"Убрать из избранного":"В избранное","Скачать","Поделиться","Добавить в плейлист"},(d,n)->{String id=track.optString("id");if(n==0){toggleFavorite(track);}else if(n==1)download(new JSONArray().put(track));else if(n==2)share(origin+"track/"+id);else{String[] names=new String[playlists.length()];for(int i=0;i<names.length;i++)names[i]=playlists.optJSONObject(i).optString("name");new AlertDialog.Builder(this).setTitle("В плейлист").setItems(names,(x,i)->task(()->api.request("api/playlists/"+playlists.optJSONObject(i).getString("id")+"/tracks/"+id,"POST",null),v->{})).show();}}).create();styleSheet(actions);actions.show();}
+    void trackMenu(JSONObject track){
+        String id=track.optString("id");
+        String[] options={
+            likes.contains(id)?"Убрать из избранного":"В избранное",
+            "Скачать", "Поделиться", "Добавить в плейлист",
+            hiddenRecommendations().contains(id)?"Вернуть в рекомендации":"Не рекомендовать"
+        };
+        AlertDialog actions=new AlertDialog.Builder(this).setTitle(track.optString("title"))
+            .setItems(options,(d,n)->{
+                if(n==0)toggleFavorite(track);
+                else if(n==1)download(new JSONArray().put(track));
+                else if(n==2)share(origin+"track/"+id);
+                else if(n==4)toggleRecommendationHidden(track);
+                else {
+                    String[] names=new String[playlists.length()];
+                    for(int i=0;i<names.length;i++)names[i]=playlists.optJSONObject(i).optString("name");
+                    AlertDialog choose=new AlertDialog.Builder(this).setTitle("В плейлист")
+                        .setItems(names,(x,i)->task(()->api.request(
+                            "api/playlists/"+playlists.optJSONObject(i).getString("id")+"/tracks/"+id,
+                            "POST",null),v->{})).create();
+                    styleSheet(choose);choose.show();
+                }
+            }).create();
+        styleSheet(actions);actions.show();
+    }
     private String playlistSnapshotKey(String id){return "playlist|"+origin+"|"+user+"|"+id;}
     void openPlaylist(JSONObject p){
         final int gen=++generation;api.cancelSearch();
