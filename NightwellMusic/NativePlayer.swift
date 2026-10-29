@@ -463,7 +463,7 @@ final class NativePlayer {
         let artistKey = "nw-hidden-artists|" + origin.absoluteString + "|" + offlineAccount
         let hiddenArtists = Set(UserDefaults.standard.stringArray(forKey: artistKey) ?? [])
         let historyKey = "nw-recent-recommendations|" + origin.absoluteString + "|" + offlineAccount
-        let hidden = Set(UserDefaults.standard.stringArray(forKey: hiddenKey) ?? [])
+        let hidden = Set(UserDefaults.standard.stringArray(forKey: hiddenKey) ?? []).union(SkipFeedback.recentIDs(origin: origin, account: offlineAccount))
         let recent = Array((UserDefaults.standard.stringArray(forKey: historyKey) ?? []).suffix(60))
         var excluded = waveSeen
         excluded.append(contentsOf: tracks.dropFirst(index).map { $0.id })

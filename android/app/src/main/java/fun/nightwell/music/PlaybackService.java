@@ -320,6 +320,7 @@ public final class PlaybackService extends MediaSessionService {
         String scope=origin+"|"+(offlineAccount.isEmpty()?"device":offlineAccount);
         java.util.Set<String> hidden=new java.util.HashSet<>(getSharedPreferences("recommendation-hides",MODE_PRIVATE)
             .getStringSet(scope,java.util.Collections.emptySet()));
+        hidden.addAll(SkipFeedback.recentIDs(this,origin,offlineAccount));
         java.util.Set<String> blockedArtists=new java.util.HashSet<>(
             getSharedPreferences("recommendation-artists",MODE_PRIVATE)
                 .getStringSet(scope,java.util.Collections.emptySet()));
@@ -399,6 +400,8 @@ public final class PlaybackService extends MediaSessionService {
     private void reportListening(){reportListening(false);}
     private void reportListening(boolean skipped){
         reportedAt=android.os.SystemClock.elapsedRealtime();if(listenedID.isEmpty()||offlineAccount.isEmpty()||offlineAccount.equals("device")||listenedID.startsWith("local_")||listenedSeconds<=0)return;
+        if(skipped&&waveActive&&listenedSeconds>=3&&listenedSeconds<30)
+            SkipFeedback.record(this,origin,offlineAccount,listenedID);
         final String id=listenedID,sid=listenedSession,base=origin;final double seconds=listenedSeconds;
         waveIO.execute(()->{try{new NativeAPI(this,base).request("api/listening","POST",new JSONObject().put("session_id",sid).put("track_id",id).put("seconds",seconds).put("skipped",skipped));}catch(Exception ignored){}});
     }

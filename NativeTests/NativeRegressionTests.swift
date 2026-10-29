@@ -56,6 +56,14 @@ private actor LyricsStub: LyricsService {
             identity: { $0.id }, title: { $0.title }, artist: { $0.artist })
         XCTAssertTrue(removed.isEmpty)
     }
+    func testShortSkipFeedbackExpires() {
+        let first = SkipFeedback.next(nil, now: 1000)
+        XCTAssertFalse(SkipFeedback.blocked(first, now: 1000))
+        let second = SkipFeedback.next(first, now: 2000)
+        XCTAssertTrue(SkipFeedback.blocked(second, now: 2000))
+        XCTAssertFalse(SkipFeedback.blocked(second, now: 2000 + 48 * 3600))
+        XCTAssertEqual(SkipFeedback.next(second, now: 2000 + 8 * 86400).count, 1)
+    }
     func testSharedTrackURLsValidateHostAndTrackID() {
         let id = "80adb8c0f574439fac645585493e955a"
         XCTAssertEqual(DeepLink.trackID(from: URL(string: "nightwell://track/" + id)!), id)

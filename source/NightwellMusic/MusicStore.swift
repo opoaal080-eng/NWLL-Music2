@@ -84,6 +84,7 @@ import Network
     private var lastSaved = Date.distantPast
     private var listeningID = "", listeningSession = "", listeningSeconds = 0.0
     private var lastTick = ProcessInfo.processInfo.systemUptime, lastReport = Date.distantPast
+    private var previousWave = false
     private var previousPlaying = false
     private var listeningDuration = 0.0, listeningPosition = 0.0
     private var mixRecentIDs: [String] = []
@@ -379,6 +380,10 @@ import Network
     }
     private func reportListening(skipped: Bool = false) {
         guard !listeningID.isEmpty, listeningSeconds > 0, account != nil else { return }
+        if skipped && previousWave && listeningSeconds >= 3 && listeningSeconds < 30,
+           let id = account?.id {
+            SkipFeedback.record(listeningID, origin: origin, account: id)
+        }
         let body: [String: Any] = ["session_id": listeningSession, "track_id": listeningID, "seconds": listeningSeconds, "skipped": skipped]
         let api = api; Task { let _: OK? = try? await api.request("/api/listening", method: "POST", body: body) }
         lastReport = Date()
@@ -425,6 +430,7 @@ import Network
         if state["audible"] as? Bool == true, clock.current?._offline != true { listeningSeconds += elapsed }
         if Date().timeIntervalSince(lastReport) >= 15 || previousPlaying && !clock.playing { reportListening() }
         if previousPlaying && !clock.playing { savePlayback(force: true) } else { savePlayback() }
+        previousWave = state["wave"] as? Bool ?? false
         previousPlaying = clock.playing; listeningDuration = clock.duration; listeningPosition = clock.position
     }
     func refresh() async {
@@ -646,7 +652,7 @@ import Network
         let settings = WaveSettings.read(origin, mixAccount ?? "device")
         loading = true; defer { loading = false }
         do {
-            let hidden = hiddenRecommendationIDs
+            let hidden = hiddenRecommendationIDs.union(SkipFeedback.recentIDs(origin: origin, account: mixAccount ?? "device"))
             var ids = Array(Set(mixRecentIDs + Array(clock.queue.prefix(8)).map(\.id)))
             ids.append(contentsOf: hidden.sorted().prefix(80))
             if !clock.id.isEmpty { ids.removeAll { $0 == clock.id }; ids.append(clock.id) }
@@ -662,7 +668,8 @@ import Network
             if let first = fresh.first { lastWave = fresh; saveSessionSnapshot(); play(first, in: fresh, wave: true) }
             else { error = result.message ?? "Нет подходящих треков. Измени настройки или попробуй позже." }
         } catch {
-            let cached = lastWave.filter { $0.id != clock.id && !hiddenRecommendationIDs.contains($0.id) && !blockedArtists.contains(RecommendationOrder.key($0.artist)) }
+            let cooled = SkipFeedback.recentIDs(origin: origin, account: mixAccount ?? "device")
+            let cached = lastWave.filter { $0.id != clock.id && !hiddenRecommendationIDs.contains($0.id) && !cooled.contains($0.id) && !blockedArtists.contains(RecommendationOrder.key($0.artist)) }
             if let first = cached.first {
                 play(first, in: cached, wave: true)
             } else { self.error = error.localizedDescription }

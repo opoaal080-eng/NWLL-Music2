@@ -9,6 +9,16 @@ public class RecommendationOrderTest {
         final String id, title, artist;
         Song(String id, String title, String artist) { this.id=id; this.title=title; this.artist=artist; }
     }
+    @Test public void shortSkipFeedbackExpires() {
+        int first=SkipFeedback.next(0,0,1000);
+        assertEquals(1,first);
+        assertFalse(SkipFeedback.blocked(first,1000,1000));
+        int second=SkipFeedback.next(first,1000,2000);
+        assertEquals(2,second);
+        assertTrue(SkipFeedback.blocked(second,2000,2000));
+        assertFalse(SkipFeedback.blocked(second,2000,2000+SkipFeedback.COOLDOWN));
+        assertEquals(1,SkipFeedback.next(second,2000,2000+SkipFeedback.WEEK+100));
+    }
     @Test public void originalBeatsUnrequestedRemixButRemixCanBeRequested() {
         List<Song> candidates=Arrays.asList(
             new Song("remix","Night Song Remix","Artist"),

@@ -778,6 +778,7 @@ public final class MainActivity extends Activity {
         final String account=user,playingID=currentID;
         final WaveSettings settings=WaveSettings.read(this,origin,account);
         final java.util.Set<String> hidden=hiddenRecommendations();
+        hidden.addAll(SkipFeedback.recentIDs(this,origin,account));
         final java.util.Set<String> blockedArtists=hiddenArtists();
         mixing=true;status.setText("Подбираем…");
         final java.util.LinkedHashSet<String> excluded=new java.util.LinkedHashSet<>(mixRecent);

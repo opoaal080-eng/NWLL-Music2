@@ -32,6 +32,11 @@ struct CheckRecommendations {
             Example(id: "three", title: "New", artist: "Other")],
             identity: { $0.id }, title: { $0.title }, artist: { $0.artist })
         precondition(noDuplicates.count == 2, "Duplicate recordings must be collapsed")
-        print("Recommendation ranking and user preferences passed")
+        let first = SkipFeedback.next(nil, now: 1000)
+        precondition(!SkipFeedback.blocked(first, now: 1000))
+        let second = SkipFeedback.next(first, now: 2000)
+        precondition(SkipFeedback.blocked(second, now: 2000))
+        precondition(!SkipFeedback.blocked(second, now: 2000 + 48 * 3600))
+        print("Recommendation ranking, preferences and cooldown passed")
     }
 }

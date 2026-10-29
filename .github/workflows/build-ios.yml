@@ -29,7 +29,7 @@ jobs:
           swiftc -frontend -parse source/NightwellMusic/*.swift
       - name: Test music search and recommendation controls
         run: |
-          swiftc NightwellMusic/RecommendationOrder.swift scripts/test-recommendations.swift -o /tmp/test-nightwell-recommendations
+          swiftc NightwellMusic/RecommendationOrder.swift NightwellMusic/SkipFeedback.swift scripts/test-recommendations.swift -o /tmp/test-nightwell-recommendations
           /tmp/test-nightwell-recommendations
       - name: Test Premium payment confirmation
         run: |
