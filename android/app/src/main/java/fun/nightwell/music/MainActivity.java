@@ -18,6 +18,136 @@ public final class MainActivity extends Activity {
     private final Handler ui=new Handler(Looper.getMainLooper());
     private final ExecutorService io=Executors.newFixedThreadPool(3);
     private final ExecutorService prefetch=Executors.newSingleThreadExecutor();
+    private TextView liveHandoff;
+    private JSONObject liveRemote;
+    private boolean liveOwner, liveBusy;
+    private int liveRevision;
+    private long liveLastPoll, liveLastWrite;
+    private String liveDevice(){
+        android.content.SharedPreferences prefs=getSharedPreferences("live-sync",MODE_PRIVATE);
+        String value=prefs.getString("device","");
+        if(!value.matches("[A-Za-z0-9_-]{8,100}")){
+            value="android_"+java.util.UUID.randomUUID().toString().replace("-","");
+            prefs.edit().putString("device",value).apply();
+        }
+        return value;
+    }
+    private void livePoll(){
+        if(smokeMode||!sessionReady||user.isEmpty()||playback==null||liveBusy)return;
+        long now=android.os.SystemClock.elapsedRealtime();
+        if(now-liveLastPoll<4500)return;
+        liveLastPoll=now;
+        liveBusy=true;
+        final String owner=user;
+        io.execute(()->{
+            try{
+                JSONObject state=api.request("api/playback/state");
+                ui.post(()->{
+                    liveBusy=false;
+                    if(isDestroyed()||!owner.equals(user))return;
+                    liveRevision=state.optInt("revision");
+                    boolean mine=liveDevice().equals(state.optString("device_id"));
+                    if(liveOwner&&!mine&&playback!=null&&playback.player.isPlaying())playback.pause();
+                    liveOwner=mine;
+                    if(mine||state.optString("track_id").isEmpty())liveRemote=null;
+                    else liveRemote=state;
+                    refreshLiveHandoff();
+                    if(liveOwner&&now-liveLastWrite>5000)publishLive(false);
+                });
+            }catch(Exception ex){ui.post(()->{liveBusy=false;});}
+        });
+    }
+    private void refreshLiveHandoff(){
+        if(liveHandoff==null)return;
+        boolean show=!user.isEmpty()&&liveRemote!=null&&
+            !liveRemote.optString("track_id").isEmpty()&&!backgroundOnly;
+        liveHandoff.setVisibility(show?View.VISIBLE:View.GONE);
+    }
+    private void publishLive(boolean takeover){
+        if(smokeMode||liveBusy||user.isEmpty()||playback==null||(!takeover&&!liveOwner))return;
+        JSONObject snapshot;
+        try{snapshot=new JSONObject(playback.snapshot(true));}
+        catch(Exception error){return;}
+        JSONArray tracks=snapshot.optJSONArray("queueTracks");
+        if(tracks==null)return;
+        JSONArray ids=new JSONArray();
+        for(int i=0;i<tracks.length()&&i<950;i++){
+            JSONObject item=tracks.optJSONObject(i);
+            if(item!=null&&!item.optBoolean("_offline"))ids.put(item.optString("id"));
+        }
+        String selected=snapshot.optString("id");
+        if(selected.isEmpty())return;
+        boolean found=false;
+        for(int i=0;i<ids.length();i++)if(selected.equals(ids.optString(i))){found=true;break;}
+        if(!found)return;
+        liveBusy=true;
+        final String owner=user;
+        io.execute(()->{
+            try{
+                int revision=liveRevision;
+                if(takeover)revision=api.request("api/playback/state").optInt("revision");
+                JSONObject payload=new JSONObject()
+                    .put("revision",revision).put("device_id",liveDevice())
+                    .put("takeover",takeover).put("track_id",selected)
+                    .put("queue",ids).put("position",Math.max(0,Math.min(86400,snapshot.optDouble("position"))))
+                    .put("playing",snapshot.optBoolean("playing"))
+                    .put("repeat",snapshot.optInt("repeat"))
+                    .put("shuffle",snapshot.optBoolean("shuffle"))
+                    .put("wave",snapshot.optBoolean("wave"));
+                JSONObject response=api.request("api/playback/state","PUT",payload);
+                ui.post(()->{
+                    liveBusy=false;
+                    if(isDestroyed()||!owner.equals(user))return;
+                    liveRevision=response.optInt("revision");liveOwner=true;liveRemote=null;
+                    liveLastWrite=android.os.SystemClock.elapsedRealtime();
+                    refreshLiveHandoff();
+                });
+            }catch(Exception ex){ui.post(()->{liveBusy=false;liveOwner=false;});}
+        });
+    }
+    private void continueLiveHere(){
+        if(liveBusy||liveRemote==null||playback==null||user.isEmpty())return;
+        final String owner=user;liveBusy=true;
+        io.execute(()->{
+            try{
+                JSONObject remote=api.request("api/playback/state");
+                if(remote.optString("track_id").isEmpty())throw new java.io.IOException("На другом устройстве нет трека");
+                JSONObject library=api.request("api/playback/queue");
+                JSONArray songs=library.optJSONArray("tracks");
+                if(songs==null)throw new java.io.IOException("Очередь недоступна");
+                String target=remote.optString("track_id");
+                boolean found=false;
+                for(int i=0;i<songs.length();i++){
+                    JSONObject item=songs.optJSONObject(i);
+                    if(item!=null&&target.equals(item.optString("id"))){found=true;break;}
+                }
+                if(!found)throw new java.io.IOException("Трек уже недоступен");
+                JSONObject wanted=new JSONObject(remote.toString());
+                wanted.put("revision",remote.optInt("revision"));
+                wanted.put("device_id",liveDevice());wanted.put("takeover",true);
+                JSONObject accepted=api.request("api/playback/state","PUT",wanted);
+                ui.post(()->{
+                    liveBusy=false;
+                    if(isDestroyed()||!owner.equals(user)||playback==null)return;
+                    try{
+                        playback.prepare(new JSONObject()
+                            .put("id",target).put("queue",songs).put("origin",origin)
+                            .put("account",owner).put("wave",remote.optBoolean("wave"))
+                            .put("wave_preferences",WaveSettings.read(this,origin,owner).json())
+                            .put("position",Math.max(0,(long)(remote.optDouble("position")*1000))).toString());
+                        playback.modes(remote.optInt("repeat"),remote.optBoolean("shuffle"));
+                        if(remote.optBoolean("playing"))playback.play();
+                        liveRevision=accepted.optInt("revision");liveOwner=true;
+                        liveRemote=null;liveLastWrite=android.os.SystemClock.elapsedRealtime();
+                        refreshLiveHandoff();updatePlayback();
+                    }catch(Exception error){status.setText("Не удалось восстановить очередь");}
+                });
+            }catch(Exception ex){ui.post(()->{
+                liveBusy=false;
+                if(!isDestroyed()&&owner.equals(user))status.setText(friendly(ex));
+            });}
+        });
+    }
     private TextView homeLyric;private JSONObject activeLyrics;private String homeLine="";private boolean lastPlaying,mixing;private final java.util.ArrayDeque<String> mixRecent=new java.util.ArrayDeque<>();
     private NativeAPI api;
     private String supportUploadTicket="";private boolean supportUploadAdmin;
@@ -88,7 +218,7 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);setIntent(intent);acceptDeepLink(intent);}
 
-    private final Runnable tick=new Runnable(){public void run(){premiumTick();updatePlayback();if(fullAudioOutput!=null&&fullAudioOutput.isAttachedToWindow()){String output=audioOutputName();fullAudioOutput.setText("♫  "+output+"  ⌄");fullAudioOutput.setContentDescription("Устройство вывода: "+output+". Изменить");}String next=BackgroundDownloads.progress(MainActivity.this);if(!next.equals(downloadProgress)){downloadProgress=next;status.setText(next);}if(visible)ui.postDelayed(this,playback!=null&&playback.player.getPlayWhenReady()?500:1200);}};
+    private final Runnable tick=new Runnable(){public void run(){premiumTick();updatePlayback();if(fullAudioOutput!=null&&fullAudioOutput.isAttachedToWindow()){String output=audioOutputName();fullAudioOutput.setText("♫  "+output+"  ⌄");fullAudioOutput.setContentDescription("Устройство вывода: "+output+". Изменить");}String next=BackgroundDownloads.progress(MainActivity.this);if(!next.equals(downloadProgress)){downloadProgress=next;status.setText(next);}if(visible){livePoll();ui.postDelayed(this,playback!=null&&playback.player.getPlayWhenReady()?500:1200);}}};
     private final androidx.media3.common.Player.Listener playbackIntentObserver=new androidx.media3.common.Player.Listener(){
         @Override public void onPlayWhenReadyChanged(boolean ready,int reason){if(!ready&&mixing)cancelMix();}
         @Override public void onMediaItemTransition(androidx.media3.common.MediaItem item,int reason){if(mixing)cancelMix();}
@@ -144,6 +274,9 @@ public final class MainActivity extends Activity {
         wordmark.addView(brandName,new LinearLayout.LayoutParams(-1,dp(33)));
         TextView brandCaption=text("M U S I C",12);brandCaption.setIncludeFontPadding(false);brandCaption.setSingleLine(true);brandCaption.setTextColor(0xff92959f);LinearLayout.LayoutParams captionParams=new LinearLayout.LayoutParams(-1,-2);captionParams.topMargin=dp(1);wordmark.addView(brandCaption,captionParams);
         wordmark.setOnClickListener(v->navigate("Главная"));wordmark.setContentDescription("Nightwell Music, на главный экран");head.addView(wordmark,new LinearLayout.LayoutParams(0,-2,1));TextView searchButton=iconButton("⌕",()->navigate("Поиск"));searchButton.setBackground(touchSurface(0x40202228,24));head.addView(searchButton,new LinearLayout.LayoutParams(dp(48),dp(48)));TextView menuButton=iconButton("☰",this::menu);menuButton.setBackground(touchSurface(0x40202228,24));head.addView(menuButton,new LinearLayout.LayoutParams(dp(48),dp(48)));LinearLayout.LayoutParams headerParams=new LinearLayout.LayoutParams(-1,dp(58));headerParams.bottomMargin=dp(12);root.addView(head,headerParams);if(backgroundOnly)head.setVisibility(View.GONE);
+        liveHandoff=sheetAction("Музыка на другом устройстве · Продолжить здесь",this::continueLiveHere);
+        liveHandoff.setVisibility(View.GONE);root.addView(liveHandoff);
+        refreshLiveHandoff();
         body=column();root.addView(body,new LinearLayout.LayoutParams(-1,0,1));status=text("",12);root.addView(status);dock=row();dock.setPadding(dp(10),dp(8),dp(10),dp(8));GradientDrawable fill=new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,new int[]{0x12ffbc78,0x12ffbc78});fill.setCornerRadius(dp(34));miniProgress=new android.graphics.drawable.ClipDrawable(fill,Gravity.LEFT,android.graphics.drawable.ClipDrawable.HORIZONTAL);GradientDrawable glassDock=new GradientDrawable();glassDock.setColor(0x8c202228);glassDock.setCornerRadius(dp(34));glassDock.setStroke(dp(1),0x38ffffff);dock.setBackground(new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{glassDock,miniProgress}));dock.setClipToOutline(true);
         miniCover=new android.widget.ImageView(this);miniCover.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);GradientDrawable coverShape=new GradientDrawable();coverShape.setColor(0x443e2d52);coverShape.setCornerRadius(dp(16));miniCover.setBackground(coverShape);miniCover.setClipToOutline(true);miniCover.setOnClickListener(v->openPlayer());LinearLayout.LayoutParams coverParams=new LinearLayout.LayoutParams(dp(44),dp(44));coverParams.rightMargin=dp(10);dock.addView(miniCover,coverParams);
         LinearLayout labels=column();miniTitle=text("Выбери трек",15);miniTitle.setMaxLines(1);miniTitle.setTextSize(15);miniTitle.setLetterSpacing(-.015f);miniTitle.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);miniArtist=text("Nightwell Music",12);miniArtist.setMaxLines(1);miniArtist.setTextSize(12);miniArtist.setLetterSpacing(.005f);miniArtist.setTextColor(0xffa4a6b1);miniTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);miniArtist.setEllipsize(android.text.TextUtils.TruncateAt.END);labels.addView(miniTitle);labels.addView(miniArtist);labels.setOnClickListener(v->openPlayer());dock.addView(labels,new LinearLayout.LayoutParams(0,-2,1));miniPrev=action("|‹",()->previous());miniPlay=action("▶",()->toggle());miniNext=action("›|",()->{nextTrack();});miniLike=action("♡",()->toggleFavorite(current()));miniLike.setTextColor(0xffeeeeee);miniPlay.setTextSize(23);miniNext.setTextSize(24);miniPlay.setPadding(0,0,0,0);miniNext.setPadding(0,0,0,0);miniPlay.setTextColor(0xffeeeeee);miniPlay.setBackground(null);miniPrev.setPadding(0,0,0,0);miniLike.setPadding(0,0,0,0);if(getResources().getConfiguration().screenWidthDp>=380)dock.addView(miniLike,new LinearLayout.LayoutParams(dp(40),dp(48)));dock.addView(miniPrev,new LinearLayout.LayoutParams(dp(40),dp(48)));dock.addView(miniPlay,new LinearLayout.LayoutParams(dp(48),dp(48)));dock.addView(miniNext,new LinearLayout.LayoutParams(dp(44),dp(48)));LinearLayout.LayoutParams dockParams=new LinearLayout.LayoutParams(-1,-2);dockParams.topMargin=dp(10);root.addView(dock,dockParams);if(backgroundOnly)dock.setVisibility(View.GONE);android.view.GestureDetector miniGestures=gestures(false);labels.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));dock.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));
@@ -753,8 +886,8 @@ public final class MainActivity extends Activity {
         ui.postDelayed(pendingSearch,attempt==0?300:0);
     }
 
-    void play(JSONObject track,JSONArray tracks,boolean wave){if(track==null)return;if(user.isEmpty()&&!track.optBoolean("_offline")){auth();return;}if(playback==null){status.setText("Аудиоплеер запускается. Повтори через секунду.");return;}try{cancelMix();playback.prepare(new JSONObject().put("id",track.getString("id")).put("queue",tracks).put("origin",origin).put("account",user.isEmpty()?"device":user).put("wave",wave).put("wave_preferences",WaveSettings.read(this,origin,user).json()).toString());playback.play();updatePlayback();}catch(Exception ex){status.setText(friendly(ex));}}
-    void toggle(){cancelMix();if(playback!=null){if(playback.player.getPlayWhenReady())playback.pause();else playback.play();updatePlayback();}}
+    void play(JSONObject track,JSONArray tracks,boolean wave){if(track==null)return;if(user.isEmpty()&&!track.optBoolean("_offline")){auth();return;}if(playback==null){status.setText("Аудиоплеер запускается. Повтори через секунду.");return;}try{cancelMix();playback.prepare(new JSONObject().put("id",track.getString("id")).put("queue",tracks).put("origin",origin).put("account",user.isEmpty()?"device":user).put("wave",wave).put("wave_preferences",WaveSettings.read(this,origin,user).json()).toString());playback.play();updatePlayback();publishLive(true);}catch(Exception ex){status.setText(friendly(ex));}}
+    void toggle(){cancelMix();if(playback!=null){if(playback.player.getPlayWhenReady())playback.pause();else playback.play();updatePlayback();if(liveOwner)publishLive(false);}}
     private long lastPrevious;private String previousID="";
     void nextTrack(){trackTransitionDirection=1;cancelMix();if(playback!=null)playback.player.seekToNextMediaItem();}
     void previous(){trackTransitionDirection=-1;cancelMix();if(playback==null)return;long now=SystemClock.uptimeMillis();if(playback.player.getCurrentPosition()>3000&&!(currentID.equals(previousID)&&now-lastPrevious<3000)){previousID=currentID;lastPrevious=now;playback.seek(0);}else{previousID="";playback.player.seekToPreviousMediaItem();}}
