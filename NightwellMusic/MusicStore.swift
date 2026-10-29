@@ -48,6 +48,23 @@ import Network
     func toggle() { playing ? NativePlayer.shared.pause() : NativePlayer.shared.play() }
 }
 
+private struct LivePlaybackState: Decodable {
+    let revision: Int
+    let device_id: String
+    let track_id: String
+    let queue: [String]
+    let position: Double
+    let playing: Bool
+    let repeatMode: Int
+    let shuffle: Bool
+    let wave: Bool
+    enum CodingKeys: String, CodingKey {
+        case revision, device_id, track_id, queue, position, playing, shuffle, wave
+        case repeatMode = "repeat"
+    }
+}
+private struct LivePlaybackQueue: Decodable { let tracks: [Track] }
+
 @MainActor final class MusicStore: ObservableObject {
     enum Screen: String, CaseIterable { case home = "Главная", search = "Поиск", likes = "Избранное", playlists = "Плейлисты", offline = "Офлайн" }
     @Published var screen: Screen = .home
@@ -73,6 +90,138 @@ import Network
     private var searchTask: Task<Void, Never>?
     private var searchGeneration = UUID()
     private var searchCache: [String: [Track]] = [:]
+    @Published private(set) var hasRemotePlayback = false
+    private var remotePlaybackState: LivePlaybackState?
+    private lazy var liveDeviceID: String = {
+        if let current = UserDefaults.standard.string(forKey: "nw-live-sync-device"),
+           current.range(of: "^[A-Za-z0-9_-]{8,100}$", options: .regularExpression) != nil {
+            return current
+        }
+        let device = "ios_" + UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        UserDefaults.standard.set(device, forKey: "nw-live-sync-device")
+        return device
+    }()
+    private var liveRevision = 0
+    private var liveIsOwner = false
+    private var liveBusy = false
+    private var liveLastWrite = Date.distantPast
+    private var liveLoop: Task<Void, Never>?
+    private func stopLiveSync() {
+        liveLoop?.cancel(); liveLoop = nil
+        liveBusy = false; liveIsOwner = false; liveRevision = 0
+        remotePlaybackState = nil; hasRemotePlayback = false
+    }
+    private func startLiveSync() {
+        stopLiveSync()
+        guard account != nil else { return }
+        let expected = account?.id
+        liveLoop = Task { [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled, self.account?.id == expected {
+                if self.hasNetworkPath {
+                    await self.pollLiveSync()
+                    if self.liveIsOwner && self.applicationIsActive &&
+                       Date().timeIntervalSince(self.liveLastWrite) > 5 {
+                        await self.publishLiveSync(takeover: false)
+                    }
+                }
+                do { try await Task.sleep(nanoseconds: 5_000_000_000) }
+                catch { return }
+            }
+        }
+    }
+    private func pollLiveSync() async {
+        guard !liveBusy, let owner = account?.id, hasNetworkPath else { return }
+        liveBusy = true; defer { liveBusy = false }
+        do {
+            let remote: LivePlaybackState = try await api.request("/api/playback/state", timeout: 8)
+            guard account?.id == owner else { return }
+            liveRevision = remote.revision
+            let mine = remote.device_id == liveDeviceID
+            if liveIsOwner && !mine && clock.playing { NativePlayer.shared.pause() }
+            liveIsOwner = mine
+            if mine || remote.track_id.isEmpty {
+                remotePlaybackState = nil
+                if hasRemotePlayback { hasRemotePlayback = false }
+            } else {
+                remotePlaybackState = remote
+                if !hasRemotePlayback { hasRemotePlayback = true }
+            }
+        } catch { /* Offline mode must keep local playback unchanged. */ }
+    }
+    private func publishLiveSync(takeover: Bool) async {
+        guard !liveBusy, let owner = account?.id, hasNetworkPath,
+              takeover || liveIsOwner else { return }
+        let state = NativePlayer.shared.snapshot(includeQueue: true)
+        guard let trackID = state["id"] as? String, !trackID.isEmpty,
+              let all = state["queueTracks"] as? [[String: Any]] else { return }
+        let ids = Array(all.compactMap { raw -> String? in
+            guard raw["_offline"] as? Bool != true else { return nil }
+            return raw["id"] as? String
+        }.prefix(950))
+        guard ids.contains(trackID) else { return }
+        liveBusy = true; defer { liveBusy = false }
+        do {
+            if takeover {
+                let current: LivePlaybackState = try await api.request("/api/playback/state", timeout: 8)
+                guard account?.id == owner else { return }
+                liveRevision = current.revision
+            }
+            let rawPosition = state["position"] as? Double ?? 0
+            let body: [String: Any] = [
+                "device_id": liveDeviceID, "revision": liveRevision, "takeover": takeover,
+                "track_id": trackID, "queue": ids,
+                "position": rawPosition.isFinite ? max(0, min(86400, rawPosition)) : 0,
+                "playing": state["playing"] as? Bool ?? false,
+                "repeat": state["repeat"] as? Int ?? 0,
+                "shuffle": state["shuffle"] as? Bool ?? false,
+                "wave": state["wave"] as? Bool ?? false
+            ]
+            struct Result: Decodable { let revision: Int }
+            let answer: Result = try await api.request("/api/playback/state", method: "PUT", body: body, timeout: 9)
+            guard account?.id == owner else { return }
+            liveRevision = answer.revision; liveIsOwner = true; remotePlaybackState = nil
+            hasRemotePlayback = false; liveLastWrite = Date()
+        } catch {
+            liveIsOwner = false
+        }
+    }
+    func continuePlaybackHere() async {
+        guard !liveBusy, let owner = account?.id, hasNetworkPath else { return }
+        liveBusy = true
+        do {
+            let remote: LivePlaybackState = try await api.request("/api/playback/state", timeout: 8)
+            guard account?.id == owner, !remote.track_id.isEmpty,
+                  remote.device_id != liveDeviceID else { liveBusy = false; return }
+            let list: LivePlaybackQueue = try await api.request("/api/playback/queue", timeout: 10)
+            guard account?.id == owner,
+                  list.tracks.contains(where: { $0.id == remote.track_id }) else {
+                liveBusy = false; error = "Трек больше недоступен на сервере."; return
+            }
+            let body: [String: Any] = [
+                "device_id": liveDeviceID, "revision": remote.revision, "takeover": true,
+                "track_id": remote.track_id, "queue": remote.queue,
+                "position": remote.position, "playing": remote.playing,
+                "repeat": remote.repeatMode, "shuffle": remote.shuffle, "wave": remote.wave
+            ]
+            struct Result: Decodable { let revision: Int }
+            let accepted: Result = try await api.request("/api/playback/state", method: "PUT", body: body, timeout: 9)
+            guard account?.id == owner else { liveBusy = false; return }
+            liveRevision = accepted.revision; liveIsOwner = true
+            remotePlaybackState = nil; hasRemotePlayback = false; liveLastWrite = Date()
+            NativePlayer.shared.prepare([
+                "id": remote.track_id, "queue": list.tracks.map(\.dictionary),
+                "account": owner, "position": remote.position * 1000,
+                "wave": remote.wave, "wave_preferences": WaveSettings.read(origin, owner).dictionary
+            ], origin: origin, cookies: HTTPCookieStorage.shared.cookies(for: origin) ?? [])
+            NativePlayer.shared.modes(repeatMode: remote.repeatMode, shuffle: remote.shuffle)
+            if remote.playing { NativePlayer.shared.play() }
+            liveBusy = false
+        } catch {
+            liveBusy = false
+            error = "Не удалось перенести воспроизведение: " + error.localizedDescription
+        }
+    }
     private var starting = false
     private let libraryRefresh = LibraryRefreshCoordinator()
     private var sessionGeneration = UUID()
@@ -207,6 +356,7 @@ import Network
                 }
                 self.account = identity.user
                 self.cacheAccount()
+                if changedAccount { self.restoreAutoFavoritesSetting(); self.startLiveSync() }
                 await client.setCSRF(identity.csrf)
                 guard !Task.isCancelled, self.origin == server,
                       self.sessionGeneration == session, self.connectionCheckGeneration == checkID else { return }
@@ -339,6 +489,7 @@ import Network
             sessionReady = true
             if let id = pendingSharedTrackID { pendingSharedTrackID = nil; await openSharedTrack(id) }
             restorePlayback()
+            startLiveSync()
             // Cached library is already visible. Refresh from the server without holding up startup.
             if account != nil {
                 Task { [weak self] in
@@ -433,6 +584,10 @@ import Network
         if state["audible"] as? Bool == true, clock.current?._offline != true { listeningSeconds += elapsed }
         if Date().timeIntervalSince(lastReport) >= 15 || previousPlaying && !clock.playing { reportListening() }
         if previousPlaying && !clock.playing { savePlayback(force: true) } else { savePlayback() }
+        if liveIsOwner && !liveBusy && hasNetworkPath &&
+           Date().timeIntervalSince(liveLastWrite) > 6 {
+            Task { await publishLiveSync(takeover: false) }
+        }
         previousWave = state["wave"] as? Bool ?? false
         previousPlaying = clock.playing; listeningDuration = clock.duration; listeningPosition = clock.position
     }
@@ -515,6 +670,7 @@ import Network
         restoreSessionSnapshot()
         authPresented = false
         restorePlayback()
+        startLiveSync()
         // Present the authenticated session immediately while the library refreshes.
         let generation = sessionGeneration
         Task { [weak self] in
@@ -567,6 +723,7 @@ import Network
             NativePlayer.shared.stop(); preloadTask?.cancel(); preloadTask = nil; lastPreloadIDs = []; lastPreloadAt = .distantPast; searchTask?.cancel(); searchGeneration = UUID(); searchCache = [:]
             sessionGeneration = UUID(); starting = false; snapshotSaveTask?.cancel(); libraryRefresh.cancel()
             connectionCheck?.cancel(); connectionCheck = nil; connectionCheckGeneration = UUID(); sessionReady = false
+            stopLiveSync()
             account = nil; restoreAutoFavoritesSetting(); mixRecentIDs = []; cacheAccount(); catalog = []; results = []; likes = []; playlists = []; lastWave = []; query = ""; await api.setCSRF(nil)
         } catch { self.error = error.localizedDescription }
     }
@@ -650,6 +807,7 @@ import Network
         if account == nil && selected._offline != true { authPresented = true; return }
         NativePlayer.shared.prepare(["id": selected.id, "queue": localQueue.map(\.dictionary), "account": account?.id ?? "device", "wave": wave, "wave_preferences": WaveSettings.read(origin, account?.id ?? "device").dictionary], origin: origin, cookies: HTTPCookieStorage.shared.cookies(for: origin) ?? [])
         NativePlayer.shared.play()
+        Task { await publishLiveSync(takeover: true) }
     }
     func applyWaveSettings(_ value: WaveSettings) async throws {
         guard let id = account?.id else { authPresented = true; throw APIError(message: "Войди в аккаунт") }
@@ -853,6 +1011,7 @@ import Network
         guard let url = ServerAddress.validated(value) else { error = "Нужен HTTPS-адрес без пути и параметров"; return }
         NativePlayer.shared.stop(); preloadTask?.cancel(); preloadTask = nil; lastPreloadIDs = []; lastPreloadAt = .distantPast; leaveSearch(); catalog = []; results = []; playlists = []; likes = []; account = nil; searchCache = [:]
         sessionGeneration = UUID(); starting = false; snapshotSaveTask?.cancel(); libraryRefresh.cancel(); connectionCheck?.cancel(); connectionCheck = nil; connectionCheckGeneration = UUID(); sessionReady = false
+        stopLiveSync()
         origin = url; api = MusicAPI(origin: url); lastWave = []; restoreAutoFavoritesSetting(); cacheAccount(); await api.setCSRF(nil); UserDefaults.standard.set(url.absoluteString, forKey: "nightwell.server"); await start()
     }
 }

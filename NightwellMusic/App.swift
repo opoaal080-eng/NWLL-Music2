@@ -300,6 +300,23 @@ struct NativeRoot: View {
             } else {
                 VStack(spacing: 18) {
                     header
+                    if store.hasRemotePlayback {
+                        Button {
+                            Task { await store.continuePlaybackHere() }
+                        } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: "iphone.and.arrow.forward")
+                                Text("Музыка играет на другом устройстве · Продолжить здесь")
+                                    .font(.system(size: 13, weight: .medium))
+                                Spacer(minLength: 0)
+                                Image(systemName: "chevron.right")
+                            }
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 16).padding(.vertical, 12)
+                            .background(.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 18))
+                        }
+                        .padding(.horizontal, 20)
+                    }
                     content
                     MiniPlayer(clock: store.clock, open: { fullPlayer = true })
                         .padding(.horizontal, 16)
