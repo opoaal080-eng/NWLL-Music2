@@ -548,7 +548,28 @@ struct FullPlayer: View {
                             })
                     }
                 }
-                HStack { VStack(alignment: .leading, spacing: 8) { Text(clock.current?.title ?? "Выбери трек").font(.system(size: 20, weight: .bold)).lineLimit(2); Text(clock.current?.artist ?? "").font(.system(size: 15)).foregroundStyle(.secondary).lineLimit(1) }; Spacer(); if let track = clock.current { Button { Task { await store.like(track) } } label: { Image(systemName: store.likes.contains(track.id) ? "heart.fill" : "heart").font(.system(size: 20)).foregroundStyle(store.likes.contains(track.id) ? Color.white : .white).frame(width: 44, height: 44).nightwellLiquidGlass(24) } } }
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(clock.current?.title ?? "Выбери трек").font(.system(size: 20, weight: .bold)).lineLimit(2)
+                        Text(clock.current?.artist ?? "").font(.system(size: 15)).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    Spacer(minLength: 4)
+                    if let track = clock.current {
+                        Button { store.toggleRecommendationHidden(track) } label: {
+                            Image(systemName: store.isRecommendationHidden(track) ? "hand.thumbsdown.fill" : "hand.thumbsdown")
+                                .font(.system(size: 19))
+                                .foregroundStyle(store.isRecommendationHidden(track) ? Color.white : Color.white.opacity(0.65))
+                                .frame(width: 44, height: 44).nightwellLiquidGlass(22)
+                        }
+                        .accessibilityLabel(store.isRecommendationHidden(track) ? "Вернуть в рекомендации" : "Не рекомендовать")
+                        Button { Task { await store.like(track) } } label: {
+                            Image(systemName: store.likes.contains(track.id) ? "heart.fill" : "heart")
+                                .font(.system(size: 20)).foregroundStyle(Color.white)
+                                .frame(width: 44, height: 44).nightwellLiquidGlass(22)
+                        }
+                        .accessibilityLabel(store.likes.contains(track.id) ? "Убрать из избранного" : "В избранное")
+                    }
+                }
                 VStack(spacing: 16) {
                     VStack(spacing: 8) {
                         GlassSlider(value: Binding(get: { seeking ? scrub : min(clock.position, clock.duration) }, set: { scrub = $0 }), range: 0...clock.duration, accessibilityStep: 5, label: "Позиция трека", valueText: formatTime(seeking ? scrub : clock.position)) { editing in if editing { scrub = clock.position; seeking = true } else { NativePlayer.shared.seek(scrub); seeking = false } }
@@ -605,6 +626,9 @@ struct FullPlayer: View {
             Button("Эквалайзер", systemImage: "slider.vertical.3") { feature = .sound }
             Button(showLyrics ? "Обложка" : "Текст песни", systemImage: "text.alignleft") { showLyrics.toggle() }
             if let track = clock.current {
+                Button(store.isRecommendationHidden(track) ? "Вернуть в рекомендации" : "Не рекомендовать", systemImage: "hand.thumbsdown") {
+                    store.toggleRecommendationHidden(track)
+                }
                 Button("Скачать", systemImage: "arrow.down.to.line") { Task { await store.download([track]) } }
                 ShareLink(item: store.origin.appendingPathComponent("track/" + track.id)) { Label("Поделиться", systemImage: "square.and.arrow.up") }
                 Menu("Добавить в плейлист") { ForEach(store.playlists) { p in Button(p.name) { Task { await store.add(track, playlist: p) } } } }

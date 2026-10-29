@@ -1,14 +1,6 @@
 #!/usr/bin/env python3
-"""Run AFTER unsigned xcodebuild, BEFORE packaging Payload into an IPA.
-This restores compiled resources from the older IPA build. It does not
-restore editable image sources or the older executable's functionality.
+"""Legacy asset restoration is deliberately disabled.
+The Nightwell icon and images must be compiled from the active source tree.
 """
-from pathlib import Path
-import shutil, sys
-base=Path(__file__).resolve().parent/'LegacyCompiledAssets'
-app=Path(sys.argv[1]).resolve()
-assert app.is_dir() and app.suffix=='.app', f'Invalid app bundle: {app}'
-for name in ['Assets.car','AppIcon60x60@2x.png','AppIcon76x76@2x~ipad.png']:
-    assert (base/name).is_file(), f'Missing resource: {name}'
-    shutil.copy2(base/name, app/name)
-print('Restored original compiled graphics. Check runtime compatibility before distribution.')
+import sys
+print("Skipping legacy compiled assets; retaining current neutral artwork.")

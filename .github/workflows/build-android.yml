@@ -6,6 +6,7 @@ on:
     paths:
       - 'android/**'
       - 'scripts/validate-app-sources.py'
+      - 'scripts/make-neutral-app-icon.py'
       - '.github/workflows/build-android.yml'
 permissions:
   contents: read
@@ -29,6 +30,8 @@ jobs:
           "$SDKMANAGER" --version
       - name: Install Android SDK platform
         run: sdkmanager --install "platforms;android-36" "build-tools;36.0.0"
+      - name: Generate neutral launcher icons
+        run: python3 ../scripts/make-neutral-app-icon.py --platform android
       - name: Validate Android resources
         run: python3 ../scripts/validate-app-sources.py --android
       - uses: gradle/actions/setup-gradle@v4
@@ -103,6 +106,8 @@ jobs:
             echo "RELEASE_SIGNING_ENABLED=false" >> "$GITHUB_ENV"
             echo "::warning::No upload key configured; AAB will be unsigned and cannot be uploaded to Play Console."
           fi
+      - name: Generate neutral launcher icons
+        run: python3 ../scripts/make-neutral-app-icon.py --platform android
       - name: Build Google Play release bundle
         env:
           NIGHTWELL_KEYSTORE_PASSWORD: ${{ secrets.NIGHTWELL_KEYSTORE_PASSWORD }}

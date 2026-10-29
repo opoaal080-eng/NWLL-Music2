@@ -178,10 +178,91 @@ struct NightwellPopup<Content: View>: View {
     }
 }
 
+
+private enum StableNavigationAction {
+    case screen(MusicStore.Screen)
+    case backgroundOnly, statistics, premium, transfer, settings, waveSettings, support, authentication
+}
+
+/// An independently presented, stable scroll view. Playback updates cannot
+/// re-create the menu or send it back to its first item.
+private struct StableNavigationSheet: View {
+    let status: String
+    let signedIn: Bool
+    let select: (StableNavigationAction) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    private func choose(_ action: StableNavigationAction) {
+        dismiss()
+        // Let the sheet finish its transition before a second presentation.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.26) { select(action) }
+    }
+    private func entry(_ title: String, icon: String, action: StableNavigationAction) -> some View {
+        Button { choose(action) } label: {
+            HStack(spacing: 15) {
+                Image(systemName: icon).font(.system(size: 18)).frame(width: 25)
+                Text(title).font(.system(size: 16, weight: .medium))
+                Spacer()
+                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.white.opacity(0.35))
+            }
+            .foregroundStyle(.white)
+            .frame(minHeight: 48)
+            .padding(.horizontal, 16)
+            .background(.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 18))
+        }
+        .buttonStyle(.plain)
+    }
+    var body: some View {
+        VStack(spacing: 14) {
+            HStack {
+                Text("Меню").font(.system(size: 24, weight: .bold))
+                Spacer()
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark").frame(width: 42, height: 42)
+                        .background(.white.opacity(0.07), in: Circle())
+                }
+                .accessibilityLabel("Закрыть меню")
+            }
+            .padding(.horizontal, 20).padding(.top, 24)
+            ScrollView(.vertical, showsIndicators: false) {
+                LazyVStack(alignment: .leading, spacing: 8) {
+                    Label(status, systemImage: status == "Онлайн" ? "wifi" :
+                          status == "Загрузка…" ? "arrow.triangle.2.circlepath" : "wifi.slash")
+                        .font(.system(size: 13)).foregroundStyle(.white.opacity(0.65))
+                        .padding(.horizontal, 18).padding(.vertical, 8)
+                    ForEach(MusicStore.Screen.allCases, id: \.self) { screen in
+                        entry(screen.rawValue, icon: screen == .home ? "house" :
+                              screen == .search ? "magnifyingglass" :
+                              screen == .likes ? "heart" :
+                              screen == .playlists ? "music.note.list" : "arrow.down.to.line",
+                              action: .screen(screen))
+                    }
+                    Divider().overlay(.white.opacity(0.16)).padding(.vertical, 8)
+                    entry("Только фон", icon: "sparkles", action: .backgroundOnly)
+                    entry("Моя статистика", icon: "chart.bar", action: .statistics)
+                    entry("Nightwell Premium", icon: "star", action: .premium)
+                    entry("Перенести музыку", icon: "square.and.arrow.down", action: .transfer)
+                    entry("Настройки", icon: "gearshape", action: .settings)
+                    entry("Настройка подборки", icon: "slider.horizontal.3", action: .waveSettings)
+                    entry("Обращения и поддержка", icon: "envelope", action: .support)
+                    entry(signedIn ? "Выйти" : "Войти", icon: "person", action: .authentication)
+                }
+                .padding(.horizontal, 20).padding(.bottom, 24)
+            }
+        }
+        .tint(.white)
+        .preferredColorScheme(.dark)
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+        .presentationBackground(Color(red: 0.055, green: 0.055, blue: 0.065))
+    }
+}
+
 struct NativeRoot: View {
     @EnvironmentObject var store: MusicStore
     @State private var feature: PremiumFeatureView.Kind?
     @State private var settings = false
+    @State private var navigationMenuPresented = false
     @State private var waveSettingsPresented = false
     @State private var supportPresented = false
     @State private var premiumPresented = false
@@ -270,6 +351,27 @@ struct NativeRoot: View {
         .animation(.spring(response: 0.3, dampingFraction: 0.86), value: settings)
         .animation(.spring(response: 0.3, dampingFraction: 0.86), value: store.authPresented)
         .tint(pumpkin)
+        .sheet(isPresented: $navigationMenuPresented) {
+            StableNavigationSheet(status: store.connectionStatus, signedIn: store.account != nil) { action in
+                navigationMenuPresented = false
+                // Dismiss first, then open a destination. The native menu does not share
+                // identity with the live-updating player, so scrolling never restarts.
+                switch action {
+                case .screen(let screen): store.screen = screen
+                case .backgroundOnly: backgroundOnly = true
+                case .statistics: feature = .statistics
+                case .premium: premiumPresented = true
+                case .transfer: transferPresented = true
+                case .settings: settings = true
+                case .waveSettings: waveSettingsPresented = true
+                case .support: supportPresented = true
+                case .authentication:
+                    if store.account == nil { store.authPresented = true }
+                    else { Task { await store.logout() } }
+                }
+            }
+            .environmentObject(store)
+        }
         .sheet(isPresented: $premiumPresented) { PremiumView(api: store.api) }
         .overlay { if launching { MonochromeNightwellLaunch().transition(.opacity) } }
         .task { try? await Task.sleep(nanoseconds: reducedMotion ? 150_000_000 : 1_200_000_000); withAnimation(.easeOut(duration: 0.3)) { launching = false } }
@@ -346,24 +448,14 @@ struct NativeRoot: View {
             .accessibilityLabel("На главную")
             Spacer()
             Button { if store.screen == .search { store.screen = .home } else { store.screen = .search } } label: { Image(systemName: store.screen == .search ? "xmark" : "magnifyingglass").font(.system(size: 19, weight: .medium)).foregroundStyle(.white).frame(width: 44, height: 44).frostedGlass(22, bordered: false, intensity: 0.20) }.accessibilityLabel(store.screen == .search ? "Закрыть поиск" : "Поиск")
-            Menu {
-                Section {
-                    Label(store.connectionStatus, systemImage: store.connectionStatus == "Онлайн" ? "wifi" : store.connectionStatus == "Загрузка…" ? "arrow.triangle.2.circlepath" : "wifi.slash")
-                        .foregroundStyle(.white)
-                } header: {
-                    Text("Состояние подключения")
-                }
-                ForEach(MusicStore.Screen.allCases, id: \.self) { screen in Button(screen.rawValue) { store.screen = screen } }
-                Divider()
-                Button("Только фон", systemImage: "sparkles") { withAnimation(.easeInOut(duration: 0.22)) { backgroundOnly = true } }
-                Button("Моя статистика", systemImage: "chart.bar") { feature = .statistics }
-                Button("Nightwell Premium", systemImage: "star") { premiumPresented = true }
-                Button("Перенести музыку", systemImage: "square.and.arrow.down") { transferPresented = true }
-                Button("Настройки", systemImage: "gearshape") { settings = true }
-                Button("Настройка подборки", systemImage: "slider.horizontal.3") { waveSettingsPresented = true }
-                Button("Обращения и поддержка", systemImage: "envelope") { supportPresented = true }
-                Button(store.account == nil ? "Войти" : "Выйти", systemImage: "person") { if store.account == nil { store.authPresented = true } else { Task { await store.logout() } } }
-            } label: { Image(systemName: "line.3.horizontal").font(.system(size: 19, weight: .medium)).foregroundStyle(.white).frame(width: 44, height: 44).frostedGlass(22, bordered: false, intensity: 0.20) }.accessibilityLabel("Меню").sheet(item: $feature) { PremiumFeatureView(kind: $0).environmentObject(store) }
+            Button { navigationMenuPresented = true } label: {
+                Image(systemName: "line.3.horizontal")
+                    .font(.system(size: 19, weight: .medium))
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .frostedGlass(22, bordered: false, intensity: 0.20)
+            }
+            .accessibilityLabel("Меню")
         }.padding(.horizontal, 20).padding(.top, 8)
     }
     private var favoriteTracks: [Track] {

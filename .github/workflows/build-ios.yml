@@ -10,6 +10,7 @@ on:
       - 'project.yml'
       - 'scripts/verify-native-source.py'
       - 'scripts/test-*.swift'
+      - 'scripts/make-neutral-app-icon.py'
       - '.github/workflows/build-ios.yml'
 permissions:
   contents: read
@@ -68,6 +69,8 @@ jobs:
           subprocess.run(['sudo', 'xcode-select', '-s', developer], check=True)
           print('Selected Xcode', version)
           PYCODE
+      - name: Generate neutral app icon
+        run: python3 scripts/make-neutral-app-icon.py --platform ios
       - name: Generate project
         run: |
           sed -i '' "s/SOURCE_COMMIT/$GITHUB_SHA/" project.yml
@@ -75,8 +78,9 @@ jobs:
       - name: Build unsigned IPA
         run: |
           xcodebuild -project NightwellMusic.xcodeproj -scheme NightwellMusic -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build-device CURRENT_PROJECT_VERSION=$((400 + GITHUB_RUN_NUMBER)) CODE_SIGNING_ALLOWED=NO build
-          python3 ios/apply_legacy_assets.py build-device/Build/Products/Release-iphoneos/NightwellMusic.app
-          test $(stat -f%z build-device/Build/Products/Release-iphoneos/NightwellMusic.app/Assets.car) -gt 5000000
+          test -s build-device/Build/Products/Release-iphoneos/NightwellMusic.app/Assets.car
+          # Never restore old compiled assets: they carry the Halloween launcher icon.
+          test -s NightwellMusic/Assets.xcassets/AppIcon.appiconset/Icon.png
           mkdir -p output/Payload
           cp -R build-device/Build/Products/Release-iphoneos/NightwellMusic.app output/Payload/
           cd output

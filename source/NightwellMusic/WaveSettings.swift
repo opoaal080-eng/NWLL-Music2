@@ -32,54 +32,105 @@ struct NativeWaveSettingsView: View {
     @State private var draft = WaveSettings()
     @State private var applying = false
     @State private var message = ""
+
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    Text("Выбери, что хочется услышать сейчас").foregroundStyle(nightwellText.opacity(0.7))
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(spacing: 8) {
+                Button("Сбросить") { draft = WaveSettings() }
+                    .font(.system(size: 17, weight: .regular))
+                    .foregroundStyle(pumpkin)
+                    .frame(width: 109, height: 42)
+                    .nightwellLiquidGlass(20)
+                    .disabled(applying)
+                Spacer(minLength: 4)
+                Text("Настроить подборку")
+                    .font(.system(size: 17, weight: .semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                Spacer(minLength: 4)
+                Button(action: close) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(pumpkin)
+                        .frame(width: 40, height: 40)
+                        .nightwellLiquidGlass(20)
+                }
+                .disabled(applying)
+            }
+            Text("Выбери, что хочется услышать сейчас")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(.white.opacity(0.72))
+                .padding(.horizontal, 2)
+
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 16) {
                     ForEach(0..<3, id: \.self) { section in
                         VStack(alignment: .leading, spacing: 10) {
-                            Text(WaveSettings.titles[section]).font(.headline)
-                            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                            Text(WaveSettings.titles[section])
+                                .font(.system(size: 18, weight: .bold))
+                                .foregroundStyle(.white)
+                            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 9) {
                                 ForEach(WaveSettings.values[section].indices, id: \.self) { option in
                                     let selected = draft[section] == WaveSettings.values[section][option]
-                                    Button { draft[section] = WaveSettings.values[section][option] } label: {
-                                        HStack(spacing: 5) {
-                                            if selected { Image(systemName: "checkmark") }
-                                            Text(WaveSettings.labels[section][option]).font(.system(size: 14, weight: .medium))
-                                        }.frame(maxWidth: .infinity, minHeight: 40)
-                                            .foregroundStyle(selected ? pumpkin : nightwellText)
-                                            .background(Color(red: 0.075, green: 0.045, blue: 0.12).opacity(0.72), in: RoundedRectangle(cornerRadius: 18))
-                                            .nightwellLiquidGlass(18)
-                                            .background(selected ? pumpkin.opacity(0.15) : Color.black.opacity(0.22), in: RoundedRectangle(cornerRadius: 18))
-                                            .overlay(RoundedRectangle(cornerRadius: 18).stroke(selected ? pumpkin.opacity(0.80) : Color.white.opacity(0.28), lineWidth: 1))
-                                    }.buttonStyle(.plain).accessibilityAddTraits(selected ? .isSelected : [])
+                                    Button {
+                                        draft[section] = WaveSettings.values[section][option]
+                                    } label: {
+                                        HStack(spacing: 8) {
+                                            if selected { Image(systemName: "checkmark").font(.system(size: 14, weight: .bold)) }
+                                            Text(WaveSettings.labels[section][option])
+                                                .font(.system(size: 15, weight: .medium))
+                                                .lineLimit(1)
+                                        }
+                                        .frame(maxWidth: .infinity, minHeight: 40)
+                                        .foregroundStyle(selected ? pumpkin : .white.opacity(0.92))
+                                        .background(Color(white: 0.10).opacity(0.65), in: Capsule())
+                                        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(selected ? pumpkin.opacity(0.9) : Color.white.opacity(0.20), lineWidth: 1.2))
+                                    }
+                                    .buttonStyle(.plain)
+
+                                    .accessibilityAddTraits(selected ? .isSelected : [])
                                 }
                             }
                         }
                     }
-                    Text("Настроение и язык определяются по описанию треков и могут совпадать не точно.").font(.footnote).foregroundStyle(nightwellText.opacity(0.6))
-                    if !message.isEmpty { Text(message).font(.footnote).foregroundStyle(pumpkin) }
+
+                    if !message.isEmpty {
+                        Text(message)
+                            .font(.footnote)
+                            .foregroundStyle(pumpkin)
+                    }
                     Button {
-                        applying = true
-                        Task {
-                            do { try await store.applyWaveSettings(draft); close() }
-                            catch { message = error.localizedDescription }
-                            applying = false
-                        }
-                    } label: {
-                        HStack { if applying { ProgressView().tint(pumpkin) }; Text("Применить") }.frame(maxWidth: .infinity).padding(16).frostedGlass(22)
-                    }.disabled(applying || store.loading)
-                }.padding(18)
-            }.background(Color.clear)
-                .navigationTitle("Настроить подборку").navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .topBarLeading) { Button("Сбросить") { draft = WaveSettings() }.disabled(applying) }
-                    ToolbarItem(placement: .topBarTrailing) { Button { close() } label: { Image(systemName: "xmark").fontWeight(.semibold) }.disabled(applying) }
-                }.tint(pumpkin)
+                applying = true
+                Task {
+                    do { try await store.applyWaveSettings(draft); close() }
+                    catch { message = error.localizedDescription }
+                    applying = false
+                }
+            } label: {
+                HStack(spacing: 10) {
+                    if applying { ProgressView().tint(pumpkin) }
+                    Text("Готово")
+                        .font(.system(size: 16, weight: .semibold))
+                }
+                .foregroundStyle(pumpkin)
+                .frame(maxWidth: .infinity, minHeight: 48)
+            }
+            .buttonStyle(.plain)
+            .nightwellLiquidGlass(28)
+            .padding(.horizontal, 0)
+            .padding(.bottom, 6)
+            .disabled(applying || store.loading)
+            .background(Color.clear)
+                }
+            }
+
         }
+        .padding(.horizontal, 18)
+        .padding(.top, 10)
+        .padding(.bottom, 2)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .background(Color.clear)
         .onAppear { draft = WaveSettings.read(store.origin, store.account?.id ?? "device") }
-        .background(Color(red: 0.055, green: 0.032, blue: 0.092).opacity(0.86), in: RoundedRectangle(cornerRadius: 26))
-        .clipShape(RoundedRectangle(cornerRadius: 26))
+
     }
 }

@@ -130,7 +130,7 @@ struct PremiumPreferences: Codable {
                     rules = []; statistics = nil; await premium.refresh(store); if premium.allowed { await load() }
                 }
                 .task { while !Task.isCancelled { soundReady = NativePlayer.shared.premiumSoundAvailable; soundStatus = NativePlayer.shared.premiumSoundStatus; do { try await Task.sleep(nanoseconds: 1_000_000_000) } catch { return } } }
-        }.modifier(NightwellSheetSurface(gradient: LinearGradient(colors: [Color(red: 0.18, green: 0.07, blue: 0.30), .black], startPoint: .topLeading, endPoint: .bottomTrailing)))
+        }.modifier(NightwellSheetSurface(gradient: LinearGradient(colors: [Color(white: 0.105), .black], startPoint: .topLeading, endPoint: .bottomTrailing)))
         .ignoresSafeArea(.container, edges: .bottom)
          .preferredColorScheme(.dark).presentationDetents([.fraction(0.77), .large]).presentationDragIndicator(.hidden)
     }

@@ -159,7 +159,7 @@ struct PremiumView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(
-            LinearGradient(colors: [Color(red: 0.24, green: 0.10, blue: 0.40).opacity(0.92), Color.black.opacity(0.95)], startPoint: .topLeading, endPoint: .bottomTrailing)
+            LinearGradient(colors: [Color(white: 0.10).opacity(0.92), Color.black.opacity(0.95)], startPoint: .topLeading, endPoint: .bottomTrailing)
         )
     }
 
@@ -367,7 +367,7 @@ private struct PremiumPaymentBrowser: UIViewControllerRepresentable {
         let controller = SFSafariViewController(url: url, configuration: configuration)
         controller.delegate = context.coordinator
         controller.dismissButtonStyle = .close
-        controller.preferredControlTintColor = .systemOrange
+        controller.preferredControlTintColor = .white
         return controller
     }
 
