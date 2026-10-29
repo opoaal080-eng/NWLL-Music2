@@ -1195,6 +1195,7 @@ public final class MainActivity extends Activity {
                     else status.setText("В подборке пока нет музыки");
                 });
                 dailyRow.addView(listen,new LinearLayout.LayoutParams(0,-2,1));
+                final TextView[] saveRef=new TextView[1];
                 TextView save=iconButton(playlist.optBoolean("saved")?"♥":"♡",()->{
                     if(playlist.optBoolean("saved"))return;
                     JSONArray trackIDs=new JSONArray();
@@ -1206,13 +1207,14 @@ public final class MainActivity extends Activity {
                        Uri.encode(playlist.optString("id"))+"/save","POST",
                        new JSONObject().put("track_ids",trackIDs)),result->{
                         if(!savedOwner.equals(user))return;
-                        save.setText("♥");save.setContentDescription("Сохранено в плейлисты с датой");
+                        saveRef[0].setText("♥");saveRef[0].setContentDescription("Сохранено в плейлисты с датой");
                         playlist.remove("saved");
                         try{playlist.put("saved",true);}catch(Exception ignored){}
                         status.setText("Сохранено в плейлисты: "+result.optString("name"));
                         loadLibrary(user);
                     });
                 });
+                saveRef[0]=save;
                 save.setContentDescription(playlist.optBoolean("saved")?"Сохранено в плейлисты":"Сохранить подборку в плейлисты");
                 dailyRow.addView(save,new LinearLayout.LayoutParams(dp(52),dp(56)));
                 panel.addView(dailyRow);
