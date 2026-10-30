@@ -1,0 +1,27 @@
+name: Export Nightwell Music server modules
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/export-server-modules.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  export-server-modules:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Collect server updates and integration modules
+        run: |
+          set -euo pipefail
+          mkdir -p export
+          cp -r server server-updates export/
+          cd export
+          zip -qr ../nightwell-music-server-modules.zip .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Nightwell-Music-Server-Modules
+          path: nightwell-music-server-modules.zip
+          if-no-files-found: error
