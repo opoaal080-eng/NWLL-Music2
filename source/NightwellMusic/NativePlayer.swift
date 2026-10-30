@@ -31,6 +31,7 @@ final class NativePlayer {
     let player = AVPlayer()
     private var nextAsset: AVURLAsset?
     private var nextAssetID: String?
+    private var nextAssetWarmup: Task<Void, Never>?
     private lazy var nowPlayingSession = MPNowPlayingSession(players: [player])
     private let nowPlayingEligibility = NowPlayingEligibilityDelegate()
     private var activatingNowPlaying = false
@@ -44,7 +45,12 @@ final class NativePlayer {
     private var eqExpiry = 0.0
     private var engineTimer: Timer?
     private(set) var premiumSoundStatus = "Запустите трек и выберите пресет."
-    private var playbackPosition: Double { enginePlayback.ready ? enginePlayback.position : player.currentTime().seconds }
+    // Keep the last real playhead when AVPlayer/AVAudioPlayerNode stop advancing on pause.
+    private var playbackPosition: Double {
+        if !wantsPlay && !waitingForReady { return lastPosition }
+        let live = enginePlayback.ready ? enginePlayback.position : player.currentTime().seconds
+        return live.isFinite && live >= 0 ? live : lastPosition
+    }
     private var audible: Bool { enginePlayback.ready ? enginePlayback.playing : player.timeControlStatus == .playing }
     private let independentMeter = IndependentAudioMeter()
     private var usesLiveMeter = true
@@ -79,6 +85,17 @@ final class NativePlayer {
     private var stallCheck: DispatchWorkItem?
     private let recovery = PlaybackRecovery()
     private var lastPosition = 0.0
+    private var streamBufferSeconds = UserDefaults.standard.object(forKey: "nw-stream-buffer-seconds") == nil
+        ? 4.0 : min(12.0, max(0.0, UserDefaults.standard.double(forKey: "nw-stream-buffer-seconds")))
+    private var startupUptime = 0.0
+    private var readyAfterSeconds: Double?
+    private var audibleAfterSeconds: Double?
+    private var streamStalls = 0
+    var startupDiagnostics: String {
+        let ready = readyAfterSeconds.map { String(format: "%.2f с", $0) } ?? "…"
+        let sound = audibleAfterSeconds.map { String(format: "%.2f с", $0) } ?? "…"
+        return "Подготовка: \(ready) · Звук: \(sound) · Остановки: \(streamStalls)"
+    }
     private var fadeObserver: Any?
     private var baseVolume: Float = 1
     private var transitionSeconds = UserDefaults.standard.object(forKey: "nw-transition-seconds") == nil ? 0.8 : UserDefaults.standard.double(forKey: "nw-transition-seconds")
@@ -101,9 +118,14 @@ final class NativePlayer {
         catch { self.error = "Не удалось настроить звук." }
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.5, preferredTimescale: 600),
                                                       queue: .main) { [weak self] _ in
-            if let self, !self.waitingForReady, self.player.currentItem?.status == .readyToPlay {
-                let position = self.playbackPosition
-                if position.isFinite { self.lastPosition = max(0, position) }
+            if let self {
+                if self.wantsPlay && !self.waitingForReady && self.player.currentItem?.status == .readyToPlay {
+                    let position = self.playbackPosition
+                    if position.isFinite && position >= 0 { self.lastPosition = position }
+                }
+                if self.wantsPlay && self.audible && self.audibleAfterSeconds == nil && self.startupUptime > 0 {
+                    self.audibleAfterSeconds = max(0, ProcessInfo.processInfo.systemUptime - self.startupUptime)
+                }
             }
             self?.refreshIndependentMeter(); self?.refillWave(); self?.publish()
         }
@@ -148,7 +170,13 @@ final class NativePlayer {
             guard let self else { return }
             self.enginePlayback.apply()
             if self.enginePlayback.ready {
-                self.lastPosition = self.enginePlayback.position
+                if self.wantsPlay && self.enginePlayback.playing {
+                    let position = self.enginePlayback.position
+                    if position.isFinite && position >= 0 { self.lastPosition = position }
+                    if self.audibleAfterSeconds == nil && self.startupUptime > 0 {
+                        self.audibleAfterSeconds = max(0, ProcessInfo.processInfo.systemUptime - self.startupUptime)
+                    }
+                }
                 self.updateFade(); self.refillWave(); self.refreshIndependentMeter(); self.publish()
             }
         }
@@ -187,10 +215,12 @@ final class NativePlayer {
 
     private func prewarmNextAsset() {
         guard !shuffle, !waveWaiting, index + 1 < tracks.count, let origin else {
+            nextAssetWarmup?.cancel(); nextAssetWarmup = nil
             nextAsset = nil; nextAssetID = nil; return
         }
         let next = tracks[index + 1]
         guard nextAssetID != next.id else { return }
+        nextAssetWarmup?.cancel(); nextAssetWarmup = nil
         let saved = OfflineStore.audio(origin: origin,
             account: next.offlineAccount.isEmpty ? offlineAccount : next.offlineAccount, id: next.id)
         guard !next.offline || saved != nil,
@@ -205,15 +235,24 @@ final class NativePlayer {
             let key = origin.absoluteString + "|" + offlineAccount + "|" + next.offlineAccount + "|" + next.id
             independentMeter.prewarm(key: key, local: saved)
         }
-        // Avoid a competing network request during startup on high-latency links.
-        // The next item still reuses its AVURLAsset when playback advances.
+        // Only prefetch remote playlist metadata after playback has settled.
+        // Never download a second audio stream or compete with the current track at startup.
         if saved != nil {
-            Task(priority: .utility) { let _ = try? await asset.load(.isPlayable) }
+            nextAssetWarmup = Task(priority: .utility) { let _ = try? await asset.load(.isPlayable) }
+        } else if wantsPlay {
+            nextAssetWarmup = Task(priority: .utility) {
+                do { try await Task.sleep(nanoseconds: 2_000_000_000) } catch { return }
+                guard !Task.isCancelled else { return }
+                let _ = try? await asset.load(.isPlayable)
+            }
         }
     }
 
     private func load(position: Double = 0, recovering: Bool = false) {
-        if !recovering { recovery.cancel(resetBudget: true); independentMeter.cancel(); resumeAfterInterruption = false }
+        nextAssetWarmup?.cancel(); nextAssetWarmup = nil
+        startupUptime = ProcessInfo.processInfo.systemUptime
+        readyAfterSeconds = nil; audibleAfterSeconds = nil
+        if !recovering { streamStalls = 0; recovery.cancel(resetBudget: true); independentMeter.cancel(); resumeAfterInterruption = false }
         eqGeneration = UUID(); eqDownload?.cancel(); eqDownload = nil; eqAttempted = false; enginePlayback.stop()
         stallCheck?.cancel(); stallCheck = nil
         itemGeneration = UUID(); let generation = itemGeneration
@@ -244,7 +283,7 @@ final class NativePlayer {
         let item = AVPlayerItem(asset: asset)
         // Give remote streams enough audio ahead to absorb network jitter.
         // Locally downloaded tracks do not need forward network buffering.
-        item.preferredForwardBufferDuration = saved == nil ? 12 : 0
+        item.preferredForwardBufferDuration = saved == nil ? streamBufferSeconds : 0
         // Respect AVPlayer's buffering decisions rather than forcing playback
         // immediately with too little media in the buffer.
         audioMeter = LocalAudioMeter()
@@ -255,6 +294,9 @@ final class NativePlayer {
             DispatchQueue.main.async {
                 guard let self, self.itemGeneration == generation else { return }
                 if item.status == .readyToPlay {
+                    if self.readyAfterSeconds == nil {
+                        self.readyAfterSeconds = max(0, ProcessInfo.processInfo.systemUptime - self.startupUptime)
+                    }
                     // Start fallback envelope preparation as soon as the stream is ready.
                     // It runs independently from playback and must never block the first samples.
                     self.prewarmNextAsset()
@@ -284,6 +326,7 @@ final class NativePlayer {
         stallObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemPlaybackStalled,
             object: item, queue: .main) { [weak self] _ in
                 guard let self, self.wantsPlay, self.itemGeneration == generation else { return }
+                self.streamStalls += 1
                 self.stallCheck?.cancel()
                 let stalledAt = self.player.currentTime().seconds
                 let check = DispatchWorkItem { [weak self] in
@@ -356,9 +399,31 @@ final class NativePlayer {
         refreshIndependentMeter()
         refillWave(); publish()
     }
-    func pause() { resumeAfterInterruption = false; recovery.cancel(); independentMeter.cancel(keepingEnvelope: true); wantsPlay = false; waveWaiting = false; enginePlayback.pause(); player.pause(); publish() }
+    func pause() {
+        // Snapshot the running clock BEFORE pausing either audio engine.
+        // Some output routes report zero render time immediately after pause.
+        if wantsPlay && !waitingForReady {
+            let position = enginePlayback.ready ? enginePlayback.position : player.currentTime().seconds
+            if position.isFinite && position >= 0 && (position > 0 || lastPosition == 0) {
+                lastPosition = position
+            }
+        }
+        resumeAfterInterruption = false; recovery.cancel()
+        independentMeter.cancel(keepingEnvelope: true)
+        wantsPlay = false; waveWaiting = false
+        enginePlayback.pause(); player.pause(); publish()
+    }
+    func setStreamBufferDuration(_ value: Double) {
+        guard value.isFinite else { return }
+        streamBufferSeconds = min(12, max(0, value))
+        UserDefaults.standard.set(streamBufferSeconds, forKey: "nw-stream-buffer-seconds")
+        if let item = player.currentItem, current?.offline != true {
+            item.preferredForwardBufferDuration = streamBufferSeconds
+        }
+    }
     func stop() {
         waveActive = false; waveTask?.cancel(); waveTask = nil; waveGeneration = UUID(); waveSeen = []
+        nextAssetWarmup?.cancel(); nextAssetWarmup = nil; nextAsset = nil; nextAssetID = nil
         pause(); stallCheck?.cancel(); stallCheck = nil; itemGeneration = UUID(); itemObservation = nil; artworkTask?.cancel()
         if let endObserver { NotificationCenter.default.removeObserver(endObserver); self.endObserver = nil }
         if let failureObserver { NotificationCenter.default.removeObserver(failureObserver); self.failureObserver = nil }
@@ -756,13 +821,15 @@ final class NativePlayer {
         commands.pauseCommand.isEnabled = current != nil
         commands.togglePlayPauseCommand.isEnabled = current != nil
         commands.changePlaybackPositionCommand.isEnabled = current != nil
-        if let current, !appIsActive {
+        // Keep lock-screen / Control Center metadata current while our app is foregrounded.
+        // Clearing it on every foreground tick left stale playback controls after Pause.
+        if let current {
             let state = snapshot(includeQueue: false)
             var info: [String: Any] = [MPMediaItemPropertyTitle: current.title,
                 MPMediaItemPropertyArtist: current.artist, MPMediaItemPropertyAlbumTitle: current.album,
                 MPMediaItemPropertyPlaybackDuration: state["duration"] ?? 0,
                 MPNowPlayingInfoPropertyElapsedPlaybackTime: state["position"] ?? 0,
-                MPNowPlayingInfoPropertyPlaybackRate: audible ? 1.0 : 0.0,
+                MPNowPlayingInfoPropertyPlaybackRate: wantsPlay && audible ? 1.0 : 0.0,
                 MPNowPlayingInfoPropertyDefaultPlaybackRate: 1.0,
                 MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue,
                 MPNowPlayingInfoPropertyPlaybackQueueIndex: index,

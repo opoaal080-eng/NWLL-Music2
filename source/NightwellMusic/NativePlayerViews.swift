@@ -890,7 +890,9 @@ struct NativeSettings: View {
     @EnvironmentObject var store: MusicStore
     @Environment(\.dismiss) private var dismiss
     @AppStorage("nw-transition-seconds") private var transition = 1.5
+    @AppStorage("nw-stream-buffer-seconds") private var streamBufferSeconds = 4.0
     @AppStorage("nw-ambient-lyrics") private var ambientLyrics = true
+    @State private var playbackDiagnostics = "Нет данных о запуске"
     private var buildCaption: String {
         let info = Bundle.main.infoDictionary ?? [:]
         let version = info["CFBundleShortVersionString"] as? String ?? ""
@@ -934,6 +936,27 @@ struct NativeSettings: View {
                             .padding(.vertical, 2)
                             .onChange(of: transition) { NativePlayer.shared.transitionDuration($0) }
                         Text("Плавное затухание и нарастание громкости.").font(.system(size: 12)).foregroundStyle(.white.opacity(0.43))
+                        HStack {
+                            Text("Буфер потока")
+                            Spacer(minLength: 4)
+                            Text(streamBufferSeconds == 0 ? "Авто" : String(format: "%.0f с", streamBufferSeconds))
+                                .foregroundStyle(Color.white)
+                        }
+                        GlassSlider(value: $streamBufferSeconds, range: 0...12, step: 4,
+                                    accessibilityStep: 4, label: "Буфер потока",
+                                    valueText: String(format: "%.0f с", streamBufferSeconds))
+                            .onChange(of: streamBufferSeconds) { NativePlayer.shared.setStreamBufferDuration($0) }
+                        Text("Меньше буфер: быстрее старт, но выше риск пауз на слабой сети. При обрывах выбери 8 или 12 секунд.")
+                            .font(.system(size: 12)).foregroundStyle(.white.opacity(0.43))
+                        Text("Диагностика: " + playbackDiagnostics)
+                            .font(.system(size: 12)).monospacedDigit().foregroundStyle(.white.opacity(0.6))
+                            .task {
+                                while !Task.isCancelled {
+                                    playbackDiagnostics = NativePlayer.shared.startupDiagnostics
+                                    do { try await Task.sleep(nanoseconds: 1_000_000_000) }
+                                    catch { return }
+                                }
+                            }
                     }.padding(16).frame(maxWidth: .infinity, minHeight: 166, alignment: .leading).background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
                     Text(buildCaption).font(.system(size: 11)).foregroundStyle(.white.opacity(0.4)).frame(maxWidth: .infinity)
                 }.padding(.vertical, 2)
