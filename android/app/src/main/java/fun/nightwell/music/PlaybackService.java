@@ -10,6 +10,8 @@ import androidx.media3.common.MediaItem;
 import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.Player;
 import androidx.media3.datasource.DefaultHttpDataSource;
+import androidx.media3.datasource.DataSource;
+import androidx.media3.datasource.DataSpec;
 import androidx.media3.datasource.ResolvingDataSource;
 import androidx.media3.datasource.cache.CacheDataSource;
 import androidx.media3.datasource.cache.SimpleCache;
@@ -47,6 +49,70 @@ public final class PlaybackService extends MediaSessionService {
     private SimpleCache audioCache;
     private DefaultMediaSourceFactory fileSources;
     private HlsMediaSource.Factory hlsSources;
+    private CacheDataSource.Factory cachedSources;
+    private final ExecutorService audioPrefetchIO = Executors.newSingleThreadExecutor();
+    private volatile int audioPrefetchGeneration = 0;
+    private int bufferChoiceSeconds = 0; // 0 means the existing fast 1-second initial buffer
+    private long startupAt = 0, readyAfterMs = -1, audibleAfterMs = -1;
+    private int bufferingStalls = 0;
+    private String measuredTrack = "";
+    private String positionTrack = "";
+    private long lastGoodPositionMs = 0, pausedPositionMs = -1;
+    String playbackDiagnostics() {
+        String prepared = readyAfterMs < 0 ? "…" : String.format(java.util.Locale.ROOT, "%.2f с", readyAfterMs / 1000.0);
+        String sounded = audibleAfterMs < 0 ? "…" : String.format(java.util.Locale.ROOT, "%.2f с", audibleAfterMs / 1000.0);
+        return "Подготовка: " + prepared + " · Звук: " + sounded + " · Остановки: " + bufferingStalls;
+    }
+    private void beginTrackTiming(MediaItem track) {
+        String id = track == null ? "" : track.mediaId;
+        measuredTrack = id;
+        startupAt = android.os.SystemClock.elapsedRealtime();
+        readyAfterMs = -1; audibleAfterMs = -1; bufferingStalls = 0;
+        positionTrack = id; lastGoodPositionMs = 0; pausedPositionMs = -1;
+        audioPrefetchGeneration++;
+    }
+    private void capturePausePosition() {
+        MediaItem track = player.getCurrentMediaItem();
+        if (track == null) { pausedPositionMs = -1; return; }
+        if (!track.mediaId.equals(positionTrack)) {
+            positionTrack = track.mediaId; lastGoodPositionMs = 0;
+        }
+        long current = Math.max(0, player.getCurrentPosition());
+        if (current > 0 || lastGoodPositionMs == 0) lastGoodPositionMs = current;
+        pausedPositionMs = lastGoodPositionMs;
+    }
+    // Prefetch a small cacheable FILE prefix only. Signed HLS playlists remain fresh.
+    // Never compete with the current track until it has an adequate buffer.
+    private void scheduleNextFilePrefetch() {
+        final int generation = ++audioPrefetchGeneration;
+        waveHandler.postDelayed(() -> {
+            if (generation != audioPrefetchGeneration || !player.isPlaying()
+                    || player.getTotalBufferedDuration() < 8000 || cachedSources == null) return;
+            int next = player.getNextMediaItemIndex();
+            if (next == C.INDEX_UNSET) return;
+            MediaItem item = player.getMediaItemAt(next);
+            if (item.localConfiguration == null || MimeTypes.APPLICATION_M3U8.equals(item.localConfiguration.mimeType)) return;
+            Uri uri = item.localConfiguration.uri;
+            if (!"https".equals(uri.getScheme()) || !ServerAddress.sameOrigin(origin, uri.toString())
+                    || uri.getPath() == null || !uri.getPath().startsWith("/api/stream/")) return;
+            audioPrefetchIO.execute(() -> {
+                if (generation != audioPrefetchGeneration) return;
+                DataSource reader = cachedSources.createDataSource();
+                try {
+                    reader.open(new DataSpec.Builder().setUri(uri).setLength(65536).build());
+                    byte[] bytes = new byte[8192];
+                    int remaining = 65536, n;
+                    while (remaining > 0 && generation == audioPrefetchGeneration
+                            && (n = reader.read(bytes, 0, Math.min(bytes.length, remaining))) != C.RESULT_END_OF_INPUT) {
+                        if (n <= 0) break;
+                        remaining -= n;
+                    }
+                } catch (Exception ignored) {
+                    // Prefetch must never prevent normal playback.
+                } finally { try { reader.close(); } catch (Exception ignored) {} }
+            });
+        }, 3000);
+    }
     private float baseVolume=1f;
     private boolean fadeInActive=false;
     private double transitionSeconds=.8;
@@ -96,6 +162,8 @@ public final class PlaybackService extends MediaSessionService {
     @Override public void onCreate() {
         super.onCreate();
         transitionSeconds=getSharedPreferences("playback",MODE_PRIVATE).getFloat("nw-transition-seconds",.8f);
+        bufferChoiceSeconds=getSharedPreferences("playback",MODE_PRIVATE).getInt("nw-stream-buffer-seconds",0);
+        if(bufferChoiceSeconds!=0 && bufferChoiceSeconds!=4 && bufferChoiceSeconds!=8 && bufferChoiceSeconds!=12) bufferChoiceSeconds=0;
         DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory().setUserAgent("NightwellMusic/0.5").setConnectTimeoutMs(10000).setReadTimeoutMs(20000);
         ResolvingDataSource.Factory source = new ResolvingDataSource.Factory(http, data -> {
             if (!ServerAddress.sameOrigin(origin, data.uri.toString())) throw new java.io.IOException("Недопустимый адрес аудио");
@@ -108,6 +176,7 @@ public final class PlaybackService extends MediaSessionService {
                 new LeastRecentlyUsedCacheEvictor(512L*1024*1024),new StandaloneDatabaseProvider(this));
         CacheDataSource.Factory cached=new CacheDataSource.Factory().setCache(audioCache).setUpstreamDataSourceFactory(source)
                 .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR).setCacheKeyFactory(data->cacheScope+"|"+data.uri.toString());
+        cachedSources=cached;
         fileSources=new DefaultMediaSourceFactory(cached);
         // Signed HLS manifests must be fetched fresh; only media bytes are reusable.
         hlsSources=new HlsMediaSource.Factory((HlsDataSourceFactory) type ->
@@ -122,8 +191,11 @@ public final class PlaybackService extends MediaSessionService {
         };
         // Small (350/1000 ms) restart buffers caused repeated audible stalls
         // on bursty HLS streams. Keep a larger safety margin after rebuffers.
+        // Keep Android's existing 1-second fast mode as the default. Other choices
+        // increase the startup margin without reducing the 3-second rebuffer reserve.
+        int playbackBufferMs = bufferChoiceSeconds == 0 ? 1000 : bufferChoiceSeconds * 1000;
         androidx.media3.exoplayer.DefaultLoadControl buffering = new androidx.media3.exoplayer.DefaultLoadControl.Builder()
-            .setBufferDurationsMs(20000,60000,1000,3000)
+            .setBufferDurationsMs(20000,60000,playbackBufferMs,Math.max(3000,playbackBufferMs))
             .setPrioritizeTimeOverSizeThresholds(true).build();
         player = new ExoPlayer.Builder(this,renderers).setLoadControl(buffering).setMediaSourceFactory(fileSources).build();
         player.setAudioAttributes(new AudioAttributes.Builder().setUsage(C.USAGE_MEDIA)
@@ -132,6 +204,7 @@ public final class PlaybackService extends MediaSessionService {
         player.setWakeMode(C.WAKE_MODE_NETWORK);
         player.addListener(new Player.Listener() {
             @Override public void onMediaItemTransition(MediaItem item,int reason) {
+                beginTrackTiming(item);
                 cancelStreamRetry();
                 retriedTrackId = "";
                 streamRetryCount = 0;
@@ -143,15 +216,35 @@ public final class PlaybackService extends MediaSessionService {
                 refillWave();
             }
             @Override public void onIsPlayingChanged(boolean playing) {
+                if(playing) {
+                    if(audibleAfterMs < 0 && startupAt > 0)
+                        audibleAfterMs = Math.max(0,android.os.SystemClock.elapsedRealtime()-startupAt);
+                    scheduleNextFilePrefetch();
+                }
                 waveHandler.removeCallbacks(fadeTick);if(playing)waveHandler.post(fadeTick);
+            }
+            @Override public void onPositionDiscontinuity(Player.PositionInfo oldPosition,
+                    Player.PositionInfo newPosition,int reason) {
+                if(reason==Player.DISCONTINUITY_REASON_SEEK) {
+                    long updated = Math.max(0,newPosition.positionMs);
+                    lastGoodPositionMs=updated;
+                    if(!player.getPlayWhenReady()) pausedPositionMs=updated;
+                }
             }
             @Override public void onPlayWhenReadyChanged(boolean ready,int reason) {
                 if(!ready){
+                    capturePausePosition();
                     if(reason==Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST)cancelStreamRetry();
                     cancelWaveRequest();
-                }else refillWave();
+                }else { pausedPositionMs=-1; refillWave(); }
             }
-            @Override public void onPlaybackStateChanged(int state) { if(state==Player.STATE_ENDED)refillWave(); }
+            @Override public void onPlaybackStateChanged(int state) {
+                if(state==Player.STATE_READY && readyAfterMs < 0 && startupAt > 0)
+                    readyAfterMs=Math.max(0,android.os.SystemClock.elapsedRealtime()-startupAt);
+                if(state==Player.STATE_BUFFERING && audibleAfterMs>=0 && player.getPlayWhenReady())
+                    bufferingStalls++;
+                if(state==Player.STATE_ENDED)refillWave();
+            }
             @Override public void onPlayerError(androidx.media3.common.PlaybackException ex) {
                 if (scheduleStreamRetry(ex)) return;
                 player.pause();
@@ -263,12 +356,28 @@ public final class PlaybackService extends MediaSessionService {
             player.prepare();
         } catch (Exception ex) { error="Не удалось загрузить очередь."; }
     }
-    void play() { cancelStreamRetry(); retriedTrackId = ""; streamRetryCount = 0; error="";if(player.getPlaybackState()==Player.STATE_IDLE&&player.getMediaItemCount()>0)player.prepare();player.play();refillWave(); }
-    void pause() { cancelStreamRetry(); player.pause(); }
-    void stop() { cancelStreamRetry(); retriedTrackId = ""; streamRetryCount = 0; waveActive=false;cancelWaveRequest();waveSeen.clear();player.stop();player.clearMediaItems();
+    void play() {
+        cancelStreamRetry(); retriedTrackId = ""; streamRetryCount = 0; error="";
+        if(player.getCurrentMediaItem()!=null && !player.getPlayWhenReady()) {
+            startupAt=android.os.SystemClock.elapsedRealtime();
+            readyAfterMs=player.getPlaybackState()==Player.STATE_READY ? 0 : -1;
+            audibleAfterMs=-1;
+        }
+        if(player.getPlaybackState()==Player.STATE_IDLE&&player.getMediaItemCount()>0)player.prepare();
+        player.play();refillWave();
+    }
+    void pause() { cancelStreamRetry(); capturePausePosition(); player.pause(); }
+    void stop() { audioPrefetchGeneration++; pausedPositionMs=-1; lastGoodPositionMs=0; cancelStreamRetry(); retriedTrackId = ""; streamRetryCount = 0; waveActive=false;cancelWaveRequest();waveSeen.clear();player.stop();player.clearMediaItems();
         if(audioCache!=null)for(String key:new HashSet<>(audioCache.getKeys()))if(key.startsWith(cacheScope+"|"))try{audioCache.removeResource(key);}catch(Exception ignored){}
     }
-    void seek(double seconds) { if(Double.isFinite(seconds)){fadeInActive=false;player.setVolume(baseVolume);player.seekTo(Math.max(0,(long)(seconds*1000)));} }
+    void seek(double seconds) {
+        if(Double.isFinite(seconds)){
+            long position=Math.max(0,(long)(seconds*1000));
+            lastGoodPositionMs=position;
+            if(!player.getPlayWhenReady())pausedPositionMs=position;
+            fadeInActive=false;player.setVolume(baseVolume);player.seekTo(position);
+        }
+    }
     void transitionDuration(double value) { if(Double.isFinite(value)){transitionSeconds=Math.max(0,Math.min(5,value));getSharedPreferences("playback",MODE_PRIVATE).edit().putFloat("nw-transition-seconds",(float)transitionSeconds).apply();updateFade();} }
     void volume(double value) { if(Double.isFinite(value)){baseVolume=(float)Math.max(0,Math.min(1,value));updateFade();} }
     void modes(int repeat, boolean shuffle) { player.setRepeatMode(repeat==1&&!waveActive?Player.REPEAT_MODE_ALL:repeat==2?Player.REPEAT_MODE_ONE:Player.REPEAT_MODE_OFF);player.setShuffleModeEnabled(!waveActive&&shuffle); }
@@ -420,7 +529,13 @@ public final class PlaybackService extends MediaSessionService {
             MediaItem item=player.getCurrentMediaItem();
             state.put("id",item==null?"":item.mediaId);
             state.put("origin",origin);
-            state.put("position",Math.max(0,player.getCurrentPosition())/1000.0);
+            long position=Math.max(0,player.getCurrentPosition());
+            if(item!=null && !item.mediaId.equals(positionTrack)) {
+                positionTrack=item.mediaId; lastGoodPositionMs=position; pausedPositionMs=-1;
+            }
+            if(player.getPlayWhenReady() && position>0) lastGoodPositionMs=position;
+            if(item!=null && !player.getPlayWhenReady() && pausedPositionMs>=0) position=pausedPositionMs;
+            state.put("position",position/1000.0);
             state.put("duration",player.getDuration()==C.TIME_UNSET?0:player.getDuration()/1000.0);
             state.put("playing",player.getPlayWhenReady() && player.getPlaybackState()!=Player.STATE_ENDED);
             state.put("ended",player.getPlaybackState()==Player.STATE_ENDED);
@@ -441,7 +556,8 @@ public final class PlaybackService extends MediaSessionService {
     @Override public void onDestroy() {
         cancelStreamRetry();
         persistPlayback(true);
-        waveActive=false;cancelWaveRequest();waveHandler.removeCallbacksAndMessages(null);waveIO.shutdownNow();artworkIO.shutdownNow();
+        waveActive=false;cancelWaveRequest();audioPrefetchGeneration++;
+        waveHandler.removeCallbacksAndMessages(null);waveIO.shutdownNow();audioPrefetchIO.shutdownNow();artworkIO.shutdownNow();
         if(session!=null)session.release();if(player!=null)player.release();if(audioCache!=null)audioCache.release();super.onDestroy();
     }
 }

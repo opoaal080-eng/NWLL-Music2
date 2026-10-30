@@ -1216,7 +1216,80 @@ public final class MainActivity extends Activity {
     void download(JSONArray items){if(items==null)return;if(user.isEmpty()){auth();return;}String account=user;status.setText("Добавляем в фоновую очередь…");task(()->{if(!api.request("api/premium/me").optBoolean("premium"))throw new java.io.IOException("Скачивание доступно с Premium — 150 ₽ за 30 дней.");BackgroundDownloads.enqueue(this,origin,account,items);return new JSONObject();},v->status.setText(BackgroundDownloads.progress(this)));}
     interface InputDone{void run(String value);}
     void input(String title,InputDone done){EditText field=new EditText(this);AlertDialog dialog=new AlertDialog.Builder(this).setTitle(title).setView(field).setPositiveButton("Сохранить",(d,n)->done.run(field.getText().toString())).setNegativeButton("Отмена",null).create();styleSheet(dialog);dialog.show();}
-    void settings(){LinearLayout panel=column();panel.setPadding(dp(20),dp(16),dp(20),dp(16));TextView subtitle=text("Оформи приложение под себя и настрой поведение плеера.",14);subtitle.setTextColor(0xff9fa6b8);subtitle.setPadding(0,0,0,dp(10));panel.addView(subtitle);panel.addView(sectionLabel("Оформление"));panel.addView(sheetAction("Темы и ленты · Premium",()->feature("appearance")));panel.addView(sectionLabel("Воспроизведение"));android.widget.Switch autoFavorites=new android.widget.Switch(this);autoFavorites.setText("Автоматически скачивать избранное · Premium");styleSwitch(autoFavorites);autoFavorites.setChecked(autoFavoritesEnabled());autoFavorites.setEnabled(!user.isEmpty());autoFavorites.setOnCheckedChangeListener((b,enabled)->setAutoFavoritesEnabled(enabled));panel.addView(autoFavorites);TextView label=text("Переход между треками · 0.8 с",15);label.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);panel.addView(label);SeekBar duration=new SeekBar(this);duration.setMax(50);duration.setProgress((int)(getSharedPreferences("playback",MODE_PRIVATE).getFloat("nw-transition-seconds",.8f)*10));duration.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar b,int p,boolean user){label.setText("Переход между треками · "+p/10.0+" с");if(playback!=null)playback.transitionDuration(p/10.0);}public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}});panel.addView(duration);android.widget.Switch ambient=new android.widget.Switch(this);ambient.setText("Показывать текст рядом с лентами");styleSwitch(ambient);ambient.setChecked(getSharedPreferences("appearance",MODE_PRIVATE).getBoolean("ambient-lyrics",true));ambient.setOnCheckedChangeListener((button,checked)->getSharedPreferences("appearance",MODE_PRIVATE).edit().putBoolean("ambient-lyrics",checked).apply());panel.addView(ambient);AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Настройки").setView(panel).setPositiveButton("Готово",null).create();styleSheet(dialog);dialog.show();}
+    void settings(){
+        LinearLayout panel=column();
+        panel.setPadding(dp(20),dp(16),dp(20),dp(16));
+        android.widget.ScrollView scroll=new android.widget.ScrollView(this);
+        scroll.setFillViewport(false);
+        scroll.addView(panel);
+        TextView subtitle=text("Оформи приложение под себя и настрой поведение плеера.",14);
+        subtitle.setTextColor(0xff9fa6b8);
+        subtitle.setPadding(0,0,0,dp(10));panel.addView(subtitle);
+        panel.addView(sectionLabel("Оформление"));
+        panel.addView(sheetAction("Темы и ленты · Premium",()->feature("appearance")));
+        panel.addView(sectionLabel("Воспроизведение"));
+        android.widget.Switch autoFavorites=new android.widget.Switch(this);
+        autoFavorites.setText("Автоматически скачивать избранное · Premium");
+        styleSwitch(autoFavorites);
+        autoFavorites.setChecked(autoFavoritesEnabled());
+        autoFavorites.setEnabled(!user.isEmpty());
+        autoFavorites.setOnCheckedChangeListener((b,enabled)->setAutoFavoritesEnabled(enabled));
+        panel.addView(autoFavorites);
+        TextView label=text("Переход между треками · 0.8 с",15);
+        label.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
+        panel.addView(label);
+        SeekBar duration=new SeekBar(this);duration.setMax(50);
+        duration.setProgress((int)(getSharedPreferences("playback",MODE_PRIVATE).getFloat("nw-transition-seconds",.8f)*10));
+        duration.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
+            public void onProgressChanged(SeekBar b,int p,boolean fromUser){
+                label.setText("Переход между треками · "+p/10.0+" с");
+                if(fromUser&&playback!=null)playback.transitionDuration(p/10.0);
+            }
+            public void onStartTrackingTouch(SeekBar b){}
+            public void onStopTrackingTouch(SeekBar b){}
+        });
+        panel.addView(duration);
+        final int[] values={0,4,8,12};
+        int selected=getSharedPreferences("playback",MODE_PRIVATE).getInt("nw-stream-buffer-seconds",0);
+        int selectedIndex=0;
+        for(int i=0;i<values.length;i++)if(values[i]==selected)selectedIndex=i;
+        TextView bufferLabel=text("Буфер потока · "+(selected==0?"Быстрый (1 с)":selected+" с"),15);
+        bufferLabel.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
+        panel.addView(bufferLabel);
+        SeekBar buffer=new SeekBar(this);buffer.setMax(values.length-1);buffer.setProgress(selectedIndex);
+        buffer.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
+            public void onProgressChanged(SeekBar bar,int progress,boolean fromUser){
+                int seconds=values[Math.min(values.length-1,Math.max(0,progress))];
+                bufferLabel.setText("Буфер потока · "+(seconds==0?"Быстрый (1 с)":seconds+" с"));
+                if(fromUser)getSharedPreferences("playback",MODE_PRIVATE).edit().putInt("nw-stream-buffer-seconds",seconds).apply();
+            }
+            public void onStartTrackingTouch(SeekBar bar){}
+            public void onStopTrackingTouch(SeekBar bar){}
+        });
+        panel.addView(buffer);
+        TextView hint=text("Быстрый режим уменьшает ожидание звука, 8–12 с помогают при нестабильной сети. Изменение применяется после полного перезапуска Nightwell Music.",12);
+        hint.setTextColor(0xffa3a3ae);hint.setPadding(0,0,0,dp(12));panel.addView(hint);
+        TextView metrics=text("Диагностика: "+(playback==null?"Плеер запускается":playback.playbackDiagnostics()),12);
+        metrics.setTextColor(0xffbcbcc3);panel.addView(metrics);
+        android.widget.Switch ambient=new android.widget.Switch(this);
+        ambient.setText("Показывать текст рядом с лентами");
+        styleSwitch(ambient);
+        ambient.setChecked(getSharedPreferences("appearance",MODE_PRIVATE).getBoolean("ambient-lyrics",true));
+        ambient.setOnCheckedChangeListener((button,checked)->getSharedPreferences("appearance",MODE_PRIVATE).edit().putBoolean("ambient-lyrics",checked).apply());
+        panel.addView(ambient);
+        TextView version=text("Nightwell Music "+BuildConfig.VERSION_NAME+" ("+BuildConfig.VERSION_CODE+")",12);
+        version.setTextColor(0xff9696a1);version.setPadding(0,dp(12),0,0);panel.addView(version);
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Настройки").setView(scroll).setPositiveButton("Готово",null).create();
+        Runnable diagnosticsTick=new Runnable(){
+            public void run(){
+                if(!dialog.isShowing())return;
+                metrics.setText("Диагностика: "+(playback==null?"Нет данных":playback.playbackDiagnostics()));
+                ui.postDelayed(this,1000);
+            }
+        };
+        dialog.setOnDismissListener(d->ui.removeCallbacks(diagnosticsTick));
+        styleSheet(dialog);dialog.show();ui.post(diagnosticsTick);
+    }
     private JSONObject premiumPrefs=new JSONObject();private String premiumOwner="";private long premiumUntil,premiumChecked;private boolean premiumLoading;
     boolean premiumAllowed(){return !user.isEmpty()&&user.equals(premiumOwner)&&System.currentTimeMillis()<premiumUntil;}
     void applyPremium(){
