@@ -1,8 +1,26 @@
 <Application x:Class="Nightwell.Native.App" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" StartupUri="MainWindow.xaml">
  <Application.Resources>
-  <SolidColorBrush x:Key="Pumpkin" Color="#FFB260"/>
-  <Style TargetType="Button"><Setter Property="Foreground" Value="#FFF5FF"/><Setter Property="Background" Value="#33281B38"/><Setter Property="BorderBrush" Value="#44E7C6FF"/><Setter Property="Padding" Value="16,10"/><Setter Property="Margin" Value="4"/><Setter Property="FontSize" Value="15"/><Setter Property="Cursor" Value="Hand"/><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button"><Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="20"><ContentPresenter Margin="{TemplateBinding Padding}" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></ControlTemplate></Setter.Value></Setter></Style>
-  <Style TargetType="TextBlock"><Setter Property="Foreground" Value="#FFF5FF"/></Style>
-  <Style TargetType="TextBox"><Setter Property="Foreground" Value="White"/><Setter Property="Background" Value="#8820142C"/><Setter Property="CaretBrush" Value="White"/><Setter Property="Padding" Value="12"/><Setter Property="FontSize" Value="17"/></Style>
+  <SolidColorBrush x:Key="GlassFill" Color="#371C222C"/>
+  <Style TargetType="Button">
+   <Setter Property="Foreground" Value="#F6F7FA"/><Setter Property="Background" Value="#342E3542"/>
+   <Setter Property="BorderBrush" Value="#4BFFFFFF"/><Setter Property="Padding" Value="16,10"/>
+   <Setter Property="Margin" Value="4"/><Setter Property="FontSize" Value="14"/><Setter Property="Cursor" Value="Hand"/>
+   <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+    <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="22" SnapsToDevicePixels="True">
+     <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="{TemplateBinding Padding}"/>
+    </Border>
+    <ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="#55646B75"/></Trigger>
+    <Trigger Property="IsPressed" Value="True"><Setter Property="Background" Value="#60848A91"/></Trigger></ControlTemplate.Triggers>
+   </ControlTemplate></Setter.Value></Setter>
+  </Style>
+  <Style TargetType="TextBlock"><Setter Property="Foreground" Value="#F7F7F8"/></Style>
+  <Style TargetType="TextBox"><Setter Property="Foreground" Value="#F7F7F8"/>
+   <Setter Property="Background" Value="#402B3039"/><Setter Property="BorderBrush" Value="#58FFFFFF"/>
+   <Setter Property="CaretBrush" Value="White"/><Setter Property="Padding" Value="14"/><Setter Property="FontSize" Value="16"/></Style>
+  <Style TargetType="ListBoxItem"><Setter Property="Foreground" Value="White"/><Setter Property="Margin" Value="4"/>
+   <Setter Property="Padding" Value="3"/><Setter Property="Background" Value="Transparent"/>
+   <Style.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="#294B535D"/></Trigger></Style.Triggers>
+  </Style>
+  <Style TargetType="Slider"><Setter Property="Foreground" Value="#F5F5F7"/></Style>
  </Application.Resources>
 </Application>

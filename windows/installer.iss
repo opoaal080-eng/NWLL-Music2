@@ -1,21 +1,27 @@
+#define AppVersion "1.2.0"
 [Setup]
 AppId=NightwellMusicNative
-AppName=Nightwell Music Native Preview
-AppVersion=1.1.1
-DefaultDirName={localappdata}\Programs\Nightwell Music Native
-DefaultGroupName=Nightwell Music Native
+AppName=Nightwell Music
+AppVersion={#AppVersion}
+AppPublisher=Nightwell
+DefaultDirName={localappdata}\Programs\Nightwell Music
+DefaultGroupName=Nightwell Music
 PrivilegesRequired=lowest
-OutputDir=output
-OutputBaseFilename=Nightwell-Music-Native-Setup-1.1.1
+OutputDir=..\setup-output
+OutputBaseFilename=Nightwell-Music-Setup-1.2.0
 Compression=lzma2
 SolidCompression=yes
+WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
+SetupIconFile=icon.ico
 UninstallDisplayIcon={app}\Nightwell Music.exe
+CloseApplications=yes
+RestartApplications=no
 [Files]
-Source: "publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 [Icons]
-Name: "{group}\Nightwell Music Native"; Filename: "{app}\Nightwell Music.exe"
-Name: "{autodesktop}\Nightwell Music Native"; Filename: "{app}\Nightwell Music.exe"
+Name: "{group}\Nightwell Music"; Filename: "{app}\Nightwell Music.exe"
+Name: "{autodesktop}\Nightwell Music"; Filename: "{app}\Nightwell Music.exe"
 [Run]
 Filename: "{app}\Nightwell Music.exe"; Description: "Открыть Nightwell Music"; Flags: nowait postinstall skipifsilent
