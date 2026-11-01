@@ -116,6 +116,8 @@ public final class PlaybackService extends MediaSessionService {
     private float baseVolume=1f;
     private boolean fadeInActive=false;
     private double transitionSeconds=.8;
+    private int volumeLevelingStrength;
+    private double loudnessAverage=0, loudnessGain=1;
     private volatile String cacheScope="guest";
     private String offlineAccount="";
     private volatile String origin = "";
@@ -147,7 +149,17 @@ public final class PlaybackService extends MediaSessionService {
     }};
     private void updateFade() {
         if(player==null)return;
-        if(transitionSeconds<=0){fadeInActive=false;player.setVolume(baseVolume);return;}
+        if(player.isPlaying() && volumeLevelingStrength>0){
+            double rms=audioMeter.loudnessRMS();
+            if(Double.isFinite(rms)&&rms>0.018){
+                loudnessAverage=loudnessAverage==0?rms:loudnessAverage*.92+rms*.08;
+                double attenuation=Math.max(.48,Math.min(1,.105/Math.max(.025,loudnessAverage)));
+                double target=1-(1-attenuation)*volumeLevelingStrength/100.0;
+                loudnessGain+=(target-loudnessGain)*.12;
+            }
+        } else if(volumeLevelingStrength==0) loudnessGain=1;
+        float leveled=(float)(baseVolume*loudnessGain);
+        if(transitionSeconds<=0){fadeInActive=false;player.setVolume(leveled);return;}
         long duration=player.getDuration(),position=Math.max(0,player.getCurrentPosition());
         boolean known=duration>200 && duration!=C.TIME_UNSET;
         double span=known?Math.min(transitionSeconds*1000,duration/4.0):transitionSeconds*1000;
@@ -155,13 +167,14 @@ public final class PlaybackService extends MediaSessionService {
         boolean next=waveActive || player.hasNextMediaItem() || player.getRepeatMode()!=Player.REPEAT_MODE_OFF;
         double entry=fadeInActive?Math.max(0,Math.min(1,position/span)):1;
         double exit=known&&next?Math.max(0,Math.min(1,(duration-position)/span)):1;
-        player.setVolume(baseVolume*(float)Math.min(entry,exit));
+        player.setVolume(leveled*(float)Math.min(entry,exit));
     }
     public final class LocalBinder extends Binder { PlaybackService getService() { return PlaybackService.this; } }
 
     @Override public void onCreate() {
         super.onCreate();
         transitionSeconds=getSharedPreferences("playback",MODE_PRIVATE).getFloat("nw-transition-seconds",.8f);
+        volumeLevelingStrength=Math.max(0,Math.min(100,getSharedPreferences("playback",MODE_PRIVATE).getInt("nw-equal-volume",0)));
         bufferChoiceSeconds=getSharedPreferences("playback",MODE_PRIVATE).getInt("nw-stream-buffer-seconds",0);
         if(bufferChoiceSeconds!=0 && bufferChoiceSeconds!=4 && bufferChoiceSeconds!=8 && bufferChoiceSeconds!=12) bufferChoiceSeconds=0;
         DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory().setUserAgent("NightwellMusic/0.5").setConnectTimeoutMs(10000).setReadTimeoutMs(20000);
@@ -204,6 +217,7 @@ public final class PlaybackService extends MediaSessionService {
         player.setWakeMode(C.WAKE_MODE_NETWORK);
         player.addListener(new Player.Listener() {
             @Override public void onMediaItemTransition(MediaItem item,int reason) {
+                loudnessAverage=0; loudnessGain=1;
                 beginTrackTiming(item);
                 cancelStreamRetry();
                 retriedTrackId = "";
@@ -380,6 +394,12 @@ public final class PlaybackService extends MediaSessionService {
     }
     void transitionDuration(double value) { if(Double.isFinite(value)){transitionSeconds=Math.max(0,Math.min(5,value));getSharedPreferences("playback",MODE_PRIVATE).edit().putFloat("nw-transition-seconds",(float)transitionSeconds).apply();updateFade();} }
     void volume(double value) { if(Double.isFinite(value)){baseVolume=(float)Math.max(0,Math.min(1,value));updateFade();} }
+    void setEqualVolume(int percent){
+        volumeLevelingStrength=Math.max(0,Math.min(100,percent));
+        getSharedPreferences("playback",MODE_PRIVATE).edit().putInt("nw-equal-volume",volumeLevelingStrength).apply();
+        if(volumeLevelingStrength==0){loudnessAverage=0;loudnessGain=1;}
+        updateFade();
+    }
     void modes(int repeat, boolean shuffle) { player.setRepeatMode(repeat==1&&!waveActive?Player.REPEAT_MODE_ALL:repeat==2?Player.REPEAT_MODE_ONE:Player.REPEAT_MODE_OFF);player.setShuffleModeEnabled(!waveActive&&shuffle); }
     private MediaSource mediaSource(MediaItem item) {
         if(item.localConfiguration!=null && "file".equals(item.localConfiguration.uri.getScheme()))return new DefaultMediaSourceFactory(new androidx.media3.datasource.DefaultDataSource.Factory(this)).createMediaSource(item);

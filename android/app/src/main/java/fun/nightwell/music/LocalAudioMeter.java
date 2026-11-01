@@ -14,6 +14,7 @@ final class LocalAudioMeter implements TeeAudioProcessor.AudioBufferSink {
     private double midLow, midHigh, trebleLow, midLowAlpha, midHighAlpha, trebleAlpha;
     private double voiceSum, midSum, highSum;
     private volatile double level;
+    private volatile double measuredRMS;
     private volatile double voiceLevel, bassLevel, midLevel, highLevel;
     private volatile long updated;
     @Override public void flush(int rate,int count,int format) {
@@ -24,7 +25,7 @@ final class LocalAudioMeter implements TeeAudioProcessor.AudioBufferSink {
         midHighAlpha=1-Math.exp(-2*Math.PI*3000/rate);
         trebleAlpha=1-Math.exp(-2*Math.PI*6000/rate);
         frames=0;low=dc=midLow=midHigh=trebleLow=sum=bassSum=voiceSum=midSum=highSum=0;
-        level=voiceLevel=bassLevel=midLevel=highLevel=0;updated=0;
+        level=voiceLevel=bassLevel=midLevel=highLevel=measuredRMS=0;updated=0;
     }
     @Override public void handleBuffer(ByteBuffer input) {
         ByteBuffer b=input.duplicate().order(ByteOrder.LITTLE_ENDIAN);
@@ -47,6 +48,7 @@ final class LocalAudioMeter implements TeeAudioProcessor.AudioBufferSink {
             sum+=power;bassSum+=low*low;
             voiceSum+=voice*voice;midSum+=mid*mid;highSum+=high*high;
             if(++frames>=window){
+                measuredRMS=Math.sqrt(sum/frames);
                 level=Math.min(1,Math.sqrt(sum/frames)*.7+Math.sqrt(bassSum/frames)*3.8);
                 bassLevel=Math.min(1,Math.sqrt(bassSum/frames)*4.0);
                 voiceLevel=Math.min(1,Math.sqrt(voiceSum/frames)*3.0);
@@ -62,6 +64,7 @@ final class LocalAudioMeter implements TeeAudioProcessor.AudioBufferSink {
         double value=index==0?voiceLevel:index==1?bassLevel:index==2?midLevel:highLevel;
         return value*Math.exp(-Math.max(0,age-150)/333.0);
     }
+    double loudnessRMS(){return SystemClock.elapsedRealtime()-updated<1500?measuredRMS:0;}
     double level(boolean playing){long age=SystemClock.elapsedRealtime()-updated;return playing&&age<1000?level*Math.exp(-Math.max(0,age-150)/333.0):0;}
 }
 

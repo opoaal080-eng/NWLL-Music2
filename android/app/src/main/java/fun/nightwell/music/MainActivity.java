@@ -1267,6 +1267,28 @@ public final class MainActivity extends Activity {
             public void onStopTrackingTouch(SeekBar bar){}
         });
         panel.addView(buffer);
+        TextView equalLabel=text("Одинаковая громкость · Выкл.",15);
+        equalLabel.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
+        panel.addView(equalLabel);
+        SeekBar equalVolume=new SeekBar(this);equalVolume.setMax(10);
+        int equalPreset=Math.max(0,Math.min(100,getSharedPreferences("playback",MODE_PRIVATE).getInt("nw-equal-volume",0)));
+        equalVolume.setProgress(equalPreset/10);
+        equalLabel.setText(equalPreset==0?"Одинаковая громкость · Выкл.":"Одинаковая громкость · "+equalPreset+"%");
+        equalVolume.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
+            public void onProgressChanged(SeekBar b,int value,boolean fromUser){
+                int percent=value*10;
+                equalLabel.setText(percent==0?"Одинаковая громкость · Выкл.":"Одинаковая громкость · "+percent+"%");
+                if(fromUser){
+                    getSharedPreferences("playback",MODE_PRIVATE).edit().putInt("nw-equal-volume",percent).apply();
+                    if(playback!=null)playback.setEqualVolume(percent);
+                }
+            }
+            public void onStartTrackingTouch(SeekBar b){}
+            public void onStopTrackingTouch(SeekBar b){}
+        });
+        panel.addView(equalVolume);
+        TextView loudnessHint=text("Выравнивает громкие записи по измеренному звуку без дополнительных сетевых запросов.",12);
+        loudnessHint.setTextColor(0xffa3a3ae);panel.addView(loudnessHint);
         TextView hint=text("Быстрый режим уменьшает ожидание звука, 8–12 с помогают при нестабильной сети. Изменение применяется после полного перезапуска Nightwell Music.",12);
         hint.setTextColor(0xffa3a3ae);hint.setPadding(0,0,0,dp(12));panel.addView(hint);
         TextView metrics=text("Диагностика: "+(playback==null?"Плеер запускается":playback.playbackDiagnostics()),12);
