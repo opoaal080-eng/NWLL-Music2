@@ -9,7 +9,7 @@ public sealed class RibbonScene:FrameworkElement {
  public RibbonScene(){IsVisibleChanged+=(_,_)=>Refresh();Loaded+=(_,_)=>Refresh();Unloaded+=(_,_)=>Detach();}
  void Refresh(){if(IsVisible&&!hooked){CompositionTarget.Rendering+=Frame;hooked=true;}else if(!IsVisible)Detach();}
  void Detach(){if(hooked)CompositionTarget.Rendering-=Frame;hooked=false;}
- void Frame(object? sender,EventArgs e){if(clock.Elapsed.TotalSeconds-last<1.0/24)return;last=clock.Elapsed.TotalSeconds;InvalidateVisual();}
+ void Frame(object? sender,EventArgs e){if(clock.Elapsed.TotalSeconds-last<(Playing?1.0/20:1.0/4))return;last=clock.Elapsed.TotalSeconds;InvalidateVisual();}
  protected override void OnRender(DrawingContext dc) {
   if(ActualWidth<2||ActualHeight<2)return;
   double w=ActualWidth,h=ActualHeight,t=clock.Elapsed.TotalSeconds*(Playing?.18:.035);

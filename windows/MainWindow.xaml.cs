@@ -13,18 +13,47 @@ using Microsoft.Win32;
 namespace Nightwell.Native;
 public partial class MainWindow:Window {
  NativeAPI api;StreamProxy proxy;readonly LibVLC vlc;readonly LibVLCSharp.Shared.MediaPlayer player;
- readonly DispatcherTimer timer=new(){Interval=TimeSpan.FromMilliseconds(100)};
+ readonly DispatcherTimer timer=new(){Interval=TimeSpan.FromMilliseconds(400)};
+ int savePending;
+ int normalization=0;
  CancellationTokenSource? searchCancellation;List<Track> catalog=[],shown=[],queue=[];List<Playlist> playlists=[];HashSet<string> likes=[];
  string favoriteOrder="recent";bool premiumSortAllowed=false;
  string account="",screen="Главная",playlist="",currentID="";int index,repeat;bool wave,refilling,downloading,scrubbing,shuffle,mixing;readonly Queue<string> mixRecent=new();double transition=.8;long lastPrevious;string previousID="";
  CancellationTokenSource? lyricsCancellation;JsonElement? currentLyrics;string lyricsID="";int renderedLyric=int.MinValue;long savedAt;double? pendingSeek;bool restorePaused;
  sealed record PlaybackState(string Origin,string Account,List<Track> Queue,string ID,double Position,int Repeat,bool Shuffle,bool Wave);
  string ResumeFile=>Path.Combine(NativeAPI.Storage,"resume.json");
- void SavePlayback(){if(Current==null)return;try{string temp=ResumeFile+".tmp";File.WriteAllText(temp,JsonSerializer.Serialize(new PlaybackState(origin,account,queue,currentID,Math.Max(0,player.Time/1000.0),repeat,shuffle,wave)));File.Move(temp,ResumeFile,true);}catch{}}
+ PlaybackState? CapturePlayback()=>Current==null?null:new PlaybackState(origin,account,queue.ToList(),currentID,Math.Max(0,player.Time/1000.0),repeat,shuffle,wave);
+ void WritePlayback(PlaybackState state){try{
+   var directory=Path.GetDirectoryName(ResumeFile)!;
+   Directory.CreateDirectory(directory);
+   string temp=ResumeFile+"."+Guid.NewGuid().ToString("N")+".tmp";
+   try {File.WriteAllText(temp,JsonSerializer.Serialize(state));File.Move(temp,ResumeFile,true);}
+   finally {if(File.Exists(temp))File.Delete(temp);}
+ }catch{}}
+ void SavePlayback(){var state=CapturePlayback();if(state!=null)WritePlayback(state);}
+ void QueueSavePlayback(){
+   if(System.Threading.Interlocked.CompareExchange(ref savePending,1,0)!=0)return;
+   var state=CapturePlayback();
+   if(state==null){System.Threading.Interlocked.Exchange(ref savePending,0);return;}
+   _=Task.Run(()=>{try{WritePlayback(state);}finally{System.Threading.Interlocked.Exchange(ref savePending,0);}});
+ }
  void RestorePlayback(){if(Current!=null)return;try{var state=JsonSerializer.Deserialize<PlaybackState>(File.ReadAllText(ResumeFile));if(state==null||state.Origin!=origin)return;var local=ReadOffline().ToDictionary(t=>t.id);queue=state.Queue.Where(t=>state.Account==account&&account.Length>0||local.ContainsKey(t.id)).Select(t=>local.GetValueOrDefault(t.id,t)).ToList();index=queue.FindIndex(t=>t.id==state.ID);if(index<0){queue=[];return;}repeat=state.Repeat;shuffle=state.Shuffle;wave=state.Wave;pendingSeek=state.Position;restorePaused=true;PlayCurrent();}catch{}}
  Track? Current=>queue.Count>0&&index>=0&&index<queue.Count?queue[index]:null;
  string origin="https://music.nightwell.fun/";
- public MainWindow(){InitializeComponent();try{var prefs=JsonDocument.Parse(File.ReadAllText(Path.Combine(NativeAPI.Storage,"settings.json"))).RootElement;transition=prefs.GetProperty("transition").GetDouble();}catch{}api=new NativeAPI(origin);proxy=new StreamProxy(api);Core.Initialize();vlc=new LibVLC("--no-video","--no-xlib");player=new LibVLCSharp.Shared.MediaPlayer(vlc);player.EndReached+=(_,_)=>Dispatcher.InvokeAsync(()=>Advance());player.EncounteredError+=(_,_)=>Dispatcher.InvokeAsync(()=>Status.Text="Не удалось воспроизвести трек. Проверь подключение и повтори попытку.");timer.Tick+=(_,_)=>Tick();timer.Start();Loaded+=async(_,_)=>{
+ public MainWindow(){InitializeComponent();try{
+ var prefs=JsonDocument.Parse(File.ReadAllText(Path.Combine(NativeAPI.Storage,"settings.json"))).RootElement;
+ if(prefs.TryGetProperty("transition",out var tr))transition=tr.GetDouble();
+ if(prefs.TryGetProperty("normalization",out var nl))normalization=Math.Clamp(nl.GetInt32(),0,100);
+}catch{}
+api=new NativeAPI(origin);proxy=new StreamProxy(api);Core.Initialize();
+var audioArgs=new List<string>{"--no-video","--no-xlib"};
+if(normalization>0){
+ // VLC's native PCM volume normalizer avoids a second decoder and works on HLS and files.
+ audioArgs.Add("--audio-filter=normvol");
+ audioArgs.Add("--norm-buff-size=20");
+ audioArgs.Add("--norm-max-level="+(2.0-1.3*normalization/100.0).ToString(System.Globalization.CultureInfo.InvariantCulture));
+}
+vlc=new LibVLC(audioArgs.ToArray());player=new LibVLCSharp.Shared.MediaPlayer(vlc);player.EndReached+=(_,_)=>Dispatcher.InvokeAsync(()=>Advance());player.EncounteredError+=(_,_)=>Dispatcher.InvokeAsync(()=>Status.Text="Не удалось воспроизвести трек. Проверь подключение и повтори попытку.");timer.Tick+=(_,_)=>Tick();timer.Start();Loaded+=async(_,_)=>{
  if(Environment.GetCommandLineArgs().Contains("--native-smoke")){
   await Task.Delay(1200);var bitmap=new RenderTargetBitmap((int)ActualWidth,(int)ActualHeight,96,96,PixelFormats.Pbgra32);bitmap.Render(this);var encoder=new PngBitmapEncoder();encoder.Frames.Add(BitmapFrame.Create(bitmap));using(var file=File.Create("windows-native-smoke.png"))encoder.Save(file);Close();
  }else {await LoadAccount();RestorePlayback();}
@@ -99,7 +128,7 @@ public partial class MainWindow:Window {
  void PreviousClick(object sender,RoutedEventArgs e){if(Current==null)return;long now=Environment.TickCount64;if(player.Time>3000&&!(previousID==currentID&&now-lastPrevious<3000)){lastPrevious=now;previousID=currentID;player.Time=0;return;}previousID="";index=(index-1+queue.Count)%queue.Count;PlayCurrent();}
  void Advance(){if(queue.Count==0)return;if(repeat==2){PlayCurrent();return;}if(wave&&index+1>=queue.Count){_=Refill();return;}if(shuffle&&queue.Count>1)index=(index+Random.Shared.Next(1,queue.Count))%queue.Count;else if(index+1<queue.Count)index++;else if(repeat==1)index=0;else return;PlayCurrent();}
  async Task Refill(){if(refilling||!wave||account.Length==0)return;refilling=true;await Guard(async()=>{var exclude=string.Join(',',queue.TakeLast(150).Select(t=>t.id));var value=await api.Request("api/wave?exclude="+Uri.EscapeDataString(exclude));var ids=queue.Select(t=>t.id).ToHashSet();var fresh=ParseTracks(value).Where(t=>!ids.Contains(t.id)).ToList();queue.AddRange(fresh);if(!player.IsPlaying&&index+1<queue.Count){index++;PlayCurrent();}});refilling=false;}
- void Tick(){if(Current==null)return;if(Environment.TickCount64-savedAt>5000){savedAt=Environment.TickCount64;SavePlayback();}if(pendingSeek.HasValue&&player.Length>0){player.Time=(long)(Math.Clamp(pendingSeek.Value,0,Math.Max(0,player.Length/1000.0-.2))*1000);pendingSeek=null;if(restorePaused){restorePaused=false;player.SetPause(true);player.Mute=false;}}SyncLyrics();MiniLike.Content=likes.Contains(currentID)?"♥":"♡";MiniProgress.Width=Math.Max(0,Dock.ActualWidth-28)*Math.Clamp(player.Time/(double)Math.Max(1,player.Length),0,1);MiniPlay.Content=HomePlay.Content=FullPlay.Content=player.IsPlaying?"Ⅱ":"▶";Ribbon.Playing=player.IsPlaying;double length=Math.Max(1,player.Length/1000.0),position=Math.Max(0,player.Time/1000.0);if(!scrubbing){FullSeek.Maximum=length;FullSeek.Value=Math.Min(length,position);}FullTime.Text=$"{Time(position)}    /    {Time(length)}";if(transition>0&&player.IsPlaying){double span=Math.Min(transition,length/4),gain=Math.Min(1,position/Math.Max(.1,span));if(index+1<queue.Count||wave||repeat>0)gain=Math.Min(gain,(length-position)/Math.Max(.1,span));player.Volume=(int)(100*Math.Clamp(gain,0,1));}else if(player.Volume!=100)player.Volume=100;if(wave&&queue.Count-index<8&&!refilling)_=Refill();}
+ void Tick(){if(Current==null)return;if(Environment.TickCount64-savedAt>15000){savedAt=Environment.TickCount64;QueueSavePlayback();}if(pendingSeek.HasValue&&player.Length>0){player.Time=(long)(Math.Clamp(pendingSeek.Value,0,Math.Max(0,player.Length/1000.0-.2))*1000);pendingSeek=null;if(restorePaused){restorePaused=false;player.SetPause(true);player.Mute=false;}}SyncLyrics();MiniLike.Content=likes.Contains(currentID)?"♥":"♡";MiniProgress.Width=Math.Max(0,Dock.ActualWidth-28)*Math.Clamp(player.Time/(double)Math.Max(1,player.Length),0,1);MiniPlay.Content=HomePlay.Content=FullPlay.Content=player.IsPlaying?"Ⅱ":"▶";Ribbon.Playing=player.IsPlaying;double length=Math.Max(1,player.Length/1000.0),position=Math.Max(0,player.Time/1000.0);if(!scrubbing){FullSeek.Maximum=length;FullSeek.Value=Math.Min(length,position);}FullTime.Text=$"{Time(position)}    /    {Time(length)}";if(transition>0&&player.IsPlaying){double span=Math.Min(transition,length/4),gain=Math.Min(1,position/Math.Max(.1,span));if(index+1<queue.Count||wave||repeat>0)gain=Math.Min(gain,(length-position)/Math.Max(.1,span));player.Volume=(int)(100*Math.Clamp(gain,0,1));}else if(player.Volume!=100)player.Volume=100;if(wave&&queue.Count-index<8&&!refilling)_=Refill();}
  string Time(double s)=>$"{(int)s/60}:{(int)s%60:00}";
  void SeekStart(object sender,MouseButtonEventArgs e)=>scrubbing=true;
  void SeekEnd(object sender,MouseButtonEventArgs e){player.Time=(long)(FullSeek.Value*1000);scrubbing=false;}
@@ -139,7 +168,26 @@ public partial class MainWindow:Window {
  void Import(){var picker=new OpenFileDialog{Multiselect=true,Filter="Аудиофайлы|*.mp3;*.m4a;*.aac;*.flac;*.wav;*.ogg"};if(picker.ShowDialog()!=true)return;Directory.CreateDirectory(OfflineRoot);foreach(var file in picker.FileNames){string id="local_"+Guid.NewGuid().ToString("N"),target=Path.Combine(OfflineRoot,id+Path.GetExtension(file));File.Copy(file,target);var t=new Track{id=id,title=Path.GetFileNameWithoutExtension(file),artist="На этом устройстве",LocalPath=target};File.WriteAllText(Path.Combine(OfflineRoot,id+".json"),JsonSerializer.Serialize(t));}Show("Офлайн");}
  async Task Download(List<Track> tracks){if(downloading)return;if(account.Length==0){Login();return;}downloading=true;Directory.CreateDirectory(OfflineRoot);int added=0,skip=0,failed=0;try{foreach(var t in tracks){if(t.LocalPath!=null||File.Exists(Path.Combine(OfflineRoot,t.id+".json"))){skip++;continue;}Status.Text=$"Загрузка {added+skip+failed+1} / {tracks.Count}";try{bool ready=false;for(int attempt=0;attempt<100;attempt++){var preparation=await api.Request("api/offline-export/"+t.id);string state=preparation.GetProperty("status").GetString()??"";if(state=="ready"){ready=true;break;}if(state=="error")throw new IOException(preparation.GetProperty("error").GetString());await Task.Delay(3000);}if(!ready)throw new IOException("Подготовка аудио заняла слишком много времени");using var response=await api.HTTP.GetAsync("api/offline-export/"+t.id+"?download=true",System.Net.Http.HttpCompletionOption.ResponseHeadersRead);response.EnsureSuccessStatusCode();if(response.Content.Headers.ContentType?.MediaType?.Contains("json")==true)throw new IOException("Аудио ещё не готово. Повтори загрузку.");if(response.Content.Headers.ContentLength>32*1024*1024)throw new IOException("Слишком большой файл");string target=Path.Combine(OfflineRoot,t.id+".m4a");await using(var file=File.Create(target+".tmp")){await using var input=await response.Content.ReadAsStreamAsync();byte[] buffer=new byte[16384];int count;long size=0;while((count=await input.ReadAsync(buffer))>0){size+=count;if(size>32*1024*1024)throw new IOException("Слишком большой файл");await file.WriteAsync(buffer.AsMemory(0,count));}}File.Move(target+".tmp",target,true);File.WriteAllText(Path.Combine(OfflineRoot,t.id+".json"),JsonSerializer.Serialize(t with{LocalPath=target}));added++;}catch{failed++;}}Status.Text=$"Скачано: {added} · уже сохранено: {skip} · ошибок: {failed}";}finally{downloading=false;}}
  void Login(){var panel=new StackPanel{Margin=new Thickness(24)};var email=new TextBox{Margin=new Thickness(0,10,0,10)};var password=new PasswordBox{Padding=new Thickness(12)};var note=new TextBlock{Text="Email и пароль",Margin=new Thickness(0,0,0,10)};panel.Children.Add(note);panel.Children.Add(email);panel.Children.Add(password);var window=new Window{Title="Войти в Nightwell",Width=440,Height=300,Content=panel,Owner=this,Background=new SolidColorBrush(Color.FromRgb(24,15,35))};foreach(bool register in new[]{false,true}){var button=new Button{Content=register?"Регистрация":"Войти"};button.Click+=async(_,_)=>{button.IsEnabled=false;try{var response=await api.Request(register?"api/register":"api/login","POST",new{email=email.Text,password=password.Password});api.Csrf=response.GetProperty("csrf").GetString()??"";window.Close();await LoadAccount();}catch(Exception e){note.Text=e.Message;}finally{button.IsEnabled=true;}};panel.Children.Add(button);}window.ShowDialog();}
- void Settings(){var panel=new StackPanel{Margin=new Thickness(24)};var label=new TextBlock{Text=$"Переход: {transition:0.0} с"};var slider=new Slider{Minimum=0,Maximum=5,Value=transition,TickFrequency=.1,IsSnapToTickEnabled=true,Margin=new Thickness(0,16,0,20)};slider.ValueChanged+=(_,_)=>{transition=slider.Value;label.Text=$"Переход: {transition:0.0} с";SaveSettings();};panel.Children.Add(label);panel.Children.Add(slider);var w=new Window{Title="Настройки",Width=500,Height=260,Owner=this,Content=panel,Background=new SolidColorBrush(Color.FromRgb(24,15,35))};var done=new Button{Content="Готово"};done.Click+=(_,_)=>w.Close();panel.Children.Add(done);w.ShowDialog();}
- void SaveSettings()=>File.WriteAllText(Path.Combine(NativeAPI.Storage,"settings.json"),JsonSerializer.Serialize(new{origin,transition}));
+ void Settings(){
+ var panel=new StackPanel{Margin=new Thickness(24)};
+ panel.Children.Add(new TextBlock{Text="Воспроизведение",FontSize=20,FontWeight=FontWeights.SemiBold});
+ var label=new TextBlock{Text=$"Переход между треками · {transition:0.0} с",Margin=new Thickness(0,16,0,0)};
+ var slider=new Slider{Minimum=0,Maximum=5,Value=transition,TickFrequency=.1,IsSnapToTickEnabled=true,Margin=new Thickness(0,8,0,16)};
+ slider.ValueChanged+=(_,_)=>{transition=slider.Value;label.Text=$"Переход между треками · {transition:0.0} с";SaveSettings();};
+ panel.Children.Add(label);panel.Children.Add(slider);
+ var loudLabel=new TextBlock{Text=$"Одинаковая громкость · {normalization}%",Margin=new Thickness(0,8,0,0)};
+ var loud=new Slider{Minimum=0,Maximum=100,Value=normalization,TickFrequency=10,IsSnapToTickEnabled=true,Margin=new Thickness(0,8,0,10)};
+ loud.ValueChanged+=(_,_)=>{normalization=(int)loud.Value;loudLabel.Text=$"Одинаковая громкость · {normalization}%";SaveSettings();};
+ panel.Children.Add(loudLabel);panel.Children.Add(loud);
+ panel.Children.Add(new TextBlock{Text="0%: выкл. Чем выше значение, тем сильнее выравниваются тихие и громкие записи. Для применения перезапусти Nightwell Music.",TextWrapping=TextWrapping.Wrap,Foreground=Brushes.LightGray,Margin=new Thickness(0,0,0,18)});
+ var w=new Window{Title="Nightwell · Настройки",Width=510,Height=370,Owner=this,Background=new SolidColorBrush(Color.FromRgb(18,21,27)),Content=panel};
+ var done=new Button{Content="Готово",HorizontalAlignment=HorizontalAlignment.Right};
+ done.Click+=(_,_)=>w.Close();panel.Children.Add(done);w.ShowDialog();
+ }
+ void SaveSettings(){try{
+  Directory.CreateDirectory(NativeAPI.Storage);
+  string data=JsonSerializer.Serialize(new{origin,transition,normalization});
+  _=Task.Run(()=>{try{File.WriteAllText(Path.Combine(NativeAPI.Storage,"settings.json"),data);}catch{}});
+ }catch{}}
  void Prompt(string title,string hint,Func<string,Task> run){var panel=new StackPanel{Margin=new Thickness(24)};var value=new TextBox();panel.Children.Add(new TextBlock{Text=hint});panel.Children.Add(value);var button=new Button{Content="Сохранить"};panel.Children.Add(button);var w=new Window{Title=title,Owner=this,Width=420,Height=210,Content=panel};button.Click+=async(_,_)=>{await Guard(()=>run(value.Text));w.Close();};w.ShowDialog();}
 }
