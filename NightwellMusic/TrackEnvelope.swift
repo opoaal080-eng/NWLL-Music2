@@ -5,11 +5,14 @@ struct TrackEnvelope: Codable {
     let framesPerSecond: Double
     let duration: Double
     let levels: [Float]
+    // Independent whole-file PCM RMS for sound leveling, optional for old caches.
+    let averageRMS: Float?
 
     var valid: Bool {
         framesPerSecond.isFinite && framesPerSecond > 0 && framesPerSecond <= 30 &&
         duration.isFinite && duration > 0 && duration <= 1800 && !levels.isEmpty &&
-        levels.count <= 54001 && levels.allSatisfy { $0.isFinite && $0 >= 0 && $0 <= 1 }
+        levels.count <= 54001 && levels.allSatisfy { $0.isFinite && $0 >= 0 && $0 <= 1 } &&
+        (averageRMS == nil || (averageRMS!.isFinite && averageRMS! >= 0 && averageRMS! <= 1))
     }
     func level(at seconds: Double, playing: Bool) -> Double {
         guard playing, seconds.isFinite, seconds >= 0, seconds < duration, !levels.isEmpty else { return 0 }
@@ -31,6 +34,7 @@ struct TrackEnvelope: Codable {
         let window = max(1, Int((rate / 20).rounded()))
         let lowAlpha = 1 - exp(-2 * .pi * 220 / rate), dcAlpha = 1 - exp(-2 * .pi * 30 / rate)
         var low = 0.0, dc = 0.0, sum = 0.0, bassSum = 0.0, frames = 0
+        var totalPower = 0.0, totalFrames = 0
         var levels: [Float] = []
         levels.reserveCapacity(Int(duration * 21) + 1)
         func appendWindow() {
@@ -51,12 +55,15 @@ struct TrackEnvelope: Codable {
                 mono /= Double(format.channelCount); power /= Double(format.channelCount)
                 dc += dcAlpha * (mono - dc); low += lowAlpha * (mono - dc - low)
                 sum += power; bassSum += low * low; frames += 1
+                totalPower += power; totalFrames += 1
                 if frames == window { appendWindow() }
             }
         }
         appendWindow()
         if cancelled() { throw CancellationError() }
-        let result = TrackEnvelope(framesPerSecond: rate / Double(window), duration: duration, levels: levels)
+        let trackRMS = totalFrames > 0 ? Float(sqrt(totalPower / Double(totalFrames))) : nil
+        let result = TrackEnvelope(framesPerSecond: rate / Double(window), duration: duration,
+                                   levels: levels, averageRMS: trackRMS)
         guard result.valid else { throw URLError(.cannotDecodeContentData) }
         return result
     }

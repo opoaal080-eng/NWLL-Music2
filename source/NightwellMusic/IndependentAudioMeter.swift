@@ -81,6 +81,29 @@ final class IndependentAudioMeter {
         envelope = value
         if let data = try? JSONEncoder().encode(value) { cache.setObject(data as NSData, forKey: key as NSString, cost: data.count) }
     }
+    // Precompute only the immediately upcoming OFFLINE track. Never download the
+    // next track for visualization and never run more than one prewarm worker.
+    private var prewarmWorker: Task<Void, Never>?
+    private var prewarmKey = ""
+    func prewarm(key: String, local: URL?) {
+        guard let local else { return }
+        if prewarmKey == key { return }
+        prewarmWorker?.cancel()
+        prewarmKey = key
+        prewarmWorker = Task.detached(priority: .background) {
+            if EnvelopeCache.read(key) != nil || Task.isCancelled { return }
+            guard let value = try? TrackEnvelope.analyse(local, cancelled: { Task.isCancelled }),
+                  !Task.isCancelled else { return }
+            EnvelopeCache.write(value, key: key)
+        }
+    }
+    func loudnessRMS() -> Double? {
+        guard let envelope else { return nil }
+        if let value = envelope.averageRMS, value.isFinite, value > 0 { return Double(value) }
+        // Older cached envelopes contain a weighted visualization envelope only.
+        // It is not a calibrated loudness measurement, so don't use it for gain.
+        return nil
+    }
     func level(at seconds: Double, playing: Bool) -> Double { envelope?.level(at: seconds, playing: playing) ?? 0 }
 }
 

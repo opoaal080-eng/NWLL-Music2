@@ -97,6 +97,13 @@ final class IndependentAudioMeter {
             EnvelopeCache.write(value, key: key)
         }
     }
+    func loudnessRMS() -> Double? {
+        guard let envelope else { return nil }
+        if let value = envelope.averageRMS, value.isFinite, value > 0 { return Double(value) }
+        // Older cached envelopes contain a weighted visualization envelope only.
+        // It is not a calibrated loudness measurement, so don't use it for gain.
+        return nil
+    }
     func level(at seconds: Double, playing: Bool) -> Double { envelope?.level(at: seconds, playing: playing) ?? 0 }
 }
 

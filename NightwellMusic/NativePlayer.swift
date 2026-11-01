@@ -98,6 +98,9 @@ final class NativePlayer {
     }
     private var fadeObserver: Any?
     private var baseVolume: Float = 1
+    private var loudnessStrength = min(1, max(0, UserDefaults.standard.double(forKey: "nw-equal-volume") / 100))
+    private var loudnessAverage = 0.0
+    private var loudnessGain = 1.0
     private var transitionSeconds = UserDefaults.standard.object(forKey: "nw-transition-seconds") == nil ? 0.8 : UserDefaults.standard.double(forKey: "nw-transition-seconds")
     private var fadeInActive = false
     private var fadeNextAutomatically = false
@@ -127,6 +130,7 @@ final class NativePlayer {
                     self.audibleAfterSeconds = max(0, ProcessInfo.processInfo.systemUptime - self.startupUptime)
                 }
             }
+            self?.updateLoudnessLeveling()
             self?.refreshIndependentMeter(); self?.refillWave(); self?.publish()
         }
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification,
@@ -253,6 +257,7 @@ final class NativePlayer {
         startupUptime = ProcessInfo.processInfo.systemUptime
         readyAfterSeconds = nil; audibleAfterSeconds = nil
         if !recovering { streamStalls = 0; recovery.cancel(resetBudget: true); independentMeter.cancel(); resumeAfterInterruption = false }
+        loudnessAverage = 0; loudnessGain = 1
         eqGeneration = UUID(); eqDownload?.cancel(); eqDownload = nil; eqAttempted = false; enginePlayback.stop()
         stallCheck?.cancel(); stallCheck = nil
         itemGeneration = UUID(); let generation = itemGeneration
@@ -463,6 +468,25 @@ final class NativePlayer {
                 }
             }
     }
+    func setEqualVolume(_ percent: Double) {
+        guard percent.isFinite else { return }
+        loudnessStrength = max(0, min(1, percent / 100))
+        UserDefaults.standard.set(loudnessStrength * 100, forKey: "nw-equal-volume")
+        if loudnessStrength == 0 { loudnessAverage = 0; loudnessGain = 1 }
+        updateFade()
+    }
+    private func updateLoudnessLeveling() {
+        guard loudnessStrength > 0, wantsPlay, audible, !waitingForReady else { return }
+        // Use live decoded PCM where Apple's tap is supported. On Bluetooth,
+        // only use the separately analysed whole-file RMS if available.
+        guard let rms = audioMeter.loudnessRMS() ?? independentMeter.loudnessRMS(),
+              rms.isFinite, rms > 0.018 else { return }
+        loudnessAverage = loudnessAverage == 0 ? rms : loudnessAverage * 0.91 + rms * 0.09
+        let attenuation = min(1.0, max(0.48, 0.105 / max(0.025, loudnessAverage)))
+        let target = 1.0 - (1.0 - attenuation) * loudnessStrength
+        loudnessGain += (target - loudnessGain) * 0.16
+        updateFade()
+    }
     func volume(_ value: Double) { if value.isFinite { baseVolume = Float(max(0, min(1, value))); updateFade() } }
     func transitionDuration(_ value: Double) {
         guard value.isFinite else { return }
@@ -475,8 +499,9 @@ final class NativePlayer {
             if enginePlayback.ready { enginePlayback.volume = player.volume; player.isMuted = true }
             else { player.isMuted = false }
         }
-        guard transitionSeconds > 0 else { fadeInActive = false; player.volume = baseVolume; return }
-        guard wantsPlay, !waitingForReady else { player.volume = fadeInActive ? 0 : baseVolume; return }
+        let leveledVolume = baseVolume * Float(loudnessGain)
+        guard transitionSeconds > 0 else { fadeInActive = false; player.volume = leveledVolume; return }
+        guard wantsPlay, !waitingForReady else { player.volume = fadeInActive ? 0 : leveledVolume; return }
         let position = playbackPosition
         let duration = player.currentItem?.duration.seconds ?? .nan
         guard position.isFinite else { return }
@@ -486,7 +511,7 @@ final class NativePlayer {
         let hasNext = repeatMode != 0 || waveActive || index + 1 < tracks.count || (shuffle && tracks.count > 1)
         let entry = fadeInActive ? max(0, min(1, position / span)) : 1
         let exit = known && hasNext ? max(0, min(1, (duration - position) / span)) : 1
-        player.volume = baseVolume * Float(min(entry, exit))
+        player.volume = leveledVolume * Float(min(entry, exit))
     }
     deinit { if let fadeObserver { player.removeTimeObserver(fadeObserver) } }
 

@@ -891,6 +891,7 @@ struct NativeSettings: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("nw-transition-seconds") private var transition = 1.5
     @AppStorage("nw-stream-buffer-seconds") private var streamBufferSeconds = 4.0
+    @AppStorage("nw-equal-volume") private var equalVolume = 0.0
     @AppStorage("nw-ambient-lyrics") private var ambientLyrics = true
     @State private var playbackDiagnostics = "Нет данных о запуске"
     private var buildCaption: String {
@@ -947,6 +948,18 @@ struct NativeSettings: View {
                                     valueText: String(format: "%.0f с", streamBufferSeconds))
                             .onChange(of: streamBufferSeconds) { NativePlayer.shared.setStreamBufferDuration($0) }
                         Text("Меньше буфер: быстрее старт, но выше риск пауз на слабой сети. При обрывах выбери 8 или 12 секунд.")
+                            .font(.system(size: 12)).foregroundStyle(.white.opacity(0.43))
+                        HStack {
+                            Text("Одинаковая громкость")
+                            Spacer()
+                            Text(equalVolume == 0 ? "Выкл." : String(format: "%.0f%%", equalVolume))
+                                .foregroundStyle(Color.white)
+                        }
+                        GlassSlider(value: $equalVolume, range: 0...100, step: 10,
+                                    accessibilityStep: 10, label: "Одинаковая громкость",
+                                    valueText: String(format: "%.0f%%", equalVolume))
+                            .onChange(of: equalVolume) { NativePlayer.shared.setEqualVolume($0) }
+                        Text("Мягко уменьшает громкость более громких треков. На Bluetooth выравнивание становится доступно после анализа записи.")
                             .font(.system(size: 12)).foregroundStyle(.white.opacity(0.43))
                         Text("Диагностика: " + playbackDiagnostics)
                             .font(.system(size: 12)).monospacedDigit().foregroundStyle(.white.opacity(0.6))

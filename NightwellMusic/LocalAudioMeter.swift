@@ -6,6 +6,7 @@ final class LocalAudioMeter {
     let equalizer = PremiumDSP()
     private let lock = NSLock()
     private var value = 0.0
+    private var rawRMS = 0.0
     private var updated = 0.0
     private var format = AudioStreamBasicDescription()
     private var low = 0.0, dc = 0.0, sum = 0.0, bassSum = 0.0
@@ -34,7 +35,7 @@ final class LocalAudioMeter {
     func detach(from item: AVPlayerItem) {
         attachmentGeneration = UUID(); attached = false
         if item.audioMix != nil { item.audioMix = nil }
-        lock.lock(); value = 0; updated = 0; lock.unlock()
+        lock.lock(); value = 0; rawRMS = 0; updated = 0; lock.unlock()
     }
     private func install(on item: AVPlayerItem, track: AVAssetTrack?) {
         var callbacks = MTAudioProcessingTapCallbacks(version: kMTAudioProcessingTapCallbacksVersion_0,
@@ -118,12 +119,23 @@ final class LocalAudioMeter {
             if frames >= window {
                 let level = min(1, sqrt(sum / Double(frames)) * 0.7 + sqrt(bassSum / Double(frames)) * 3.8)
                 // Never block the audio callback while the UI reads the meter.
-                if lock.try() { value = level; levels = bandSums.map { min(1, sqrt($0 / Double(max(1, frames))) * 5) }; updated = ProcessInfo.processInfo.systemUptime; lock.unlock() }
+                if lock.try() {
+                    value = level
+                    rawRMS = sqrt(sum / Double(max(1, frames)))
+                    levels = bandSums.map { min(1, sqrt($0 / Double(max(1, frames))) * 5) }
+                    updated = ProcessInfo.processInfo.systemUptime
+                    lock.unlock()
+                }
                 frames = 0; sum = 0; bassSum = 0; bandSums = [0,0,0,0]
             }
         }
     }
     func frequencyLevels(playing: Bool) -> [Double] { lock.lock(); defer { lock.unlock() }; return playing && ProcessInfo.processInfo.systemUptime - updated < 2 ? levels : [0,0,0,0] }
+    func loudnessRMS() -> Double? {
+        lock.lock(); defer { lock.unlock() }
+        let age = ProcessInfo.processInfo.systemUptime - updated
+        return updated > 0 && age >= 0 && age < 2 && rawRMS.isFinite ? rawRMS : nil
+    }
     var processing: Bool {
         lock.lock(); defer { lock.unlock() }
         return updated > 0 && ProcessInfo.processInfo.systemUptime - updated < 2
