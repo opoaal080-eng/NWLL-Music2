@@ -32,7 +32,7 @@ jobs:
           if (!(Test-Path $compiler)) { throw "Inno Setup compiler not found" }
           & $compiler "windows\installer.iss"
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup build failed" }
-          if (!(Test-Path "setup-output\Nightwell-Music-Setup-1.2.0.exe")) { throw "Installer not produced" }
+          if (!(Test-Path "setup-output\Nightwell-Music-Setup-1.2.1.exe")) { throw "Installer not produced" }
       - name: Record EXE checksum and commit
         run: python scripts/build-provenance.py --platform windows --directory publish --output publish/build-provenance.json
       - uses: actions/upload-artifact@v4
@@ -42,4 +42,4 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: Nightwell-Music-Windows-Installer
-          path: setup-output/Nightwell-Music-Setup-1.2.0.exe
+          path: setup-output/Nightwell-Music-Setup-1.2.1.exe

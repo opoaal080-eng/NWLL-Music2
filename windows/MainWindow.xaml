@@ -1,5 +1,5 @@
 <Window x:Class="Nightwell.Native.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:Nightwell.Native"
- Title="Nightwell Music" Width="1080" Height="800" MinWidth="700" MinHeight="570"
+ Title="Nightwell Music" Width="1080" Height="815" MinWidth="790" MinHeight="630"
  WindowStartupLocation="CenterScreen" Background="#07090D" FontFamily="Segoe UI" Foreground="White">
  <Grid>
   <Grid.Background>
@@ -30,8 +30,8 @@
      <Grid x:Name="Home">
       <local:RibbonScene x:Name="Ribbon" IsHitTestVisible="False"/>
       <StackPanel HorizontalAlignment="Left" VerticalAlignment="Top" Margin="25,28,0,0">
-       <TextBlock Text="Твой ритм" FontSize="52" FontWeight="Bold"/>
-       <TextBlock Text="Музыка под твоё настроение" Foreground="#B3BDC6" FontSize="17" Margin="2,6,0,0"/>
+       <TextBlock Text="Твой ритм" FontSize="44" FontWeight="SemiBold"/>
+       <TextBlock Text="Музыка под твоё настроение" Foreground="#B3BDC6" FontSize="15" Margin="2,6,0,0"/>
       </StackPanel>
       <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,25,0,0">
        <Button x:Name="HomePlay" Content="▶" FontSize="33" Width="95" Height="95" Background="#5A505763" BorderBrush="#99FFFFFF" Click="ToggleClick"/>
@@ -53,9 +53,16 @@
      <Grid x:Name="PlayerPage" Visibility="Collapsed" Margin="20,12">
       <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
       <DockPanel LastChildFill="False"><Button Content="⌄" Click="ClosePlayerClick" Width="45"/><TextBlock Text="Сейчас играет" FontSize="19" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="25,0"/><Button Content="⋯" DockPanel.Dock="Right" FontSize="20" Click="CurrentMenuClick"/></DockPanel>
-      <Grid Grid.Row="1" Margin="0,5"><Image x:Name="Cover" Stretch="Uniform" Margin="24"/><ScrollViewer x:Name="LyricsPanel" Visibility="Collapsed" Background="#990B0E13"><TextBlock x:Name="LyricsText" TextWrapping="Wrap" FontSize="23" Margin="28" LineHeight="40"/></ScrollViewer></Grid>
-      <StackPanel Grid.Row="2" Width="440" HorizontalAlignment="Center">
-       <TextBlock x:Name="FullTitle" TextAlignment="Center" FontSize="25" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+      <Grid Grid.Row="1" Margin="0,10,0,9">
+      <Border Width="332" Height="332" CornerRadius="23" Background="#2A303A" BorderBrush="#48FFFFFF" BorderThickness="1" ClipToBounds="True" HorizontalAlignment="Center" VerticalAlignment="Center">
+       <Image x:Name="Cover" Stretch="UniformToFill" Width="330" Height="330"/>
+      </Border>
+      <ScrollViewer x:Name="LyricsPanel" Visibility="Collapsed" Width="440" HorizontalAlignment="Center" Background="#F10E131B">
+       <TextBlock x:Name="LyricsText" TextWrapping="Wrap" FontSize="20" Margin="24" LineHeight="32" TextAlignment="Center"/>
+      </ScrollViewer>
+     </Grid>
+      <StackPanel Grid.Row="2" Width="470" HorizontalAlignment="Center" Margin="0,0,0,5">
+       <TextBlock x:Name="FullTitle" TextAlignment="Center" FontSize="22" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
        <TextBlock x:Name="FullArtist" TextAlignment="Center" FontSize="15" Foreground="#B7BEC8" Margin="0,5,0,4"/>
        <Slider x:Name="FullSeek" Minimum="0" Maximum="1" PreviewMouseLeftButtonDown="SeekStart" PreviewMouseLeftButtonUp="SeekEnd" Margin="0,10,0,0"/>
        <TextBlock x:Name="FullTime" FontSize="12" Foreground="#B7BEC8" HorizontalAlignment="Center" Margin="0,3,0,2"/>
@@ -64,15 +71,21 @@
         <Button x:Name="FullPlay" Content="▶" FontSize="26" Width="72" Height="64" Background="#5A555E6A" Click="ToggleClick"/>
         <Button Content="▷|" FontSize="20" Click="NextClick"/><Button Content="↻" FontSize="20" Click="RepeatClick"/>
        </StackPanel>
-       <Button Content="Очередь воспроизведения" Click="QueueClick" Background="#1BFFFFFF" FontSize="12" Margin="0,4,0,0"/>
+       <Button Content="Очередь воспроизведения" Click="QueueClick" Background="#1BFFFFFF" FontSize="12" Margin="0,6,0,0"/>
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,10,0,0">
+       <TextBlock Text="♪" Foreground="#BDC6D1" FontSize="18" VerticalAlignment="Center" Margin="0,0,10,0"/>
+       <Slider x:Name="FullVolumeSlider" Width="180" Minimum="0" Maximum="100" Value="100" ValueChanged="VolumeChanged"
+               AutoToolTipPlacement="TopLeft" AutoToolTipPrecision="0"/>
+       <TextBlock x:Name="FullVolumeValue" Text="100%" Width="40" Foreground="#BDC6D1" FontSize="12" TextAlignment="Right" VerticalAlignment="Center" Margin="8,0,0,0"/>
+      </StackPanel>
       </StackPanel>
      </Grid>
     </Grid>
    </Border>
    <TextBlock x:Name="Status" Grid.Row="2" Foreground="#D8DAE1" Margin="12,10,12,7" FontSize="12" TextWrapping="Wrap" MaxHeight="43"/>
-   <Border x:Name="Dock" Grid.Row="3" Background="#624E5561" BorderBrush="#6DFFFFFF" BorderThickness="1" CornerRadius="25" Padding="11" Height="81">
+   <Border x:Name="Dock" Grid.Row="3" Background="#50303945" BorderBrush="#56FFFFFF" BorderThickness="1" CornerRadius="22" Padding="11" Height="82">
     <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-     <Border x:Name="MiniProgress" Background="#4CBCC8D3" HorizontalAlignment="Left" Width="0" Grid.ColumnSpan="2" IsHitTestVisible="False" CornerRadius="18"/>
+     <Border x:Name="MiniProgress" Background="#C0DCEAF9" HorizontalAlignment="Left" Width="0" Height="3" VerticalAlignment="Bottom" Margin="0,0,0,-7" Grid.ColumnSpan="2" IsHitTestVisible="False" CornerRadius="2"/>
      <Grid MouseLeftButtonUp="OpenPlayerClick" Cursor="Hand" VerticalAlignment="Center">
       <Grid.ColumnDefinitions><ColumnDefinition Width="66"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
       <Image x:Name="MiniCover" Width="53" Height="53" Stretch="UniformToFill" Margin="0,0,12,0"><Image.Clip><RectangleGeometry Rect="0,0,53,53" RadiusX="12" RadiusY="12"/></Image.Clip></Image>
@@ -86,6 +99,13 @@
       <Button Content="|◁" Click="PreviousClick" FontSize="18"/>
       <Button x:Name="MiniPlay" Content="▶" Width="51" Height="51" Background="#4CFFFFFF" BorderBrush="#8BFFFFFF" Padding="0" FontSize="19" Click="ToggleClick"/>
       <Button Content="▷|" Click="NextClick" FontSize="18"/>
+      <Border Width="1" Height="28" Background="#39FFFFFF" Margin="12,0"/>
+      <TextBlock Text="♪" FontSize="17" Foreground="#C8D2DC" VerticalAlignment="Center" Margin="0,0,7,0"/>
+      <Slider x:Name="VolumeSlider" Minimum="0" Maximum="100" Value="100" Width="112"
+              VerticalAlignment="Center" ValueChanged="VolumeChanged"
+              AutoToolTipPlacement="TopLeft" AutoToolTipPrecision="0"/>
+      <TextBlock x:Name="MiniVolumeValue" Text="100%" FontSize="11" Foreground="#AFC0D0" Width="34"
+                 VerticalAlignment="Center" TextAlignment="Right" Margin="7,0,0,0"/>
      </StackPanel>
     </Grid>
    </Border>

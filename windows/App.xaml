@@ -21,6 +21,68 @@
    <Setter Property="Padding" Value="3"/><Setter Property="Background" Value="Transparent"/>
    <Style.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="#294B535D"/></Trigger></Style.Triggers>
   </Style>
-  <Style TargetType="Slider"><Setter Property="Foreground" Value="#F5F5F7"/></Style>
+  <Style TargetType="ContextMenu">
+   <Setter Property="Background" Value="#171C24"/><Setter Property="Foreground" Value="#F7F8FA"/>
+   <Setter Property="BorderBrush" Value="#546071"/><Setter Property="HasDropShadow" Value="True"/>
+   <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ContextMenu">
+    <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="16" Padding="7">
+     <ScrollViewer MaxHeight="540" VerticalScrollBarVisibility="Auto"><ItemsPresenter/></ScrollViewer>
+    </Border>
+   </ControlTemplate></Setter.Value></Setter>
+  </Style>
+  <Style TargetType="MenuItem">
+   <Setter Property="Foreground" Value="White"/><Setter Property="Background" Value="Transparent"/>
+   <Setter Property="Padding" Value="14,11"/><Setter Property="FontSize" Value="14"/>
+   <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="MenuItem">
+    <Grid>
+     <Border x:Name="Surface" Background="{TemplateBinding Background}" CornerRadius="10">
+      <DockPanel>
+       <TextBlock x:Name="Arrow" Text="›" DockPanel.Dock="Right" Margin="10,0,10,0" VerticalAlignment="Center" Visibility="Collapsed" FontSize="19" Foreground="#BFC9D4"/>
+       <ContentPresenter ContentSource="Header" Margin="{TemplateBinding Padding}" VerticalAlignment="Center" RecognizesAccessKey="True"/>
+      </DockPanel>
+     </Border>
+     <Popup x:Name="PART_Popup" Placement="Right" HorizontalOffset="4" AllowsTransparency="True"
+       IsOpen="{Binding IsSubmenuOpen,RelativeSource={RelativeSource TemplatedParent}}" PopupAnimation="Fade">
+      <Border Background="#171C24" BorderBrush="#546071" BorderThickness="1" CornerRadius="14" Padding="6">
+       <ScrollViewer MaxHeight="530"><ItemsPresenter/></ScrollViewer>
+      </Border>
+     </Popup>
+    </Grid>
+    <ControlTemplate.Triggers>
+     <Trigger Property="IsHighlighted" Value="True"><Setter TargetName="Surface" Property="Background" Value="#364453"/></Trigger>
+     <Trigger Property="HasItems" Value="True"><Setter TargetName="Arrow" Property="Visibility" Value="Visible"/></Trigger>
+     <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value=".5"/></Trigger>
+    </ControlTemplate.Triggers>
+   </ControlTemplate></Setter.Value></Setter>
+  </Style>
+  <Style TargetType="PasswordBox">
+   <Setter Property="Foreground" Value="#F7F8FA"/><Setter Property="Background" Value="#26303B"/>
+   <Setter Property="BorderBrush" Value="#556170"/><Setter Property="CaretBrush" Value="White"/><Setter Property="Padding" Value="12"/>
+  </Style>
+  <Style TargetType="ComboBox"><Setter Property="Foreground" Value="White"/>
+    <Setter Property="Background" Value="#2B343F"/><Setter Property="BorderBrush" Value="#546071"/>
+  </Style>
+  <Style TargetType="Slider">
+   <Setter Property="Height" Value="27"/>
+   <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Slider">
+    <Grid MinWidth="70">
+     <Track x:Name="PART_Track" Height="7" VerticalAlignment="Center">
+      <Track.DecreaseRepeatButton>
+       <RepeatButton Command="Slider.DecreaseLarge"><RepeatButton.Template>
+        <ControlTemplate TargetType="RepeatButton"><Border Background="#EBF0F7" CornerRadius="3"/></ControlTemplate>
+       </RepeatButton.Template></RepeatButton>
+      </Track.DecreaseRepeatButton>
+      <Track.Thumb><Thumb Width="17" Height="17"><Thumb.Template>
+       <ControlTemplate TargetType="Thumb"><Ellipse Fill="#FFFFFF" Stroke="#232A35" StrokeThickness="2"/></ControlTemplate>
+      </Thumb.Template></Thumb></Track.Thumb>
+      <Track.IncreaseRepeatButton>
+       <RepeatButton Command="Slider.IncreaseLarge"><RepeatButton.Template>
+        <ControlTemplate TargetType="RepeatButton"><Border Background="#454F5C" CornerRadius="3"/></ControlTemplate>
+       </RepeatButton.Template></RepeatButton>
+      </Track.IncreaseRepeatButton>
+     </Track>
+    </Grid>
+   </ControlTemplate></Setter.Value></Setter>
+  </Style>
  </Application.Resources>
 </Application>
