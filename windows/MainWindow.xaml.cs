@@ -37,7 +37,24 @@ public partial class MainWindow:Window {
    if(state==null){System.Threading.Interlocked.Exchange(ref savePending,0);return;}
    _=Task.Run(()=>{try{WritePlayback(state);}finally{System.Threading.Interlocked.Exchange(ref savePending,0);}});
  }
- void RestorePlayback(){if(Current!=null)return;try{var state=JsonSerializer.Deserialize<PlaybackState>(File.ReadAllText(ResumeFile));if(state==null||state.Origin!=origin)return;var local=ReadOffline().ToDictionary(t=>t.id);queue=state.Queue.Where(t=>state.Account==account&&account.Length>0||local.ContainsKey(t.id)).Select(t=>local.GetValueOrDefault(t.id,t)).ToList();index=queue.FindIndex(t=>t.id==state.ID);if(index<0){queue=[];return;}repeat=state.Repeat;shuffle=state.Shuffle;wave=state.Wave;pendingSeek=state.Position;restorePaused=true;PlayCurrent();}catch{}}
+ async Task RestorePlaybackAsync(){
+  if(Current!=null)return;
+  try {
+    var restored=await Task.Run(()=>{
+      if(!File.Exists(ResumeFile))return (state:(PlaybackState?)null,local:new Dictionary<string,Track>());
+      var state=JsonSerializer.Deserialize<PlaybackState>(File.ReadAllText(ResumeFile));
+      var local=ReadOffline().ToDictionary(t=>t.id);
+      return (state,local);
+    });
+    var state=restored.state;
+    if(state==null||state.Origin!=origin)return;
+    queue=state.Queue.Where(t=>state.Account==account&&account.Length>0||restored.local.ContainsKey(t.id))
+       .Select(t=>restored.local.GetValueOrDefault(t.id,t)).ToList();
+    index=queue.FindIndex(t=>t.id==state.ID);if(index<0){queue=[];return;}
+    repeat=state.Repeat;shuffle=state.Shuffle;wave=state.Wave;
+    pendingSeek=state.Position;restorePaused=true;PlayCurrent();
+  }catch{}
+}
  Track? Current=>queue.Count>0&&index>=0&&index<queue.Count?queue[index]:null;
  string origin="https://music.nightwell.fun/";
  public MainWindow(){InitializeComponent();try{
@@ -56,12 +73,17 @@ if(normalization>0){
 vlc=new LibVLC(audioArgs.ToArray());player=new LibVLCSharp.Shared.MediaPlayer(vlc);player.EndReached+=(_,_)=>Dispatcher.InvokeAsync(()=>Advance());player.EncounteredError+=(_,_)=>Dispatcher.InvokeAsync(()=>Status.Text="Не удалось воспроизвести трек. Проверь подключение и повтори попытку.");timer.Tick+=(_,_)=>Tick();timer.Start();Loaded+=async(_,_)=>{
  if(Environment.GetCommandLineArgs().Contains("--native-smoke")){
   await Task.Delay(1200);var bitmap=new RenderTargetBitmap((int)ActualWidth,(int)ActualHeight,96,96,PixelFormats.Pbgra32);bitmap.Render(this);var encoder=new PngBitmapEncoder();encoder.Frames.Add(BitmapFrame.Create(bitmap));using(var file=File.Create("windows-native-smoke.png"))encoder.Save(file);Close();
- }else {await LoadAccount();RestorePlayback();}
+ }else {await LoadAccount();await RestorePlaybackAsync();}
 };Closed+=(_,_)=>{SavePlayback();timer.Stop();searchCancellation?.Cancel();lyricsCancellation?.Cancel();player.Stop();player.Dispose();vlc.Dispose();proxy.Dispose();api.Dispose();};}
  async Task Guard(Func<Task> action){try{await action();}catch(OperationCanceledException){}catch(Exception e){Status.Text=e.Message;}}
  List<Track> ParseTracks(JsonElement json)=>json.GetProperty("tracks").Deserialize<List<Track>>()??[];
  async Task LoadAccount(){await Guard(async()=>{var me=await api.Request("api/me");api.Csrf=me.GetProperty("csrf").GetString()??"";account=me.GetProperty("user").ValueKind==JsonValueKind.Object?me.GetProperty("user").GetProperty("id").GetString()??"":"";if(account.Length==0){Status.Text="Войди в аккаунт или открой офлайн-файлы";return;}var tasks=await Task.WhenAll(api.Request("api/tracks"),api.Request("api/likes"),api.Request("api/playlists"));catalog=ParseTracks(tasks[0]);likes=tasks[1].GetProperty("ids").Deserialize<HashSet<string>>()??[];playlists=tasks[2].GetProperty("playlists").Deserialize<List<Playlist>>()??[];Status.Text="";if(screen!="Поиск")Show(screen);});}
- void Show(string next){searchCancellation?.Cancel();screen=next;Home.Visibility=next=="Главная"?Visibility.Visible:Visibility.Collapsed;Library.Visibility=next=="Главная"?Visibility.Collapsed:Visibility.Visible;PlayerPage.Visibility=Visibility.Collapsed;Heading.Text=next;SearchBox.Visibility=next=="Поиск"?Visibility.Visible:Visibility.Collapsed;CollectionActions.Visibility=next=="Поиск"?Visibility.Collapsed:Visibility.Visible;if(next=="Поиск"){SearchBox.Focus();shown=[];}else if(next=="Избранное"){shown=catalog.Where(t=>likes.Contains(t.id)).ToList();if(premiumSortAllowed&&favoriteOrder=="title")shown=shown.OrderBy(t=>t.title,StringComparer.CurrentCultureIgnoreCase).ToList();else if(premiumSortAllowed&&favoriteOrder=="artist")shown=shown.OrderBy(t=>t.artist,StringComparer.CurrentCultureIgnoreCase).ToList();}else if(next=="Офлайн")shown=ReadOffline();Tracks.ItemsSource=shown;if(next=="Плейлисты")ShowPlaylists();}
+ void Show(string next){searchCancellation?.Cancel();screen=next;Home.Visibility=next=="Главная"?Visibility.Visible:Visibility.Collapsed;Library.Visibility=next=="Главная"?Visibility.Collapsed:Visibility.Visible;PlayerPage.Visibility=Visibility.Collapsed;Heading.Text=next;SearchBox.Visibility=next=="Поиск"?Visibility.Visible:Visibility.Collapsed;CollectionActions.Visibility=next=="Поиск"?Visibility.Collapsed:Visibility.Visible;if(next=="Поиск"){SearchBox.Focus();shown=[];}else if(next=="Избранное"){shown=catalog.Where(t=>likes.Contains(t.id)).ToList();if(premiumSortAllowed&&favoriteOrder=="title")shown=shown.OrderBy(t=>t.title,StringComparer.CurrentCultureIgnoreCase).ToList();else if(premiumSortAllowed&&favoriteOrder=="artist")shown=shown.OrderBy(t=>t.artist,StringComparer.CurrentCultureIgnoreCase).ToList();}else if(next=="Офлайн"){shown=[];_=LoadOfflineTracksAsync();}Tracks.ItemsSource=shown;if(next=="Плейлисты")ShowPlaylists();}
+ async Task LoadOfflineTracksAsync(){try{
+  var local=await Task.Run(ReadOffline);
+  if(screen!="Офлайн")return;
+  shown=local;Tracks.ItemsSource=local;
+ }catch(Exception ex){if(screen=="Офлайн")Status.Text="Не удалось открыть офлайн-файлы: "+ex.Message;}}
  void SearchClick(object sender,RoutedEventArgs e)=>Show("Поиск");
  async void SearchChanged(object sender,TextChangedEventArgs e){if(screen!="Поиск")return;searchCancellation?.Cancel();searchCancellation=new();var cancellation=searchCancellation.Token;string query=SearchBox.Text.Trim();if(query.Length==0){Tracks.ItemsSource=new List<Track>();return;}await Guard(async()=>{await Task.Delay(300,cancellation);var local=await Task.Run(()=>catalog.Where(t=>(t.title+" "+t.artist).Contains(query,StringComparison.OrdinalIgnoreCase)).ToList(),cancellation);cancellation.ThrowIfCancellationRequested();shown=local;Tracks.ItemsSource=shown;Status.Text="Ищем полные версии…";for(int i=0;i<30;i++){var result=await api.Request("api/tracks?q="+Uri.EscapeDataString(query),cancellation:cancellation);cancellation.ThrowIfCancellationRequested();shown=ParseTracks(result);Tracks.ItemsSource=shown;Status.Text=result.TryGetProperty("search_message",out var message)?message.GetString():"";if(!result.TryGetProperty("search_pending",out var pending)||!pending.GetBoolean())break;await Task.Delay(2000,cancellation);}});}
 
@@ -123,7 +145,17 @@ vlc=new LibVLC(audioArgs.ToArray());player=new LibVLCSharp.Shared.MediaPlayer(vl
  void ToggleClick(object sender,RoutedEventArgs e){if(Current==null){_=NewWave();return;}if(player.IsPlaying)player.Pause();else player.Play();}
  void TrackDoubleClick(object sender,MouseButtonEventArgs e){if(Tracks.SelectedItem is Track t){queue=shown.ToList();index=queue.FindIndex(v=>v.id==t.id);wave=false;PlayCurrent();}}
  void PlayCurrent(){var t=Current;if(t==null)return;if(t.LocalPath==null&&account.Length==0){Login();return;}string path=t.LocalPath??proxy.URL("api/stream/"+t.id+"?cache=1&format="+(t.is_remote||t.source=="soundcloud"?"hls":"file"));using var media=new Media(vlc,path,t.LocalPath==null?FromType.FromLocation:FromType.FromPath);player.Play(media);lyricsCancellation?.Cancel();currentLyrics=null;lyricsID="";renderedLyric=int.MinValue;currentID=t.id;mixRecent.Enqueue(t.id);while(mixRecent.Count>120)mixRecent.Dequeue();MiniTitle.Text=FullTitle.Text=t.title;MiniArtist.Text=FullArtist.Text=t.artist;LyricsText.Text="";LyricsPanel.Visibility=Visibility.Collapsed;Cover.Visibility=Visibility.Visible;if(t.cover_url!=null&&Uri.TryCreate(api.Origin,t.cover_url,out var coverURI)&&coverURI.Authority==api.Origin.Authority)_=LoadCover(coverURI,t.id);else Cover.Source=MiniCover.Source=null;Dock.BeginAnimation(OpacityProperty,new System.Windows.Media.Animation.DoubleAnimation(.6,1,TimeSpan.FromSeconds(.7)));}
- async Task LoadCover(Uri uri,string id){try{var bytes=await api.HTTP.GetByteArrayAsync(uri);if(bytes.Length>5*1024*1024||currentID!=id)return;var image=new BitmapImage();image.BeginInit();image.CacheOption=BitmapCacheOption.OnLoad;image.DecodePixelWidth=650;image.StreamSource=new MemoryStream(bytes);image.EndInit();image.Freeze();if(currentID==id)Cover.Source=MiniCover.Source=image;}catch{}}
+ async Task LoadCover(Uri uri,string id){try{
+ var bytes=await api.HTTP.GetByteArrayAsync(uri);
+ if(bytes.Length>5*1024*1024||currentID!=id)return;
+ var image=await Task.Run(()=>{
+  var bitmap=new BitmapImage();
+  bitmap.BeginInit();bitmap.CacheOption=BitmapCacheOption.OnLoad;
+  bitmap.DecodePixelWidth=650;bitmap.StreamSource=new MemoryStream(bytes);
+  bitmap.EndInit();bitmap.Freeze();return bitmap;
+ });
+ if(currentID==id)Cover.Source=MiniCover.Source=image;
+}catch{}}
  void NextClick(object sender,RoutedEventArgs e)=>Advance();
  void PreviousClick(object sender,RoutedEventArgs e){if(Current==null)return;long now=Environment.TickCount64;if(player.Time>3000&&!(previousID==currentID&&now-lastPrevious<3000)){lastPrevious=now;previousID=currentID;player.Time=0;return;}previousID="";index=(index-1+queue.Count)%queue.Count;PlayCurrent();}
  void Advance(){if(queue.Count==0)return;if(repeat==2){PlayCurrent();return;}if(wave&&index+1>=queue.Count){_=Refill();return;}if(shuffle&&queue.Count>1)index=(index+Random.Shared.Next(1,queue.Count))%queue.Count;else if(index+1<queue.Count)index++;else if(repeat==1)index=0;else return;PlayCurrent();}
