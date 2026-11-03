@@ -14,6 +14,16 @@ from pathlib import Path
 import shutil
 import sys
 
+BANNER_SESSION = "# Nightwell session identity compatibility"
+SESSION_IDENTITY_ADAPTER = """
+# Nightwell session identity compatibility
+def identity(request):
+    # Older Nightwell servers authenticate through session(request, required=False).
+    # Keep the existing account id and session permissions. Never create a new login.
+    account = session(request, False)
+    return str(account['user_id']) if account and account.get('user_id') else None
+"""
+
 BANNER_ARTIST = "# Nightwell artist directory module"
 BANNER_QUALITY = "# Nightwell SoundCloud audio quality module"
 FILES = ("artist_catalog.py", "artist_metadata.py", "audio_quality.py")
@@ -37,23 +47,46 @@ def patch(contents):
     tree = ast.parse(contents, "app.py")
     names = set()
     identity_found = False
+    legacy_session = False
     for node in tree.body:
         if isinstance(node, ast.Assign):
             names.update(t.id for t in node.targets if isinstance(t, ast.Name))
         elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
             names.add(node.target.id)
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "identity":
-            identity_found = True
-    if "app" not in names or not identity_found or (
-        "/api/tracks" not in contents or "/api/stream" not in contents
-    ):
-        raise ValueError("Текущий app.py не распознан. Должны существовать app, "
-                         "identity(request), /api/tracks и /api/stream. Файлы не изменены.")
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if node.name == "identity":
+                identity_found = True
+            if node.name == "session" and isinstance(node, ast.FunctionDef):
+                args = node.args
+                required_optional = len(args.args) >= 2 and args.args[0].arg == "request" and args.args[1].arg == "required"
+                safe_optional = (len(args.defaults) >= 1 and
+                                 isinstance(args.defaults[-1], ast.Constant) and
+                                 args.defaults[-1].value is True)
+                # Only adapt the legacy Nightwell session contract, never an
+                # arbitrary auth function from a different FastAPI project.
+                session_body = ast.get_source_segment(contents, node) or ""
+                legacy_session = bool(required_optional and safe_optional and
+                                      "'user_id'" in session_body)
+    has_tracks = "/api/tracks" in contents
+    has_stream = "/api/stream" in contents
+    if "app" not in names or not has_tracks or not has_stream:
+        raise ValueError("Текущий app.py не распознан. Нужны app, "
+                         "/api/tracks и /api/stream. Файлы не изменены.")
+    if not identity_found and not legacy_session:
+        raise ValueError("Не найдена совместимая авторизация. Нужен "
+                         "identity(request) или session(request, required=True) "
+                         "с user_id. Пришли действующий app.py для точной интеграции.")
+    if "identity" in names and not identity_found:
+        raise ValueError("В app.py есть переменная identity неизвестного вида. "
+                         "Не заменяем существующую авторизацию.")
     if "/api/artists" in contents and BANNER_ARTIST not in contents:
         raise ValueError("У сервера уже существует другой /api/artists. Изменения не применены.")
     if "/api/audio-quality/" in contents and BANNER_QUALITY not in contents:
         raise ValueError("У сервера уже существует другой /api/audio-quality/.")
-    additions = [text for banner, text in HOOKS if banner not in contents]
+    additions = []
+    if not identity_found and legacy_session:
+        additions.append(SESSION_IDENTITY_ADAPTER)
+    additions.extend(text for banner, text in HOOKS if banner not in contents)
     if not additions:
         return contents
     lines = contents.splitlines(keepends=True)
