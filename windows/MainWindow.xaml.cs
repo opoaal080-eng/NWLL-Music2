@@ -19,6 +19,9 @@ public partial class MainWindow:Window {
  double userVolume=1.0;
  long pausedAtMs;
  bool volumeSettingReady;
+ readonly DiscoveryHistory discovery=new();
+ CancellationTokenSource? warmNextCancellation;
+ Action? refreshQueueView;
  CancellationTokenSource? searchCancellation;List<Track> catalog=[],shown=[],queue=[];List<Playlist> playlists=[];HashSet<string> likes=[];
  string favoriteOrder="recent";bool premiumSortAllowed=false;
  string account="",screen="Главная",playlist="",currentID="";int index,repeat;bool wave,refilling,downloading,scrubbing,shuffle,mixing;readonly Queue<string> mixRecent=new();double transition=.8;long lastPrevious;string previousID="";
@@ -148,7 +151,44 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
 
  void MenuClick(object sender,RoutedEventArgs e){var menu=new ContextMenu();foreach(var name in new[]{"Главная","Поиск","Избранное","Плейлисты","Перенести музыку","Сортировка избранного · Premium","Офлайн","Настройки",account.Length==0?"Войти":"Выйти"}){var value=name;var item=new MenuItem{Header=value};item.Click+=async(_,_)=>{if(value=="Сортировка избранного · Premium")await SortFavorites();else if(value=="Перенести музыку")NativeTransfer();else if(value=="Настройки")Settings();else if(value=="Войти")Login();else if(value=="Выйти")await Guard(async()=>{await api.Request("api/logout","POST");api.Clear();player.Stop();queue=[];catalog=[];likes=[];playlists=[];account="";Show("Главная");});else Show(value);};menu.Items.Add(item);}menu.PlacementTarget=(UIElement)sender;menu.IsOpen=true;}
  async void WaveClick(object sender,RoutedEventArgs e)=>await NewWave();
- async Task NewWave(){if(mixing)return;if(account.Length==0){Login();return;}mixing=true;Status.Text="Подбираем…";try{await Guard(async()=>{var exclude=mixRecent.Concat(queue.Take(8).Select(t=>t.id)).Append(currentID).Where(id=>id.Length>0).Distinct().TakeLast(200);string nonce=Guid.NewGuid().ToString("N");var result=await api.Request("api/wave?mix="+nonce+"&exclude="+Uri.EscapeDataString(string.Join(',',exclude)));var next=ParseTracks(result).Where(t=>t.id!=currentID).ToList();if(next.Count==0&&currentID.Length>0)next=ParseTracks(await api.Request("api/wave?mix="+nonce+"&exclude="+currentID)).Where(t=>t.id!=currentID).ToList();if(next.Count==0){Status.Text="Новых треков пока нет. Попробуй чуть позже.";return;}queue=next;index=0;wave=true;PlayCurrent();Status.Text="";});}finally{mixing=false;}}
+ async Task NewWave(){
+  if(mixing)return;
+  if(account.Length==0){Login();return;}
+  mixing=true;Status.Text="Подбираем новые треки…";
+  try{
+   await Guard(async()=>{
+    string owner=account;
+    var heard=discovery.Ids(origin,owner);
+    var heardRecordings=discovery.Recordings(origin,owner);
+    var excluded=queue.Take(30).Select(t=>t.id).Concat(discovery.Recent(origin,owner,150))
+        .Concat(mixRecent.Reverse()).Append(currentID)
+        .Where(v=>!string.IsNullOrEmpty(v)).Distinct().Take(190).ToArray();
+    var already=new HashSet<string>(queue.Select(t=>t.id));
+    var found=new List<Track>();
+    for(int attempt=0;attempt<3&&found.Count<15;attempt++){
+     var nonce=Guid.NewGuid().ToString("N");
+     var result=await api.Request("api/wave?mix="+nonce+
+         "&exclude="+Uri.EscapeDataString(string.Join(",",excluded)));
+     if(account!=owner)return;
+     foreach(var track in ParseTracks(result)){
+      if(track.id==currentID||already.Contains(track.id)||heard.Contains(track.id)
+          ||heardRecordings.Contains(DiscoveryHistory.Fingerprint(track))||
+          found.Any(t=>t.id==track.id))continue;
+      found.Add(track);
+     }
+    }
+    if(found.Count==0){
+     Status.Text="Свежих треков по этим настройкам пока нет. Измени настройки подборки.";
+     return;
+    }
+    if(shuffle&&found.Count>1){
+     var first=found[0];
+     found=[first,..found.Skip(1).OrderBy(_=>Random.Shared.Next())];
+    }
+    queue=found;index=0;wave=true;refreshQueueView?.Invoke();PlayCurrent();Status.Text="";
+   });
+  }finally{mixing=false;}
+ }
 
  void VolumeChanged(object sender,RoutedPropertyChangedEventArgs<double> e){
     if(!volumeSettingReady || player==null || sender is not Slider slider)return;
@@ -177,7 +217,7 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
  }
  void ToggleClick(object sender,RoutedEventArgs e){if(Current==null){_=NewWave();return;}if(player.IsPlaying){pausedAtMs=Math.Max(0,player.Time);player.Pause();}else player.Play();}
  void TrackDoubleClick(object sender,MouseButtonEventArgs e){if(Tracks.SelectedItem is Track t){queue=shown.ToList();index=queue.FindIndex(v=>v.id==t.id);wave=false;PlayCurrent();}}
- void PlayCurrent(){var t=Current;if(t==null)return;pausedAtMs=0;if(t.LocalPath==null&&account.Length==0){Login();return;}string path=t.LocalPath??proxy.URL("api/stream/"+t.id+"?cache=1&format="+(t.is_remote||t.source=="soundcloud"?"hls":"file"));using var media=new Media(vlc,path,t.LocalPath==null?FromType.FromLocation:FromType.FromPath);player.Play(media);lyricsCancellation?.Cancel();currentLyrics=null;lyricsID="";renderedLyric=int.MinValue;currentID=t.id;mixRecent.Enqueue(t.id);while(mixRecent.Count>120)mixRecent.Dequeue();MiniTitle.Text=FullTitle.Text=t.title;MiniArtist.Text=FullArtist.Text=t.artist;LyricsText.Text="";LyricsPanel.Visibility=Visibility.Collapsed;Cover.Visibility=Visibility.Visible;if(t.cover_url!=null&&Uri.TryCreate(api.Origin,t.cover_url,out var coverURI)&&coverURI.Authority==api.Origin.Authority)_=LoadCover(coverURI,t.id);else Cover.Source=MiniCover.Source=null;Dock.BeginAnimation(OpacityProperty,new System.Windows.Media.Animation.DoubleAnimation(.6,1,TimeSpan.FromSeconds(.7)));}
+ void PlayCurrent(){var t=Current;if(t==null)return;pausedAtMs=0;if(t.LocalPath==null&&account.Length==0){Login();return;}string path=t.LocalPath??proxy.URL("api/stream/"+t.id+"?cache=1&format="+(t.is_remote||t.source=="soundcloud"?"hls":"file"));using var media=new Media(vlc,path,t.LocalPath==null?FromType.FromLocation:FromType.FromPath);player.Play(media);lyricsCancellation?.Cancel();currentLyrics=null;lyricsID="";renderedLyric=int.MinValue;currentID=t.id;mixRecent.Enqueue(t.id);while(mixRecent.Count>120)mixRecent.Dequeue();discovery.Remember(origin,account,t);WarmNext();MiniTitle.Text=FullTitle.Text=t.title;MiniArtist.Text=FullArtist.Text=t.artist;LyricsText.Text="";LyricsPanel.Visibility=Visibility.Collapsed;Cover.Visibility=Visibility.Visible;if(t.cover_url!=null&&Uri.TryCreate(api.Origin,t.cover_url,out var coverURI)&&coverURI.Authority==api.Origin.Authority)_=LoadCover(coverURI,t.id);else Cover.Source=MiniCover.Source=null;Dock.BeginAnimation(OpacityProperty,new System.Windows.Media.Animation.DoubleAnimation(.6,1,TimeSpan.FromSeconds(.7)));}
  async Task LoadCover(Uri uri,string id){try{
  var bytes=await api.HTTP.GetByteArrayAsync(uri);
  if(bytes.Length>5*1024*1024||currentID!=id)return;
@@ -191,8 +231,68 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
 }catch{}}
  void NextClick(object sender,RoutedEventArgs e)=>Advance();
  void PreviousClick(object sender,RoutedEventArgs e){if(Current==null)return;long now=Environment.TickCount64;if(player.Time>3000&&!(previousID==currentID&&now-lastPrevious<3000)){lastPrevious=now;previousID=currentID;player.Time=0;return;}previousID="";index=(index-1+queue.Count)%queue.Count;PlayCurrent();}
- void Advance(){if(queue.Count==0)return;if(repeat==2){PlayCurrent();return;}if(wave&&index+1>=queue.Count){_=Refill();return;}if(shuffle&&queue.Count>1)index=(index+Random.Shared.Next(1,queue.Count))%queue.Count;else if(index+1<queue.Count)index++;else if(repeat==1)index=0;else return;PlayCurrent();}
- async Task Refill(){if(refilling||!wave||account.Length==0)return;refilling=true;await Guard(async()=>{var exclude=string.Join(',',queue.TakeLast(150).Select(t=>t.id));var value=await api.Request("api/wave?exclude="+Uri.EscapeDataString(exclude));var ids=queue.Select(t=>t.id).ToHashSet();var fresh=ParseTracks(value).Where(t=>!ids.Contains(t.id)).ToList();queue.AddRange(fresh);if(!player.IsPlaying&&index+1<queue.Count){index++;PlayCurrent();}});refilling=false;}
+ void Advance(){
+   if(queue.Count==0)return;
+   if(repeat==2){PlayCurrent();return;}
+   if(wave&&index+1>=queue.Count){_=Refill();return;}
+   // Future tracks are shuffled ahead of time, so playback can prefetch.
+   if(index+1<queue.Count)index++;
+   else if(repeat==1)index=0;
+   else return;
+   PlayCurrent();
+  }
+ async Task Refill(){
+  if(refilling||!wave||account.Length==0)return;
+  refilling=true;
+  try{
+   await Guard(async()=>{
+    string owner=account;
+    var existing=queue.Select(t=>t.id).ToHashSet();
+    var heard=discovery.Ids(origin,owner);
+    var heardRecordings=discovery.Recordings(origin,owner);
+    var exclusions=queue.TakeLast(45).Select(t=>t.id)
+        .Concat(discovery.Recent(origin,owner,125))
+        .Concat(mixRecent.Reverse())
+        .Where(id=>id.Length>0).Distinct().Take(190).ToArray();
+    var fresh=new List<Track>();
+    for(int attempt=0;attempt<3&&fresh.Count<12;attempt++){
+     var value=await api.Request("api/wave?mix="+Guid.NewGuid().ToString("N")+
+         "&exclude="+Uri.EscapeDataString(string.Join(",",exclusions)));
+     if(!wave||account!=owner)return;
+     foreach(var track in ParseTracks(value)){
+      if(existing.Contains(track.id)||heard.Contains(track.id)||
+         heardRecordings.Contains(DiscoveryHistory.Fingerprint(track))||
+         fresh.Any(t=>t.id==track.id))continue;
+      fresh.Add(track);
+     }
+    }
+    if(fresh.Count==0){Status.Text="Пока не удалось найти свежие треки, поиск повторится.";return;}
+    if(shuffle)fresh=fresh.OrderBy(_=>Random.Shared.Next()).ToList();
+    // The queue grows without pruning previously played songs.
+    queue.AddRange(fresh);refreshQueueView?.Invoke();
+    WarmNext();
+    if(!player.IsPlaying&&index+1<queue.Count){index++;PlayCurrent();}
+    Status.Text="";
+   });
+  }finally{refilling=false;}
+ }
+ void WarmNext(){
+  warmNextCancellation?.Cancel();
+  warmNextCancellation?.Dispose();
+  warmNextCancellation=null;
+  if(index+1>=queue.Count||account.Length==0)return;
+  var song=queue[index+1];
+  if(song.LocalPath!=null)return;
+  var cancel=new CancellationTokenSource();warmNextCancellation=cancel;
+  _=Task.Run(async()=>{
+   try{
+    await Task.Delay(1100,cancel.Token);
+    if(cancel.IsCancellationRequested)return;
+    await api.Request("api/preload","POST",new {ids=new[]{song.id}},cancel.Token);
+   }catch(OperationCanceledException){}catch{ /* Prefetch cannot block playback. */ }
+  });
+ }
+
  void Tick(){
   if(Current==null)return;
   if(Environment.TickCount64-savedAt>15000){savedAt=Environment.TickCount64;QueueSavePlayback();}
@@ -219,7 +319,17 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
  string Time(double s)=>$"{(int)s/60}:{(int)s%60:00}";
  void SeekStart(object sender,MouseButtonEventArgs e)=>scrubbing=true;
  void SeekEnd(object sender,MouseButtonEventArgs e){player.Time=(long)(FullSeek.Value*1000);scrubbing=false;}
- void ShuffleClick(object sender,RoutedEventArgs e){shuffle=!shuffle;Status.Text=shuffle?"Перемешивание включено":"Перемешивание выключено";}
+ void ShuffleClick(object sender,RoutedEventArgs e){
+  shuffle=!shuffle;
+  if(shuffle&&index+2<queue.Count){
+   var past=queue.Take(index+1).ToList();
+   var upcoming=queue.Skip(index+1).OrderBy(_=>Random.Shared.Next()).ToList();
+   queue=[..past,..upcoming];
+   refreshQueueView?.Invoke();
+  }
+  WarmNext();
+  Status.Text=shuffle?"Перемешивание включено":"Перемешивание выключено";
+ }
  void RepeatClick(object sender,RoutedEventArgs e){repeat=(repeat+1)%3;Status.Text=new[]{"Повтор выключен","Повтор очереди","Повтор трека"}[repeat];}
  void OpenPlayerClick(object sender,MouseButtonEventArgs e){if(Current==null)return;Home.Visibility=Library.Visibility=Dock.Visibility=Visibility.Collapsed;PlayerPage.Visibility=Visibility.Visible;}
  void ClosePlayerClick(object sender,RoutedEventArgs e)=>Show(screen);
@@ -245,7 +355,15 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
   }catch(OperationCanceledException){}catch{if(currentID==t.id){lyricsID="";LyricsText.Text="Не удалось загрузить текст. Повтори позже.";}}
  }
  void SyncLyrics(){if(!currentLyrics.HasValue||lyricsID!=currentID)return;var result=currentLyrics.Value;if(result.TryGetProperty("synced",out var synced)&&synced.GetBoolean()&&result.TryGetProperty("lines",out var lines)){double position=player.Time/1000.0;var all=lines.EnumerateArray().ToArray();int activeIndex=Array.FindLastIndex(all,l=>l.GetProperty("time").GetDouble()<=position);if(renderedLyric==activeIndex)return;renderedLyric=activeIndex;var active=activeIndex>=0?all[activeIndex]:default;LyricsText.Text=string.Join("\n\n",lines.EnumerateArray().Select(l=>(active.ValueKind!=JsonValueKind.Undefined&&l.GetProperty("time").GetDouble()==active.GetProperty("time").GetDouble()?"▶  ":"")+l.GetProperty("text").GetString()));}else LyricsText.Text=result.TryGetProperty("plain",out var plain)?plain.GetString():"Текст пока не найден";}
- void QueueClick(object sender,RoutedEventArgs e){var window=new Window{Title="Очередь",Width=580,Height=600,Owner=this,Background=new SolidColorBrush(Color.FromRgb(24,15,35))};var list=new ListBox{ItemsSource=queue,DisplayMemberPath="title"};list.MouseDoubleClick+=(_,_)=>{if(list.SelectedItem is Track t){index=queue.IndexOf(t);PlayCurrent();window.Close();}};window.Content=list;window.ShowDialog();}
+ void QueueClick(object sender,RoutedEventArgs e){
+  var window=new Window{Title="Очередь",Width=580,Height=600,Owner=this,Background=new SolidColorBrush(Color.FromRgb(18,18,18))};
+  var list=new ListBox{ItemsSource=queue,DisplayMemberPath="title"};
+  void Refresh(){var selected=list.SelectedIndex;list.ItemsSource=null;list.ItemsSource=queue;if(selected>=0&&selected<queue.Count)list.SelectedIndex=selected;}
+  refreshQueueView=Refresh;
+  window.Closed+=(_,_)=>{refreshQueueView=null;};
+  list.MouseDoubleClick+=(_,_)=>{if(list.SelectedItem is Track t){index=queue.IndexOf(t);PlayCurrent();window.Close();}};
+  window.Content=list;window.ShowDialog();
+ }
  void BackgroundClick(object sender,RoutedEventArgs e){Header.Visibility=Dock.Visibility=Visibility.Collapsed;MouseDoubleClick+=RestoreBackground;}
  void RestoreBackground(object sender,MouseButtonEventArgs e){Header.Visibility=Dock.Visibility=Visibility.Visible;MouseDoubleClick-=RestoreBackground;}
  void ShowPlaylists(){var menu=new ContextMenu();foreach(var p in playlists){var item=new MenuItem{Header=p.name};item.Click+=async(_,_)=>await Guard(async()=>{playlist=p.id;screen=p.name;Heading.Text=p.name;shown=ParseTracks(await api.Request("api/playlists/"+p.id+"/tracks"));Tracks.ItemsSource=shown;});menu.Items.Add(item);}var add=new MenuItem{Header="＋ Создать плейлист"};add.Click+=(_,_)=>Prompt("Новый плейлист","Название",async name=>{await api.Request("api/playlists","POST",new{name});await LoadAccount();});menu.Items.Add(add);menu.PlacementTarget=CollectionActions;menu.IsOpen=true;}
