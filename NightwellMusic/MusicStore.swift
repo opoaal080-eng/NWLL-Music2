@@ -546,7 +546,7 @@ private struct LivePlaybackQueue: Decodable { let tracks: [Track] }
         guard force || Date().timeIntervalSince(lastSaved) >= 5, let current = clock.current else { return }
         lastSaved = Date()
         let state = NativePlayer.shared.snapshot(includeQueue: false)
-        let memory = PlaybackMemory(id: current.id, tracks: Array(clock.queue.prefix(1000)), position: clock.position, repeatMode: state["repeat"] as? Int ?? 0, shuffle: state["shuffle"] as? Bool ?? false, wave: state["wave"] as? Bool ?? false)
+        let memory = PlaybackMemory(id: current.id, tracks: clock.queue, position: clock.position, repeatMode: state["repeat"] as? Int ?? 0, shuffle: state["shuffle"] as? Bool ?? false, wave: state["wave"] as? Bool ?? false)
         let origin = origin, account = account?.id ?? "device"
         if force { memory.save(origin, account) } else { Task.detached(priority: .utility) { memory.save(origin, account) } }
     }
@@ -851,32 +851,56 @@ private struct LivePlaybackQueue: Decodable { let tracks: [Track] }
     }
     func wave() async {
         guard !loading else { return }
-        guard account != nil else { authPresented = true; return }
-        let mixAccount = account?.id
-        let settings = WaveSettings.read(origin, mixAccount ?? "device")
-        loading = true; defer { loading = false }
+        guard let owner = account?.id else { authPresented = true; return }
+        let settings = WaveSettings.read(origin, owner)
+        loading = true
+        defer { loading = false }
+        let previouslyPlayed = DiscoveryHistory.ids(origin: origin, account: owner)
+        let recordings = DiscoveryHistory.recordings(origin: origin, account: owner)
+        let hidden = hiddenRecommendationIDs.union(SkipFeedback.recentIDs(origin: origin, account: owner))
+        let excludedForService = Array(Set(Array(clock.queue.prefix(30)).map(\.id) + [clock.id]))
+        let recent = DiscoveryHistory.excludedIDs(origin: origin, account: owner, limit: 160)
+        let exclusion = Array((excludedForService + recent + Array(mixRecentIDs.reversed())).filter { !$0.isEmpty }
+            .reduce(into: [String]()) { selected, value in
+                if selected.count < 195 && !selected.contains(value) { selected.append(value) }
+            })
+        let encoded = exclusion.joined(separator: ",")
+            .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed.subtracting(CharacterSet(charactersIn: "&+=?#"))) ?? ""
         do {
-            let hidden = hiddenRecommendationIDs.union(SkipFeedback.recentIDs(origin: origin, account: mixAccount ?? "device"))
-            var ids = Array(Set(mixRecentIDs + Array(clock.queue.prefix(8)).map(\.id)))
-            ids.append(contentsOf: hidden.sorted().prefix(80))
-            if !clock.id.isEmpty { ids.removeAll { $0 == clock.id }; ids.append(clock.id) }
-            let excluded = Array(ids.suffix(200)), nonce = UUID().uuidString
-            let query = excluded.joined(separator: ",").addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-            var result: TrackResult = try await api.request("/api/wave?mix=" + nonce + settings.query + "&exclude=" + query)
-            if result.tracks.isEmpty, !clock.id.isEmpty {
-                let recent = Array(Set(Array(mixRecentIDs.suffix(4)) + [clock.id]))
-                result = try await api.request("/api/wave?mix=" + nonce + settings.query + "&exclude=" + recent.joined(separator: ","))
+            // A new mix seed broadens discovery without relaxing repeat protection.
+            // The server may return a narrow pool, so try three independent selections.
+            var pool: [Track] = []
+            for _ in 0..<3 {
+                let nonce = UUID().uuidString
+                let response: TrackResult = try await api.request("/api/wave?mix=" + nonce + settings.query + "&exclude=" + encoded)
+                guard account?.id == owner else { return }
+                pool.append(contentsOf: response.tracks)
+                let fresh = RecommendationOrder.arrange(pool,
+                    recent: previouslyPlayed, hidden: hidden, hiddenArtists: blockedArtists,
+                    current: clock.id, identity: { $0.id }, title: { $0.title }, artist: { $0.artist })
+                    .filter { !previouslyPlayed.contains($0.id) &&
+                        !recordings.contains(DiscoveryHistory.recording(title: $0.title, artist: $0.artist)) }
+                if let first = fresh.first {
+                    lastWave = fresh
+                    saveSessionSnapshot()
+                    play(first, in: fresh, wave: true)
+                    return
+                }
             }
-            guard account?.id == mixAccount else { return }
-            let fresh = RecommendationOrder.arrange(result.tracks, recent: Set(mixRecentIDs.suffix(20)), hidden: hidden, hiddenArtists: blockedArtists, current: clock.id, identity: { $0.id }, title: { $0.title }, artist: { $0.artist })
-            if let first = fresh.first { lastWave = fresh; saveSessionSnapshot(); play(first, in: fresh, wave: true) }
-            else { error = result.message ?? "Нет подходящих треков. Измени настройки или попробуй позже." }
+            error = "Свежих треков по этим настройкам пока нет. Попробуй расширить вкусы в настройках подборки."
+        } catch is CancellationError {
         } catch {
-            let cooled = SkipFeedback.recentIDs(origin: origin, account: mixAccount ?? "device")
-            let cached = lastWave.filter { $0.id != clock.id && !hiddenRecommendationIDs.contains($0.id) && !cooled.contains($0.id) && !blockedArtists.contains(RecommendationOrder.key($0.artist)) }
-            if let first = cached.first {
-                play(first, in: cached, wave: true)
-            } else { self.error = error.localizedDescription }
+            // Offline fallback never replays tracks already in the two-week history.
+            let fallback = lastWave.filter { track in
+                track.id != clock.id && !hidden.contains(track.id) && !previouslyPlayed.contains(track.id)
+                && !recordings.contains(DiscoveryHistory.recording(title: track.title, artist: track.artist))
+                && !blockedArtists.contains(RecommendationOrder.key(track.artist))
+            }
+            if let first = fallback.first {
+                play(first, in: fallback, wave: true)
+            } else {
+                self.error = "Не удалось получить новые треки: " + error.localizedDescription
+            }
         }
     }
     @Published private(set) var automaticFavoritesDownload = false
