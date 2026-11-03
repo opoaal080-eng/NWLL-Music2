@@ -58,9 +58,15 @@ enum ArtistIdentity {
     }
 
     static func selection(for track: Track) -> ArtistSelection? {
+        if let canonical = track.artist_name, usable(canonical) {
+            return ArtistSelection(name: lead(canonical), seed: track, titleDerived: false)
+        }
         if let name = fromTitle(track.title) {
             return ArtistSelection(name: name, seed: track, titleDerived: true)
         }
+        // A SoundCloud account can publish somebody else's song.
+        // Do not turn that account into an artist without separate evidence.
+        guard !isCloudUpload(track) else { return nil }
         let name = lead(track.artist)
         guard usable(name) else { return nil }
         return ArtistSelection(name: name, seed: track, titleDerived: false)
@@ -68,6 +74,9 @@ enum ArtistIdentity {
 
     static func belongs(_ track: Track, to artist: ArtistSelection) -> Bool {
         if track.id == artist.seed.id { return true }
+        if let canonical = track.artist_name, usable(canonical) {
+            return key(lead(canonical)) == artist.id
+        }
         if let titleArtist = fromTitle(track.title) {
             return key(titleArtist) == artist.id
         }
