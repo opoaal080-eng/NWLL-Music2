@@ -11,6 +11,11 @@ struct ArtistPage: View {
     @State private var message = ""
     @State private var following = false
     @State private var showPlayer = false
+    private struct ServerArtist: Decodable {
+        let tracks: [Track]
+        let has_more: Bool?
+        let total: Int?
+    }
 
     private var hero: Track { tracks.first ?? artist.seed }
 
@@ -22,7 +27,7 @@ struct ArtistPage: View {
                     VStack(alignment: .leading, spacing: 20) {
                         HStack(spacing: 12) {
                             Button {
-                                following = store.toggleFollowingArtist(artist.name)
+                                following = store.toggleFollowingArtist(artist.name, serverID: artist.seed.artist_id)
                             } label: {
                                 Text(following ? "Вы подписаны ✓" : "Подписаться")
                                     .font(.system(size: 14, weight: .semibold))
@@ -104,7 +109,11 @@ struct ArtistPage: View {
         .preferredColorScheme(.dark)
         .tint(.white)
         .fullScreenCover(isPresented: $showPlayer) { FullPlayer(clock: store.clock).environmentObject(store) }
-        .task(id: artist.id) { await loadTracks() }
+        .task(id: artist.id) {
+            await store.refreshFollowingArtists()
+            following = store.isFollowingArtist(artist.name)
+            await loadTracks()
+        }
     }
 
     private var header: some View {
@@ -161,6 +170,26 @@ struct ArtistPage: View {
         defer { loading = false }
         let encoded = artist.name.addingPercentEncoding(
             withAllowedCharacters: .urlQueryAllowed.subtracting(CharacterSet(charactersIn: "&+=?#"))) ?? ""
+        // Prefer the canonical server profile, which merges reliable metadata
+        // without confusing a SoundCloud uploader with the performer.
+        if let serverID = artist.seed.artist_id,
+           serverID.range(of: #"^artist-[a-f0-9]{20}$"#, options: .regularExpression) != nil {
+            do {
+                var offset = 0
+                for _ in 0..<10 {
+                    try Task.checkCancellation()
+                    let response: ServerArtist = try await store.api.request(
+                        "/api/artists/" + serverID + "?limit=80&offset=\(offset)", timeout: 18)
+                    try Task.checkCancellation()
+                    tracks = ArtistIdentity.unique(tracks + response.tracks, for: artist)
+                    offset += response.tracks.count
+                    if response.has_more != true || response.tracks.isEmpty { return }
+                }
+                message = "Показаны первые записи исполнителя."
+                return
+            } catch is CancellationError { return }
+            catch { /* Older servers use the search-based fallback below. */ }
+        }
         do {
             for _ in 0..<6 {
                 try Task.checkCancellation()
