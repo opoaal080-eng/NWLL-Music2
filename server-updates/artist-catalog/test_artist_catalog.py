@@ -86,9 +86,10 @@ class ArtistDirectoryTests(unittest.TestCase):
              "artist": "release-uploader", "source": "soundcloud", "is_remote": True,
              "performer": "Подписанный артист"},
         ]
-        self.assertEqual(self.directory.record(self.owner, uploaded), 2)
+        self.assertEqual(self.directory.record(self.owner, uploaded), 3)
         self.assertEqual(self.directory.search(self.owner, "unrelated"), [])
-        self.assertEqual(self.directory.search(self.owner, "random"), [])
+        self.assertEqual([x["name"] for x in self.directory.search(self.owner, "random")],
+                         ["random_poster"])
         self.assertEqual(self.directory.search(self.owner, "настоящ"), [
             self.directory.profile(self.owner, "Настоящий артист")["artist"]])
         artist_tracks = self.directory.profile(self.owner, "Настоящий артист")["tracks"]
