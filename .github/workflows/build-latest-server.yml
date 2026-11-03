@@ -1,0 +1,53 @@
+name: Build latest-only Nightwell Music server update (Artists + SoundCloud AAC quality)
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'server-updates/latest/**'
+      - 'server-updates/audio-quality/**'
+      - 'server-updates/artist-catalog/**'
+      - '.github/workflows/build-latest-server.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build-latest-server:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test dependencies
+        run: python -m pip install fastapi httpx email-validator
+      - name: Check Python module syntax
+        run: python -m compileall -q server-updates/latest server-updates/artist-catalog server-updates/audio-quality
+      - name: Test SoundCloud AAC quality selector and notices
+        run: python -m unittest discover -s server-updates/audio-quality -p 'test_*.py' -v
+      - name: Test trusted artists and upload-attribution handling
+        run: python -m unittest discover -s server-updates/artist-catalog -p 'test_*.py' -v
+      - name: Test latest-only installer and rollback
+        run: python -m unittest discover -s server-updates/latest -p 'test_*.py' -v
+      - name: Pack only new server features
+        run: |
+          set -euo pipefail
+          mkdir -p dist/Nightwell-Latest-Server
+          cp server-updates/latest/installer.py dist/Nightwell-Latest-Server/
+          cp server-updates/latest/*_Latest_Server.bat dist/Nightwell-Latest-Server/
+          cp server-updates/latest/README-RU.md dist/Nightwell-Latest-Server/
+          cp server-updates/artist-catalog/artist_catalog.py dist/Nightwell-Latest-Server/
+          cp server-updates/artist-catalog/artist_metadata.py dist/Nightwell-Latest-Server/
+          cp server-updates/audio-quality/audio_quality.py dist/Nightwell-Latest-Server/
+          printf 'Commit: %s\nRun: %s\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > dist/Nightwell-Latest-Server/build.txt
+          cd dist
+          zip -qr Nightwell-Music-Latest-Server.zip Nightwell-Latest-Server
+          sha256sum Nightwell-Music-Latest-Server.zip > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Nightwell-Music-Latest-Server-Only
+          path: |
+            dist/Nightwell-Music-Latest-Server.zip
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
