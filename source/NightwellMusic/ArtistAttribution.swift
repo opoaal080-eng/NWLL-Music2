@@ -67,8 +67,11 @@ enum ArtistAttribution {
             return Result(title: parsed.song, artist: parsed.performer,
                           uploader: raw.isEmpty ? nil : raw, attributed: true)
         }
-        return Result(title: title, artist: unknown,
-                      uploader: raw.isEmpty ? nil : raw, attributed: false)
+        // No artist in the title: fall back to the track's own artist field.
+        if !raw.isEmpty && raw != unknown {
+            return Result(title: title, artist: raw, uploader: nil, attributed: true)
+        }
+        return Result(title: title, artist: unknown, uploader: nil, attributed: false)
     }
 
     static func isKnown(_ artist: String) -> Bool {
