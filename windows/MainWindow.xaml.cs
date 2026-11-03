@@ -397,7 +397,7 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
   var panel=new DockPanel{Margin=new Thickness(16)};
   var header=new TextBlock{FontSize=18,FontWeight=FontWeights.Bold,
     Foreground=Brushes.White,Margin=new Thickness(8,8,8,16)};
-  DockPanel.SetDock(header,Dock.Top);
+  DockPanel.SetDock(header,System.Windows.Controls.Dock.Top);
   panel.Children.Add(header);
   var list=new ListBox{
     Background=new SolidColorBrush(Color.FromRgb(28,28,28)),
