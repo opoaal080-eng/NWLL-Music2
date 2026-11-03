@@ -28,7 +28,9 @@ public partial class MainWindow:Window {
  sealed record QueueRow(Track Song,int Position,string Display);
  CancellationTokenSource? searchCancellation;List<Track> catalog=[],shown=[],queue=[];List<Playlist> playlists=[];HashSet<string> likes=[];
  string favoriteOrder="recent";bool premiumSortAllowed=false;
- string account="",screen="Главная",playlist="",currentID="";int index,repeat;bool wave,refilling,downloading,scrubbing,shuffle,mixing;readonly Queue<string> mixRecent=new();double transition=.8;long lastPrevious;string previousID="";
+ string account="",screen="Главная",playlist="",currentID="";
+ string recoveringStreamID="";int recoveryAttempts=0,recoveryGeneration=0;
+ int index,repeat;bool wave,refilling,downloading,scrubbing,shuffle,mixing;readonly Queue<string> mixRecent=new();double transition=.8;long lastPrevious;string previousID="";
  CancellationTokenSource? lyricsCancellation;JsonElement? currentLyrics;string lyricsID="";int renderedLyric=int.MinValue;long savedAt;double? pendingSeek;bool restorePaused;
  sealed record PlaybackState(string Origin,string Account,List<Track> Queue,string ID,double Position,int Repeat,bool Shuffle,bool Wave);
  string ResumeFile=>Path.Combine(NativeAPI.Storage,"resume.json");
@@ -89,7 +91,7 @@ vlc=new LibVLC(audioArgs.ToArray());player=new LibVLCSharp.Shared.MediaPlayer(vl
 VolumeSlider.Value=FullVolumeSlider.Value=userVolume*100;
 MiniVolumeValue.Text=FullVolumeValue.Text=Math.Round(userVolume*100).ToString("0")+"%";
 volumeSettingReady=true;
-player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatcher.InvokeAsync(()=>Advance());player.EncounteredError+=(_,_)=>Dispatcher.InvokeAsync(()=>Status.Text="Не удалось воспроизвести трек. Проверь подключение и повтори попытку.");timer.Tick+=(_,_)=>Tick();timer.Start();Loaded+=async(_,_)=>{
+player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatcher.InvokeAsync(()=>Advance());player.EncounteredError+=(_,_)=>Dispatcher.InvokeAsync(()=>RecoverStreamFailure());timer.Tick+=(_,_)=>Tick();timer.Start();Loaded+=async(_,_)=>{
  if(Environment.GetCommandLineArgs().Contains("--native-smoke")){
   await Task.Delay(1200);var bitmap=new RenderTargetBitmap((int)ActualWidth,(int)ActualHeight,96,96,PixelFormats.Pbgra32);bitmap.Render(this);var encoder=new PngBitmapEncoder();encoder.Frames.Add(BitmapFrame.Create(bitmap));using(var file=File.Create("windows-native-smoke.png"))encoder.Save(file);Close();
  }else {await LoadAccount();await RestorePlaybackAsync();}
@@ -232,7 +234,31 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
    wave=false;playedOrder.Clear();playedCursor=-1;PlayCurrent();
   }
  }
+ void RecoverStreamFailure(){
+   var t=Current;
+   if(t==null || t.LocalPath!=null){
+    Status.Text="Локальный файл недоступен. Проверь файл.";return;
+   }
+   if(recoveringStreamID!=t.id){recoveringStreamID=t.id;recoveryAttempts=0;}
+   if(recoveryAttempts>=5){
+    Status.Text="Источник временно недоступен. Выбери другую версию или повтори позже.";
+    return;
+   }
+   int attempt=++recoveryAttempts;
+   int sequence=++recoveryGeneration;
+   string trackId=t.id;
+   Status.Text=$"Обновляем временную ссылку аудио. Попытка {attempt} из 5…";
+   int[] backoff={800,1800,4000,8000,16000};
+   _=Task.Run(async()=>{
+    await Task.Delay(backoff[attempt-1]);
+    await Dispatcher.InvokeAsync(()=>{
+     if(sequence!=recoveryGeneration||currentID!=trackId||player.IsPlaying)return;
+     PlayCurrent();
+    });
+   });
+ }
  void PlayCurrent(){var t=Current;if(t==null)return;
+   if(recoveringStreamID!=t.id){recoveringStreamID=t.id;recoveryAttempts=0;recoveryGeneration++;}
    if(playedCursor<0||playedCursor>=playedOrder.Count||playedOrder[playedCursor]!=t.id){
     if(playedCursor+1<playedOrder.Count)
      playedOrder.RemoveRange(playedCursor+1,playedOrder.Count-playedCursor-1);
@@ -240,7 +266,15 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
    }
    refreshQueueView?.Invoke();
    pausedAtMs=0;if(t.LocalPath==null&&account.Length==0){Login();return;}string path=t.LocalPath??proxy.URL("api/stream/"+t.id+"?cache=1&format="+(t.is_remote||t.source=="soundcloud"?"hls":"file")+
-   (!(t.is_remote||t.source=="soundcloud")&&audioQuality!="original"?"&quality="+audioQuality:""));using var media=new Media(vlc,path,t.LocalPath==null?FromType.FromLocation:FromType.FromPath);player.Play(media);lyricsCancellation?.Cancel();currentLyrics=null;lyricsID="";renderedLyric=int.MinValue;currentID=t.id;mixRecent.Enqueue(t.id);while(mixRecent.Count>120)mixRecent.Dequeue();discovery.Remember(origin,account,t);WarmNext();MiniTitle.Text=FullTitle.Text=t.title;MiniArtist.Text=FullArtist.Text=t.artist;LyricsText.Text="";LyricsPanel.Visibility=Visibility.Collapsed;Cover.Visibility=Visibility.Visible;if(t.cover_url!=null&&Uri.TryCreate(api.Origin,t.cover_url,out var coverURI)&&coverURI.Authority==api.Origin.Authority)_=LoadCover(coverURI,t.id);else Cover.Source=MiniCover.Source=null;Dock.BeginAnimation(OpacityProperty,new System.Windows.Media.Animation.DoubleAnimation(.6,1,TimeSpan.FromSeconds(.7)));}
+   (!(t.is_remote||t.source=="soundcloud")&&audioQuality!="original"?"&quality="+audioQuality:""));using var media=new Media(vlc,path,t.LocalPath==null?FromType.FromLocation:FromType.FromPath);player.Play(media);lyricsCancellation?.Cancel();currentLyrics=null;lyricsID="";renderedLyric=int.MinValue;currentID=t.id;mixRecent.Enqueue(t.id);while(mixRecent.Count>120)mixRecent.Dequeue();discovery.Remember(origin,account,t);
+ // Background preloading is intentionally delayed until playback is audible.
+ // Do not compete with the first SoundCloud segment for the upstream connection.
+ string warmFor=t.id;
+ _=Task.Run(async()=>{
+   await Task.Delay(2400);
+   await Dispatcher.InvokeAsync(()=>{if(currentID==warmFor&&player.IsPlaying)WarmNext();});
+ });
+ MiniTitle.Text=FullTitle.Text=t.title;MiniArtist.Text=FullArtist.Text=t.artist;LyricsText.Text="";LyricsPanel.Visibility=Visibility.Collapsed;Cover.Visibility=Visibility.Visible;if(t.cover_url!=null&&Uri.TryCreate(api.Origin,t.cover_url,out var coverURI)&&coverURI.Authority==api.Origin.Authority)_=LoadCover(coverURI,t.id);else Cover.Source=MiniCover.Source=null;Dock.BeginAnimation(OpacityProperty,new System.Windows.Media.Animation.DoubleAnimation(.6,1,TimeSpan.FromSeconds(.7)));}
  async Task LoadCover(Uri uri,string id){try{
  var bytes=await api.HTTP.GetByteArrayAsync(uri);
  if(bytes.Length>5*1024*1024||currentID!=id)return;
