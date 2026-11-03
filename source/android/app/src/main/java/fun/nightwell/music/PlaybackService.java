@@ -114,7 +114,8 @@ public final class PlaybackService extends MediaSessionService {
             }
             if (ids.length() == 0) return;
             final MediaItem cachedFile = nextFile;
-            final String firstCurrentID = player.getCurrentMediaItem() == null ? "" : player.getCurrentMediaItem().mediaId;
+            // ExoPlayer methods must be used on its application thread only.
+            final boolean filePrefixSafe = player.getTotalBufferedDuration() >= 7000;
             final String warmOrigin = origin;
             audioPrefetchIO.execute(() -> {
                 if (generation != audioPrefetchGeneration) return;
@@ -125,10 +126,7 @@ public final class PlaybackService extends MediaSessionService {
                     client.request("api/preload", "POST", new JSONObject().put("ids", ids));
                 } catch (Exception ignored) {
                 } finally { client.close(); }
-                if (cachedFile == null || generation != audioPrefetchGeneration) return;
-                if (player.getTotalBufferedDuration() < 7000 ||
-                        player.getCurrentMediaItem() == null ||
-                        !firstCurrentID.equals(player.getCurrentMediaItem().mediaId)) return;
+                if (cachedFile == null || generation != audioPrefetchGeneration || !filePrefixSafe) return;
                 DataSource reader = cachedSources.createDataSource();
                 try {
                     reader.open(new DataSpec.Builder().setUri(cachedFile.localConfiguration.uri)
