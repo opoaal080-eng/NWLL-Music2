@@ -1119,7 +1119,17 @@ public final class MainActivity extends Activity {
         LinearLayout metadata=row();metadata.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout names=column();
         TextView title=text(track.optString("title"),25);title.setMaxLines(2);title.setLetterSpacing(-.025f);title.setLineSpacing(dp(2),1f);title.setAutoSizeTextTypeUniformWithConfiguration(19,25,1,android.util.TypedValue.COMPLEX_UNIT_SP);title.setEllipsize(android.text.TextUtils.TruncateAt.END);title.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);title.setPadding(dp(8),dp(18),dp(8),dp(6));names.addView(title);
-        TextView artist=text(ArtistIdentity.name(track).isEmpty()?track.optString("artist"):ArtistIdentity.name(track),16);artist.setTextColor(0xffa4a6b1);artist.setMaxLines(2);artist.setEllipsize(android.text.TextUtils.TruncateAt.END);artist.setPadding(dp(8),0,dp(8),dp(18));names.addView(artist);artist.setOnClickListener(v->showArtist(track));artist.setContentDescription("Открыть исполнителя");
+        String artistName=ArtistIdentity.name(track);
+        TextView artist=text((artistName.isEmpty()?"Найти исполнителя":artistName)+"   ›",16);
+        artist.setTextColor(0xfff1f1f4);artist.setMaxLines(2);
+        artist.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        artist.setMinHeight(dp(48));
+        artist.setGravity(Gravity.CENTER_VERTICAL);
+        artist.setPadding(dp(10),dp(4),dp(12),dp(4));
+        artist.setBackground(touchSurface(0x552c2c33,22));
+        names.addView(artist);
+        artist.setOnClickListener(v->showArtist(current()==null?track:current()));
+        artist.setContentDescription("Открыть страницу исполнителя");
         metadata.addView(names,new LinearLayout.LayoutParams(0,-2,1));
         fullLike=iconButton(likes.contains(track.optString("id"))?"♥":"♡",()->toggleFavorite(current()));
         fullLike.setContentDescription(likes.contains(track.optString("id"))?"Убрать из избранного":"Добавить в избранное");
@@ -1251,7 +1261,7 @@ public final class MainActivity extends Activity {
     });}
     void syncLyrics(double position){if(lyricsText==null||lyricLines==null||!currentID.equals(lyricsTrack))return;int current=-1;for(int i=0;i<lyricLines.length();i++)if(lyricLines.optJSONObject(i).optDouble("time")<=position)current=i;if(current==activeLyric)return;activeLyric=current;StringBuilder all=new StringBuilder();int start=0,end=0;for(int i=0;i<lyricLines.length();i++){if(i==current)start=all.length();all.append(lyricLines.optJSONObject(i).optString("text")).append("\n\n");if(i==current)end=all.length();}android.text.SpannableString styled=new android.text.SpannableString(all);styled.setSpan(new android.text.style.ForegroundColorSpan(0xff9c9c9c),0,styled.length(),0);if(current>=0){styled.setSpan(new android.text.style.ForegroundColorSpan(0xffeeeeee),start,end,0);styled.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD),start,end,0);}lyricsText.setText(styled);final int offset=start;lyricsText.post(()->{if(lyricsText==null||lyricsScroll==null||lyricsText.getLayout()==null)return;int line=lyricsText.getLayout().getLineForOffset(Math.min(offset,lyricsText.length()));lyricsScroll.smoothScrollTo(0,Math.max(0,lyricsText.getLayout().getLineTop(line)-lyricsScroll.getHeight()/3));});}
 
-    void fullPlayerMenu(JSONObject track){nightwellOptions("Плеер",new String[]{"Эквалайзер","Действия с треком"},n->{if(n==0)feature("sound");else trackMenu(track);});}
+    void fullPlayerMenu(JSONObject track){nightwellOptions("Плеер",new String[]{"Открыть исполнителя","Эквалайзер","Действия с треком"},n->{if(n==0)showArtist(current()==null?track:current());else if(n==1)feature("sound");else trackMenu(track);});}
     void trackMenu(JSONObject track){
         String id=track.optString("id");
         String[] options={
@@ -1420,7 +1430,16 @@ public final class MainActivity extends Activity {
         if (seed == null) return;
         String artist = ArtistIdentity.name(seed);
         if (artist.isEmpty()) {
-            status.setText("Артиста определить не удалось: загрузчик не является подтверждением");
+            AlertDialog unresolved = new AlertDialog.Builder(this)
+                .setTitle("Исполнитель не определён")
+                .setMessage("В записи нет надёжного имени артиста. Аккаунт, загрузивший трек, может принадлежать другому человеку.")
+                .setNegativeButton("Закрыть", null)
+                .setPositiveButton("Поиск по треку", (d, which) -> {
+                    navigate("Поиск");
+                    if (search != null) search.setText(seed.optString("title", ""));
+                }).create();
+            styleSheet(unresolved);
+            unresolved.show();
             return;
         }
         Dialog dialog = new Dialog(this);
@@ -1911,7 +1930,7 @@ public final class MainActivity extends Activity {
     void handleAudioImportResult(int request,int result,Intent data){if(request!=72||result!=RESULT_OK||data==null)return;ArrayList<Uri> uris=new ArrayList<>();if(data.getClipData()!=null)for(int i=0;i<data.getClipData().getItemCount();i++)uris.add(data.getClipData().getItemAt(i).getUri());else if(data.getData()!=null)uris.add(data.getData());io.execute(()->{for(Uri uri:uris)try{OfflineStore.importFile(this,origin,uri);}catch(Exception ex){ui.post(()->status.setText("Не удалось импортировать файл"));}ui.post(()->navigate("Офлайн"));});}
     final class TrackAdapter extends BaseAdapter {
         public int getCount(){return shown.length();}public Object getItem(int p){return shown.optJSONObject(p);}public long getItemId(int p){return p;}
-        public View getView(int position,View recycled,ViewGroup parent){LinearLayout r;TextView title,artist,more;if(recycled==null){r=row();r.setPadding(dp(12),dp(12),dp(8),dp(12));LinearLayout labels=column();title=text("",16);title.setMaxLines(2);artist=text("",12);artist.setMaxLines(1);labels.addView(title);labels.addView(artist);r.addView(labels,new LinearLayout.LayoutParams(0,-2,1));r.addView(new PlayingIndicator(MainActivity.this),new LinearLayout.LayoutParams(dp(20),dp(20)));more=action("⋯",()->{});r.addView(more);r.setTag(new TextView[]{title,artist,more});}else r=(LinearLayout)recycled;TextView[] holder=(TextView[])r.getTag();JSONObject t=shown.optJSONObject(position);holder[0].setText(t.optString("title"));PlayingIndicator indicator=(PlayingIndicator)r.getChildAt(1);indicator.setVisibility(currentID.equals(t.optString("id"))?View.VISIBLE:View.GONE);indicator.playing(lastPlaying);holder[1].setText(ArtistIdentity.name(t).isEmpty()?t.optString("artist"):ArtistIdentity.name(t));holder[1].setOnClickListener(ArtistIdentity.name(t).isEmpty()?null:v->showArtist(t));holder[1].setContentDescription("Открыть исполнителя");holder[2].setOnClickListener(v->trackMenu(t));r.setBackgroundColor(currentID.equals(t.optString("id"))?0x22ffb260:Color.TRANSPARENT);return r;}
+        public View getView(int position,View recycled,ViewGroup parent){LinearLayout r;TextView title,artist,more;if(recycled==null){r=row();r.setPadding(dp(12),dp(12),dp(8),dp(12));LinearLayout labels=column();title=text("",16);title.setMaxLines(2);artist=text("",12);artist.setMaxLines(1);labels.addView(title);labels.addView(artist);r.addView(labels,new LinearLayout.LayoutParams(0,-2,1));r.addView(new PlayingIndicator(MainActivity.this),new LinearLayout.LayoutParams(dp(20),dp(20)));more=action("⋯",()->{});r.addView(more);r.setTag(new TextView[]{title,artist,more});}else r=(LinearLayout)recycled;TextView[] holder=(TextView[])r.getTag();JSONObject t=shown.optJSONObject(position);holder[0].setText(t.optString("title"));PlayingIndicator indicator=(PlayingIndicator)r.getChildAt(1);indicator.setVisibility(currentID.equals(t.optString("id"))?View.VISIBLE:View.GONE);indicator.playing(lastPlaying);holder[1].setText((ArtistIdentity.name(t).isEmpty()?"Найти исполнителя":ArtistIdentity.name(t))+"  ›");holder[1].setTextColor(0xffc4c6d0);holder[1].setMinHeight(dp(36));holder[1].setGravity(Gravity.CENTER_VERTICAL);holder[1].setOnClickListener(v->showArtist(t));holder[1].setContentDescription("Открыть страницу исполнителя");holder[2].setOnClickListener(v->trackMenu(t));r.setBackgroundColor(currentID.equals(t.optString("id"))?0x22ffb260:Color.TRANSPARENT);return r;}
     }
     private String favoriteOrder="recent";
     private void favoriteSortMenu(){
