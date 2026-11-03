@@ -146,7 +146,7 @@ private actor LyricsStub: LyricsService {
         var delays: [TimeInterval] = []
         let recovery = PlaybackRecovery(enqueue: { delay, action in delays.append(delay); callbacks.append(action) })
         var rebuilt = 0
-        for attempt in 1...3 {
+        for attempt in 1...6 {
             XCTAssertTrue(recovery.schedule { rebuilt += 1 })
             XCTAssertTrue(recovery.schedule { XCTFail("Duplicate recovery") })
             XCTAssertEqual(recovery.attempts, attempt)
@@ -154,7 +154,7 @@ private actor LyricsStub: LyricsService {
             XCTAssertEqual(rebuilt, attempt)
         }
         XCTAssertFalse(recovery.schedule { XCTFail("Unbounded recovery") })
-        XCTAssertEqual(delays, [1, 2, 4])
+        XCTAssertEqual(delays, [0.8, 2, 5, 12, 25, 45])
     }
     func testPlaybackRecoveryCancellationAndTrackReplacement() {
         var callbacks: [() -> Void] = []
@@ -180,6 +180,10 @@ private actor LyricsStub: LyricsService {
         let wrapped = NSError(domain: "AVFoundationErrorDomain", code: -11800, userInfo: [NSUnderlyingErrorKey: timeout])
         XCTAssertTrue(PlaybackRecovery.isTransient(wrapped))
         XCTAssertTrue(PlaybackRecovery.isTransient(URLError(.notConnectedToInternet)))
+        XCTAssertTrue(PlaybackRecovery.isTransient(URLError(.badServerResponse)))
+        let staleMedia = NSError(domain: "AVFoundationErrorDomain", code: -11800,
+            userInfo: [NSUnderlyingErrorKey: NSError(domain: NSURLErrorDomain, code: NSURLErrorBadServerResponse)])
+        XCTAssertTrue(PlaybackRecovery.isTransient(staleMedia))
         XCTAssertFalse(PlaybackRecovery.isTransient(URLError(.userAuthenticationRequired)))
         XCTAssertFalse(PlaybackRecovery.isTransient(URLError(.fileDoesNotExist)))
         XCTAssertFalse(PlaybackRecovery.isTransient(nil))
