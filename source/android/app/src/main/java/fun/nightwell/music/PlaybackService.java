@@ -350,7 +350,7 @@ public final class PlaybackService extends MediaSessionService {
                 for(Throwable cause=ex;cause!=null;cause=cause.getCause())
                     if(cause instanceof androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException)
                         detail="HTTP "+((androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException)cause).responseCode;
-                error = "Не удалось запустить трек ("+detail+"). Нажми воспроизведение для повторной попытки.";
+                error = "Источник временно не отдаёт звук ("+detail+"). Попробуй ещё раз или выбери другую версию трека.";
             }
         });
         PendingIntent open = PendingIntent.getActivity(this,0,new Intent(this,MainActivity.class),
@@ -383,7 +383,12 @@ public final class PlaybackService extends MediaSessionService {
         MediaItem item = player.getCurrentMediaItem();
         if (item == null) return false;
         if (!item.mediaId.equals(retriedTrackId)) streamRetryCount = 0;
-        if (streamRetryCount >= 3) return false;
+        // Signed upstream SoundCloud HLS URLs can expire without the track disappearing.
+        // Allow bounded re-resolution, including 403/404 only for remote HLS media.
+        if (streamRetryCount >= 6) return false;
+        boolean remoteHls = item.localConfiguration != null &&
+            item.localConfiguration.uri.getQueryParameter("format") != null &&
+            "hls".equals(item.localConfiguration.uri.getQueryParameter("format"));
         boolean temporary = false;
         for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
             if (cause instanceof java.net.SocketTimeoutException ||
@@ -393,7 +398,10 @@ public final class PlaybackService extends MediaSessionService {
                     cause instanceof java.io.EOFException) temporary = true;
             if (cause instanceof androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException) {
                 int code = ((androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException) cause).responseCode;
-                temporary = code == 408 || code == 429 || code >= 500 && code <= 599;
+                temporary = code == 408 || code == 425 || code == 429 ||
+                    code == 502 || code == 503 || code == 504 ||
+                    code >= 500 && code <= 599 ||
+                    (remoteHls && (code == 403 || code == 404));
                 break;
             }
         }
@@ -415,7 +423,8 @@ public final class PlaybackService extends MediaSessionService {
             player.prepare();
             player.play();
         };
-        waveHandler.postDelayed(pendingStreamRetry, attempt == 1 ? 1200 : attempt == 2 ? 3000 : 6000);
+        long[] delaysMs = {700, 1600, 3500, 7000, 13000, 23000};
+        waveHandler.postDelayed(pendingStreamRetry, delaysMs[Math.min(attempt-1,delaysMs.length-1)]);
         return true;
     }
     void prepare(String json) {
