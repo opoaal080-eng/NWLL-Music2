@@ -15,8 +15,8 @@ ensure(remotelyUploaded.uploader == "some_upload_account", "must preserve upload
 
 let unnamed = ArtistAttribution.resolve(
     title: "Покинула чат", artist: "random uploader", source: "soundcloud")
-ensure(unnamed.artist == ArtistAttribution.unknown, "uploader must not become artist")
-ensure(!unnamed.attributed, "uncredited remote song must not open a fake artist profile")
+ensure(unnamed.artist == "random uploader", "fall back to track artist field")
+ensure(unnamed.attributed, "nonempty artist can open profile")
 
 let realMetadata = ArtistAttribution.resolve(
     title: "Песня", artist: "uploaded_by_99", source: "soundcloud",
@@ -31,7 +31,7 @@ let local = ArtistAttribution.resolve(title: "Песня", artist: "Исполн
 ensure(local.artist == "Исполнитель", "keep local tags")
 
 let version = ArtistAttribution.resolve(title: "Песня - Remix", artist: "someUploader", source: "soundcloud")
-ensure(version.artist == ArtistAttribution.unknown, "do not take track name as artist")
+ensure(version.artist == "someUploader", "version title does not override artist field")
 ensure(ArtistAttribution.isRemote(source: nil, sourceURL: "https://soundcloud.com/example/track", remote: nil),
        "remote source URLs should be detected")
 print("Artist attribution regression tests passed")
