@@ -233,6 +233,20 @@ final class NativePlayer {
         return (value.title, value.artist)
     }
 
+    private func streamPath(for track: NativeTrack) -> String {
+        let format = (track.remote || track.source == "soundcloud") ? "hls" : "file"
+        let quality = UserDefaults.standard.string(forKey: "nw-audio-quality") ?? "auto"
+        let soundCloud = track.source?.lowercased().contains("soundcloud") == true ||
+            track.sourceURL?.lowercased().contains("soundcloud.com/") == true
+        let available = UserDefaults.standard.bool(forKey: "nw-quality-ready") &&
+            UserDefaults.standard.string(forKey: "nw-quality-ready-origin") == origin?.absoluteString
+        if available && soundCloud && (quality == "economy" || quality == "high") {
+            return "api/audio-quality/stream/" + track.id +
+                "?quality=" + quality + "&format=hls"
+        }
+        return "api/stream/" + track.id + "?cache=1&format=" + format
+    }
+
     private func prewarmNextAsset() {
         guard !shuffle, !waveWaiting, index + 1 < tracks.count, let origin else {
             nextAssetWarmup?.cancel(); nextAssetWarmup = nil
@@ -244,9 +258,7 @@ final class NativePlayer {
         let saved = OfflineStore.audio(origin: origin,
             account: next.offlineAccount.isEmpty ? offlineAccount : next.offlineAccount, id: next.id)
         guard !next.offline || saved != nil,
-              let url = saved ?? URL(string: "api/stream/" + next.id + "?cache=1&format=" +
-                  (next.remote || next.source == "soundcloud" ? "hls" : "file"),
-                  relativeTo: origin)?.absoluteURL else { return }
+              let url = saved ?? URL(string: streamPath(for: next), relativeTo: origin)?.absoluteURL else { return }
         let asset = AVURLAsset(url: url, options: [AVURLAssetHTTPCookiesKey: cookies])
         nextAsset = asset; nextAssetID = next.id
         // Offline files are already on disk; analyse one upcoming track at low priority.
@@ -288,7 +300,7 @@ final class NativePlayer {
             wantsPlay = false; waitingForReady = false; requestedPosition = max(0, position); lastPosition = requestedPosition
             error = "Офлайн-файл не найден. Скачай трек заново."; publish(); return
         }
-        guard let url = saved ?? URL(string: "api/stream/" + current.id + "?cache=1&format=" + (current.remote || current.source == "soundcloud" ? "hls" : "file"), relativeTo: origin)?.absoluteURL else { return }
+        guard let url = saved ?? URL(string: streamPath(for: current), relativeTo: origin)?.absoluteURL else { return }
         if waveActive && !recovering { waveSeen.append(current.id); waveSeen = Array(waveSeen.suffix(120)) }
         fadeInActive = fadeNextAutomatically && transitionSeconds > 0; fadeNextAutomatically = false
         player.volume = fadeInActive ? 0 : baseVolume
