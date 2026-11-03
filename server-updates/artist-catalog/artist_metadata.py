@@ -68,7 +68,7 @@ def clean_track(track):
     uploader = result.get("artist", "")
     uploader = uploader.strip() if isinstance(uploader, str) else ""
     direct = next((
-        credit.strip() for key in ("performer", "artist_credit")
+        credit.strip() for key in ("metadata_artist", "performer", "artist_credit")
         for credit in [result.get(key)]
         if isinstance(credit, str) and credit.strip() and credit.strip() != UNKNOWN
     ), None)
