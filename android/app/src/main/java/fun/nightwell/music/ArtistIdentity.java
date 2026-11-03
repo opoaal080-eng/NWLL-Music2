@@ -74,7 +74,7 @@ final class ArtistIdentity {
 
     private static List<String> featured(String name) {
         java.util.regex.Matcher match = java.util.regex.Pattern.compile(
-            "(?i)(?:feat\\.?|ft\\.?|featuring)\\s+([^\\])\\n]+)").matcher(name);
+            "(?i)(?:feat\\.?|ft\\.?|featuring)\\s+([^\\n]+)").matcher(name);
         if(!match.find())return java.util.Collections.emptyList();
         String value=match.group(1);
         for(String sep:new String[]{" - "," – "," — "}) {
