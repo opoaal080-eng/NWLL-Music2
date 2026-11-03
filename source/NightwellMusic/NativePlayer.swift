@@ -193,8 +193,9 @@ final class NativePlayer {
         let queue = raw.prefix(1000).compactMap { item -> NativeTrack? in
             guard let id = item["id"] as? String, !id.isEmpty,
                   id.unicodeScalars.allSatisfy({ allowed.contains($0) }) else { return nil }
-            return NativeTrack(id: id, title: item["title"] as? String ?? "",
-                artist: item["artist"] as? String ?? "", album: item["album"] as? String ?? "",
+            let performer = self.artistCredit(for: item)
+            return NativeTrack(id: id, title: performer.title,
+                artist: performer.artist, album: item["album"] as? String ?? "",
                 duration: (item["duration"] as? NSNumber)?.doubleValue ?? 0, cover: item["cover_url"] as? String, source: item["source"] as? String,
                 sourceURL: item["source_url"] as? String, remote: item["is_remote"] as? Bool ?? false, offline: item["_offline"] as? Bool ?? false, offlineAccount: item["_offline_account"] as? String ?? "", offlineLyrics: item["_offline_lyrics"] as? [String: Any])
         }
@@ -215,6 +216,21 @@ final class NativePlayer {
         waveActive = nextWave; waveWaiting = false; waveRetryAt = .distantPast
         tracks = queue; queueRevision += 1; index = selectedIndex; wantsPlay = false
         load(position: max(0, ((data["position"] as? NSNumber)?.doubleValue ?? 0) / 1000))
+    }
+
+    private func artistCredit(for item: [String: Any]) -> (title: String, artist: String) {
+        let title = item["title"] as? String ?? ""
+        let artist = item["artist"] as? String ?? ""
+        if item["_artist_checked"] as? Bool == true {
+            return (title, artist)
+        }
+        let value = ArtistAttribution.resolve(
+            title: title, artist: artist, source: item["source"] as? String,
+            sourceURL: item["source_url"] as? String, remote: item["is_remote"] as? Bool,
+            performer: item["performer"] as? String,
+            artistCredit: item["artist_credit"] as? String
+        )
+        return (value.title, value.artist)
     }
 
     private func prewarmNextAsset() {
@@ -592,8 +608,9 @@ final class NativePlayer {
                     guard let id = item["id"] as? String, !id.isEmpty, id.count <= 80,
                           id.unicodeScalars.allSatisfy({ allowed.contains($0) }),
                           !waiting.contains(id), !hidden.contains(id), !hiddenArtists.contains(RecommendationOrder.key(item["artist"] as? String ?? "")), !self.waveSeen.contains(id), added.insert(id).inserted else { return nil }
-                    return NativeTrack(id: id, title: item["title"] as? String ?? "",
-                        artist: item["artist"] as? String ?? "", album: item["album"] as? String ?? "",
+                    let performer = self.artistCredit(for: item)
+                    return NativeTrack(id: id, title: performer.title,
+                        artist: performer.artist, album: item["album"] as? String ?? "",
                         duration: (item["duration"] as? NSNumber)?.doubleValue ?? 0, cover: item["cover_url"] as? String, source: item["source"] as? String,
                 sourceURL: item["source_url"] as? String, remote: item["is_remote"] as? Bool ?? false, offline: item["_offline"] as? Bool ?? false, offlineAccount: item["_offline_account"] as? String ?? "", offlineLyrics: item["_offline_lyrics"] as? [String: Any])
                 }
@@ -814,7 +831,7 @@ final class NativePlayer {
             "audioTap": audioMeter.attached, "independentAuraReady": independentMeter.envelope != nil,
             "queueTracks": (includeQueue ? tracks : []).map { track -> [String: Any] in
                 var item: [String: Any] = ["id": track.id, "title": track.title, "artist": track.artist,
-                    "album": track.album, "duration": track.duration, "is_remote": track.remote]
+                    "album": track.album, "duration": track.duration, "is_remote": track.remote, "_artist_checked": true]
                 if let cover = track.cover { item["cover_url"] = cover }
                 if let source = track.source { item["source"] = source }
                 if let sourceURL = track.sourceURL { item["source_url"] = sourceURL }
