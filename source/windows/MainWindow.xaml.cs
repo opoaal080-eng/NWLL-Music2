@@ -16,6 +16,7 @@ public partial class MainWindow:Window {
  readonly DispatcherTimer timer=new(){Interval=TimeSpan.FromMilliseconds(400)};
  int savePending;
  int normalization=0;
+ string audioQuality="original";
  double userVolume=1.0;
  long pausedAtMs;
  bool volumeSettingReady;
@@ -70,6 +71,10 @@ public partial class MainWindow:Window {
  var prefs=JsonDocument.Parse(File.ReadAllText(Path.Combine(NativeAPI.Storage,"settings.json"))).RootElement;
  if(prefs.TryGetProperty("transition",out var tr))transition=tr.GetDouble();
  if(prefs.TryGetProperty("normalization",out var nl))normalization=Math.Clamp(nl.GetInt32(),0,100);
+ if(prefs.TryGetProperty("audioQuality",out var aq)&&aq.ValueKind==JsonValueKind.String){
+  var selected=aq.GetString()??"original";
+  if(new[]{"original","economy","balanced","high"}.Contains(selected))audioQuality=selected;
+ }
  if(prefs.TryGetProperty("volume",out var vu)&&vu.TryGetDouble(out var v))userVolume=Math.Clamp(v,0,1);
 }catch{}
 api=new NativeAPI(origin);proxy=new StreamProxy(api);Core.Initialize();
@@ -234,7 +239,8 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
     playedOrder.Add(t.id);playedCursor=playedOrder.Count-1;
    }
    refreshQueueView?.Invoke();
-   pausedAtMs=0;if(t.LocalPath==null&&account.Length==0){Login();return;}string path=t.LocalPath??proxy.URL("api/stream/"+t.id+"?cache=1&format="+(t.is_remote||t.source=="soundcloud"?"hls":"file"));using var media=new Media(vlc,path,t.LocalPath==null?FromType.FromLocation:FromType.FromPath);player.Play(media);lyricsCancellation?.Cancel();currentLyrics=null;lyricsID="";renderedLyric=int.MinValue;currentID=t.id;mixRecent.Enqueue(t.id);while(mixRecent.Count>120)mixRecent.Dequeue();discovery.Remember(origin,account,t);WarmNext();MiniTitle.Text=FullTitle.Text=t.title;MiniArtist.Text=FullArtist.Text=t.artist;LyricsText.Text="";LyricsPanel.Visibility=Visibility.Collapsed;Cover.Visibility=Visibility.Visible;if(t.cover_url!=null&&Uri.TryCreate(api.Origin,t.cover_url,out var coverURI)&&coverURI.Authority==api.Origin.Authority)_=LoadCover(coverURI,t.id);else Cover.Source=MiniCover.Source=null;Dock.BeginAnimation(OpacityProperty,new System.Windows.Media.Animation.DoubleAnimation(.6,1,TimeSpan.FromSeconds(.7)));}
+   pausedAtMs=0;if(t.LocalPath==null&&account.Length==0){Login();return;}string path=t.LocalPath??proxy.URL("api/stream/"+t.id+"?cache=1&format="+(t.is_remote||t.source=="soundcloud"?"hls":"file")+
+   (!(t.is_remote||t.source=="soundcloud")&&audioQuality!="original"?"&quality="+audioQuality:""));using var media=new Media(vlc,path,t.LocalPath==null?FromType.FromLocation:FromType.FromPath);player.Play(media);lyricsCancellation?.Cancel();currentLyrics=null;lyricsID="";renderedLyric=int.MinValue;currentID=t.id;mixRecent.Enqueue(t.id);while(mixRecent.Count>120)mixRecent.Dequeue();discovery.Remember(origin,account,t);WarmNext();MiniTitle.Text=FullTitle.Text=t.title;MiniArtist.Text=FullArtist.Text=t.artist;LyricsText.Text="";LyricsPanel.Visibility=Visibility.Collapsed;Cover.Visibility=Visibility.Visible;if(t.cover_url!=null&&Uri.TryCreate(api.Origin,t.cover_url,out var coverURI)&&coverURI.Authority==api.Origin.Authority)_=LoadCover(coverURI,t.id);else Cover.Source=MiniCover.Source=null;Dock.BeginAnimation(OpacityProperty,new System.Windows.Media.Animation.DoubleAnimation(.6,1,TimeSpan.FromSeconds(.7)));}
  async Task LoadCover(Uri uri,string id){try{
  var bytes=await api.HTTP.GetByteArrayAsync(uri);
  if(bytes.Length>5*1024*1024||currentID!=id)return;
@@ -465,13 +471,24 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
  loud.ValueChanged+=(_,_)=>{normalization=(int)loud.Value;loudLabel.Text=$"Одинаковая громкость · {normalization}%";SaveSettings();};
  panel.Children.Add(loudLabel);panel.Children.Add(loud);
  panel.Children.Add(new TextBlock{Text="0%: выкл. Чем выше значение, тем сильнее выравниваются тихие и громкие записи. Для применения перезапусти Nightwell Music.",TextWrapping=TextWrapping.Wrap,Foreground=Brushes.LightGray,Margin=new Thickness(0,0,0,18)});
- var w=new Window{Title="Nightwell · Настройки",Width=510,Height=370,Owner=this,Background=new SolidColorBrush(Color.FromRgb(18,21,27)),Content=panel};
+ panel.Children.Add(new TextBlock{Text="Качество звука",FontSize=16,FontWeight=FontWeights.SemiBold});
+ var modes=new[]{"original","economy","balanced","high"};
+ var labels=new[]{"Оригинал","Экономия · 96 кбит/с","Баланс · 160 кбит/с","Высокое · 256 кбит/с"};
+ var selector=new ComboBox{Margin=new Thickness(0,8,0,10),MinHeight=34,ItemsSource=labels,
+  SelectedIndex=Math.Max(0,Array.IndexOf(modes,audioQuality))};
+ selector.SelectionChanged+=(_,_)=>{
+  if(selector.SelectedIndex<0)return;
+  audioQuality=modes[selector.SelectedIndex];SaveSettings();
+ };
+ panel.Children.Add(selector);
+ panel.Children.Add(new TextBlock{Text="AAC готовится заранее на сервере. Если вариант ещё не готов, сразу запускается оригинал. Для внешнего SoundCloud HLS качество исходное. Новое качество применяется со следующей композиции.",TextWrapping=TextWrapping.Wrap,Foreground=Brushes.LightGray,Margin=new Thickness(0,0,0,18)});
+ var w=new Window{Title="Nightwell · Настройки",Width=520,Height=480,Owner=this,Background=new SolidColorBrush(Color.FromRgb(18,21,27)),Content=new ScrollViewer{Content=panel,VerticalScrollBarVisibility=ScrollBarVisibility.Auto}};
  var done=new Button{Content="Готово",HorizontalAlignment=HorizontalAlignment.Right};
  done.Click+=(_,_)=>w.Close();panel.Children.Add(done);w.ShowDialog();
  }
  void SaveSettings(){try{
   Directory.CreateDirectory(NativeAPI.Storage);
-  string data=JsonSerializer.Serialize(new{origin,transition,normalization,volume=userVolume});
+  string data=JsonSerializer.Serialize(new{origin,transition,normalization,audioQuality,volume=userVolume});
   _=Task.Run(()=>{try{File.WriteAllText(Path.Combine(NativeAPI.Storage,"settings.json"),data);}catch{}});
  }catch{}}
  void Prompt(string title,string hint,Func<string,Task> run){var panel=new StackPanel{Margin=new Thickness(24)};var value=new TextBox();panel.Children.Add(new TextBlock{Text=hint});panel.Children.Add(value);var button=new Button{Content="Сохранить"};panel.Children.Add(button);var w=new Window{Title=title,Owner=this,Width=420,Height=210,Content=panel};button.Click+=async(_,_)=>{await Guard(()=>run(value.Text));w.Close();};w.ShowDialog();}
