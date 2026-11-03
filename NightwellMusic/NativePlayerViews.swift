@@ -569,6 +569,7 @@ struct FullPlayer: View {
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Открыть исполнителя")
+                        .disabled(!ArtistAttribution.isKnown(clock.current?.artist ?? ""))
                     }
                     Spacer(minLength: 4)
                     if let track = clock.current {

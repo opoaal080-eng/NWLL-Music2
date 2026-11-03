@@ -520,8 +520,15 @@ struct NativeRoot: View {
                     .overlay(RoundedRectangle(cornerRadius: 18).stroke(.white.opacity(0.28), lineWidth: 1))
                 if !store.searchMessage.isEmpty { Text(store.searchMessage).font(.caption).foregroundStyle(.secondary) }
                 let localArtists = ArtistNames.matches(query: store.query, tracks: store.results + store.catalog)
-                let directoryNames = Set(store.artistResults.map { ArtistNames.normalized($0.name) })
-                let combinedArtists = store.artistResults +
+                // Older server indexes can contain upload accounts. Only show directory entries
+                // backed by a performer credit in our already-normalized playable tracks.
+                let knownArtistKeys = Set((store.results + store.catalog)
+                    .flatMap { ArtistNames.split($0.artist) }.map { ArtistNames.normalized($0) })
+                let verifiedDirectory = store.artistResults.filter {
+                    knownArtistKeys.contains(ArtistNames.normalized($0.name))
+                }
+                let directoryNames = Set(verifiedDirectory.map { ArtistNames.normalized($0.name) })
+                let combinedArtists = verifiedDirectory +
                     localArtists.filter { !directoryNames.contains(ArtistNames.normalized($0)) }
                     .map { ArtistDirectoryItem(id: ArtistNames.normalized($0), name: $0,
                                                image_url: nil, track_count: nil, source: nil) }
@@ -633,6 +640,7 @@ struct NativeTrackRow: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Открыть исполнителя")
+                .disabled(!ArtistAttribution.isKnown(track.artist))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if status.id == track.id { PlayingIndicator(playing: status.playing).frame(width: 20, height: 20) }
@@ -681,6 +689,7 @@ enum ArtistNames {
     }
 
     static func split(_ raw: String) -> [String] {
+        guard ArtistAttribution.isKnown(raw) else { return [] }
         var prepared = raw.replacingOccurrences(
             of: #"(?i)\s*[\(\[]\s*(?:feat\.?|ft\.?|featuring)\s+"#,
             with: ", ", options: .regularExpression)
@@ -812,12 +821,17 @@ struct ArtistProfileView: View {
                 let profile: ArtistDirectoryProfile = try await store.api.request(
                     "/api/artists/profile?name=" + encoded, timeout: 12)
                 guard !Task.isCancelled else { return }
-                profileImageURL = profile.artist.image_url ?? profileImageURL
-                totalTracks = profile.total
-                combined += profile.tracks.filter { ArtistNames.track($0, includes: name) }
-                tracks = unique(combined)
-                loading = false
-                return
+                let confirmed = profile.tracks.filter { ArtistNames.track($0, includes: name) }
+                if !confirmed.isEmpty {
+                    profileImageURL = profile.artist.image_url ?? profileImageURL
+                    totalTracks = profile.total
+                    combined += confirmed
+                    tracks = unique(combined)
+                    loading = false
+                    return
+                }
+                // An older server may have indexed the uploader instead of performer.
+                // Do not trust its avatar/artist count; continue with title-aware search.
             } catch {
                 // Older servers keep the legacy search working.
             }
