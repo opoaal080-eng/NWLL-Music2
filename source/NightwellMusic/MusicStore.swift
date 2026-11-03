@@ -507,6 +507,9 @@ private struct LivePlaybackQueue: Decodable { let tracks: [Track] }
         })
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             self?.applicationIsActive = true
+            if let self, let track = self.clock.current {
+                self.lyrics.select(track, api: self.api, origin: self.origin, online: self.account != nil)
+            }
             self?.checkConnection()
         })
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in self?.savePlayback(force: true) })
@@ -624,25 +627,30 @@ private struct LivePlaybackQueue: Decodable { let tracks: [Track] }
                 UserDefaults.standard.set(mixRecentIDs, forKey: mixRecentKey)
             }
             lastSaved = .distantPast
-            lyrics.select(clock.current, api: api, origin: origin, online: account != nil)
+            if applicationIsActive {
+                lyrics.select(clock.current, api: api, origin: origin, online: account != nil)
+            }
             preloadTask?.cancel()
             preloadTask = nil
             if let at = clock.queue.firstIndex(where: { $0.id == clock.id }), account != nil, hasNetworkPath {
-                // Warm only the nearest tracks; a large queue must not trigger 60 server fetches.
-                let upcoming = Array(clock.queue.dropFirst(at + 1).prefix(8))
+                // Audio has priority over lyrics and artwork, including with the screen locked.
+                // Warm a deeper lookahead, but send one bounded batch per queue position.
+                let upcoming = Array(clock.queue.dropFirst(at + 1).prefix(10))
                 let api = api, origin = origin
-                let ids = upcoming.map(\.id)
-                let shouldPreload = ids != lastPreloadIDs || Date().timeIntervalSince(lastPreloadAt) > 45
-                if !upcoming.isEmpty && shouldPreload {
-                    preloadTask = Task(priority: .utility) {
-                        try? await Task.sleep(nanoseconds: 400_000_000)
+                let ids = upcoming.filter { $0._offline != true }.map(\.id)
+                let shouldPreload = ids != lastPreloadIDs || Date().timeIntervalSince(lastPreloadAt) > 55
+                if !ids.isEmpty && shouldPreload {
+                    lastPreloadIDs = ids
+                    lastPreloadAt = Date()
+                    preloadTask = Task(priority: .userInitiated) {
+                        // CSRF-aware authenticated request. No delay before warming the audio.
+                        let _: OK? = try? await api.request("/api/preload", method: "POST",
+                                                            body: ["ids": ids], timeout: 12)
+                        guard !Task.isCancelled, applicationIsActive else { return }
+                        // Visual extras are optional; never hold up background audio.
+                        await lyrics.preload(Array(upcoming.prefix(4)), api: api, origin: origin)
                         guard !Task.isCancelled else { return }
-                        lastPreloadIDs = ids
-                        lastPreloadAt = Date()
-                        let _: OK? = try? await api.request("/api/preload", method: "POST", body: ["ids": ids])
-                        guard !Task.isCancelled else { return }
-                        await lyrics.preload(Array(upcoming.prefix(3)), api: api, origin: origin)
-                        let covers = upcoming.prefix(3).compactMap { track -> URL? in
+                        let covers = upcoming.prefix(4).compactMap { track -> URL? in
                             guard let path = track.cover_url else { return nil }
                             return URL(string: path, relativeTo: origin)?.absoluteURL
                         }
