@@ -408,6 +408,7 @@ public final class PlaybackService extends MediaSessionService {
                 ? hlsSources.createMediaSource(item) : fileSources.createMediaSource(item);
     }
     private MediaItem mediaItem(JSONObject track,String base) throws Exception {
+        NativeAPI.normalizeTrack(track);
         String id=track.getString("id");
         if(!id.matches("[A-Za-z0-9_-]{1,80}"))throw new IllegalArgumentException("Invalid track");
         Bundle extras=new Bundle();extras.putString("track",track.toString());
