@@ -931,41 +931,68 @@ public final class MainActivity extends Activity {
         if(mixing)return;if(user.isEmpty()){auth();return;}
         final NativeAPI client=new NativeAPI(this,origin);
         final long ticket=waveRequest.start(client::close);
-        final String account=user,playingID=currentID;
+        final String account=user, playingID=currentID;
         final WaveSettings settings=WaveSettings.read(this,origin,account);
         final java.util.Set<String> hidden=hiddenRecommendations();
         hidden.addAll(SkipFeedback.recentIDs(this,origin,account));
         final java.util.Set<String> blockedArtists=hiddenArtists();
-        mixing=true;status.setText("Подбираем…");
-        final java.util.LinkedHashSet<String> excluded=new java.util.LinkedHashSet<>(mixRecent);
-        for(int i=0;i<Math.min(8,queue.length());i++)excluded.add(queue.optJSONObject(i).optString("id"));
+        final java.util.Set<String> listenedIDs=DiscoveryHistory.ids(this,origin,account);
+        listenedIDs.addAll(mixRecent);
+        final java.util.Set<String> heardRecordings=DiscoveryHistory.recordings(this,origin,account);
+        mixing=true;status.setText("Подбираем новые треки…");
+        final java.util.LinkedHashSet<String> excluded=new java.util.LinkedHashSet<>();
+        for(int i=0;i<Math.min(35,queue.length());i++){
+            JSONObject track=queue.optJSONObject(i);
+            if(track!=null)excluded.add(track.optString("id"));
+        }
         if(!playingID.isEmpty())excluded.add(playingID);
-        java.util.List<String> hiddenForServer=new java.util.ArrayList<>(hidden);
-        java.util.Collections.sort(hiddenForServer);
-        for(int i=0;i<Math.min(hiddenForServer.size(),80);i++)excluded.add(hiddenForServer.get(i));
+        excluded.addAll(DiscoveryHistory.excludedIDs(this,origin,account,160));
+        java.util.List<String> legacy=new java.util.ArrayList<>(mixRecent);
+        java.util.Collections.reverse(legacy);
+        excluded.addAll(legacy);
         io.execute(()->{
             try{
                 if(!waveRequest.pending(ticket))return;
-                String nonce=UUID.randomUUID().toString();
-                JSONObject value=client.search("api/wave?mix="+nonce+settings.query()+"&exclude="+java.net.URLEncoder.encode(limitedExclusions(excluded),"UTF-8"));
-                JSONArray raw=value.optJSONArray("tracks");
-                if((raw==null||raw.length()==0)&&!playingID.isEmpty())raw=client.search("api/wave?mix="+nonce+settings.query()+"&exclude="+playingID).optJSONArray("tracks");
-                final JSONArray fresh=new JSONArray();
-                if(raw!=null)for(int i=0;i<raw.length();i++)if(!playingID.equals(raw.optJSONObject(i).optString("id"))&&!hidden.contains(raw.optJSONObject(i).optString("id")))fresh.put(raw.optJSONObject(i));
+                final java.util.List<JSONObject> fresh=new java.util.ArrayList<>();
+                final java.util.HashSet<String> added=new java.util.HashSet<>();
+                for(int attempt=0;attempt<3 && waveRequest.pending(ticket) && fresh.isEmpty();attempt++){
+                    String nonce=UUID.randomUUID().toString();
+                    JSONObject value=client.search("api/wave?mix="+nonce+settings.query()+"&exclude="
+                        +java.net.URLEncoder.encode(limitedExclusions(excluded),"UTF-8"));
+                    JSONArray tracks=value.optJSONArray("tracks");
+                    if(tracks==null)continue;
+                    for(int i=0;i<tracks.length();i++){
+                        JSONObject t=tracks.optJSONObject(i);
+                        if(t==null)continue;
+                        String id=t.optString("id");
+                        String signature=DiscoveryHistory.recording(t.optString("title"),t.optString("artist"));
+                        if(id.isEmpty()||id.equals(playingID)||listenedIDs.contains(id)||hidden.contains(id)
+                           ||heardRecordings.contains(signature)||!added.add(id))continue;
+                        fresh.add(t);
+                    }
+                }
                 ui.post(()->{
                     if(isDestroyed()||!waveRequest.complete(ticket))return;
                     mixing=false;
                     if(!account.equals(user))return;
-                    if(fresh.length()>0){
-                        java.util.List<JSONObject> candidates=new java.util.ArrayList<>();for(int i=0;i<fresh.length();i++)candidates.add(fresh.optJSONObject(i));
-                        JSONArray ordered=new JSONArray();
-                        for(JSONObject t:RecommendationOrder.arrange(candidates,new java.util.HashSet<>(mixRecent),hidden,blockedArtists,playingID,t->t.optString("id"),t->t.optString("title"),t->t.optString("artist")))ordered.put(t);
-                        if(ordered.length()==0){status.setText("Все найденные треки скрыты фильтрами рекомендаций.");return;}
-                        status.setText("");play(ordered.optJSONObject(0),ordered,true);
-                    }else status.setText("Новых треков пока нет. Попробуй чуть позже.");
+                    java.util.List<JSONObject> ordered=RecommendationOrder.arrange(
+                        fresh,listenedIDs,hidden,blockedArtists,playingID,
+                        t->t.optString("id"),t->t.optString("title"),t->t.optString("artist"));
+                    if(ordered.isEmpty()){
+                        status.setText("Свежих треков по этим настройкам пока нет. Попробуй расширить подборку.");
+                        return;
+                    }
+                    JSONArray playbackQueue=new JSONArray();
+                    for(JSONObject track:ordered)playbackQueue.put(track);
+                    status.setText("");
+                    play(ordered.get(0),playbackQueue,true);
                 });
-            }catch(Exception e){ui.post(()->{if(isDestroyed()||!waveRequest.complete(ticket))return;mixing=false;status.setText(friendly(e));});}
-            finally{client.close();}
+            }catch(Exception e){
+                ui.post(()->{
+                    if(isDestroyed()||!waveRequest.complete(ticket))return;
+                    mixing=false;status.setText(friendly(e));
+                });
+            }finally{client.close();}
         });
     }
 
