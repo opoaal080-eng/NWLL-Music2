@@ -247,6 +247,24 @@ final class NativePlayer {
         load(position: max(0, ((data["position"] as? NSNumber)?.doubleValue ?? 0) / 1000))
     }
 
+    private func streamPath(for track: NativeTrack) -> String {
+        let hls = track.remote || track.source == "soundcloud"
+        let preference = UserDefaults.standard.string(forKey: "nw-audio-quality") ?? "original"
+        let quality = ["economy", "balanced", "high"].contains(preference) ? preference : "original"
+        return "api/stream/" + track.id + "?cache=1&format=" + (hls ? "hls" : "file")
+            + (hls || quality == "original" ? "" : "&quality=" + quality)
+    }
+
+    func setAudioQuality(_ value: String) {
+        let mode = ["economy", "balanced", "high"].contains(value) ? value : "original"
+        UserDefaults.standard.set(mode, forKey: "nw-audio-quality")
+        // The currently playing stream is never restarted just to change quality.
+        // Next track uses the requested cached variant or the original instantly.
+        nextAssetWarmup?.cancel(); nextAssetWarmup = nil
+        nextAsset = nil; nextAssetID = nil
+        prewarmNextAsset()
+    }
+
     private func prewarmNextAsset() {
         guard !waveWaiting, index + 1 < tracks.count, let origin else {
             nextAssetWarmup?.cancel(); nextAssetWarmup = nil
@@ -258,9 +276,7 @@ final class NativePlayer {
         let saved = OfflineStore.audio(origin: origin,
             account: next.offlineAccount.isEmpty ? offlineAccount : next.offlineAccount, id: next.id)
         guard !next.offline || saved != nil,
-              let url = saved ?? URL(string: "api/stream/" + next.id + "?cache=1&format=" +
-                  (next.remote || next.source == "soundcloud" ? "hls" : "file"),
-                  relativeTo: origin)?.absoluteURL else { return }
+              let url = saved ?? URL(string: streamPath(for: next), relativeTo: origin)?.absoluteURL else { return }
         let asset = AVURLAsset(url: url, options: [AVURLAssetHTTPCookiesKey: cookies])
         nextAsset = asset; nextAssetID = next.id
         // Offline files are already on disk; analyse one upcoming track at low priority.
@@ -302,7 +318,7 @@ final class NativePlayer {
             wantsPlay = false; waitingForReady = false; requestedPosition = max(0, position); lastPosition = requestedPosition
             error = "Офлайн-файл не найден. Скачай трек заново."; publish(); return
         }
-        guard let url = saved ?? URL(string: "api/stream/" + current.id + "?cache=1&format=" + (current.remote || current.source == "soundcloud" ? "hls" : "file"), relativeTo: origin)?.absoluteURL else { return }
+        guard let url = saved ?? URL(string: streamPath(for: current), relativeTo: origin)?.absoluteURL else { return }
         if !recovering {
             DiscoveryHistory.record(id: current.id, title: current.title, artist: current.artist,
                                     origin: origin, account: offlineAccount)
