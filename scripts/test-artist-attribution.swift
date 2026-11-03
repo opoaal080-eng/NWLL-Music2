@@ -4,6 +4,8 @@ func ensure(_ predicate: @autoclosure () -> Bool, _ message: String) {
     if !predicate() { fatalError(message) }
 }
 
+@main struct ArtistAttributionRegression {
+    static func main() throws {
 let remotelyUploaded = ArtistAttribution.resolve(
     title: "Клава Кока - Покинула чат", artist: "some_upload_account",
     source: "soundcloud", remote: true)
@@ -53,3 +55,6 @@ let unknownRaw = """
 """
 let unknownTrack = try JSONDecoder().decode(Track.self, from: Data(unknownRaw.utf8))
 ensure(unknownTrack.artist == ArtistAttribution.unknown, "decode cannot credit a random uploader")
+
+    }
+}
