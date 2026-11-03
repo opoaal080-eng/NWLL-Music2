@@ -570,22 +570,23 @@ struct FullPlayer: View {
                         Text(clock.current?.title ?? "Выбери трек").font(.system(size: 20, weight: .bold)).lineLimit(2)
                         if let current = clock.current {
                             Button { openArtist(current) } label: {
-                                HStack(spacing: 6) {
+                                HStack(spacing: 4) {
                                     Image(systemName: "person.crop.circle")
-                                        .font(.system(size: 14))
+                                        .font(.system(size: 11))
                                     Text(ArtistIdentity.selections(for: current).map(\.name).joined(separator: ", ").isEmpty
                                         ? "Найти исполнителя"
                                         : ArtistIdentity.selections(for: current).map(\.name).joined(separator: ", "))
                                         .lineLimit(1)
                                     Image(systemName: "chevron.right")
-                                        .font(.system(size: 10, weight: .semibold))
+                                        .font(.system(size: 8, weight: .semibold))
                                 }
-                                .font(.system(size: 15, weight: .medium))
-                                .foregroundStyle(.white.opacity(0.88))
-                                .padding(.horizontal, 10)
-                                .frame(minHeight: 44, alignment: .leading)
-                                .background(.white.opacity(0.10), in: Capsule())
-                                .contentShape(Rectangle())
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(.white.opacity(0.85))
+                                .padding(.horizontal, 8)
+                                .frame(height: 29, alignment: .leading)
+                                .background(.white.opacity(0.075), in: Capsule())
+                                .contentShape(Capsule())
+                                .padding(.vertical, 5)
                             }
                             .buttonStyle(.plain)
                             .accessibilityLabel("Открыть страницу исполнителя")
