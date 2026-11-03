@@ -1532,8 +1532,78 @@ public final class MainActivity extends Activity {
         String[] options=kind.equals("playlist")?new String[]{"Скачать всё","Поделиться","Удалить"}:new String[]{"Скачать всё","Поделиться"};
         nightwellOptions("Действия",options,n->{
             if(n==0){if(kind.equals("likes"))download(shown);else task(()->api.request("api/playlists/"+id+"/tracks"),v->download(v.optJSONArray("tracks")));}
-            else if(n==1)task(()->api.request("api/shares","POST",new JSONObject().put("kind",kind).put("playlist_id",id)),v->share(origin.replaceAll("/+$","")+v.optString("path")));
+            else if(n==1)shareCollection(kind,id);
             else {AlertDialog confirm=new AlertDialog.Builder(this).setMessage("Удалить плейлист?").setNegativeButton("Отмена",null).setPositiveButton("Удалить",(d,b)->task(()->api.request("api/playlists/"+id,"DELETE",null),v->load())).create();styleSheet(confirm);confirm.show();}
+        });
+    }
+    void shareCollection(String kind,String playlistID){
+        final String server=origin;
+        final NativeAPI client=api;
+        final String owner=user;
+        status.setText("Готовим подборку для отправки…");
+        io.execute(()->{
+            String content=null;
+            // New servers can return a public, revocable share link. Validate
+            // the destination, never concatenate a path without a separator.
+            try{
+                JSONObject response=client.request("api/shares","POST",
+                    new JSONObject().put("kind",kind).put("playlist_id",playlistID));
+                String path=response.optString("path","").trim();
+                if(!path.isEmpty()){
+                    java.net.URI base=new java.net.URI(server);
+                    java.net.URI link=base.resolve(path).normalize();
+                    if("https".equalsIgnoreCase(link.getScheme()) &&
+                        base.getHost().equalsIgnoreCase(link.getHost())){
+                        content=link.toString();
+                    }
+                }
+            }catch(Exception ignored){
+                // Old Nightwell servers do not have /api/shares.
+            }
+            if(content==null){
+                try{
+                    JSONArray tracks=new JSONArray();
+                    String label="Избранное";
+                    if("playlist".equals(kind)){
+                        JSONObject data=client.request("api/playlists/"+playlistID+"/tracks");
+                        JSONArray received=data.optJSONArray("tracks");
+                        if(received!=null)tracks=received;
+                        for(int i=0;i<playlists.length();i++){
+                            JSONObject p=playlists.optJSONObject(i);
+                            if(p!=null && playlistID.equals(p.optString("id"))){
+                                label=p.optString("name","Плейлист");break;
+                            }
+                        }
+                    } else {
+                        for(int i=0;i<catalog.length();i++){
+                            JSONObject track=catalog.optJSONObject(i);
+                            if(track!=null&&likes.contains(track.optString("id")))tracks.put(track);
+                        }
+                    }
+                    if(tracks.length()>0){
+                        StringBuilder text=new StringBuilder("🎵 ").append(label)
+                            .append("\nNightwell Music\n");
+                        for(int i=0;i<Math.min(tracks.length(),300);i++){
+                            JSONObject track=tracks.optJSONObject(i);
+                            if(track==null)continue;
+                            text.append("\n").append(i+1).append(". ")
+                                .append(track.optString("artist","Исполнитель"))
+                                .append(" — ").append(track.optString("title","Трек"));
+                        }
+                        if(tracks.length()>300)
+                            text.append("\nИ ещё ").append(tracks.length()-300).append(" треков");
+                        content=text.toString();
+                    }
+                }catch(Exception ignored){}
+            }
+            final String ready=content;
+            ui.post(()->{
+                if(isDestroyed()||!server.equals(origin)||!owner.equals(user))return;
+                if(ready!=null&&!ready.isEmpty()){
+                    status.setText("");
+                    share(ready);
+                }else status.setText("Не удалось подготовить подборку для отправки");
+            });
         });
     }
     void share(String url){startActivity(Intent.createChooser(new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,url),"Поделиться"));}
