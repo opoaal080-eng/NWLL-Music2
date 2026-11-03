@@ -28,6 +28,16 @@ public final class ArtistIdentityTest {
         assertTrue(ArtistIdentity.belongs(matching, seed, "Audiosoulz"));
     }
 
+    @Test public void russianArtistWithEnDashOpensIdentifiableProfile() throws Exception {
+        JSONObject item = track("5", "Ваня Дмитриенко – Венера-Юпитер", "Uploader", "soundcloud");
+        assertEquals("Ваня Дмитриенко", ArtistIdentity.name(item));
+    }
+
+    @Test public void missingPerformerDoesNotInventProfileFromUploader() throws Exception {
+        JSONObject item = track("6", "Любимая песня", "Repost Channel", "soundcloud");
+        assertEquals("", ArtistIdentity.name(item));
+    }
+
     @Test public void canonicalArtistMetadataCanOverrideCloudUploader() throws Exception {
         JSONObject seed = track("1", "Missing", "Uploader", "soundcloud")
             .put("artist_name", "Audiosoulz");
