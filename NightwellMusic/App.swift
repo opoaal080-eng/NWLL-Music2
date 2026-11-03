@@ -519,19 +519,8 @@ struct NativeRoot: View {
                     .background { RoundedRectangle(cornerRadius: 18).fill(.ultraThinMaterial).opacity(0.48) }
                     .overlay(RoundedRectangle(cornerRadius: 18).stroke(.white.opacity(0.28), lineWidth: 1))
                 if !store.searchMessage.isEmpty { Text(store.searchMessage).font(.caption).foregroundStyle(.secondary) }
-                let localArtists = ArtistNames.matches(query: store.query, tracks: store.results + store.catalog)
-                // Older server indexes can contain upload accounts. Only show directory entries
-                // backed by a performer credit in our already-normalized playable tracks.
-                let knownArtistKeys = Set((store.results + store.catalog)
-                    .flatMap { ArtistNames.split($0.artist) }.map { ArtistNames.normalized($0) })
-                let verifiedDirectory = store.artistResults.filter {
-                    knownArtistKeys.contains(ArtistNames.normalized($0.name))
-                }
-                let directoryNames = Set(verifiedDirectory.map { ArtistNames.normalized($0.name) })
-                let combinedArtists = verifiedDirectory +
-                    localArtists.filter { !directoryNames.contains(ArtistNames.normalized($0)) }
-                    .map { ArtistDirectoryItem(id: ArtistNames.normalized($0), name: $0,
-                                               image_url: nil, track_count: nil, source: nil) }
+                // Prepared off the UI thread. Never rescan the whole catalogue while typing.
+                let combinedArtists = store.searchArtistSuggestions
                 if !combinedArtists.isEmpty {
                     Text("Исполнители").font(.headline)
                     ScrollView(.horizontal, showsIndicators: false) {
