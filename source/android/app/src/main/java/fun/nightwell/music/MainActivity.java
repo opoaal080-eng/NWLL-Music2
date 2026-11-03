@@ -1756,7 +1756,7 @@ public final class MainActivity extends Activity {
             qualityChoice.setText("Качество звука · "+qualityLabels[selectedQuality]+"  ▾");
         }));
         panel.addView(qualityChoice);
-        TextView qualityHint=text("AAC готовится отдельно на сервере. До подготовки сразу играет оригинал. Для SoundCloud HLS качество источника не меняется. Настройка действует для новых очередей.",12);
+        TextView qualityHint=text("SoundCloud: выбирается готовый AAC 96/160 без перекодирования. 256 только при наличии доступа у источника, иначе 160. При сбое будет обычный поток. Новое качество действует для новых очередей.",12);
         qualityHint.setTextColor(0xffa3a3ae);
         qualityHint.setPadding(0,dp(6),0,dp(16));
         panel.addView(qualityHint);
