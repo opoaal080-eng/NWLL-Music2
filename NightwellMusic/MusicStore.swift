@@ -70,13 +70,39 @@ private struct LivePlaybackQueue: Decodable { let tracks: [Track] }
     enum Screen: String, CaseIterable { case home = "Главная", search = "Поиск", likes = "Избранное", playlists = "Плейлисты", offline = "Офлайн" }
     @Published var screen: Screen = .home
     @Published var selectedArtist: ArtistSelection?
+    @Published var artistChoice: ArtistChoice?
+    @Published var artistResults: [ArtistSelection] = []
 
     func openArtist(_ track: Track) {
-        guard let selection = ArtistIdentity.selection(for: track) else {
+        let artists = ArtistIdentity.selections(for: track)
+        guard !artists.isEmpty else {
             error = "Не удалось определить исполнителя. В метаданных указан загрузчик или название не содержит артиста."
             return
         }
+        if artists.count == 1 { selectedArtist = artists[0] }
+        else { artistChoice = ArtistChoice(track: track, artists: artists) }
+    }
+
+    func openArtist(_ selection: ArtistSelection) {
         selectedArtist = selection
+    }
+
+    private func publishArtistSearch(_ tracks: [Track], query: String) {
+        let searchKey = ArtistIdentity.key(query)
+        guard searchKey.count >= 2 else { artistResults = []; return }
+        var found: [String: ArtistSelection] = [:]
+        for track in tracks {
+            for artist in ArtistIdentity.selections(for: track) {
+                let name = ArtistIdentity.key(artist.name)
+                if name.contains(searchKey), found[name] == nil { found[name] = artist }
+            }
+        }
+        artistResults = Array(found.values)
+            .sorted {
+                let a = ArtistIdentity.key($0.name), b = ArtistIdentity.key($1.name)
+                if a.hasPrefix(searchKey) != b.hasPrefix(searchKey) { return a.hasPrefix(searchKey) }
+                return $0.name.localizedStandardCompare($1.name) == .orderedAscending
+            }.prefix(40).map { $0 }
     }
 
     private struct FollowedArtistsResponse: Decodable {
@@ -808,10 +834,15 @@ private struct LivePlaybackQueue: Decodable { let tracks: [Track] }
     func search() {
         searchTask?.cancel(); searchGeneration = UUID()
         let generation = searchGeneration, text = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { results = []; searchMessage = "Введи название трека или исполнителя"; return }
+        guard !text.isEmpty else {
+            results = []; artistResults = []
+            searchMessage = "Введи название трека или исполнителя"
+            return
+        }
         let cacheKey = text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
         results = searchCache[cacheKey] ?? []
-        searchMessage = results.isEmpty ? "Ищем треки…" : ""
+        publishArtistSearch(catalog + results, query: text)
+        searchMessage = results.isEmpty ? "Ищем треки и исполнителей…" : ""
         searchTask = Task {
             do {
                 try await Task.sleep(nanoseconds: 250_000_000)
@@ -827,8 +858,33 @@ private struct LivePlaybackQueue: Decodable { let tracks: [Track] }
                 }.value
                 guard generation == searchGeneration, !Task.isCancelled else { return }
                 results = searchCache[cacheKey] ?? RecommendationOrder.rankSearch(found, query: text, title: { $0.title }, artist: { $0.artist })
-                searchMessage = "Ищем полные версии…"
+                publishArtistSearch(catalog + results, query: text)
+                searchMessage = "Ищем полные версии и исполнителей…"
                 let encoded = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed.subtracting(CharacterSet(charactersIn: "&+=?#"))) ?? ""
+                struct ArtistSearchReply: Decodable {
+                    struct Item: Decodable {
+                        let name: String
+                        let id: String?
+                        let image_url: String?
+                        let seed_track: Track
+                    }
+                    let artists: [Item]
+                }
+                // Server index includes collaborations and titles the track search can miss.
+                Task {
+                    let response: ArtistSearchReply? = try? await api.request("/api/artists/search?q=" + encoded, timeout: 10)
+                    guard generation == searchGeneration, !Task.isCancelled, let response else { return }
+                    var combined = artistResults
+                    var keys = Set(combined.map(\.id))
+                    for item in response.artists where keys.insert(ArtistIdentity.key(item.name)).inserted {
+                        var seed = item.seed_track
+                        seed.artist_name = item.name
+                        seed.artist_id = item.id
+                        seed.artist_image_url = item.image_url
+                        combined.append(ArtistSelection(name: item.name, seed: seed, titleDerived: false))
+                    }
+                    artistResults = Array(combined.prefix(45))
+                }
                 for _ in 0..<30 {
                     let response: TrackResult = try await api.request("/api/tracks?q=" + encoded)
                     guard generation == searchGeneration, !Task.isCancelled else { return }
@@ -836,6 +892,10 @@ private struct LivePlaybackQueue: Decodable { let tracks: [Track] }
                     let visible = RecommendationOrder.presentedSearchResults(
                         current: results, incoming: ranked, pending: response.search_pending == true)
                     if results != visible { results = visible }
+                    let previousArtists = artistResults
+                    publishArtistSearch(catalog + results, query: text)
+                    var keys = Set(artistResults.map(\.id))
+                    artistResults += previousArtists.filter { keys.insert($0.id).inserted }
                     searchMessage = response.search_message ?? ""
                     if response.search_pending != true {
                         if searchCache.count >= 20 { searchCache.removeAll(keepingCapacity: true) }
