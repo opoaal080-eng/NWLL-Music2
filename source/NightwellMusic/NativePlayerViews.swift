@@ -520,6 +520,7 @@ struct FullPlayer: View {
     @State private var feature: PremiumFeatureView.Kind?
     @State private var showQueue = false
     @State private var artistDestination: ArtistSelection?
+    @State private var artistChoices: ArtistChoice?
     @State private var artistLookupUnavailable = false
     @State private var seeking = false
     @State private var scrub = 0.0
@@ -572,7 +573,9 @@ struct FullPlayer: View {
                                 HStack(spacing: 6) {
                                     Image(systemName: "person.crop.circle")
                                         .font(.system(size: 14))
-                                    Text(ArtistIdentity.selection(for: current)?.name ?? "Найти исполнителя")
+                                    Text(ArtistIdentity.selections(for: current).map(\.name).joined(separator: ", ").isEmpty
+                                        ? "Найти исполнителя"
+                                        : ArtistIdentity.selections(for: current).map(\.name).joined(separator: ", "))
                                         .lineLimit(1)
                                     Image(systemName: "chevron.right")
                                         .font(.system(size: 10, weight: .semibold))
@@ -658,6 +661,9 @@ struct FullPlayer: View {
                 .presentationDragIndicator(.visible)
                 .presentationBackground(.black)
         }
+        .sheet(item: $artistChoices) { choice in
+            ArtistChoiceSheet(choice: choice).environmentObject(store)
+        }
         .alert("Исполнитель не определён", isPresented: $artistLookupUnavailable) {
             Button("Поиск по треку") {
                 store.query = clock.current?.title ?? ""
@@ -677,11 +683,10 @@ struct FullPlayer: View {
         }
     }
     private func openArtist(_ track: Track) {
-        if let selection = ArtistIdentity.selection(for: track) {
-            artistDestination = selection
-        } else {
-            artistLookupUnavailable = true
-        }
+        let choices = ArtistIdentity.selections(for: track)
+        if choices.count > 1 { artistChoices = ArtistChoice(track: track, artists: choices) }
+        else if let artist = choices.first { artistDestination = artist }
+        else { artistLookupUnavailable = true }
     }
     private var tools: some View {
         Menu {
