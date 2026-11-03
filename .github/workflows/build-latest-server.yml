@@ -34,6 +34,7 @@ jobs:
           set -euo pipefail
           mkdir -p dist/Nightwell-Latest-Server
           cp server-updates/latest/installer.py dist/Nightwell-Latest-Server/
+          cp server-updates/latest/Run-Latest-Server.ps1 dist/Nightwell-Latest-Server/
           cp server-updates/latest/*_Latest_Server.bat dist/Nightwell-Latest-Server/
           cp server-updates/latest/README-RU.md dist/Nightwell-Latest-Server/
           cp server-updates/artist-catalog/artist_catalog.py dist/Nightwell-Latest-Server/
