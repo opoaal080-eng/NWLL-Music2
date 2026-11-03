@@ -1258,7 +1258,7 @@ public final class MainActivity extends Activity {
     }
 
     void setLabel(TextView view,String value){if(view!=null&&!android.text.TextUtils.equals(view.getText(),value))view.setText(value);}
-    void updatePlayback(){if(smokeMode||playback==null)return;try{JSONObject state=new JSONObject(playback.snapshot(false));String next=state.optString("id");if(!currentID.equals(next)||queue.length()!=state.optInt("queueCount")){queue=new JSONObject(playback.snapshot(true)).optJSONArray("queueTracks");}if(queue==null)queue=new JSONArray();JSONObject t=null;for(int i=0;i<queue.length();i++)if(queue.optJSONObject(i).optString("id").equals(next)){t=queue.optJSONObject(i);break;}setLabel(miniTitle,t==null?"Выбери трек":t.optString("title"));setLabel(miniArtist,t==null?"Nightwell Music":t.optString("artist"));refreshFavoriteButtons();if(miniProgress!=null)miniProgress.setLevel((int)Math.max(0,Math.min(10000,10000*state.optDouble("position")/Math.max(1,state.optDouble("duration")))));setLabel(miniPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(homePlay!=null)setLabel(homePlay,state.optBoolean("playing")?"Ⅱ":"▶");if(fullPlay!=null)setLabel(fullPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(ribbon!=null)ribbon.playing(state.optBoolean("playing"));if(!currentID.equals(next)){currentID=next;if(!next.isEmpty())rememberRecent(next);activeLyrics=null;homeLine="";loadMiniCover(t);fetchLyricsAndPreload();animateTrackTransition();updateList();if(full)openPlayer();}if(seek!=null&&!seek.isPressed()){seek.setMax((int)Math.max(1,state.optDouble("duration")));seek.setProgress((int)state.optDouble("position"));}if(fullTime!=null)setLabel(fullTime,time(state.optDouble("position"))+"     /     "+time(state.optDouble("duration")));if(!state.optString("error").isEmpty())status.setText(state.optString("error"));syncLyrics(state.optDouble("position"));syncHomeLyrics(state.optDouble("position"));if(lastPlaying!=state.optBoolean("playing")){lastPlaying=state.optBoolean("playing");updateList();}}catch(Exception ignored){}}
+    void updatePlayback(){if(smokeMode||playback==null)return;try{JSONObject state=new JSONObject(playback.snapshot(false));String next=state.optString("id");if(!currentID.equals(next)||queue.length()!=state.optInt("queueCount")){queue=new JSONObject(playback.snapshot(true)).optJSONArray("queueTracks");}if(queue==null)queue=new JSONArray();JSONObject t=null;for(int i=0;i<queue.length();i++)if(queue.optJSONObject(i).optString("id").equals(next)){t=queue.optJSONObject(i);break;}setLabel(miniTitle,t==null?"Выбери трек":t.optString("title"));setLabel(miniArtist,t==null?"Nightwell Music":t.optString("artist"));refreshFavoriteButtons();if(miniProgress!=null)miniProgress.setLevel((int)Math.max(0,Math.min(10000,10000*state.optDouble("position")/Math.max(1,state.optDouble("duration")))));setLabel(miniPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(homePlay!=null)setLabel(homePlay,state.optBoolean("playing")?"Ⅱ":"▶");if(fullPlay!=null)setLabel(fullPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(ribbon!=null)ribbon.playing(state.optBoolean("playing"));if(!currentID.equals(next)){currentID=next;if(!next.isEmpty()){rememberRecent(next);checkTrackAudioQuality(t);}activeLyrics=null;homeLine="";loadMiniCover(t);fetchLyricsAndPreload();animateTrackTransition();updateList();if(full)openPlayer();}if(seek!=null&&!seek.isPressed()){seek.setMax((int)Math.max(1,state.optDouble("duration")));seek.setProgress((int)state.optDouble("position"));}if(fullTime!=null)setLabel(fullTime,time(state.optDouble("position"))+"     /     "+time(state.optDouble("duration")));if(!state.optString("error").isEmpty())status.setText(state.optString("error"));syncLyrics(state.optDouble("position"));syncHomeLyrics(state.optDouble("position"));if(lastPlaying!=state.optBoolean("playing")){lastPlaying=state.optBoolean("playing");updateList();}}catch(Exception ignored){}}
     void animateTrackTransition(){
         if(dock==null||!dock.isShown())return;
         final float slide=dp(24)*trackTransitionDirection;
@@ -1504,6 +1504,71 @@ public final class MainActivity extends Activity {
     void download(JSONArray items){if(items==null)return;if(user.isEmpty()){auth();return;}String account=user;status.setText("Добавляем в фоновую очередь…");task(()->{if(!api.request("api/premium/me").optBoolean("premium"))throw new java.io.IOException("Скачивание доступно с Premium — 150 ₽ за 30 дней.");BackgroundDownloads.enqueue(this,origin,account,items);return new JSONObject();},v->status.setText(BackgroundDownloads.progress(this)));}
     interface InputDone{void run(String value);}
     void input(String title,InputDone done){EditText field=new EditText(this);AlertDialog dialog=new AlertDialog.Builder(this).setTitle(title).setView(field).setPositiveButton("Сохранить",(d,n)->done.run(field.getText().toString())).setNegativeButton("Отмена",null).create();styleSheet(dialog);dialog.show();}
+    private String lastQualityNoticeKey="";
+    private void verifyAudioQualitySupport() {
+        if(user.isEmpty()||api==null)return;
+        final String host=origin, owner=user;
+        final NativeAPI client=api;
+        io.execute(()->{
+            boolean supported=false;
+            try{
+                JSONObject result=client.request("api/audio-quality/options");
+                JSONArray options=result.optJSONArray("options");
+                for(int i=0;options!=null&&i<options.length();i++){
+                    JSONObject option=options.optJSONObject(i);
+                    if(option!=null&&"high".equals(option.optString("id"))){
+                        supported=true;break;
+                    }
+                }
+            }catch(Exception ignored){}
+            final boolean ready=supported;
+            ui.post(()->{
+                if(isDestroyed()||!host.equals(origin)||!owner.equals(user))return;
+                getSharedPreferences("playback",MODE_PRIVATE).edit()
+                    .putBoolean("nw-quality-ready",ready)
+                    .putString("nw-quality-ready-origin",host).apply();
+                if(!ready)status.setText("Сервер не поддерживает выбор качества, используется обычный поток");
+            });
+        });
+    }
+    private void checkTrackAudioQuality(JSONObject track) {
+        if(track==null||track.optBoolean("_offline")||api==null)return;
+        final String quality=getSharedPreferences("playback",MODE_PRIVATE)
+            .getString("nw-audio-quality","auto");
+        if(!"economy".equals(quality)&&!"high".equals(quality))return;
+        final String trackID=track.optString("id"), host=origin,owner=user;
+        final String key=host+"|"+trackID+"|"+quality;
+        if(trackID.isEmpty()||key.equals(lastQualityNoticeKey))return;
+        lastQualityNoticeKey=key;
+        boolean supported=getSharedPreferences("playback",MODE_PRIVATE)
+            .getBoolean("nw-quality-ready",false)&&
+            host.equals(getSharedPreferences("playback",MODE_PRIVATE)
+            .getString("nw-quality-ready-origin",""));
+        if(!supported){
+            status.setText("Качество изменится со следующего трека после проверки сервера");
+            verifyAudioQualitySupport();
+            return;
+        }
+        final NativeAPI client=api;
+        io.execute(()->{
+            String notice="";
+            try {
+                JSONObject result=client.request("api/audio-quality/options?track_id="+
+                    java.net.URLEncoder.encode(trackID,"UTF-8")+"&quality="+quality);
+                if(result.optBoolean("fallback"))notice=result.optString("message",
+                    "Воспроизводится доступное качество");
+            }catch(Exception ignored){
+                notice="Качество не проверено, воспроизводится доступный поток";
+            }
+            final String finalNotice=notice;
+            ui.post(()->{
+                if(isDestroyed()||!host.equals(origin)||!owner.equals(user)||
+                    !trackID.equals(currentID))return;
+                if(!finalNotice.isEmpty())status.setText(finalNotice);
+            });
+        });
+    }
+
     void settings(){
         LinearLayout panel=column();
         panel.setPadding(dp(20),dp(16),dp(20),dp(16));
@@ -1516,6 +1581,32 @@ public final class MainActivity extends Activity {
         panel.addView(sectionLabel("Оформление"));
         panel.addView(sheetAction("Темы и ленты · Premium",()->feature("appearance")));
         panel.addView(sectionLabel("Воспроизведение"));
+        panel.addView(text("Качество SoundCloud (исходный AAC-поток)",15));
+        final String[] qualityNames={"Авто","Экономия · 96 кбит/с","Высокое · 160 кбит/с"};
+        final String[] qualityCodes={"auto","economy","high"};
+        final android.widget.Spinner qualitySpinner=new android.widget.Spinner(this);
+        android.widget.ArrayAdapter<String> qualityAdapter=new android.widget.ArrayAdapter<>(
+            this,android.R.layout.simple_spinner_item,qualityNames);
+        qualityAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        qualitySpinner.setAdapter(qualityAdapter);
+        String currentQuality=getSharedPreferences("playback",MODE_PRIVATE)
+            .getString("nw-audio-quality","auto");
+        int qualityIndex="economy".equals(currentQuality)?1:"high".equals(currentQuality)?2:0;
+        qualitySpinner.setSelection(qualityIndex);
+        qualitySpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){
+            public void onItemSelected(android.widget.AdapterView<?> parent,View v,int position,long rowID){
+                String value=qualityCodes[Math.min(qualityCodes.length-1,Math.max(0,position))];
+                getSharedPreferences("playback",MODE_PRIVATE).edit()
+                    .putString("nw-audio-quality",value).apply();
+                lastQualityNoticeKey="";
+                verifyAudioQualitySupport();
+            }
+            public void onNothingSelected(android.widget.AdapterView<?> parent){}
+        });
+        panel.addView(qualitySpinner);
+        TextView qualityHelp=text("Если выбранного качества нет, включится доступное. Nightwell сообщит фактический битрейт. Переключение действует со следующего трека.",12);
+        qualityHelp.setTextColor(0xffa3a3ae);
+        panel.addView(qualityHelp);
         android.widget.Switch autoFavorites=new android.widget.Switch(this);
         autoFavorites.setText("Автоматически скачивать избранное · Premium");
         styleSwitch(autoFavorites);
