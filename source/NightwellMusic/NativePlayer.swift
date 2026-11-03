@@ -106,7 +106,7 @@ final class NativePlayer {
     private var fadeNextAutomatically = false
     private var timeObserver: Any?
     private var artwork: MPMediaItemArtwork?
-    private var artworkTask: URLSessionDataTask?
+    private var artworkLoadTask: Task<Void, Never>?
     private var itemGeneration = UUID()
     private var seekGeneration = UUID()
     private var resumeAfterInterruption = false
@@ -298,7 +298,7 @@ final class NativePlayer {
             itemObservation = nil
             if let endObserver { NotificationCenter.default.removeObserver(endObserver); self.endObserver = nil }
             if let failureObserver { NotificationCenter.default.removeObserver(failureObserver); self.failureObserver = nil }
-            artworkTask?.cancel(); audioMeter = LocalAudioMeter()
+            artworkLoadTask?.cancel(); audioMeter = LocalAudioMeter()
             player.pause(); player.replaceCurrentItem(with: nil)
             wantsPlay = false; waitingForReady = false; requestedPosition = max(0, position); lastPosition = requestedPosition
             error = "Офлайн-файл не найден. Скачай трек заново."; publish(); return
@@ -308,7 +308,7 @@ final class NativePlayer {
         fadeInActive = fadeNextAutomatically && transitionSeconds > 0; fadeNextAutomatically = false
         player.volume = fadeInActive ? 0 : baseVolume
         requestedPosition = position; lastPosition = position; waitingForReady = true
-        ended = false; error = ""; artworkTask?.cancel(); artwork = makeArtwork(placeholder())
+        ended = false; error = ""; artworkLoadTask?.cancel(); artwork = makeArtwork(placeholder())
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
         if let failureObserver { NotificationCenter.default.removeObserver(failureObserver) }
         if let stallObserver { NotificationCenter.default.removeObserver(stallObserver); self.stallObserver = nil }
@@ -460,7 +460,7 @@ final class NativePlayer {
     func stop() {
         waveActive = false; waveTask?.cancel(); waveTask = nil; waveGeneration = UUID(); waveSeen = []
         nextAssetWarmup?.cancel(); nextAssetWarmup = nil; nextAsset = nil; nextAssetID = nil
-        pause(); stallCheck?.cancel(); stallCheck = nil; itemGeneration = UUID(); itemObservation = nil; artworkTask?.cancel()
+        pause(); stallCheck?.cancel(); stallCheck = nil; itemGeneration = UUID(); itemObservation = nil; artworkLoadTask?.cancel()
         if let endObserver { NotificationCenter.default.removeObserver(endObserver); self.endObserver = nil }
         if let failureObserver { NotificationCenter.default.removeObserver(failureObserver); self.failureObserver = nil }
         independentMeter.cancel()
@@ -785,23 +785,27 @@ final class NativePlayer {
         }
     }
     private func fetchArtwork(_ track: NativeTrack, generation: UUID) {
+        artworkLoadTask?.cancel()
         if let cover = track.cover, cover.hasPrefix("data:image/"), let comma = cover.firstIndex(of: ","),
-           let data = Data(base64Encoded: String(cover[cover.index(after: comma)...])), data.count < 2 * 1024 * 1024, let image = UIImage(data: data) {
+           let data = Data(base64Encoded: String(cover[cover.index(after: comma)...])),
+           data.count < 2 * 1024 * 1024, let image = UIImage(data: data) {
             artwork = makeArtwork(image); publish(); return
         }
-        guard let origin, let cover = track.cover, let url = URL(string: cover, relativeTo: origin)?.absoluteURL,
-              ServerAddress.sameOrigin(origin, url), url.path.hasPrefix("/api/covers/") else { return }
-        var request = URLRequest(url: url); request.timeoutInterval = 15
-        request.allHTTPHeaderFields = HTTPCookie.requestHeaderFields(with: cookies)
-        artworkTask = URLSession.shared.dataTask(with: request) { [weak self] data, response, _ in
-            guard let data, data.count <= 6 * 1024 * 1024,
-                  (response as? HTTPURLResponse)?.statusCode == 200, let image = UIImage(data: data) else { return }
-            DispatchQueue.main.async {
+        guard let origin, let cover = track.cover?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !cover.isEmpty, let url = URL(string: cover, relativeTo: origin)?.absoluteURL,
+              url.scheme?.lowercased() == "https" else { return }
+        // The system artwork used to ignore EVERY SoundCloud CDN cover, because
+        // only same-origin /api/covers/ URLs were allowed. Reuse the same image
+        // pipeline as the visible player, including its disk cache and deduplication.
+        artworkLoadTask = Task { [weak self] in
+            let image = await CoverImagePipeline.shared.image(for: url, maxPixel: 512)
+            guard !Task.isCancelled, let image else { return }
+            await MainActor.run {
                 guard let self, self.itemGeneration == generation else { return }
-                self.artwork = self.makeArtwork(image); self.publish()
+                self.artwork = self.makeArtwork(image)
+                self.publish()
             }
         }
-        artworkTask?.resume()
     }
     private func makeArtwork(_ image: UIImage) -> MPMediaItemArtwork {
         MPMediaItemArtwork(boundsSize: image.size) { _ in image }
