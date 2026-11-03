@@ -908,8 +908,15 @@ public final class MainActivity extends Activity {
         api.cancelSearch();
         if(pendingSearch!=null)ui.removeCallbacks(pendingSearch);
         final String text=value.trim();
-        if(text.isEmpty()) {
-            shown=new JSONArray();updateList();if(artistStrip!=null)artistStrip.removeAllViews();status.setText("");return;
+        if(text.isEmpty()){
+            shown=new JSONArray();updateList();
+            if(artistStrip!=null)artistStrip.removeAllViews();
+            status.setText("");return;
+        }
+        if(text.length()<2){
+            shown=new JSONArray();updateList();
+            if(artistStrip!=null)artistStrip.removeAllViews();
+            status.setText("Введи ещё один символ");return;
         }
         final String cacheKey=hiddenRecommendationKey()+"|"+text.toLowerCase(java.util.Locale.ROOT);
         final JSONArray cached=attempt==0?searchCache.get(cacheKey):null;
@@ -954,7 +961,9 @@ public final class MainActivity extends Activity {
                                 JSONObject artistData=api.request("api/artists?q="+java.net.URLEncoder.encode(text,"UTF-8")+"&limit=16");
                                 JSONArray serverArtists=artistData.optJSONArray("artists");
                                 if(serverArtists!=null&&serverArtists.length()>0) {
-                                    ui.post(()->{if(gen==generation&&screen.equals("Поиск"))showArtistStrip(serverArtists);});
+                                    final JSONArray verified = verifyDirectoryArtists(serverArtists);
+                                    ui.post(()->{if(gen==generation&&screen.equals("Поиск"))
+                                        showArtistStrip(verified);});
                                 }
                             } catch(Exception ignored) { /* Older server: keep local suggestions. */ }
                         });
@@ -1032,18 +1041,27 @@ public final class MainActivity extends Activity {
         return values;
     }
 
-    private boolean hasCreditedArtist(String name) {
-        String wanted=RecommendationOrder.key(name);
-        for(JSONArray items:new JSONArray[]{shown,catalog}) {
-            if(items==null)continue;
-            for(int i=0;i<Math.min(200,items.length());i++){
-                JSONObject item=items.optJSONObject(i);
-                if(item==null)continue;
-                for(String performer:splitArtistNames(item.optString("artist")))
-                    if(wanted.equals(RecommendationOrder.key(performer)))return true;
+    private JSONArray verifyDirectoryArtists(JSONArray candidates){
+        // Called from the IO executor, never from the main/UI thread.
+        java.util.HashSet<String> known=new java.util.HashSet<>();
+        for(JSONArray list:new JSONArray[]{shown,catalog}){
+            if(list==null)continue;
+            for(int i=0;i<Math.min(list.length(),2500);i++){
+                JSONObject track=list.optJSONObject(i);
+                if(track==null)continue;
+                for(String artist:splitArtistNames(track.optString("artist")))
+                    known.add(RecommendationOrder.key(artist));
             }
         }
-        return false;
+        JSONArray verified=new JSONArray();
+        for(int i=0;i<Math.min(candidates.length(),16);i++){
+            JSONObject candidate=candidates.optJSONObject(i);
+            if(candidate==null)continue;
+            if("nightwell".equals(candidate.optString("source"))&&
+               !known.contains(RecommendationOrder.key(candidate.optString("name"))))continue;
+            verified.put(candidate);
+        }
+        return verified;
     }
 
     private void showArtistStrip(JSONArray artists) {
@@ -1063,7 +1081,6 @@ public final class MainActivity extends Activity {
             if(!ArtistAttribution.isKnown(name))continue;
             // Older artist-directory APIs can list remote posting accounts. Never expose
             // such a directory entry unless a normalized track really credits that name.
-            if("nightwell".equals(item.optString("source"))&&!hasCreditedArtist(name))continue;
             LinearLayout chip=row();chip.setGravity(Gravity.CENTER_VERTICAL);
             chip.setPadding(dp(10),dp(6),dp(12),dp(6));
             chip.setBackground(touchSurface(0x553a3a42,22));
