@@ -272,6 +272,7 @@ struct NativeRoot: View {
     @State private var favoriteSort = "recent"
     @ObservedObject private var favoritePremium = PremiumFeatureState.shared
     @State private var fullPlayer = false
+    @State private var selectedArtist: ArtistSelection?
     @State private var sharedLinkID: String?
     @State private var backgroundOnly = false
     @State private var importFiles = false
@@ -427,6 +428,9 @@ struct NativeRoot: View {
             }
         }
         .fullScreenCover(isPresented: $fullPlayer) { FullPlayer(clock: store.clock) }
+        .sheet(item: $selectedArtist) { artist in
+            ArtistProfileView(name: artist.name).environmentObject(store)
+        }
         
         .sheet(isPresented: $transferPresented) { NightwellNativeTransfer().environmentObject(store) }
         .sheet(isPresented: $showShare) { if let shareURL { ShareSheet(items: [shareURL]) } }
@@ -515,6 +519,22 @@ struct NativeRoot: View {
                     .background { RoundedRectangle(cornerRadius: 18).fill(.ultraThinMaterial).opacity(0.48) }
                     .overlay(RoundedRectangle(cornerRadius: 18).stroke(.white.opacity(0.28), lineWidth: 1))
                 if !store.searchMessage.isEmpty { Text(store.searchMessage).font(.caption).foregroundStyle(.secondary) }
+                let artists = ArtistNames.matches(query: store.query, tracks: store.results + store.catalog)
+                if !artists.isEmpty {
+                    Text("Исполнители").font(.headline)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 9) {
+                            ForEach(artists, id: \.self) { name in
+                                Button { selectedArtist = ArtistSelection(name: name) } label: {
+                                    Label(name, systemImage: "person.crop.circle")
+                                        .font(.system(size: 13, weight: .medium))
+                                        .padding(.horizontal, 12).padding(.vertical, 9)
+                                        .background(.white.opacity(0.09), in: Capsule())
+                                }.buttonStyle(.plain)
+                            }
+                        }
+                    }
+                }
                 TrackList(tracks: store.results)
             }.padding(.horizontal, 20)
         case .likes:
@@ -577,16 +597,33 @@ struct NativeTrackRow: View {
     let queue: [Track]
     @ObservedObject var status: TrackStatus
     var playlist: Playlist?
+    @State private var selectedArtist: ArtistSelection?
+    @State private var showArtistChoices = false
     var body: some View {
         HStack(spacing: 12) {
             Button { store.play(track, in: queue) } label: {
-                HStack(spacing: 12) {
-                    Cover(track: track, origin: store.origin).frame(width: 46, height: 46).clipShape(RoundedRectangle(cornerRadius: 12))
-                    VStack(alignment: .leading, spacing: 5) { Text(track.title).font(.subheadline.weight(.semibold)).lineLimit(2); Text(track.artist).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
-                    Spacer(minLength: 0)
-                    if status.id == track.id { PlayingIndicator(playing: status.playing).frame(width: 20, height: 20) }
-                }.contentShape(Rectangle())
+                Cover(track: track, origin: store.origin)
+                    .frame(width: 46, height: 46)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
             }.buttonStyle(.plain)
+            VStack(alignment: .leading, spacing: 5) {
+                Button { store.play(track, in: queue) } label: {
+                    Text(track.title).font(.subheadline.weight(.semibold))
+                        .lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
+                }.buttonStyle(.plain)
+                Button {
+                    let artists = ArtistNames.split(track.artist)
+                    if artists.count > 1 { showArtistChoices = true }
+                    else if let name = artists.first { selectedArtist = ArtistSelection(name: name) }
+                } label: {
+                    Text(track.artist).font(.caption).foregroundStyle(.secondary)
+                        .lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Открыть исполнителя")
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if status.id == track.id { PlayingIndicator(playing: status.playing).frame(width: 20, height: 20) }
             Menu {
                 Button(store.likes.contains(track.id) ? "Убрать из избранного" : "В избранное", systemImage: store.likes.contains(track.id) ? "heart.fill" : "heart") { Task { await store.like(track) } }
                 if store.isDownloaded(track) {
@@ -609,8 +646,143 @@ struct NativeTrackRow: View {
                 if let playlist { Button("Убрать из плейлиста", role: .destructive) { Task { await store.add(track, playlist: playlist, remove: true) } } }
             } label: { Image(systemName: "ellipsis").frame(width: 34, height: 44) }
         }.padding(12).background(status.id == track.id ? pumpkin.opacity(0.12) : .white.opacity(0.035), in: RoundedRectangle(cornerRadius: 18))
+        .confirmationDialog("Выбери исполнителя", isPresented: $showArtistChoices, titleVisibility: .visible) {
+            ForEach(ArtistNames.split(track.artist), id: \.self) { name in
+                Button(name) { selectedArtist = ArtistSelection(name: name) }
+            }
+        }
+        .sheet(item: $selectedArtist) { artist in
+            ArtistProfileView(name: artist.name).environmentObject(store)
+        }
     }
 }
+
+struct ArtistSelection: Identifiable {
+    let name: String
+    var id: String { ArtistNames.normalized(name) }
+}
+
+enum ArtistNames {
+    static func normalized(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+    }
+
+    static func split(_ raw: String) -> [String] {
+        var prepared = raw.replacingOccurrences(
+            of: #"(?i)\s*[\(\[]\s*(?:feat\.?|ft\.?|featuring)\s+"#,
+            with: ", ", options: .regularExpression)
+        prepared = prepared.replacingOccurrences(
+            of: #"(?i)\s+(?:feat\.?|ft\.?|featuring|&|×|x)\s+"#,
+            with: ", ", options: .regularExpression)
+        prepared = prepared.replacingOccurrences(of: #"[)\]]"#, with: "", options: .regularExpression)
+        var seen = Set<String>()
+        return Array(prepared.split(separator: ",")
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && seen.insert(normalized($0)).inserted }
+            .prefix(8))
+    }
+
+    static func matches(query: String, tracks: [Track]) -> [String] {
+        let needle = normalized(query)
+        guard needle.count >= 2 else { return [] }
+        var seen = Set<String>()
+        var matches: [String] = []
+        for track in tracks {
+            for artist in split(track.artist) where normalized(artist).contains(needle) {
+                if seen.insert(normalized(artist)).inserted { matches.append(artist) }
+            }
+        }
+        return Array(matches.sorted { $0.localizedStandardCompare($1) == .orderedAscending }.prefix(8))
+    }
+
+    static func track(_ track: Track, includes name: String) -> Bool {
+        let key = normalized(name)
+        return split(track.artist).contains { normalized($0) == key }
+    }
+}
+
+struct ArtistProfileView: View {
+    @EnvironmentObject private var store: MusicStore
+    @Environment(\.dismiss) private var dismiss
+    let name: String
+    @State private var tracks: [Track] = []
+    @State private var loading = true
+    @State private var message = ""
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 16) {
+                ZStack {
+                    Circle().fill(.white.opacity(0.10))
+                    Text(String(name.prefix(1)).uppercased())
+                        .font(.system(size: 43, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+                .frame(width: 94, height: 94)
+                .accessibilityLabel("Исполнитель " + name)
+                Text(name).font(.title2.bold()).multilineTextAlignment(.center)
+                if loading { ProgressView("Ищем треки…").tint(.white) }
+                if !message.isEmpty { Text(message).font(.caption).foregroundStyle(.secondary) }
+                if !tracks.isEmpty {
+                    HStack {
+                        Text("Треки").font(.headline)
+                        Spacer()
+                        Text("\(tracks.count)").foregroundStyle(.secondary)
+                    }
+                    TrackList(tracks: tracks)
+                } else if !loading {
+                    ContentUnavailableView("Треки не найдены", systemImage: "music.note",
+                                           description: Text("Попробуй поискать исполнителя позже."))
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(20)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.black.ignoresSafeArea())
+            .navigationTitle("Исполнитель")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Закрыть") { dismiss() }
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
+        .task(id: name) { await load() }
+    }
+
+    @MainActor private func load() async {
+        loading = true
+        message = ""
+        var combined = (store.catalog + store.results).filter { ArtistNames.track($0, includes: name) }
+        tracks = unique(combined)
+        let encoded = name.addingPercentEncoding(
+            withAllowedCharacters: .urlQueryAllowed.subtracting(CharacterSet(charactersIn: "&+=?#"))) ?? ""
+        for _ in 0..<4 {
+            if Task.isCancelled { return }
+            do {
+                let response: TrackResult = try await store.api.request("/api/tracks?q=" + encoded, timeout: 12)
+                combined += response.tracks.filter { ArtistNames.track($0, includes: name) }
+                tracks = unique(combined)
+                if response.search_pending != true { break }
+                let delay = max(1.0, min(3.0, response.search_retry_after ?? 1.5))
+                try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            } catch is CancellationError { return }
+              catch {
+                if tracks.isEmpty { message = "Не удалось загрузить каталог: " + error.localizedDescription }
+                break
+            }
+        }
+        loading = false
+    }
+
+    private func unique(_ items: [Track]) -> [Track] {
+        var seen = Set<String>()
+        return items.filter { seen.insert($0.id).inserted }
+    }
+}
+
 struct Cover: View {
     let track: Track?
     let origin: URL

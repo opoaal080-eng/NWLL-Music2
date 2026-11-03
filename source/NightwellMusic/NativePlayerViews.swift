@@ -505,6 +505,8 @@ struct FullPlayer: View {
     @State private var showLyrics = false
     @State private var feature: PremiumFeatureView.Kind?
     @State private var showQueue = false
+    @State private var selectedArtist: ArtistSelection?
+    @State private var showArtistChoices = false
     @State private var seeking = false
     @State private var scrub = 0.0
     @State private var repeatMode = 0
@@ -551,7 +553,22 @@ struct FullPlayer: View {
                 HStack(spacing: 10) {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(clock.current?.title ?? "Выбери трек").font(.system(size: 20, weight: .bold)).lineLimit(2)
-                        Text(clock.current?.artist ?? "").font(.system(size: 15)).foregroundStyle(.secondary).lineLimit(1)
+                        Button {
+                            let artists = ArtistNames.split(clock.current?.artist ?? "")
+                            if artists.count > 1 { showArtistChoices = true }
+                            else if let name = artists.first { selectedArtist = ArtistSelection(name: name) }
+                        } label: {
+                            HStack(spacing: 5) {
+                                Text(clock.current?.artist ?? "").lineLimit(1)
+                                Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold))
+                            }
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.76))
+                            .padding(.horizontal, 10).padding(.vertical, 5)
+                            .background(.white.opacity(0.08), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Открыть исполнителя")
                     }
                     Spacer(minLength: 4)
                     if let track = clock.current {
@@ -614,6 +631,14 @@ struct FullPlayer: View {
             }
         }
         .sheet(item: $feature) { PremiumFeatureView(kind: $0).environmentObject(store) }
+        .confirmationDialog("Выбери исполнителя", isPresented: $showArtistChoices, titleVisibility: .visible) {
+            ForEach(ArtistNames.split(clock.current?.artist ?? ""), id: \.self) { name in
+                Button(name) { selectedArtist = ArtistSelection(name: name) }
+            }
+        }
+        .sheet(item: $selectedArtist) { artist in
+            ArtistProfileView(name: artist.name).environmentObject(store)
+        }
         .sheet(isPresented: $showQueue) {
             PlaybackQueue(clock: clock)
                 .presentationDetents([.medium, .large])
