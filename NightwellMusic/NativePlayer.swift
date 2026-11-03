@@ -793,14 +793,32 @@ final class NativePlayer {
            data.count < 2 * 1024 * 1024, let image = UIImage(data: data) {
             artwork = makeArtwork(image); publish(); return
         }
-        guard let origin, let cover = track.cover?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !cover.isEmpty, let url = URL(string: cover, relativeTo: origin)?.absoluteURL,
-              url.scheme?.lowercased() == "https" else { return }
+        guard let origin else { return }
+        let cover = track.cover?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        // Some remote records lack cover_url even when /api/covers/<id> is available.
+        let address = cover.isEmpty && (track.remote || track.source == "soundcloud")
+            ? "/api/covers/" + track.id : cover
+        guard !address.isEmpty, let url = URL(string: address, relativeTo: origin)?.absoluteURL,
+              url.scheme?.lowercased() == "https",
+              url.user == nil, url.password == nil else { return }
         // The system artwork used to ignore EVERY SoundCloud CDN cover, because
         // only same-origin /api/covers/ URLs were allowed. Reuse the same image
         // pipeline as the visible player, including its disk cache and deduplication.
         artworkLoadTask = Task { [weak self] in
-            let image = await CoverImagePipeline.shared.image(for: url, maxPixel: 512)
+            var image = await CoverImagePipeline.shared.image(for: url, maxPixel: 512)
+            // Internal /api/covers may require the Nightwell session cookie.
+            // Retry authenticated only for this server, never for an external CDN.
+            if image == nil && !Task.isCancelled && ServerAddress.sameOrigin(origin, url) {
+                var request = URLRequest(url: url)
+                request.timeoutInterval = 10
+                request.cachePolicy = .returnCacheDataElseLoad
+                request.allHTTPHeaderFields = HTTPCookie.requestHeaderFields(with: self?.cookies ?? [])
+                if let (data, response) = try? await URLSession.shared.data(for: request),
+                   let http = response as? HTTPURLResponse, http.statusCode == 200,
+                   data.count <= 6 * 1024 * 1024 {
+                    image = UIImage(data: data)
+                }
+            }
             guard !Task.isCancelled else { return }
             if let image {
                 await MainActor.run {
