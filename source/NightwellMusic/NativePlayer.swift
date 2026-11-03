@@ -36,9 +36,6 @@ final class NativePlayer {
     private var nextAsset: AVURLAsset?
     private var nextAssetID: String?
     private var nextAssetWarmup: Task<Void, Never>?
-    private var serverWarmTask: URLSessionDataTask?
-    private var lastWarmIDs: [String] = []
-    private var lastWarmTime = Date.distantPast
     private lazy var nowPlayingSession = MPNowPlayingSession(players: [player])
     private let nowPlayingEligibility = NowPlayingEligibilityDelegate()
     private var activatingNowPlaying = false
@@ -246,38 +243,11 @@ final class NativePlayer {
         waveSettings = WaveSettings(data["wave_preferences"] as? [String: Any] ?? [:])
         waveActive = nextWave; waveWaiting = false; waveRetryAt = .distantPast
         tracks = queue; queueRevision += 1; index = selectedIndex; wantsPlay = false
-        serverWarmTask?.cancel(); serverWarmTask = nil
-        lastWarmIDs = []; lastWarmTime = .distantPast
         navigationHistory = [queue[selectedIndex].id]; navigationPosition = 0
         load(position: max(0, ((data["position"] as? NSNumber)?.doubleValue ?? 0) / 1000))
     }
 
-    private func warmUpcomingOnServer() {
-        guard let origin, wantsPlay, index + 1 < tracks.count,
-              let endpoint = URL(string: "api/preload", relativeTo: origin)?.absoluteURL else { return }
-        let ids = tracks.dropFirst(index + 1).prefix(10).filter {
-            !$0.offline && OfflineStore.audio(origin: origin,
-                account: $0.offlineAccount.isEmpty ? offlineAccount : $0.offlineAccount,
-                id: $0.id) == nil
-        }.map(\.id)
-        guard !ids.isEmpty, ids != lastWarmIDs || Date().timeIntervalSince(lastWarmTime) > 90 else { return }
-        lastWarmIDs = ids
-        lastWarmTime = Date()
-        serverWarmTask?.cancel()
-        var request = URLRequest(url: endpoint)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 12
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.allHTTPHeaderFields?.merge(HTTPCookie.requestHeaderFields(with: cookies)) { _, new in new }
-        request.httpBody = try? JSONSerialization.data(withJSONObject: ["ids": ids])
-        // Only asks the server to prepare future streams; never downloads audio
-        // through a second decoder competing with the current AVPlayer.
-        serverWarmTask = URLSession.shared.dataTask(with: request)
-        serverWarmTask?.resume()
-    }
-
     private func prewarmNextAsset() {
-        warmUpcomingOnServer()
         guard !waveWaiting, index + 1 < tracks.count, let origin else {
             nextAssetWarmup?.cancel(); nextAssetWarmup = nil
             nextAsset = nil; nextAssetID = nil; return
