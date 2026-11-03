@@ -15,6 +15,10 @@ struct NativeTrack {
     var offline: Bool = false
     var offlineAccount: String = ""
     var offlineLyrics: [String: Any]? = nil
+    var artistName: String? = nil
+    var artistID: String? = nil
+    var artistImageURL: String? = nil
+    var artistVerified: Bool? = nil
 }
 
 // Retry activation when iOS makes this playback session eligible for Now Playing.
@@ -219,7 +223,9 @@ final class NativePlayer {
             return NativeTrack(id: id, title: item["title"] as? String ?? "",
                 artist: item["artist"] as? String ?? "", album: item["album"] as? String ?? "",
                 duration: (item["duration"] as? NSNumber)?.doubleValue ?? 0, cover: item["cover_url"] as? String, source: item["source"] as? String,
-                sourceURL: item["source_url"] as? String, remote: item["is_remote"] as? Bool ?? false, offline: item["_offline"] as? Bool ?? false, offlineAccount: item["_offline_account"] as? String ?? "", offlineLyrics: item["_offline_lyrics"] as? [String: Any])
+                sourceURL: item["source_url"] as? String, remote: item["is_remote"] as? Bool ?? false, offline: item["_offline"] as? Bool ?? false, offlineAccount: item["_offline_account"] as? String ?? "", offlineLyrics: item["_offline_lyrics"] as? [String: Any],
+                artistName: item["artist_name"] as? String, artistID: item["artist_id"] as? String,
+                artistImageURL: item["artist_image_url"] as? String, artistVerified: item["artist_verified"] as? Bool)
         }
         fadeInActive = false; fadeNextAutomatically = false
         guard let selectedIndex = queue.firstIndex(where: { $0.id == selected }) else { return }
@@ -669,7 +675,9 @@ final class NativePlayer {
                     return NativeTrack(id: id, title: item["title"] as? String ?? "",
                         artist: item["artist"] as? String ?? "", album: item["album"] as? String ?? "",
                         duration: (item["duration"] as? NSNumber)?.doubleValue ?? 0, cover: item["cover_url"] as? String, source: item["source"] as? String,
-                sourceURL: item["source_url"] as? String, remote: item["is_remote"] as? Bool ?? false, offline: item["_offline"] as? Bool ?? false, offlineAccount: item["_offline_account"] as? String ?? "", offlineLyrics: item["_offline_lyrics"] as? [String: Any])
+                sourceURL: item["source_url"] as? String, remote: item["is_remote"] as? Bool ?? false, offline: item["_offline"] as? Bool ?? false, offlineAccount: item["_offline_account"] as? String ?? "", offlineLyrics: item["_offline_lyrics"] as? [String: Any],
+                artistName: item["artist_name"] as? String, artistID: item["artist_id"] as? String,
+                artistImageURL: item["artist_image_url"] as? String, artistVerified: item["artist_verified"] as? Bool)
                 }
                 if fresh.isEmpty {
                     self.error = json?["message"] as? String ?? "Новые треки пока не найдены."; self.publish(); return
@@ -889,6 +897,10 @@ final class NativePlayer {
             "queueTracks": (includeQueue ? tracks : []).map { track -> [String: Any] in
                 var item: [String: Any] = ["id": track.id, "title": track.title, "artist": track.artist,
                     "album": track.album, "duration": track.duration, "is_remote": track.remote]
+                if let artistName = track.artistName { item["artist_name"] = artistName }
+                if let artistID = track.artistID { item["artist_id"] = artistID }
+                if let artistImageURL = track.artistImageURL { item["artist_image_url"] = artistImageURL }
+                if let artistVerified = track.artistVerified { item["artist_verified"] = artistVerified }
                 if let cover = track.cover { item["cover_url"] = cover }
                 if let source = track.source { item["source"] = source }
                 if let sourceURL = track.sourceURL { item["source_url"] = sourceURL }
