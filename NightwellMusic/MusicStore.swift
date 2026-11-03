@@ -108,7 +108,7 @@ private struct LivePlaybackQueue: Decodable { let tracks: [Track] }
         let normalized = ArtistIdentity.key(name.precomposedStringWithCompatibilityMapping)
             .replacingOccurrences(of: "ё", with: "е")
         let bytes = SHA256.hash(data: Data(normalized.utf8))
-        return "artist-" + bytes.map { String(format: "%02x", $0) }.joined().prefix(20)
+        return "artist-" + String(bytes.map { String(format: "%02x", $0) }.joined().prefix(20))
     }
 
     @discardableResult func toggleFollowingArtist(_ name: String, serverID: String? = nil) -> Bool {
@@ -125,11 +125,10 @@ private struct LivePlaybackQueue: Decodable { let tracks: [Track] }
             ? serverID! : derivedArtistID(name)
         Task {
             do {
-                let _: OK
                 if isFollowing {
-                    _ = try await api.request("/api/artists/following", method: "POST", body: ["name": name])
+                    let _: OK = try await api.request("/api/artists/following", method: "POST", body: ["name": name])
                 } else {
-                    _ = try await api.request("/api/artists/following/" + id, method: "DELETE")
+                    let _: OK = try await api.request("/api/artists/following/" + id, method: "DELETE")
                 }
             } catch {
                 // Keep the local control responsive but make sync failures visible.
