@@ -241,8 +241,6 @@ struct MiniPlayer: View {
     let open: () -> Void
     @State private var glow = false
     @State private var slideDirection: CGFloat = 1
-    @State private var miniArtistDestination: ArtistSelection?
-    @State private var miniArtistLookupUnavailable = false
     @Environment(\.accessibilityReduceMotion) private var reduced
     var body: some View {
         GeometryReader { box in
@@ -262,25 +260,14 @@ struct MiniPlayer: View {
                                 .lineLimit(1)
                         }
                         .buttonStyle(.plain)
-                        if let track = clock.current {
-                            Button { openMiniArtist(track) } label: {
-                                HStack(spacing: 3) {
-                                    Text(ArtistIdentity.selection(for: track)?.name ?? "Найти исполнителя")
-                                        .lineLimit(1)
-                                    Image(systemName: "chevron.right")
-                                        .font(.system(size: 8, weight: .bold))
-                                }
-                                .font(.system(size: compact ? 10 : 12))
-                                .foregroundStyle(.white.opacity(0.8))
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Открыть страницу исполнителя")
-                        } else {
-                            Text("Nightwell Music")
+                        Button(action: open) {
+                            Text(clock.current?.artist ?? "Nightwell Music")
                                 .font(.system(size: compact ? 10 : 12))
                                 .foregroundStyle(.white.opacity(0.65))
-                        }
+                                .lineLimit(1)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                        }.buttonStyle(.plain)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -316,31 +303,6 @@ struct MiniPlayer: View {
         }.frame(height: 68)
         .animation(reduced ? nil : .spring(response: 0.32, dampingFraction: 0.82), value: clock.id)
         .task(id: clock.id) { guard !reduced else { return }; glow = true; try? await Task.sleep(nanoseconds: 80_000_000); guard !Task.isCancelled else { return }; withAnimation(.easeOut(duration: 0.9)) { glow = false } }
-        // Swipe wins over the artwork/title tap, so it never opens the full player.
-        .sheet(item: $miniArtistDestination) { selection in
-            ArtistPage(artist: selection)
-                .environmentObject(store)
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
-                .presentationBackground(.black)
-        }
-        .alert("Исполнитель не определён", isPresented: $miniArtistLookupUnavailable) {
-            Button("Поиск по треку") {
-                store.query = clock.current?.title ?? ""
-                store.screen = .search
-                store.search()
-            }
-            Button("Закрыть", role: .cancel) { }
-        } message: {
-            Text("В метаданных нет достоверного имени исполнителя. Аккаунт загрузчика может принадлежать другому человеку.")
-        }
-    }
-    private func openMiniArtist(_ track: Track) {
-        if let selection = ArtistIdentity.selection(for: track) {
-            miniArtistDestination = selection
-        } else {
-            miniArtistLookupUnavailable = true
-        }
     }
     private func changeTrack(_ step: Int) {
         slideDirection = step < 0 ? -1 : 1
