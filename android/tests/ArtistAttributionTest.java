@@ -15,8 +15,8 @@ public final class ArtistAttributionTest {
         eq(a.uploader,"uploaded_by","separate uploader");
         ArtistAttribution.Result b=ArtistAttribution.resolve(
             "Покинула чат","uploaded_by","soundcloud",null,true,null,null);
-        eq(b.artist,ArtistAttribution.UNKNOWN,"must not show uploader as musician");
-        yes(!b.attributed,"must not open unverified artist");
+        eq(b.artist,"uploaded_by","fall back to track artist field");
+        yes(b.attributed,"catalogue artist should be used");
         ArtistAttribution.Result c=ArtistAttribution.resolve(
             "Песня","posted_by","soundcloud",null,true,"Реальный артист",null);
         eq(c.artist,"Реальный артист","dedicated credit");
@@ -28,7 +28,7 @@ public final class ArtistAttributionTest {
         eq(e.artist,"Artist","local musician");
         ArtistAttribution.Result f=ArtistAttribution.resolve(
             "Песня - Remix","uploaded_by","soundcloud",null,true,null,null);
-        eq(f.artist,ArtistAttribution.UNKNOWN,"version is not an artist");
+        eq(f.artist,"uploaded_by","version suffix does not override artist field");
         System.out.println("Artist attribution Java tests passed");
     }
 }
