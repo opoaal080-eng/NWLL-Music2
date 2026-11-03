@@ -65,8 +65,13 @@ def patch(contents):
                 # Only adapt the legacy Nightwell session contract, never an
                 # arbitrary auth function from a different FastAPI project.
                 session_body = ast.get_source_segment(contents, node) or ""
-                legacy_session = bool(required_optional and safe_optional and
-                                      "'user_id'" in session_body)
+                legacy_session = bool(
+                    required_optional and safe_optional and
+                    ("sessions.user_id" in session_body or
+                     "'user_id'" in session_body or
+                     '"user_id"' in session_body) and
+                    "return dict(row)" in session_body
+                )
     has_tracks = "/api/tracks" in contents
     has_stream = "/api/stream" in contents
     if "app" not in names or not has_tracks or not has_stream:
