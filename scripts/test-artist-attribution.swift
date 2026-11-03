@@ -33,3 +33,23 @@ ensure(version.artist == ArtistAttribution.unknown, "do not take track name as a
 ensure(ArtistAttribution.isRemote(source: nil, sourceURL: "https://soundcloud.com/example/track", remote: nil),
        "remote source URLs should be detected")
 print("Artist attribution regression tests passed")
+
+
+let sample = """
+{"id":"track_one","title":"Клава Кока - Покинула чат",
+ "artist":"uploader_123","source":"soundcloud","is_remote":true}
+"""
+let decoded = try JSONDecoder().decode(Track.self, from: Data(sample.utf8))
+ensure(decoded.title == "Покинула чат", "decoded title must strip artist prefix")
+ensure(decoded.artist == "Клава Кока", "decoder must not display uploader")
+ensure(decoded.uploader == "uploader_123", "upload account must be preserved separately")
+let encoded = try JSONEncoder().encode(decoded)
+let restored = try JSONDecoder().decode(Track.self, from: encoded)
+ensure(restored.artist == decoded.artist, "cached artist must survive repeated decoding")
+ensure(restored.title == decoded.title, "cached title must survive repeated decoding")
+let unknownRaw = """
+{"id":"track_two","title":"Загадочный трек",
+ "artist":"dj_uploads_999","source":"soundcloud","is_remote":true}
+"""
+let unknownTrack = try JSONDecoder().decode(Track.self, from: Data(unknownRaw.utf8))
+ensure(unknownTrack.artist == ArtistAttribution.unknown, "decode cannot credit a random uploader")
