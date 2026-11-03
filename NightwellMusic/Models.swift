@@ -13,8 +13,70 @@ struct Track: Identifiable, Codable, Equatable {
     var _offline: Bool?
     var _offline_account: String?
     var _offline_lyrics: Lyrics?
+
+    // The original posting account is kept separately for diagnostics; it is not an artist.
+    var uploader: String?
+    var performer: String?
+    var artist_credit: String?
+    var _artist_checked: Bool?
+
+    init(id: String, title: String, artist: String, album: String? = nil,
+         duration: Double? = nil, cover_url: String? = nil, source: String? = nil,
+         source_url: String? = nil, is_remote: Bool? = nil, _offline: Bool? = nil,
+         _offline_account: String? = nil, _offline_lyrics: Lyrics? = nil,
+         uploader: String? = nil, performer: String? = nil, artist_credit: String? = nil,
+         _artist_checked: Bool? = nil) {
+        self.id = id; self.title = title; self.artist = artist
+        self.album = album; self.duration = duration; self.cover_url = cover_url
+        self.source = source; self.source_url = source_url; self.is_remote = is_remote
+        self._offline = _offline; self._offline_account = _offline_account
+        self._offline_lyrics = _offline_lyrics
+        self.uploader = uploader; self.performer = performer
+        self.artist_credit = artist_credit; self._artist_checked = _artist_checked
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, artist, album, duration, cover_url, source, source_url, is_remote
+        case _offline, _offline_account, _offline_lyrics, uploader, performer, artist_credit, _artist_checked
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let id = try c.decode(String.self, forKey: .id)
+        let title = try c.decode(String.self, forKey: .title)
+        let artist = try c.decode(String.self, forKey: .artist)
+        let album = try c.decodeIfPresent(String.self, forKey: .album)
+        let duration = try c.decodeIfPresent(Double.self, forKey: .duration)
+        let cover = try c.decodeIfPresent(String.self, forKey: .cover_url)
+        let source = try c.decodeIfPresent(String.self, forKey: .source)
+        let sourceURL = try c.decodeIfPresent(String.self, forKey: .source_url)
+        let isRemote = try c.decodeIfPresent(Bool.self, forKey: .is_remote)
+        let offline = try c.decodeIfPresent(Bool.self, forKey: ._offline)
+        let offlineAccount = try c.decodeIfPresent(String.self, forKey: ._offline_account)
+        let lyrics = try c.decodeIfPresent(Lyrics.self, forKey: ._offline_lyrics)
+        let storedUploader = try c.decodeIfPresent(String.self, forKey: .uploader)
+        let performer = try c.decodeIfPresent(String.self, forKey: .performer)
+        let credit = try c.decodeIfPresent(String.self, forKey: .artist_credit)
+        let previouslyChecked = try c.decodeIfPresent(Bool.self, forKey: ._artist_checked) == true
+        let parsed = ArtistAttribution.resolve(
+            title: title, artist: artist, source: source, sourceURL: sourceURL,
+            remote: isRemote, performer: performer, artistCredit: credit
+        )
+        self.init(
+            id: id, title: previouslyChecked ? title : parsed.title,
+            artist: previouslyChecked ? artist : parsed.artist,
+            album: album, duration: duration, cover_url: cover,
+            source: source, source_url: sourceURL, is_remote: isRemote,
+            _offline: offline, _offline_account: offlineAccount, _offline_lyrics: lyrics,
+            uploader: storedUploader ?? (previouslyChecked ? nil : parsed.uploader),
+            performer: performer, artist_credit: credit, _artist_checked: true
+        )
+    }
+
     var dictionary: [String: Any] {
-        guard let data = try? JSONEncoder().encode(self), let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
+        guard let data = try? JSONEncoder().encode(self),
+              let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return [:] }
         return value
     }
 }
