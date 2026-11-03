@@ -8,7 +8,7 @@ if "%~1"=="" (
     exit /b 1
 )
 set "BACKUP=%~1"
-set "TARGET=%~dp1"
+for %%I in ("%BACKUP%\..\..") do set "TARGET=%%~fI"
 if exist "%TARGET%\.venv\Scripts\python.exe" (
     "%TARGET%\.venv\Scripts\python.exe" "%~dp0server-updates\unified-install\install_all.py" --rollback "%BACKUP%"
 ) else (
