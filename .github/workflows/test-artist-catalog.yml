@@ -23,3 +23,13 @@ jobs:
         run: python -m py_compile server-updates/artist-catalog/artist_catalog.py
       - name: Run unit tests
         run: python -m unittest discover -s server-updates/artist-catalog -p 'test_*.py' -v
+      - name: Package Windows server update
+        run: |
+          cd server-updates/artist-catalog
+          zip -9 -j ../../Nightwell-Artist-Catalog-Server.zip artist_catalog.py install_artist_catalog.py Install_Artist_Catalog.bat README-RU.md
+      - name: Upload Windows server package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nightwell-Artist-Catalog-Server
+          path: Nightwell-Artist-Catalog-Server.zip
+          retention-days: 14
