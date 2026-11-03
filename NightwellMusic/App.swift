@@ -335,7 +335,7 @@ struct NativeRoot: View {
                     content
                     MiniPlayer(clock: store.clock, open: { fullPlayer = true })
                         .padding(.horizontal, 16)
-                        .padding(.bottom, 0)
+                        .padding(.bottom, 18)
                         .overlay(alignment: .bottom) {
                             if store.screen == .home {
                                 HomeLyricLine(model: store.lyrics, clock: store.clock)
@@ -346,6 +346,7 @@ struct NativeRoot: View {
                             }
                         }
                 }
+                .ignoresSafeArea(.container, edges: .bottom)
             }
         }
     }
