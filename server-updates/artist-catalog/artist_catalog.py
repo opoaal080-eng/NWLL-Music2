@@ -70,6 +70,7 @@ class ArtistDirectory:
         self.image_map_path = Path(image_map) if image_map else None
         self.image_hosts = {v.strip().lower() for v in (image_hosts or []) if v.strip()}
         self._images = {}
+        self._metadata_images = {}
         self._image_updated = 0
         self._lookups = {}
         self._lookup_lock = asyncio.Lock()
@@ -142,6 +143,17 @@ class ArtistDirectory:
                     (owner, tid, json.dumps(public, ensure_ascii=False, allow_nan=False), time.time()))
                 db.execute("DELETE FROM artist_directory_artist_tracks WHERE owner=? AND track_id=?",
                            (owner, tid))
+                # Accept a dedicated ARTIST photo, never track cover art or
+                # SoundCloud uploader avatar. The explicit credited artist must
+                # match the portrait owner and the host must be operator-approved.
+                image_name = item.get("artist_image_artist") or item.get("metadata_artist")
+                image = safe_image_url(item.get("artist_image_url"), self.image_hosts)
+                if image and isinstance(image_name, str):
+                    for artist_name in names:
+                        if normalized(image_name) == normalized(artist_name):
+                            self._metadata_images[(owner, normalized(artist_name))] = image
+                if len(self._metadata_images) > 5000:
+                    self._metadata_images.clear()
                 for name in names:
                     aid, key = artist_id(name), normalized(name)
                     db.execute(
@@ -181,11 +193,13 @@ class ArtistDirectory:
             # A bad config must never break music playback or artist search.
             pass
 
-    def item(self, row):
+    def item(self, row, owner=None):
         self.refresh_image_map()
+        key = row["name_key"]
+        photo = self._images.get(key) or self._metadata_images.get((owner, key))
         return {
             "id": row["artist_id"], "name": row["name"],
-            "image_url": self._images.get(row["name_key"]),
+            "image_url": photo,
             "track_count": int(row["cnt"]), "source": "nightwell"
         }
 
@@ -207,7 +221,7 @@ class ArtistDirectory:
                 LIMIT ?
             """, (owner, "%" + key.replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%",
                    key, key.replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%", min(50, max(1, int(limit))))).fetchall()
-        return [self.item(row) for row in rows]
+        return [self.item(row, owner) for row in rows]
 
     def profile(self, owner, name):
         key = normalized(name)
@@ -230,7 +244,7 @@ class ArtistDirectory:
                 WHERE r.owner=? AND r.artist_id=?
                 ORDER BY t.updated DESC LIMIT ?
             """, (owner, row["artist_id"], MAX_PROFILE_TRACKS)).fetchall()
-        return {"artist": self.item(row), "tracks": [json.loads(x["payload"]) for x in tracks],
+        return {"artist": self.item(row, owner), "tracks": [json.loads(x["payload"]) for x in tracks],
                 "total": int(row["cnt"])}
 
     def should_refresh(self, owner, q, ttl=60):
@@ -253,7 +267,8 @@ def install(app, identity, db_path, image_map=None, image_hosts=None):
     if image_hosts is None:
         image_hosts = os.environ.get("NW_ARTIST_IMAGE_HOSTS", "").split(",")
     if image_map is None:
-        image_map = os.environ.get("NW_ARTIST_IMAGE_MAP")
+        image_map = os.environ.get("NW_ARTIST_IMAGE_MAP") or str(
+            Path(__file__).resolve().with_name("artist_images.json"))
     directory = ArtistDirectory(db_path, image_map=image_map, image_hosts=image_hosts)
 
     async def account_for(request):
