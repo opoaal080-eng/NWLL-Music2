@@ -18,6 +18,7 @@ struct Track: Identifiable, Codable, Equatable {
     var uploader: String?
     var performer: String?
     var artist_credit: String?
+    var metadata_artist: String?
     var _artist_checked: Bool?
 
     init(id: String, title: String, artist: String, album: String? = nil,
@@ -25,6 +26,7 @@ struct Track: Identifiable, Codable, Equatable {
          source_url: String? = nil, is_remote: Bool? = nil, _offline: Bool? = nil,
          _offline_account: String? = nil, _offline_lyrics: Lyrics? = nil,
          uploader: String? = nil, performer: String? = nil, artist_credit: String? = nil,
+         metadata_artist: String? = nil,
          _artist_checked: Bool? = nil) {
         self.id = id; self.title = title; self.artist = artist
         self.album = album; self.duration = duration; self.cover_url = cover_url
@@ -32,12 +34,13 @@ struct Track: Identifiable, Codable, Equatable {
         self._offline = _offline; self._offline_account = _offline_account
         self._offline_lyrics = _offline_lyrics
         self.uploader = uploader; self.performer = performer
-        self.artist_credit = artist_credit; self._artist_checked = _artist_checked
+        self.artist_credit = artist_credit; self.metadata_artist = metadata_artist
+        self._artist_checked = _artist_checked
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, title, artist, album, duration, cover_url, source, source_url, is_remote
-        case _offline, _offline_account, _offline_lyrics, uploader, performer, artist_credit, _artist_checked
+        case _offline, _offline_account, _offline_lyrics, uploader, performer, artist_credit, metadata_artist, _artist_checked
     }
 
     init(from decoder: Decoder) throws {
@@ -57,10 +60,12 @@ struct Track: Identifiable, Codable, Equatable {
         let storedUploader = try c.decodeIfPresent(String.self, forKey: .uploader)
         let performer = try c.decodeIfPresent(String.self, forKey: .performer)
         let credit = try c.decodeIfPresent(String.self, forKey: .artist_credit)
+        let metadataArtist = try c.decodeIfPresent(String.self, forKey: .metadata_artist)
         let previouslyChecked = try c.decodeIfPresent(Bool.self, forKey: ._artist_checked) == true
         let parsed = ArtistAttribution.resolve(
             title: title, artist: artist, source: source, sourceURL: sourceURL,
-            remote: isRemote, performer: performer, artistCredit: credit
+            remote: isRemote, performer: performer, artistCredit: credit,
+            metadataArtist: metadataArtist
         )
         self.init(
             id: id, title: previouslyChecked ? title : parsed.title,
@@ -69,7 +74,8 @@ struct Track: Identifiable, Codable, Equatable {
             source: source, source_url: sourceURL, is_remote: isRemote,
             _offline: offline, _offline_account: offlineAccount, _offline_lyrics: lyrics,
             uploader: storedUploader ?? (previouslyChecked ? nil : parsed.uploader),
-            performer: performer, artist_credit: credit, _artist_checked: true
+            performer: performer, artist_credit: credit,
+            metadata_artist: metadataArtist, _artist_checked: true
         )
     }
 

@@ -228,7 +228,8 @@ final class NativePlayer {
             title: title, artist: artist, source: item["source"] as? String,
             sourceURL: item["source_url"] as? String, remote: item["is_remote"] as? Bool,
             performer: item["performer"] as? String,
-            artistCredit: item["artist_credit"] as? String
+            artistCredit: item["artist_credit"] as? String,
+            metadataArtist: item["metadata_artist"] as? String
         )
         return (value.title, value.artist)
     }

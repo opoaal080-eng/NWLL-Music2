@@ -42,13 +42,14 @@ enum ArtistAttribution {
 
     static func resolve(title: String, artist: String, source: String? = nil,
                         sourceURL: String? = nil, remote: Bool? = nil,
-                        performer: String? = nil, artistCredit: String? = nil) -> Result {
+                        performer: String? = nil, artistCredit: String? = nil,
+                        metadataArtist: String? = nil) -> Result {
         let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let raw = artist.trimmingCharacters(in: .whitespacesAndNewlines)
         let remoteUpload = isRemote(source: source, sourceURL: sourceURL, remote: remote)
         guard remoteUpload else { return Result(title: title, artist: raw, uploader: nil, attributed: !raw.isEmpty) }
 
-        let direct = [performer, artistCredit]
+        let direct = [metadataArtist, performer, artistCredit]
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .first { !$0.isEmpty && $0 != unknown }
         if let direct {
