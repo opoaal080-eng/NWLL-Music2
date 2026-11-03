@@ -563,9 +563,12 @@ public final class PlaybackService extends MediaSessionService {
         boolean remote=StreamPolicy.usesHls(track.optBoolean("is_remote",false),track.optString("source"),track.optString("source_url"));
         String preferredQuality=getSharedPreferences("playback",MODE_PRIVATE)
             .getString("nw-audio-quality","original");
-        String qualitySuffix=!remote &&
-            ("economy".equals(preferredQuality)||"balanced".equals(preferredQuality)||"high".equals(preferredQuality))
-                ? "&quality="+preferredQuality : "";
+        String selectedQuality=("economy".equals(preferredQuality)||
+            "balanced".equals(preferredQuality)||"high".equals(preferredQuality))
+                ? preferredQuality : "original";
+        // SoundCloud HLS and Nightwell's local files both accept quality.
+        // No second decoder or on-demand transcoding is started by ExoPlayer.
+        String qualitySuffix="&quality="+selectedQuality;
         MediaItem.Builder item=new MediaItem.Builder().setMediaId(id)
             .setUri(base+"api/stream/"+id+"?cache=1&format="+(remote?"hls":"file")+qualitySuffix)
             .setMediaMetadata(metadata.build());
