@@ -505,6 +505,7 @@ struct FullPlayer: View {
     @State private var showLyrics = false
     @State private var feature: PremiumFeatureView.Kind?
     @State private var showQueue = false
+    @State private var artistDestination: ArtistSelection?
     @State private var seeking = false
     @State private var scrub = 0.0
     @State private var repeatMode = 0
@@ -551,7 +552,15 @@ struct FullPlayer: View {
                 HStack(spacing: 10) {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(clock.current?.title ?? "Выбери трек").font(.system(size: 20, weight: .bold)).lineLimit(2)
-                        Text(clock.current?.artist ?? "").font(.system(size: 15)).foregroundStyle(.secondary).lineLimit(1)
+                        if let current = clock.current, let identity = ArtistIdentity.selection(for: current) {
+                            Button { artistDestination = identity } label: {
+                                Text(identity.name).font(.system(size: 15))
+                                    .foregroundStyle(.secondary).lineLimit(1)
+                            }.buttonStyle(.plain)
+                        } else {
+                            Text(clock.current?.artist ?? "")
+                                .font(.system(size: 15)).foregroundStyle(.secondary).lineLimit(1)
+                        }
                     }
                     Spacer(minLength: 4)
                     if let track = clock.current {
@@ -614,6 +623,9 @@ struct FullPlayer: View {
             }
         }
         .sheet(item: $feature) { PremiumFeatureView(kind: $0).environmentObject(store) }
+        .fullScreenCover(item: $artistDestination) { selection in
+            ArtistPage(artist: selection).environmentObject(store)
+        }
         .sheet(isPresented: $showQueue) {
             PlaybackQueue(clock: clock)
                 .presentationDetents([.medium, .large])
