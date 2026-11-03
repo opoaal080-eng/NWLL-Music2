@@ -64,6 +64,18 @@ private struct LivePlaybackState: Decodable {
     }
 }
 private struct LivePlaybackQueue: Decodable { let tracks: [Track] }
+private struct AudioQualityCapabilities: Decodable {
+    struct Option: Decodable { let id: String }
+    let options: [Option]
+}
+private struct AudioQualityDecision: Decodable {
+    let requested_quality: String
+    let selected_quality: String
+    let actual_kbps: Int?
+    let fallback: Bool
+    let message: String?
+    let source: String?
+}
 
 @MainActor final class MusicStore: ObservableObject {
     enum Screen: String, CaseIterable { case home = "Главная", search = "Поиск", likes = "Избранное", playlists = "Плейлисты", offline = "Офлайн" }
@@ -77,6 +89,7 @@ private struct LivePlaybackQueue: Decodable { let tracks: [Track] }
     @Published var account: Account?
     @Published var query = ""
     @Published var searchMessage = ""
+    @Published var audioQualityNotice = ""
     @Published var error: String?
     @Published var loading = false
     @Published private(set) var connectionStatus = "Загрузка…"
@@ -90,6 +103,7 @@ private struct LivePlaybackQueue: Decodable { let tracks: [Track] }
     private(set) var origin: URL
     private var searchTask: Task<Void, Never>?
     private var artistSearchTask: Task<Void, Never>?
+    private var qualityNoticeTask: Task<Void, Never>?
     private var artistSearchCache: [String: [ArtistDirectoryItem]] = [:]
     private var searchGeneration = UUID()
     private var searchCache: [String: [Track]] = [:]
@@ -545,10 +559,57 @@ private struct LivePlaybackQueue: Decodable { let tracks: [Track] }
         let api = api; Task { let _: OK? = try? await api.request("/api/listening", method: "POST", body: body) }
         lastReport = Date()
     }
+    func checkAudioQualitySupport() async {
+        guard account != nil else { return }
+        do {
+            let response: AudioQualityCapabilities = try await api.request(
+                "/api/audio-quality/options", timeout: 7)
+            guard response.options.contains(where: { $0.id == "high" }) else {
+                throw APIError(message: "Смена качества недоступна")
+            }
+            UserDefaults.standard.set(true, forKey: "nw-quality-ready")
+            UserDefaults.standard.set(origin.absoluteString, forKey: "nw-quality-ready-origin")
+        } catch {
+            UserDefaults.standard.set(false, forKey: "nw-quality-ready")
+            audioQualityNotice = "Сервер не поддерживает смену качества"
+        }
+    }
+    private func updateAudioQualityNotice(_ trackID: String) {
+        qualityNoticeTask?.cancel()
+        audioQualityNotice = ""
+        let quality = UserDefaults.standard.string(forKey: "nw-audio-quality") ?? "auto"
+        guard quality == "economy" || quality == "high", account != nil else { return }
+        guard clock.current?._offline != true else { return }
+        let wasReady = UserDefaults.standard.bool(forKey: "nw-quality-ready") &&
+            UserDefaults.standard.string(forKey: "nw-quality-ready-origin") == origin.absoluteString
+        qualityNoticeTask = Task { [weak self] in
+            guard let self else { return }
+            if !wasReady {
+                await checkAudioQualitySupport()
+                if !Task.isCancelled && clock.id == trackID {
+                    audioQualityNotice = "Выбранное качество применится со следующего трека"
+                }
+                return
+            }
+            do {
+                let result: AudioQualityDecision = try await api.request(
+                    "/api/audio-quality/options?track_id=" + trackID +
+                    "&quality=" + quality, timeout: 12)
+                guard !Task.isCancelled && clock.id == trackID else { return }
+                audioQualityNotice = result.fallback ?
+                    (result.message ?? "Используется доступное качество") : ""
+            } catch {
+                if !Task.isCancelled && clock.id == trackID {
+                    audioQualityNotice = "Не удалось проверить качество, играет доступный поток"
+                }
+            }
+        }
+    }
     private func playbackTick(_ state: [String: Any]) {
         PremiumFeatureState.shared.tick(self)
         let now = ProcessInfo.processInfo.systemUptime, elapsed = min(1, max(0, now - lastTick)); lastTick = now
         if clock.id != listeningID {
+            if !clock.id.isEmpty { updateAudioQualityNotice(clock.id) }
             reportListening(skipped: previousPlaying && listeningSeconds < 30 && listeningPosition + 2 < listeningDuration); listeningID = clock.id; listeningSession = UUID().uuidString; listeningSeconds = 0
             if !clock.id.isEmpty {
                 mixRecentIDs.removeAll { $0 == clock.id }
