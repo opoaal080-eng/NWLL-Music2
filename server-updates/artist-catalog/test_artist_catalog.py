@@ -1,9 +1,11 @@
 import importlib.util
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 MODULE = Path(__file__).with_name("artist_catalog.py")
 spec = importlib.util.spec_from_file_location("artist_catalog", MODULE)
 catalog = importlib.util.module_from_spec(spec)
@@ -73,6 +75,27 @@ class ArtistDirectoryTests(unittest.TestCase):
         self.assertEqual(len(profile["tracks"]), 1)
         self.assertNotIn("email", profile["tracks"][0])
         self.assertNotIn("api_key", profile["tracks"][0])
+
+    def test_remote_uploader_does_not_become_artist(self):
+        uploaded = [
+            {"id": "remote-1", "title": "Настоящий артист — Настоящая песня",
+             "artist": "unrelated_uploader_189", "source": "soundcloud", "is_remote": True},
+            {"id": "remote-2", "title": "Название без автора",
+             "artist": "random_poster", "source": "soundcloud", "is_remote": True},
+            {"id": "remote-3", "title": "Новая песня",
+             "artist": "release-uploader", "source": "soundcloud", "is_remote": True,
+             "performer": "Подписанный артист"},
+        ]
+        self.assertEqual(self.directory.record(self.owner, uploaded), 2)
+        self.assertEqual(self.directory.search(self.owner, "unrelated"), [])
+        self.assertEqual(self.directory.search(self.owner, "random"), [])
+        self.assertEqual(self.directory.search(self.owner, "настоящ"), [
+            self.directory.profile(self.owner, "Настоящий артист")["artist"]])
+        artist_tracks = self.directory.profile(self.owner, "Настоящий артист")["tracks"]
+        self.assertEqual(artist_tracks[0]["artist"], "Настоящий артист")
+        self.assertEqual(artist_tracks[0]["title"], "Настоящая песня")
+        self.assertEqual(artist_tracks[0]["uploader"], "unrelated_uploader_189")
+        self.assertEqual(self.directory.profile(self.owner, "Подписанный артист")["total"], 1)
 
     def test_query_limit_and_missing(self):
         self.directory.record(self.owner, self.tracks)
