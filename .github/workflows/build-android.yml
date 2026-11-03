@@ -37,6 +37,11 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
+      - name: Test performer attribution vs upload-account names
+        run: |
+          mkdir -p /tmp/nightwell-artist-test
+          javac -encoding UTF-8 -d /tmp/nightwell-artist-test app/src/main/java/fun/nightwell/music/ArtistAttribution.java tests/ArtistAttributionTest.java
+          java -cp /tmp/nightwell-artist-test fun.nightwell.music.ArtistAttributionTest
       - name: Test playlist file decoding
         run: |
           javac -d /tmp/playlist-import-test app/src/main/java/fun/nightwell/music/PlaylistImportFile.java tests/PlaylistImportFileTest.java
