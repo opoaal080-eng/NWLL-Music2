@@ -125,5 +125,49 @@ final class ArtworkCache {
         Arrays.sort(files,Comparator.comparingLong(File::lastModified));
         for(int i=0;i<files.length-100;i++)files[i].delete();
     }
+    /** Load a server-approved HTTPS artist portrait, never track cover art. */
+    void loadArtist(ImageView target, String imageUrl) {
+        target.setImageDrawable(null);
+        if (imageUrl == null || imageUrl.length() > 2048 || !imageUrl.startsWith("https://")) {
+            target.setTag(null);
+            return;
+        }
+        String identity = "artist|" + imageUrl;
+        target.setTag(identity);
+        Bitmap cached = memory.get(identity);
+        if (cached != null) {
+            target.setImageBitmap(cached);
+            return;
+        }
+        CompletableFuture<Bitmap> job = inFlight.computeIfAbsent(identity,
+            key -> CompletableFuture.supplyAsync(() -> fetchArtistImage(imageUrl), io));
+        job.whenComplete((bitmap, error) -> {
+            inFlight.remove(identity, job);
+            if (bitmap == null || error != null) return;
+            target.post(() -> {
+                if (identity.equals(target.getTag()) && target.isAttachedToWindow())
+                    target.setImageBitmap(bitmap);
+            });
+        });
+    }
+    private Bitmap fetchArtistImage(String address) {
+        HttpURLConnection connection = null;
+        try {
+            URL url = new URL(address);
+            if (!"https".equalsIgnoreCase(url.getProtocol()) || url.getUserInfo() != null) return null;
+            connection = (HttpURLConnection)url.openConnection();
+            connection.setInstanceFollowRedirects(false);
+            connection.setConnectTimeout(6000);
+            connection.setReadTimeout(8000);
+            if (connection.getResponseCode() != 200 ||
+                    connection.getContentLengthLong() > 5 * 1024 * 1024) return null;
+            String type = connection.getContentType();
+            if (type == null || !type.toLowerCase(java.util.Locale.ROOT).startsWith("image/")) return null;
+            Bitmap bitmap = decode(NativeAPI.read(connection.getInputStream(), 5 * 1024 * 1024));
+            if (bitmap != null) memory.put("artist|" + address, bitmap);
+            return bitmap;
+        } catch (Exception ignored) { return null; }
+        finally { if (connection != null) connection.disconnect(); }
+    }
     void close() { io.shutdownNow(); inFlight.clear(); memory.evictAll(); }
 }
