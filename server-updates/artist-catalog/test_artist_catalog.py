@@ -68,6 +68,22 @@ class ArtistDirectoryTests(unittest.TestCase):
         self.assertIsNone(catalog.safe_image_url("https://cdn.nightwell.test.evil.example/a",
                                                   {"cdn.nightwell.test"}))
 
+    def test_dedicated_artist_photo_not_uploader_or_album_art(self):
+        self.directory.record(self.owner, [
+            {"id": "portrait-1", "title": "Сон", "artist": "Первый",
+             "artist_image_url": "https://cdn.nightwell.test/artists/first.webp",
+             "artist_image_artist": "Первый",
+             "cover_url": "https://other.example/album.jpg"},
+            {"id": "portrait-2", "title": "Ночь", "artist": "Второй",
+             "artist_image_url": "https://cdn.nightwell.test/uploader.webp",
+             "artist_image_artist": "account-who-uploaded"},
+        ])
+        profile = self.directory.profile(self.owner, "Первый")
+        self.assertEqual(profile["artist"]["image_url"],
+                         "https://cdn.nightwell.test/artists/first.webp")
+        self.assertIsNone(self.directory.profile(self.owner, "Второй")["artist"]["image_url"])
+        self.assertNotIn("artist_image_url", profile["tracks"][0])
+
     def test_insecure_metadata_not_reindexed(self):
         self.directory.record(self.owner, [dict(
             self.tracks[0], email="private@example.com", api_key="super-secret")])
