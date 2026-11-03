@@ -58,6 +58,9 @@ def clean_track(track):
     if not isinstance(track, dict):
         return None
     result = track.copy()
+    if result.get("_artist_checked") is True:
+        # An earlier trusted normalization must not turn the real artist into uploader.
+        return result
     if not remote_source(result):
         return result
     title = result.get("title", "")
