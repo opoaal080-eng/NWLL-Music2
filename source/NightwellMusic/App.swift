@@ -519,17 +519,29 @@ struct NativeRoot: View {
                     .background { RoundedRectangle(cornerRadius: 18).fill(.ultraThinMaterial).opacity(0.48) }
                     .overlay(RoundedRectangle(cornerRadius: 18).stroke(.white.opacity(0.28), lineWidth: 1))
                 if !store.searchMessage.isEmpty { Text(store.searchMessage).font(.caption).foregroundStyle(.secondary) }
-                let artists = ArtistNames.matches(query: store.query, tracks: store.results + store.catalog)
-                if !artists.isEmpty {
+                let localArtists = ArtistNames.matches(query: store.query, tracks: store.results + store.catalog)
+                let directoryNames = Set(store.artistResults.map { ArtistNames.normalized($0.name) })
+                let combinedArtists = store.artistResults +
+                    localArtists.filter { !directoryNames.contains(ArtistNames.normalized($0)) }
+                    .map { ArtistDirectoryItem(id: ArtistNames.normalized($0), name: $0,
+                                               image_url: nil, track_count: nil, source: nil) }
+                if !combinedArtists.isEmpty {
                     Text("Исполнители").font(.headline)
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 9) {
-                            ForEach(artists, id: \.self) { name in
-                                Button { selectedArtist = ArtistSelection(name: name) } label: {
-                                    Label(name, systemImage: "person.crop.circle")
-                                        .font(.system(size: 13, weight: .medium))
-                                        .padding(.horizontal, 12).padding(.vertical, 9)
-                                        .background(.white.opacity(0.09), in: Capsule())
+                            ForEach(combinedArtists) { artist in
+                                Button { selectedArtist = ArtistSelection(name: artist.name) } label: {
+                                    HStack(spacing: 8) {
+                                        ArtistPortrait(name: artist.name, imageURL: artist.image_url, size: 30)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(artist.name).font(.system(size: 13, weight: .medium))
+                                            if let count = artist.track_count {
+                                                Text("\(count) треков").font(.system(size: 10)).foregroundStyle(.secondary)
+                                            }
+                                        }
+                                    }
+                                    .padding(.horizontal, 10).padding(.vertical, 6)
+                                    .background(.white.opacity(0.09), in: Capsule())
                                 }.buttonStyle(.plain)
                             }
                         }
@@ -702,6 +714,41 @@ enum ArtistNames {
     }
 }
 
+struct ArtistPortrait: View {
+    let name: String
+    let imageURL: String?
+    var size: CGFloat = 94
+    @State private var portrait: UIImage?
+
+    private var validURL: URL? {
+        guard let imageURL, let url = URL(string: imageURL),
+              url.scheme?.lowercased() == "https" else { return nil }
+        return url
+    }
+
+    var body: some View {
+        ZStack {
+            Circle().fill(.white.opacity(0.12))
+            if let portrait {
+                Image(uiImage: portrait).resizable().scaledToFill()
+                    .frame(width: size, height: size).clipShape(Circle())
+            } else {
+                Text(String(name.prefix(1)).uppercased())
+                    .font(.system(size: size * 0.46, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(Circle())
+        .task(id: validURL?.absoluteString ?? "") {
+            portrait = nil
+            guard let validURL else { return }
+            let picture = await CoverImagePipeline.shared.image(for: validURL, maxPixel: Int(size * 3))
+            if !Task.isCancelled { portrait = picture }
+        }
+    }
+}
+
 struct ArtistProfileView: View {
     @EnvironmentObject private var store: MusicStore
     @Environment(\.dismiss) private var dismiss
@@ -709,18 +756,14 @@ struct ArtistProfileView: View {
     @State private var tracks: [Track] = []
     @State private var loading = true
     @State private var message = ""
+    @State private var profileImageURL: String?
+    @State private var totalTracks: Int?
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 16) {
-                ZStack {
-                    Circle().fill(.white.opacity(0.10))
-                    Text(String(name.prefix(1)).uppercased())
-                        .font(.system(size: 43, weight: .semibold))
-                        .foregroundStyle(.white)
-                }
-                .frame(width: 94, height: 94)
-                .accessibilityLabel("Исполнитель " + name)
+                ArtistPortrait(name: name, imageURL: profileImageURL, size: 94)
+                    .accessibilityLabel("Исполнитель " + name)
                 Text(name).font(.title2.bold()).multilineTextAlignment(.center)
                 if loading { ProgressView("Ищем треки…").tint(.white) }
                 if !message.isEmpty { Text(message).font(.caption).foregroundStyle(.secondary) }
@@ -728,7 +771,7 @@ struct ArtistProfileView: View {
                     HStack {
                         Text("Треки").font(.headline)
                         Spacer()
-                        Text("\(tracks.count)").foregroundStyle(.secondary)
+                        Text("\(totalTracks ?? tracks.count)").foregroundStyle(.secondary)
                     }
                     TrackList(tracks: tracks)
                 } else if !loading {
@@ -755,14 +798,36 @@ struct ArtistProfileView: View {
     @MainActor private func load() async {
         loading = true
         message = ""
+        profileImageURL = store.artistResults.first {
+            ArtistNames.normalized($0.name) == ArtistNames.normalized(name)
+        }?.image_url
+        totalTracks = nil
         var combined = (store.catalog + store.results).filter { ArtistNames.track($0, includes: name) }
         tracks = unique(combined)
         let encoded = name.addingPercentEncoding(
             withAllowedCharacters: .urlQueryAllowed.subtracting(CharacterSet(charactersIn: "&+=?#"))) ?? ""
+
+        if store.account != nil {
+            do {
+                let profile: ArtistDirectoryProfile = try await store.api.request(
+                    "/api/artists/profile?name=" + encoded, timeout: 12)
+                guard !Task.isCancelled else { return }
+                profileImageURL = profile.artist.image_url ?? profileImageURL
+                totalTracks = profile.total
+                combined += profile.tracks.filter { ArtistNames.track($0, includes: name) }
+                tracks = unique(combined)
+                loading = false
+                return
+            } catch {
+                // Older servers keep the legacy search working.
+            }
+        }
+
         for _ in 0..<4 {
             if Task.isCancelled { return }
             do {
                 let response: TrackResult = try await store.api.request("/api/tracks?q=" + encoded, timeout: 12)
+                guard !Task.isCancelled else { return }
                 combined += response.tracks.filter { ArtistNames.track($0, includes: name) }
                 tracks = unique(combined)
                 if response.search_pending != true { break }
