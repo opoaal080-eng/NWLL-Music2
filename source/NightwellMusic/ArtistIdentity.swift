@@ -1,6 +1,7 @@
 import Foundation
 
-/// A profile is based on track metadata, not on the SoundCloud upload account.
+/// A performer is credited by metadata or explicitly by the track title.
+/// SoundCloud account names are not evidence of authorship.
 struct ArtistSelection: Identifiable, Equatable {
     let name: String
     let seed: Track
@@ -35,55 +36,77 @@ enum ArtistIdentity {
         return !generic.contains(where: { normalized.contains($0) })
     }
 
-    private static func lead(_ input: String) -> String {
-        let withoutFeature = input.replacingOccurrences(
-            of: #"(?i)\s+(?:feat\.?|ft\.?|featuring)\s+.*$"#,
-            with: "", options: .regularExpression)
-        return (withoutFeature.components(separatedBy: ",").first ?? withoutFeature)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+    /// "Artist A, Artist B feat. Artist C" -> three individually selectable artists.
+    static func creditedNames(_ raw: String) -> [String] {
+        var text = raw.replacingOccurrences(
+            of: #"(?i)\s*[\[(]?\s*(?:feat\.?|ft\.?|featuring)\s+"#,
+            with: ", ", options: .regularExpression)
+        text = text.replacingOccurrences(of: #"(?i)\s+(?:x|&)\s+"#, with: ", ", options: .regularExpression)
+        text = text.replacingOccurrences(of: #"[\[\]\(\)]"#, with: "", options: .regularExpression)
+        var seen = Set<String>()
+        return text.components(separatedBy: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { usable($0) && seen.insert(key($0)).inserted }
     }
 
-    /// Some uploaders put the actual performer in 'Performer - Song'.
-    static func fromTitle(_ title: String) -> String? {
+    private static func titleParts(_ title: String) -> (String, String)? {
         for separator in [" - ", " – ", " — "] {
             guard let range = title.range(of: separator) else { continue }
             let before = String(title[..<range.lowerBound])
             let after = String(title[range.upperBound...])
-            let candidate = lead(before)
-            if usable(candidate), after.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2 {
-                return candidate
+            if let first = creditedNames(before).first,
+               usable(first), after.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2 {
+                return (before, after)
             }
         }
         return nil
     }
 
-    static func selection(for track: Track) -> ArtistSelection? {
-        if let canonical = track.artist_name, usable(canonical) {
-            return ArtistSelection(name: lead(canonical), seed: track, titleDerived: false)
+    /// Explicit guest credit after the song title is valid evidence of a featuring artist.
+    private static func featured(in text: String) -> [String] {
+        guard let expression = try? NSRegularExpression(pattern:
+            #"(?i)(?:feat\.?|ft\.?|featuring)\s+([^\]\)\n]+)"#),
+              let match = expression.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              let range = Range(match.range(at: 1), in: text) else { return [] }
+        var names = String(text[range])
+        for marker in [" - ", " – ", " — "] {
+            if let position = names.range(of: marker) { names = String(names[..<position.lowerBound]) }
         }
-        if let name = fromTitle(track.title) {
-            return ArtistSelection(name: name, seed: track, titleDerived: true)
-        }
-        // A SoundCloud account can publish somebody else's song.
-        // Do not turn that account into an artist without separate evidence.
-        guard !isCloudUpload(track) else { return nil }
-        let name = lead(track.artist)
-        guard usable(name) else { return nil }
-        return ArtistSelection(name: name, seed: track, titleDerived: false)
+        return creditedNames(names)
     }
+
+    static func fromTitle(_ title: String) -> String? {
+        guard let parts = titleParts(title) else { return nil }
+        return creditedNames(parts.0).first
+    }
+
+    static func selections(for track: Track) -> [ArtistSelection] {
+        var credited: [(name: String, titleDerived: Bool)] = []
+        if let canonical = track.artist_name, !creditedNames(canonical).isEmpty {
+            credited += creditedNames(canonical).map { ($0, false) }
+        } else if let parts = titleParts(track.title) {
+            credited += creditedNames(parts.0).map { ($0, true) }
+        } else if !isCloudUpload(track) {
+            credited += creditedNames(track.artist).map { ($0, false) }
+        }
+        // Only a literal featuring credit is taken from the title's song part.
+        if let parts = titleParts(track.title) {
+            credited += featured(in: parts.1).map { ($0, true) }
+        } else {
+            credited += featured(in: track.title).map { ($0, true) }
+        }
+        var seen = Set<String>()
+        return credited.compactMap { item in
+            guard seen.insert(key(item.name)).inserted else { return nil }
+            return ArtistSelection(name: item.name, seed: track, titleDerived: item.titleDerived)
+        }
+    }
+
+    static func selection(for track: Track) -> ArtistSelection? { selections(for: track).first }
 
     static func belongs(_ track: Track, to artist: ArtistSelection) -> Bool {
         if track.id == artist.seed.id { return true }
-        if let canonical = track.artist_name, usable(canonical) {
-            return key(lead(canonical)) == artist.id
-        }
-        if let titleArtist = fromTitle(track.title) {
-            return key(titleArtist) == artist.id
-        }
-        // Without an explicit name in the title, SoundCloud's artist field may
-        // actually be the uploader. Never group their uploads by that field.
-        guard !isCloudUpload(track) else { return false }
-        return key(lead(track.artist)) == artist.id && usable(track.artist)
+        return selections(for: track).contains(where: { $0.id == artist.id })
     }
 
     static func unique(_ tracks: [Track], for artist: ArtistSelection) -> [Track] {
