@@ -184,14 +184,14 @@ class ArtistDirectory:
                 FROM artist_directory_artists a
                 JOIN artist_directory_artist_tracks r
                     ON r.owner=a.owner AND r.artist_id=a.artist_id
-                WHERE a.owner=? AND a.name_key LIKE ? ESCAPE '\'
+                WHERE a.owner=? AND a.name_key LIKE ? ESCAPE '!'
                 GROUP BY a.artist_id, a.name, a.name_key
                 ORDER BY CASE WHEN a.name_key=? THEN 0
-                              WHEN a.name_key LIKE ? ESCAPE '\' THEN 1 ELSE 2 END,
+                              WHEN a.name_key LIKE ? ESCAPE '!' THEN 1 ELSE 2 END,
                          cnt DESC, a.name_key
                 LIMIT ?
-            """, (owner, "%" + key.replace("%", r"\%").replace("_", r"\_") + "%",
-                   key, key.replace("%", r"\%").replace("_", r"\_") + "%", min(50, max(1, int(limit))))).fetchall()
+            """, (owner, "%" + key.replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%",
+                   key, key.replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%", min(50, max(1, int(limit))))).fetchall()
         return [self.item(row) for row in rows]
 
     def profile(self, owner, name):
