@@ -279,7 +279,7 @@ struct NativeRoot: View {
     @State private var selectedPlaylist: Playlist?
     @State private var playlistName = ""
     @State private var createPlaylist = false
-    @State private var shareURL: URL?
+    @State private var shareText: String?
     @State private var showShare = false
     @State private var launching = true
     @Environment(\.accessibilityReduceMotion) private var reducedMotion
@@ -434,7 +434,7 @@ struct NativeRoot: View {
         }
         
         .sheet(isPresented: $transferPresented) { NightwellNativeTransfer().environmentObject(store) }
-        .sheet(isPresented: $showShare) { if let shareURL { ShareSheet(items: [shareURL]) } }
+        .sheet(isPresented: $showShare) { if let shareText { ShareSheet(items: [shareText]) } }
         .fileImporter(isPresented: $importFiles, allowedContentTypes: [.audio], allowsMultipleSelection: true) { result in
             if case let .success(urls) = result { Task { await store.importFiles(urls) } }
         }
@@ -556,7 +556,7 @@ struct NativeRoot: View {
                 ScrollView { LazyVStack(spacing: 12) { ForEach(store.playlists) { p in
                     HStack { Button { selectedPlaylist = p } label: { Text(p.name).frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 16) }; Menu {
                         Button("Скачать", systemImage: "arrow.down.to.line") { Task { do { await store.download(try await store.playlistTracks(p.id)) } catch { store.error = error.localizedDescription } } }
-                        Button("Поделиться", systemImage: "square.and.arrow.up") { Task { shareURL = await store.share(kind: "playlist", playlist: p.id); showShare = shareURL != nil } }
+                        Button("Поделиться", systemImage: "square.and.arrow.up") { Task { shareText = await store.share(kind: "playlist", playlist: p.id, title: p.name); showShare = shareText != nil } }
                         Button("Удалить", role: .destructive) { Task { await store.deletePlaylist(p.id) } }
                     } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }
                     }.padding(.horizontal, 18).glass()
@@ -575,7 +575,7 @@ struct NativeRoot: View {
             } else {
                 Button("Скачать всё", systemImage: "arrow.down.to.line") { Task { await store.download(tracks) } }
             }
-            Button("Поделиться", systemImage: "square.and.arrow.up") { Task { shareURL = await store.share(kind: kind); showShare = shareURL != nil } }
+            Button("Поделиться", systemImage: "square.and.arrow.up") { Task { shareText = await store.share(kind: kind, title: title, tracks: tracks); showShare = shareText != nil } }
         } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44).glass() } }
     }
 }
