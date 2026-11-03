@@ -694,8 +694,10 @@ public final class MainActivity extends Activity {
     }
     void updateList(){
         if(shown==null)shown=new JSONArray();
-        // Old cached lists may have been saved before the performer-attribution fix.
-        for(int i=0;i<shown.length();i++)NativeAPI.normalizeTrack(shown.optJSONObject(i));
+        // Search results are already normalized by NativeAPI off the UI thread.
+        if(!screen.equals("Поиск")){
+            for(int i=0;i<shown.length();i++)NativeAPI.normalizeTrack(shown.optJSONObject(i));
+        }
         if(adapter!=null)adapter.notifyDataSetChanged();
     }
     private void restoreLibrarySnapshot(String account) {
@@ -839,8 +841,12 @@ public final class MainActivity extends Activity {
             if (track != null) items.add(track);
         }
         JSONArray ranked = new JSONArray();
+        int visible=0;
         for (JSONObject track : RecommendationOrder.rankSearch(items, query,
-            t -> t.optString("title"), t -> t.optString("artist"))) ranked.put(track);
+            t -> t.optString("title"), t -> t.optString("artist"))) {
+            if(visible++>=200)break;
+            ranked.put(track);
+        }
         return ranked;
     }
     private String hiddenRecommendationKey() { return origin + "|" + (user.isEmpty() ? "device" : user); }
@@ -925,12 +931,17 @@ public final class MainActivity extends Activity {
                         if(label.contains(target))local.add(item);
                     }
                     JSONArray quick=new JSONArray();
+                    int previewCount=0;
                     for(JSONObject item:RecommendationOrder.rankSearch(local,text,
-                        t->t.optString("title"),t->t.optString("artist")))quick.put(item);
+                        t->t.optString("title"),t->t.optString("artist"))) {
+                        if(previewCount++>=140)break;
+                        quick.put(item);
+                    }
+                    final JSONArray localArtists=localArtistSuggestions(text,quick);
                     ui.post(()->{
                         if(gen==generation&&screen.equals("Поиск")) {
                             shown=quick;updateList();
-                            showArtistStrip(localArtistSuggestions(text, quick));
+                            showArtistStrip(localArtists);
                         }
                     });
                 }
@@ -950,12 +961,17 @@ public final class MainActivity extends Activity {
                     }
                     if(gen!=generation)return;
                     JSONObject found=api.search("api/tracks?q="+java.net.URLEncoder.encode(text,"UTF-8"));
+                    if(gen!=generation)return;
+                    // Sorting and artist suggestions can take hundreds of milliseconds.
+                    // Complete both on the worker before touching the UI.
+                    final JSONArray remote=rankSearchResults(found.optJSONArray("tracks"),text);
+                    final JSONArray remoteArtists=localArtistSuggestions(text,remote);
                     ui.post(()->{
                         if(gen!=generation||!screen.equals("Поиск"))return;
-                        JSONArray remote=rankSearchResults(found.optJSONArray("tracks"),text);
                         boolean pending=found.optBoolean("search_pending");
                         if(!pending||remote.length()>0) {
                             shown=remote;updateList();
+                            showArtistStrip(remoteArtists);
                         }
                         if(!pending)searchCache.put(cacheKey,remote);
                         status.setText(found.optString("search_message",""));
@@ -1020,10 +1036,9 @@ public final class MainActivity extends Activity {
         String wanted=RecommendationOrder.key(name);
         for(JSONArray items:new JSONArray[]{shown,catalog}) {
             if(items==null)continue;
-            for(int i=0;i<items.length();i++){
+            for(int i=0;i<Math.min(200,items.length());i++){
                 JSONObject item=items.optJSONObject(i);
                 if(item==null)continue;
-                NativeAPI.normalizeTrack(item);
                 for(String performer:splitArtistNames(item.optString("artist")))
                     if(wanted.equals(RecommendationOrder.key(performer)))return true;
             }
