@@ -55,13 +55,15 @@ def install(target):
     target = Path(target).expanduser().resolve()
     app_file = target / "app.py"
     payload = Path(__file__).with_name("artist_catalog.py")
-    if not app_file.is_file() or not payload.is_file():
-        raise RuntimeError("Не найдены app.py на сервере или artist_catalog.py рядом с установщиком")
+    metadata = Path(__file__).with_name("artist_metadata.py")
+    if not app_file.is_file() or not payload.is_file() or not metadata.is_file():
+        raise RuntimeError("Не найдены app.py на сервере или файлы каталога исполнителей рядом с установщиком")
     app_old = app_file.read_text(encoding="utf-8-sig")
     updated, changed = patch_server(app_old)
     files = {
         app_file: updated.encode("utf-8"),
         target / "artist_catalog.py": payload.read_bytes(),
+        target / "artist_metadata.py": metadata.read_bytes(),
     }
     backup = target / "backups" / ("artist-catalog-" +
         datetime.datetime.now().strftime("%Y%m%d-%H%M%S-%f"))
