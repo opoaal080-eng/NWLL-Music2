@@ -1,0 +1,291 @@
+import SwiftUI
+
+struct ArtistChoice: Identifiable {
+    let track: Track
+    let artists: [ArtistSelection]
+    var id: String { track.id }
+}
+
+struct ArtistChoiceSheet: View {
+    let choice: ArtistChoice
+    @EnvironmentObject private var store: MusicStore
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 10) {
+                    Text("Участники записи")
+                        .font(.system(size: 26, weight: .bold))
+                        .padding(.bottom, 12)
+                    ForEach(choice.artists) { item in
+                        NavigationLink {
+                            ArtistPage(artist: item).environmentObject(store)
+                        } label: {
+                            HStack(spacing: 14) {
+                                ArtistPortrait(name: item.name, rawURL: item.seed.artist_image_url, origin: store.origin)
+                                    .frame(width: 56, height: 56)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(item.name).font(.system(size: 17, weight: .semibold))
+                                    Text(item.titleDerived ? "Указан в названии записи" : "Указан в метаданных")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer(minLength: 4)
+                                Image(systemName: "chevron.right").foregroundStyle(.secondary)
+                            }
+                            .padding(12)
+                            .background(.white.opacity(0.075), in: RoundedRectangle(cornerRadius: 19))
+                        }.buttonStyle(.plain)
+                    }
+                    Text("Профили могут быть не подтверждены. Загрузчик SoundCloud не считается исполнителем автоматически.")
+                        .font(.caption).foregroundStyle(.secondary).padding(.top, 8)
+                }.padding(20)
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .background(Color.black.ignoresSafeArea())
+        }
+        .tint(.white).preferredColorScheme(.dark)
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+}
+
+struct ArtistPortrait: View {
+    let name: String
+    let rawURL: String?
+    let origin: URL
+    private var url: URL? {
+        guard let rawURL, let result = URL(string: rawURL, relativeTo: origin)?.absoluteURL,
+              result.scheme == "https", result.user == nil, result.password == nil,
+              (result.host == origin.host || result.host?.hasSuffix(".sndcdn.com") == true)
+        else { return nil }
+        return result
+    }
+    var body: some View {
+        GeometryReader { box in
+            ZStack {
+                LinearGradient(colors: [Color(white: 0.25), Color(white: 0.08)],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+                if let url {
+                    AsyncImage(url: url) { phase in
+                        if let image = phase.image {
+                            image.resizable().scaledToFill()
+                        } else { fallback }
+                    }
+                } else { fallback }
+            }.frame(width: box.size.width, height: box.size.height)
+                .clipShape(Circle())
+        }
+    }
+    private var fallback: some View {
+        Text(String(name.prefix(1)).uppercased())
+            .font(.system(size: 32, weight: .semibold))
+            .foregroundStyle(.white.opacity(0.85))
+    }
+}
+
+/// A Spotify-style artist surface using only facts that Nightwell actually knows.
+struct ArtistPage: View {
+    @EnvironmentObject private var store: MusicStore
+    @Environment(\.dismiss) private var dismiss
+    let artist: ArtistSelection
+
+    @State private var tracks: [Track] = []
+    @State private var loading = false
+    @State private var message = ""
+    @State private var following = false
+    @State private var showPlayer = false
+    @State private var profileImageURL: String?
+    private struct ServerArtist: Decodable {
+        let tracks: [Track]
+        let has_more: Bool?
+        let total: Int?
+        let image_url: String?
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    header
+                    VStack(alignment: .leading, spacing: 20) {
+                        HStack(spacing: 12) {
+                            Button {
+                                following = store.toggleFollowingArtist(artist.name, serverID: artist.seed.artist_id)
+                            } label: {
+                                Text(following ? "Вы подписаны ✓" : "Подписаться")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .padding(.horizontal, 22).frame(height: 42)
+                                    .overlay(Capsule().stroke(.white.opacity(0.7), lineWidth: 1))
+                            }
+                            .accessibilityLabel(following ? "Отписаться от исполнителя" : "Подписаться на исполнителя")
+                            Spacer()
+                            Button {
+                                guard !tracks.isEmpty else { return }
+                                store.play(tracks[0], in: tracks)
+                            } label: {
+                                Image(systemName: "play.fill")
+                                    .font(.title2).foregroundStyle(.black)
+                                    .frame(width: 58, height: 58)
+                                    .background(Color.white, in: Circle())
+                            }
+                            .disabled(tracks.isEmpty)
+                        }
+                        Text(artist.titleDerived
+                             ? "Исполнитель определён по названию записи. Профиль не подтверждён."
+                             : "Имя взято из метаданных. Загрузчик может не быть исполнителем.")
+                            .font(.caption).foregroundStyle(.white.opacity(0.58))
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        Text("Треки исполнителя").font(.system(size: 26, weight: .bold))
+                        if tracks.isEmpty && !loading {
+                            Text("Пока нет треков, которые удалось уверенно связать с этим исполнителем.")
+                                .font(.subheadline).foregroundStyle(.secondary)
+                        }
+                        ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
+                            HStack(alignment: .center, spacing: 12) {
+                                Text("\(index + 1)").font(.subheadline).foregroundStyle(.secondary)
+                                    .frame(width: 22)
+                                Cover(track: track, origin: store.origin)
+                                    .frame(width: 54, height: 54)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                                Button { store.play(track, in: tracks) } label: {
+                                    VStack(alignment: .leading, spacing: 5) {
+                                        Text(track.title).font(.system(size: 15, weight: .medium))
+                                            .foregroundStyle(store.clock.id == track.id ? Color.white : Color.white.opacity(0.95))
+                                            .lineLimit(1)
+                                        Text(track.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                if store.clock.id == track.id {
+                                    PlayingIndicator(playing: store.clock.playing).frame(width: 20, height: 20)
+                                }
+                                Menu {
+                                    Button(store.likes.contains(track.id) ? "Убрать из избранного" : "В избранное",
+                                           systemImage: "heart") { Task { await store.like(track) } }
+                                    Button("Скачать", systemImage: "arrow.down.to.line") {
+                                        Task { await store.download([track]) }
+                                    }
+                                } label: {
+                                    Image(systemName: "ellipsis").frame(width: 34, height: 44)
+                                }
+                            }
+                            .frame(minHeight: 66)
+                        }
+                        if loading { ProgressView("Ищем треки…").tint(.white).foregroundStyle(.secondary) }
+                        if !message.isEmpty { Text(message).font(.caption).foregroundStyle(.secondary) }
+                    }
+                    .padding(.horizontal, 22)
+                    .padding(.top, 20).padding(.bottom, 28)
+                }
+            }
+            .scrollIndicators(.hidden)
+            if store.clock.current != nil {
+                MiniPlayer(clock: store.clock, open: { showPlayer = true })
+                    .padding(.horizontal, 14).padding(.bottom, 10)
+            }
+        }
+        .background(Color.black.ignoresSafeArea())
+        .foregroundStyle(.white)
+        .preferredColorScheme(.dark)
+        .tint(.white)
+        .fullScreenCover(isPresented: $showPlayer) { FullPlayer(clock: store.clock).environmentObject(store) }
+        .task(id: artist.id) {
+            await store.refreshFollowingArtists()
+            following = store.isFollowingArtist(artist.name)
+            await loadTracks()
+        }
+    }
+
+    private var header: some View {
+        ZStack(alignment: .bottomLeading) {
+            bannerImage
+                .frame(maxWidth: .infinity)
+                .frame(height: 360)
+                .clipped()
+                .overlay {
+                    LinearGradient(colors: [.black.opacity(0.10), .black.opacity(0.18), .black],
+                                   startPoint: .top, endPoint: .bottom)
+                }
+            Text(artist.name)
+                .font(.system(size: artist.name.count > 17 ? 43 : 57, weight: .black))
+                .minimumScaleFactor(0.55)
+                .lineLimit(2)
+                .padding(.horizontal, 22).padding(.bottom, 16)
+                .shadow(color: .black.opacity(0.5), radius: 8)
+        }
+        .overlay(alignment: .topLeading) {
+            Button { dismiss() } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 20, weight: .semibold))
+                    .frame(width: 46, height: 46)
+                    .background(Color.black.opacity(0.65), in: Circle())
+            }
+            .padding(.leading, 22).padding(.top, 16)
+            .accessibilityLabel("Назад")
+        }
+    }
+
+    @ViewBuilder private var bannerImage: some View {
+        // SoundCloud avatar, never an album/track cover masquerading as a portrait.
+        let imageSource = profileImageURL ?? (
+            ArtistIdentity.key(artist.seed.artist_name ?? "") == artist.id
+            ? artist.seed.artist_image_url : nil)
+        ZStack {
+            LinearGradient(colors: [Color(white: 0.23), Color(white: 0.06), .black],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+            ArtistPortrait(name: artist.name, rawURL: imageSource, origin: store.origin)
+                .frame(width: 260, height: 260)
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, 34)
+        }
+    }
+
+    @MainActor private func loadTracks() async {
+        following = store.isFollowingArtist(artist.name)
+        let local = [artist.seed] + store.catalog + store.results + store.clock.queue + store.offline
+        tracks = ArtistIdentity.unique(local, for: artist)
+        guard store.account != nil else { return }
+        loading = true
+        defer { loading = false }
+        let encoded = artist.name.addingPercentEncoding(
+            withAllowedCharacters: .urlQueryAllowed.subtracting(CharacterSet(charactersIn: "&+=?#"))) ?? ""
+        // Prefer the canonical server profile, which merges reliable metadata
+        // without confusing a SoundCloud uploader with the performer.
+        if let serverID = artist.seed.artist_id,
+           ArtistIdentity.key(artist.seed.artist_name ?? "") == artist.id,
+           serverID.range(of: #"^artist-[a-f0-9]{20}$"#, options: .regularExpression) != nil {
+            do {
+                var offset = 0
+                for _ in 0..<10 {
+                    try Task.checkCancellation()
+                    let response: ServerArtist = try await store.api.request(
+                        "/api/artists/" + serverID + "?limit=80&offset=\(offset)", timeout: 18)
+                    try Task.checkCancellation()
+                    tracks = ArtistIdentity.unique(tracks + response.tracks, for: artist)
+                    if let url = response.image_url { profileImageURL = url }
+                    offset += response.tracks.count
+                    if response.has_more != true || response.tracks.isEmpty { return }
+                }
+                message = "Показаны первые записи исполнителя."
+                return
+            } catch is CancellationError { return }
+            catch { /* Older servers use the search-based fallback below. */ }
+        }
+        do {
+            for _ in 0..<6 {
+                try Task.checkCancellation()
+                let response: TrackResult = try await store.api.request("/api/tracks?q=" + encoded, timeout: 16)
+                try Task.checkCancellation()
+                tracks = ArtistIdentity.unique(tracks + response.tracks, for: artist)
+                if response.search_pending != true { return }
+                try await Task.sleep(nanoseconds: UInt64(max(1.5, min(8, response.search_retry_after ?? 2)) * 1_000_000_000))
+            }
+            message = "Поиск ещё идёт, показаны уже найденные записи."
+        } catch is CancellationError {
+        } catch {
+            message = "Не удалось загрузить остальные треки. Доступные записи показаны выше."
+        }
+    }
+}

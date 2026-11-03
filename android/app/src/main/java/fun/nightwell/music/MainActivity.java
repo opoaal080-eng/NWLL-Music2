@@ -227,6 +227,8 @@ public final class MainActivity extends Activity {
     private TextView fullTime,homePlay,fullPlay,fullLike,fullDislike,fullAudioOutput;
     private SeekBar seek;
     private EditText search;
+    private LinearLayout artistResultsPanel;
+    private JSONArray remoteArtistMatches=new JSONArray();
     private TextView lyricsText;private android.widget.ScrollView lyricsScroll;private JSONArray lyricLines;private int activeLyric=-2;private String lyricsTrack="";
     private ListView list;
     private TrackAdapter adapter;
@@ -311,7 +313,77 @@ public final class MainActivity extends Activity {
     TextView action(String label,Runnable run){TextView v=NativeIconButton.isIcon(label)?new NativeIconButton(this):text(label,16);v.setText(label);v.setTextColor(0xfff3f3f5);v.setTextSize(NativeIconButton.isIcon(label)?20:16);if(NativeIconButton.isIcon(label))v.setContentDescription(iconLabel(label));v.setGravity(Gravity.CENTER);v.setPadding(dp(14),dp(12),dp(14),dp(12));v.setMinHeight(dp(50));v.setOnClickListener(x->run.run());return v;}
     TextView iconButton(String label,Runnable run){TextView v=action(label,run);v.setPadding(0,0,0,0);v.setTextSize(20);v.setTextColor(0xfff1f1f6);v.setBackground(touchSurface(0xa61f232c,24));return v;}
     void toggleBackgroundOnly(){backgroundOnly=!backgroundOnly;build();}
-    void showQueue(){AlertDialog d=new AlertDialog.Builder(this).setTitle("Очередь воспроизведения").setItems(trackNames(queue),(dialog,index)->play(queue.optJSONObject(index),queue,false)).setNegativeButton("Закрыть",null).create();styleSheet(d);d.show();}
+    private android.widget.BaseAdapter queueListAdapter;
+    private TextView queueCountLabel;
+    private int lastQueueRevision=-1;
+    void showQueue(){
+        if(playback==null)return;
+        LinearLayout layout=column();
+        layout.setPadding(dp(12),dp(12),dp(12),dp(8));
+        TextView heading=text("Очередь воспроизведения",23);
+        heading.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
+        heading.setPadding(dp(8),dp(4),dp(8),dp(4));
+        layout.addView(heading);
+        queueCountLabel=text("",12);
+        queueCountLabel.setTextColor(0xffa9a9a9);
+        queueCountLabel.setPadding(dp(8),0,dp(8),dp(12));
+        layout.addView(queueCountLabel);
+        ListView songs=new ListView(this);
+        songs.setDivider(null);
+        songs.setCacheColorHint(Color.TRANSPARENT);
+        songs.setFastScrollEnabled(true);
+        queueListAdapter=new android.widget.BaseAdapter(){
+            public int getCount(){return queue==null?0:queue.length();}
+            public Object getItem(int index){return queue.optJSONObject(index);}
+            public long getItemId(int index){return index;}
+            public View getView(int position,View recycled,ViewGroup parent){
+                LinearLayout line;
+                TextView number,title,artist;
+                if(recycled instanceof LinearLayout){
+                    line=(LinearLayout)recycled;
+                }else{
+                    line=row();
+                    line.setGravity(Gravity.CENTER_VERTICAL);
+                    line.setPadding(dp(8),dp(8),dp(8),dp(8));
+                    number=text("",15);
+                    number.setGravity(Gravity.CENTER);
+                    line.addView(number,new LinearLayout.LayoutParams(dp(40),dp(52)));
+                    LinearLayout names=column();
+                    title=text("",15);title.setMaxLines(1);
+                    title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                    artist=text("",12);artist.setMaxLines(1);artist.setTextColor(0xffaaaaaa);
+                    names.addView(title);names.addView(artist);
+                    line.addView(names,new LinearLayout.LayoutParams(0,-2,1));
+                    line.setTag(new TextView[]{number,title,artist});
+                }
+                TextView[] holder=(TextView[])line.getTag();
+                JSONObject track=queue.optJSONObject(position);
+                int currentIndex=playback.currentQueueIndex();
+                holder[0].setText(position==currentIndex?"▶":position<currentIndex?"✓":String.valueOf(position+1));
+                holder[0].setTextColor(position==currentIndex?0xffeeeeee:0xff888888);
+                holder[1].setText(track==null?"":track.optString("title"));
+                holder[1].setTypeface(null,position==currentIndex?android.graphics.Typeface.BOLD:android.graphics.Typeface.NORMAL);
+                holder[2].setText(track==null?"":track.optString("artist"));
+                line.setBackground(touchSurface(position==currentIndex?0x403e3e3e:0x241e1e1e,14));
+                return line;
+            }
+        };
+        songs.setAdapter(queueListAdapter);
+        layout.addView(songs,new LinearLayout.LayoutParams(-1,dp((int)Math.min(540,getResources().getConfiguration().screenHeightDp*.58))));
+        queueCountLabel.setText(queue.length()+" треков · впереди "+Math.max(0,queue.length()-playback.currentQueueIndex()-1));
+        AlertDialog dialog=new AlertDialog.Builder(this).setView(layout)
+            .setNegativeButton("Закрыть",null).create();
+        songs.setOnItemClickListener((parent,view,index,itemId)->{
+            dialog.dismiss();
+            playback.player.seekTo(index,0);
+            updatePlayback();
+        });
+        dialog.setOnDismissListener(d->{queueListAdapter=null;queueCountLabel=null;});
+        styleSheet(dialog);
+        dialog.show();
+        int current=playback.currentQueueIndex();
+        if(current>=0)songs.setSelection(Math.max(0,current-2));
+    }
     void build(){
         if(ribbon!=null)ribbon.running(false);full=false;lyricsOpen=false;seek=null;fullTime=null;fullPlay=null;fullLike=null;fullDislike=null;fullAudioOutput=null;
         // Render scenery and aura across the window, outside the padded controls.
@@ -342,7 +414,7 @@ public final class MainActivity extends Activity {
         refreshLiveHandoff();
         body=column();root.addView(body,new LinearLayout.LayoutParams(-1,0,1));status=text("",12);root.addView(status);dock=row();dock.setPadding(dp(10),dp(8),dp(10),dp(8));GradientDrawable fill=new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,new int[]{0x12ffbc78,0x12ffbc78});fill.setCornerRadius(dp(34));miniProgress=new android.graphics.drawable.ClipDrawable(fill,Gravity.LEFT,android.graphics.drawable.ClipDrawable.HORIZONTAL);GradientDrawable glassDock=new GradientDrawable();glassDock.setColor(0x8c202228);glassDock.setCornerRadius(dp(34));glassDock.setStroke(dp(1),0x38ffffff);dock.setBackground(new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{glassDock,miniProgress}));dock.setClipToOutline(true);
         miniCover=new android.widget.ImageView(this);miniCover.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);GradientDrawable coverShape=new GradientDrawable();coverShape.setColor(0x443e2d52);coverShape.setCornerRadius(dp(16));miniCover.setBackground(coverShape);miniCover.setClipToOutline(true);miniCover.setOnClickListener(v->openPlayer());LinearLayout.LayoutParams coverParams=new LinearLayout.LayoutParams(dp(44),dp(44));coverParams.rightMargin=dp(10);dock.addView(miniCover,coverParams);
-        LinearLayout labels=column();miniTitle=text("Выбери трек",15);miniTitle.setMaxLines(1);miniTitle.setTextSize(15);miniTitle.setLetterSpacing(-.015f);miniTitle.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);miniArtist=text("Nightwell Music",12);miniArtist.setMaxLines(1);miniArtist.setTextSize(12);miniArtist.setLetterSpacing(.005f);miniArtist.setTextColor(0xffa4a6b1);miniTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);miniArtist.setEllipsize(android.text.TextUtils.TruncateAt.END);labels.addView(miniTitle);labels.addView(miniArtist);labels.setOnClickListener(v->openPlayer());dock.addView(labels,new LinearLayout.LayoutParams(0,-2,1));miniPrev=action("|‹",()->previous());miniPlay=action("▶",()->toggle());miniNext=action("›|",()->{nextTrack();});miniLike=action("♡",()->toggleFavorite(current()));miniLike.setTextColor(0xffeeeeee);miniPlay.setTextSize(23);miniNext.setTextSize(24);miniPlay.setPadding(0,0,0,0);miniNext.setPadding(0,0,0,0);miniPlay.setTextColor(0xffeeeeee);miniPlay.setBackground(null);miniPrev.setPadding(0,0,0,0);miniLike.setPadding(0,0,0,0);if(getResources().getConfiguration().screenWidthDp>=380)dock.addView(miniLike,new LinearLayout.LayoutParams(dp(40),dp(48)));dock.addView(miniPrev,new LinearLayout.LayoutParams(dp(40),dp(48)));dock.addView(miniPlay,new LinearLayout.LayoutParams(dp(48),dp(48)));dock.addView(miniNext,new LinearLayout.LayoutParams(dp(44),dp(48)));LinearLayout.LayoutParams dockParams=new LinearLayout.LayoutParams(-1,-2);dockParams.topMargin=dp(10);root.addView(dock,dockParams);if(backgroundOnly)dock.setVisibility(View.GONE);android.view.GestureDetector miniGestures=gestures(false);labels.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));dock.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));
+        LinearLayout labels=column();miniTitle=text("Выбери трек",15);miniTitle.setMaxLines(1);miniTitle.setTextSize(15);miniTitle.setLetterSpacing(-.015f);miniTitle.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);miniArtist=text("Nightwell Music",12);miniArtist.setMaxLines(1);miniArtist.setTextSize(12);miniArtist.setLetterSpacing(.005f);miniArtist.setTextColor(0xffa4a6b1);miniTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);miniArtist.setEllipsize(android.text.TextUtils.TruncateAt.END);labels.addView(miniTitle);labels.addView(miniArtist);miniArtist.setOnClickListener(v->openPlayer());miniArtist.setContentDescription("Открыть плеер");labels.setOnClickListener(v->openPlayer());dock.addView(labels,new LinearLayout.LayoutParams(0,-2,1));miniPrev=action("|‹",()->previous());miniPlay=action("▶",()->toggle());miniNext=action("›|",()->{nextTrack();});miniLike=action("♡",()->toggleFavorite(current()));miniLike.setTextColor(0xffeeeeee);miniPlay.setTextSize(23);miniNext.setTextSize(24);miniPlay.setPadding(0,0,0,0);miniNext.setPadding(0,0,0,0);miniPlay.setTextColor(0xffeeeeee);miniPlay.setBackground(null);miniPrev.setPadding(0,0,0,0);miniLike.setPadding(0,0,0,0);if(getResources().getConfiguration().screenWidthDp>=380)dock.addView(miniLike,new LinearLayout.LayoutParams(dp(40),dp(48)));dock.addView(miniPrev,new LinearLayout.LayoutParams(dp(40),dp(48)));dock.addView(miniPlay,new LinearLayout.LayoutParams(dp(48),dp(48)));dock.addView(miniNext,new LinearLayout.LayoutParams(dp(44),dp(48)));LinearLayout.LayoutParams dockParams=new LinearLayout.LayoutParams(-1,-2);dockParams.topMargin=dp(10);root.addView(dock,dockParams);if(backgroundOnly)dock.setVisibility(View.GONE);android.view.GestureDetector miniGestures=gestures(false);labels.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));dock.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));
         showScreen();updatePlayback();loadMiniCover(current());
     }
     // Audio routing is controlled by Android. Report the current media route without
@@ -685,13 +757,68 @@ public final class MainActivity extends Activity {
                 stage.addView(restore,new android.widget.FrameLayout.LayoutParams(dp(48),dp(48),Gravity.TOP|Gravity.LEFT));
             }return;
         }
-        if(screen.equals("Поиск")){search=new EditText(this);search.setTextColor(Color.WHITE);search.setSingleLine(true);search.setTextSize(16);search.setHintTextColor(0xff999ca8);search.setPadding(dp(16),dp(14),dp(16),dp(14));search.setBackground(touchSurface(0xff202228,24));search.setHint("Трек или исполнитель");body.addView(search);search.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int st,int c,int a){}public void onTextChanged(CharSequence s,int st,int before,int count){query=s.toString();search(query);}public void afterTextChanged(Editable e){}});shown=new JSONArray();}
+        if(screen.equals("Поиск")){search=new EditText(this);search.setTextColor(Color.WHITE);search.setSingleLine(true);search.setTextSize(16);search.setHintTextColor(0xff999ca8);search.setPadding(dp(16),dp(14),dp(16),dp(14));search.setBackground(touchSurface(0xff202228,24));search.setHint("Трек или исполнитель");body.addView(search);search.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int st,int c,int a){}public void onTextChanged(CharSequence s,int st,int before,int count){query=s.toString();search(query);}public void afterTextChanged(Editable e){}});artistResultsPanel=column();body.addView(artistResultsPanel);remoteArtistMatches=new JSONArray();shown=new JSONArray();}
         else if(screen.equals("Избранное")){shown=new JSONArray();for(int i=0;i<catalog.length();i++)if(likes.contains(catalog.optJSONObject(i).optString("id")))shown.put(catalog.optJSONObject(i));shown=sortedFavorites(shown);LinearLayout actionsRow=column();actionsRow.setGravity(Gravity.RIGHT);TextView sort=iconButton("⇅",()->favoriteSortMenu());actionsRow.addView(sort);TextView more=iconButton("⋯",()->collectionMenu("likes",""));LinearLayout.LayoutParams moreParams=new LinearLayout.LayoutParams(dp(52),dp(48));moreParams.gravity=Gravity.RIGHT;actionsRow.addView(more,moreParams);body.addView(actionsRow);}
         else if(screen.equals("Плейлисты")){android.widget.ScrollView scroll=new android.widget.ScrollView(this);LinearLayout entries=column();scroll.addView(entries);body.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));entries.addView(sheetAction("Умные плейлисты · Premium",()->feature("smart")));entries.addView(sheetAction("Подборки дня · обновляются ежедневно",this::dailyPublicPlaylists));entries.addView(action("＋ Создать плейлист",()->input("Новый плейлист",name->task(()->api.request("api/playlists","POST",new JSONObject().put("name",name)),v->load()))));for(int i=0;i<playlists.length();i++){JSONObject p=playlists.optJSONObject(i);LinearLayout r=row();r.setBackground(surface());r.addView(action(p.optString("name"),()->openPlaylist(p)),new LinearLayout.LayoutParams(0,-2,1));r.addView(action("⋯",()->collectionMenu("playlist",p.optString("id"))));LinearLayout.LayoutParams gap=new LinearLayout.LayoutParams(-1,-2);gap.bottomMargin=dp(10);entries.addView(r,gap);}return;}
         else if(screen.equals("Офлайн")){body.addView(action("Добавить аудиофайлы",this::importFiles));task(()->new JSONObject(OfflineStore.operation(this,origin,"{\"op\":\"listAll\"}")),v->{if(screen.equals("Офлайн")){shown=v.optJSONArray("tracks");updateList();}});shown=new JSONArray();}
         list=new ListView(this);list.setDivider(null);list.setCacheColorHint(Color.TRANSPARENT);adapter=new TrackAdapter();list.setAdapter(adapter);body.addView(list,new LinearLayout.LayoutParams(-1,0,1));list.setOnItemClickListener((p,v,pos,id)->play(shown.optJSONObject(pos),shown,false));list.setOnItemLongClickListener((p,v,pos,id)->{trackMenu(shown.optJSONObject(pos));return true;});
     }
-    void updateList(){if(shown==null)shown=new JSONArray();if(adapter!=null)adapter.notifyDataSetChanged();}
+    void updateList(){
+        if(shown==null)shown=new JSONArray();
+        if(adapter!=null)adapter.notifyDataSetChanged();
+        if(screen.equals("Поиск"))renderArtistSearch();
+    }
+
+    private void renderArtistSearch(){
+        if(artistResultsPanel==null || !screen.equals("Поиск"))return;
+        artistResultsPanel.removeAllViews();
+        final String key=ArtistIdentity.key(query);
+        if(key.length()<2)return;
+        java.util.LinkedHashMap<String,JSONObject> candidates=new java.util.LinkedHashMap<>();
+        for(JSONArray source:new JSONArray[]{remoteArtistMatches,shown,catalog}){
+            int length=Math.min(source.length(),source==catalog?3000:200);
+            for(int i=0;i<length && candidates.size()<35;i++){
+                JSONObject item=source.optJSONObject(i);if(item==null)continue;
+                if(source==remoteArtistMatches){
+                    String name=item.optString("name");
+                    JSONObject seed=item.optJSONObject("seed_track");
+                    if(seed!=null&&ArtistIdentity.key(name).contains(key)){
+                        try {
+                            JSONObject selected=new JSONObject(seed.toString());
+                            selected.put("artist_name",name);
+                            selected.put("artist_id",item.optString("id"));
+                            selected.put("artist_image_url",item.optString("image_url"));
+                            candidates.putIfAbsent(ArtistIdentity.key(name),selected);
+                        }catch(Exception ignored){}
+                    }
+                } else {
+                    for(String name:ArtistIdentity.names(item)){
+                        if(ArtistIdentity.key(name).contains(key))
+                            candidates.putIfAbsent(ArtistIdentity.key(name),item);
+                    }
+                }
+            }
+        }
+        if(candidates.isEmpty())return;
+        TextView heading=text("Исполнители",19);
+        heading.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
+        heading.setPadding(dp(8),dp(12),dp(8),dp(6));artistResultsPanel.addView(heading);
+        int count=0;
+        for(java.util.Map.Entry<String,JSONObject> entry:candidates.entrySet()){
+            if(count++>=10)break;
+            JSONObject seed=entry.getValue();
+            String selected=seed.optString("artist_name");
+            if(!ArtistIdentity.key(selected).equals(entry.getKey())){
+                selected=entry.getKey();
+                for(String name:ArtistIdentity.names(seed))
+                    if(ArtistIdentity.key(name).equals(entry.getKey())){selected=name;break;}
+            }
+            final String name=selected;
+            TextView card=action("◉   "+name+"    ›",()->showArtist(seed,name));
+            card.setContentDescription("Открыть страницу исполнителя "+name);
+            artistResultsPanel.addView(card);
+        }
+    }
     private void restoreLibrarySnapshot(String account) {
         try {
             String raw=getSharedPreferences("library-snapshot",MODE_PRIVATE).getString("snapshot",null);
@@ -838,7 +965,7 @@ public final class MainActivity extends Activity {
     private String recentKey() { return origin + "|" + (user.isEmpty() ? "device" : user); }
     private static String limitedExclusions(java.util.Set<String> values) {
         java.util.List<String> items=new java.util.ArrayList<>(values);
-        return android.text.TextUtils.join(",",items.subList(Math.max(0,items.size()-160),items.size()));
+        return android.text.TextUtils.join(",",items.subList(0,Math.min(160,items.size())));
     }
     private void restoreRecent() {
         mixRecent.clear();
@@ -894,13 +1021,23 @@ public final class MainActivity extends Activity {
         if(pendingSearch!=null)ui.removeCallbacks(pendingSearch);
         final String text=value.trim();
         if(text.isEmpty()) {
+            remoteArtistMatches=new JSONArray();
             shown=new JSONArray();updateList();status.setText("");return;
         }
         final String cacheKey=hiddenRecommendationKey()+"|"+text.toLowerCase(java.util.Locale.ROOT);
         final JSONArray cached=attempt==0?searchCache.get(cacheKey):null;
         if(attempt==0) {
+            remoteArtistMatches=new JSONArray();
             shown=cached==null?new JSONArray():cached;
             updateList();
+            final String artistQuery=text;
+            task(()->api.request("api/artist-directory?q="+
+                java.net.URLEncoder.encode(artistQuery,"UTF-8")),result->{
+                if(gen!=generation || !screen.equals("Поиск") || !query.equals(artistQuery))return;
+                remoteArtistMatches=result.optJSONArray("artists")==null
+                    ?new JSONArray():result.optJSONArray("artists");
+                renderArtistSearch();
+            });
         }
         pendingSearch=()->{
             status.setText("Ищем полные версии…");
@@ -948,11 +1085,11 @@ public final class MainActivity extends Activity {
         ui.postDelayed(pendingSearch,attempt==0?300:0);
     }
 
-    void play(JSONObject track,JSONArray tracks,boolean wave){if(track==null)return;if(user.isEmpty()&&!track.optBoolean("_offline")){auth();return;}if(playback==null){status.setText("Аудиоплеер запускается. Повтори через секунду.");return;}try{cancelMix();playback.prepare(new JSONObject().put("id",track.getString("id")).put("queue",tracks).put("origin",origin).put("account",user.isEmpty()?"device":user).put("wave",wave).put("wave_preferences",WaveSettings.read(this,origin,user).json()).toString());playback.play();updatePlayback();publishLive(true);}catch(Exception ex){status.setText(friendly(ex));}}
+    void play(JSONObject track,JSONArray tracks,boolean wave){if(track==null)return;if(user.isEmpty()&&!track.optBoolean("_offline")){auth();return;}if(playback==null){status.setText("Аудиоплеер запускается. Повтори через секунду.");return;}try{cancelMix();playback.prepare(new JSONObject().put("id",track.getString("id")).put("queue",tracks).put("origin",origin).put("account",user.isEmpty()?"device":user).put("wave",wave).put("shuffle",playback.shuffleEnabled()).put("wave_preferences",WaveSettings.read(this,origin,user).json()).toString());playback.play();updatePlayback();publishLive(true);}catch(Exception ex){status.setText(friendly(ex));}}
     void toggle(){cancelMix();if(playback!=null){if(playback.player.getPlayWhenReady())playback.pause();else playback.play();updatePlayback();if(liveOwner)publishLive(false);}}
     private long lastPrevious;private String previousID="";
-    void nextTrack(){trackTransitionDirection=1;cancelMix();if(playback!=null)playback.player.seekToNextMediaItem();}
-    void previous(){trackTransitionDirection=-1;cancelMix();if(playback==null)return;long now=SystemClock.uptimeMillis();if(playback.player.getCurrentPosition()>3000&&!(currentID.equals(previousID)&&now-lastPrevious<3000)){previousID=currentID;lastPrevious=now;playback.seek(0);}else{previousID="";playback.player.seekToPreviousMediaItem();}}
+    void nextTrack(){trackTransitionDirection=1;cancelMix();if(playback!=null)playback.goNextPlayedOrQueued();}
+    void previous(){trackTransitionDirection=-1;cancelMix();if(playback!=null)playback.goPreviousPlayed();}
     void waveSettings(){
         if(user.isEmpty()){auth();return;}
         final String account=user;
@@ -993,46 +1130,79 @@ public final class MainActivity extends Activity {
         if(mixing)return;if(user.isEmpty()){auth();return;}
         final NativeAPI client=new NativeAPI(this,origin);
         final long ticket=waveRequest.start(client::close);
-        final String account=user,playingID=currentID;
+        final String account=user, playingID=currentID;
         final WaveSettings settings=WaveSettings.read(this,origin,account);
         final java.util.Set<String> hidden=hiddenRecommendations();
         hidden.addAll(SkipFeedback.recentIDs(this,origin,account));
         final java.util.Set<String> blockedArtists=hiddenArtists();
-        mixing=true;status.setText("Подбираем…");
-        final java.util.LinkedHashSet<String> excluded=new java.util.LinkedHashSet<>(mixRecent);
-        for(int i=0;i<Math.min(8,queue.length());i++)excluded.add(queue.optJSONObject(i).optString("id"));
+        final java.util.Set<String> listenedIDs=DiscoveryHistory.ids(this,origin,account);
+        listenedIDs.addAll(mixRecent);
+        final java.util.Set<String> heardRecordings=DiscoveryHistory.recordings(this,origin,account);
+        mixing=true;status.setText("Подбираем новые треки…");
+        final java.util.LinkedHashSet<String> excluded=new java.util.LinkedHashSet<>();
+        for(int i=0;i<Math.min(35,queue.length());i++){
+            JSONObject track=queue.optJSONObject(i);
+            if(track!=null)excluded.add(track.optString("id"));
+        }
         if(!playingID.isEmpty())excluded.add(playingID);
-        java.util.List<String> hiddenForServer=new java.util.ArrayList<>(hidden);
-        java.util.Collections.sort(hiddenForServer);
-        for(int i=0;i<Math.min(hiddenForServer.size(),80);i++)excluded.add(hiddenForServer.get(i));
+        excluded.addAll(DiscoveryHistory.excludedIDs(this,origin,account,160));
+        java.util.List<String> legacy=new java.util.ArrayList<>(mixRecent);
+        java.util.Collections.reverse(legacy);
+        excluded.addAll(legacy);
         io.execute(()->{
             try{
                 if(!waveRequest.pending(ticket))return;
-                String nonce=UUID.randomUUID().toString();
-                JSONObject value=client.search("api/wave?mix="+nonce+settings.query()+"&exclude="+java.net.URLEncoder.encode(limitedExclusions(excluded),"UTF-8"));
-                JSONArray raw=value.optJSONArray("tracks");
-                if((raw==null||raw.length()==0)&&!playingID.isEmpty())raw=client.search("api/wave?mix="+nonce+settings.query()+"&exclude="+playingID).optJSONArray("tracks");
-                final JSONArray fresh=new JSONArray();
-                if(raw!=null)for(int i=0;i<raw.length();i++)if(!playingID.equals(raw.optJSONObject(i).optString("id"))&&!hidden.contains(raw.optJSONObject(i).optString("id")))fresh.put(raw.optJSONObject(i));
+                final java.util.List<JSONObject> fresh=new java.util.ArrayList<>();
+                final java.util.HashSet<String> added=new java.util.HashSet<>();
+                for(int attempt=0;attempt<3 && waveRequest.pending(ticket) && fresh.isEmpty();attempt++){
+                    String nonce=UUID.randomUUID().toString();
+                    JSONObject value=client.search("api/wave?mix="+nonce+settings.query()+"&exclude="
+                        +java.net.URLEncoder.encode(limitedExclusions(excluded),"UTF-8"));
+                    JSONArray tracks=value.optJSONArray("tracks");
+                    if(tracks==null)continue;
+                    for(int i=0;i<tracks.length();i++){
+                        JSONObject t=tracks.optJSONObject(i);
+                        if(t==null)continue;
+                        String id=t.optString("id");
+                        String signature=DiscoveryHistory.recording(t.optString("title"),t.optString("artist"));
+                        if(id.isEmpty()||id.equals(playingID)||listenedIDs.contains(id)||hidden.contains(id)
+                           ||heardRecordings.contains(signature)||!added.add(id))continue;
+                        fresh.add(t);
+                    }
+                }
                 ui.post(()->{
                     if(isDestroyed()||!waveRequest.complete(ticket))return;
                     mixing=false;
                     if(!account.equals(user))return;
-                    if(fresh.length()>0){
-                        java.util.List<JSONObject> candidates=new java.util.ArrayList<>();for(int i=0;i<fresh.length();i++)candidates.add(fresh.optJSONObject(i));
-                        JSONArray ordered=new JSONArray();
-                        for(JSONObject t:RecommendationOrder.arrange(candidates,new java.util.HashSet<>(mixRecent),hidden,blockedArtists,playingID,t->t.optString("id"),t->t.optString("title"),t->t.optString("artist")))ordered.put(t);
-                        if(ordered.length()==0){status.setText("Все найденные треки скрыты фильтрами рекомендаций.");return;}
-                        status.setText("");play(ordered.optJSONObject(0),ordered,true);
-                    }else status.setText("Новых треков пока нет. Попробуй чуть позже.");
+                    java.util.List<JSONObject> ordered=RecommendationOrder.arrange(
+                        fresh,listenedIDs,hidden,blockedArtists,playingID,
+                        t->t.optString("id"),t->t.optString("title"),t->t.optString("artist"));
+                    if(ordered.isEmpty()){
+                        status.setText("Свежих треков по этим настройкам пока нет. Попробуй расширить подборку.");
+                        return;
+                    }
+                    JSONArray playbackQueue=new JSONArray();
+                    for(JSONObject track:ordered)playbackQueue.put(track);
+                    status.setText("");
+                    play(ordered.get(0),playbackQueue,true);
                 });
-            }catch(Exception e){ui.post(()->{if(isDestroyed()||!waveRequest.complete(ticket))return;mixing=false;status.setText(friendly(e));});}
-            finally{client.close();}
+            }catch(Exception e){
+                ui.post(()->{
+                    if(isDestroyed()||!waveRequest.complete(ticket))return;
+                    mixing=false;status.setText(friendly(e));
+                });
+            }finally{client.close();}
         });
     }
 
     void setLabel(TextView view,String value){if(view!=null&&!android.text.TextUtils.equals(view.getText(),value))view.setText(value);}
-    void updatePlayback(){if(smokeMode||playback==null)return;try{JSONObject state=new JSONObject(playback.snapshot(false));String next=state.optString("id");if(!currentID.equals(next)||queue.length()!=state.optInt("queueCount")){queue=new JSONObject(playback.snapshot(true)).optJSONArray("queueTracks");}if(queue==null)queue=new JSONArray();JSONObject t=null;for(int i=0;i<queue.length();i++)if(queue.optJSONObject(i).optString("id").equals(next)){t=queue.optJSONObject(i);break;}setLabel(miniTitle,t==null?"Выбери трек":t.optString("title"));setLabel(miniArtist,t==null?"Nightwell Music":t.optString("artist"));refreshFavoriteButtons();if(miniProgress!=null)miniProgress.setLevel((int)Math.max(0,Math.min(10000,10000*state.optDouble("position")/Math.max(1,state.optDouble("duration")))));setLabel(miniPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(homePlay!=null)setLabel(homePlay,state.optBoolean("playing")?"Ⅱ":"▶");if(fullPlay!=null)setLabel(fullPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(ribbon!=null)ribbon.playing(state.optBoolean("playing"));if(!currentID.equals(next)){currentID=next;if(!next.isEmpty())rememberRecent(next);activeLyrics=null;homeLine="";loadMiniCover(t);fetchLyricsAndPreload();animateTrackTransition();updateList();if(full)openPlayer();}if(seek!=null&&!seek.isPressed()){seek.setMax((int)Math.max(1,state.optDouble("duration")));seek.setProgress((int)state.optDouble("position"));}if(fullTime!=null)setLabel(fullTime,time(state.optDouble("position"))+"     /     "+time(state.optDouble("duration")));if(!state.optString("error").isEmpty())status.setText(state.optString("error"));syncLyrics(state.optDouble("position"));syncHomeLyrics(state.optDouble("position"));if(lastPlaying!=state.optBoolean("playing")){lastPlaying=state.optBoolean("playing");updateList();}}catch(Exception ignored){}}
+    void updatePlayback(){if(smokeMode||playback==null)return;try{JSONObject state=new JSONObject(playback.snapshot(false));String next=state.optString("id");if(!currentID.equals(next)||queue.length()!=state.optInt("queueCount")||lastQueueRevision!=state.optInt("queueRevision",-1)){queue=new JSONObject(playback.snapshot(true)).optJSONArray("queueTracks");
+            lastQueueRevision=state.optInt("queueRevision",-1);
+            if(queueListAdapter!=null){
+                queueListAdapter.notifyDataSetChanged();
+                if(queueCountLabel!=null)queueCountLabel.setText(queue.length()+" треков · впереди "+Math.max(0,queue.length()-playback.currentQueueIndex()-1));
+            }
+        }if(queue==null)queue=new JSONArray();JSONObject t=null;for(int i=0;i<queue.length();i++)if(queue.optJSONObject(i).optString("id").equals(next)){t=queue.optJSONObject(i);break;}setLabel(miniTitle,t==null?"Выбери трек":t.optString("title"));setLabel(miniArtist,t==null?"Nightwell Music":t.optString("artist","Nightwell Music"));refreshFavoriteButtons();if(miniProgress!=null)miniProgress.setLevel((int)Math.max(0,Math.min(10000,10000*state.optDouble("position")/Math.max(1,state.optDouble("duration")))));setLabel(miniPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(homePlay!=null)setLabel(homePlay,state.optBoolean("playing")?"Ⅱ":"▶");if(fullPlay!=null)setLabel(fullPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(ribbon!=null)ribbon.playing(state.optBoolean("playing"));if(!currentID.equals(next)){currentID=next;if(!next.isEmpty())rememberRecent(next);activeLyrics=null;homeLine="";loadMiniCover(t);fetchLyricsAndPreload();animateTrackTransition();updateList();if(full)openPlayer();}if(seek!=null&&!seek.isPressed()){seek.setMax((int)Math.max(1,state.optDouble("duration")));seek.setProgress((int)state.optDouble("position"));}if(fullTime!=null)setLabel(fullTime,time(state.optDouble("position"))+"     /     "+time(state.optDouble("duration")));if(!state.optString("error").isEmpty())status.setText(state.optString("error"));syncLyrics(state.optDouble("position"));syncHomeLyrics(state.optDouble("position"));if(lastPlaying!=state.optBoolean("playing")){lastPlaying=state.optBoolean("playing");updateList();}}catch(Exception ignored){}}
     void animateTrackTransition(){
         if(dock==null||!dock.isShown())return;
         final float slide=dp(24)*trackTransitionDirection;
@@ -1078,7 +1248,20 @@ public final class MainActivity extends Activity {
         LinearLayout metadata=row();metadata.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout names=column();
         TextView title=text(track.optString("title"),25);title.setMaxLines(2);title.setLetterSpacing(-.025f);title.setLineSpacing(dp(2),1f);title.setAutoSizeTextTypeUniformWithConfiguration(19,25,1,android.util.TypedValue.COMPLEX_UNIT_SP);title.setEllipsize(android.text.TextUtils.TruncateAt.END);title.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);title.setPadding(dp(8),dp(18),dp(8),dp(6));names.addView(title);
-        TextView artist=text(track.optString("artist"),16);artist.setTextColor(0xffa4a6b1);artist.setMaxLines(2);artist.setEllipsize(android.text.TextUtils.TruncateAt.END);artist.setPadding(dp(8),0,dp(8),dp(18));names.addView(artist);
+        java.util.List<String> performers=ArtistIdentity.names(track);
+        String artistName=String.join(", ",performers);
+        TextView artist=text((artistName.isEmpty()?"Найти исполнителя":artistName)+"   ›",13);
+        artist.setTextColor(0xffdbdce4);artist.setMaxLines(1);
+        artist.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        artist.setMinHeight(dp(32));
+        artist.setGravity(Gravity.CENTER_VERTICAL);
+        artist.setPadding(dp(8),dp(2),dp(10),dp(2));
+        artist.setBackground(touchSurface(0x442c2c33,16));
+        LinearLayout.LayoutParams artistChip=new LinearLayout.LayoutParams(-2,dp(32));
+        artistChip.leftMargin=dp(8);artistChip.topMargin=dp(2);artistChip.bottomMargin=dp(7);
+        names.addView(artist,artistChip);
+        artist.setOnClickListener(v->showArtist(current()==null?track:current()));
+        artist.setContentDescription("Открыть страницу исполнителя");
         metadata.addView(names,new LinearLayout.LayoutParams(0,-2,1));
         fullLike=iconButton(likes.contains(track.optString("id"))?"♥":"♡",()->toggleFavorite(current()));
         fullLike.setContentDescription(likes.contains(track.optString("id"))?"Убрать из избранного":"Добавить в избранное");
@@ -1104,11 +1287,11 @@ public final class MainActivity extends Activity {
         LinearLayout transport=column();transport.setPadding(dp(12),dp(12),dp(12),dp(6));transport.setBackground(new NativeSurfaceDrawable(transport,26));content.addView(transport);
         seek=new SeekBar(this);seek.setMinimumHeight(dp(44));seek.setProgressTintList(android.content.res.ColorStateList.valueOf(0xffeeeeee));seek.setThumbTintList(android.content.res.ColorStateList.valueOf(0xfff1f1f1));seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar b,int p,boolean user){}public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){cancelMix();if(playback!=null)playback.seek(b.getProgress());}});transport.addView(seek);fullTime=text("",12);fullTime.setPadding(dp(8),0,dp(8),dp(12));fullTime.setTextColor(0xffc8c8c8);transport.addView(fullTime);
         LinearLayout controls=row();controls.setGravity(Gravity.CENTER);
-        TextView shuffleButton=iconButton("⇄",()->{if(playback!=null){playback.modes(playback.player.getRepeatMode(),!playback.player.getShuffleModeEnabled());}});
+        TextView shuffleButton=iconButton("⇄",()->{if(playback!=null){playback.modes(playback.player.getRepeatMode(),!playback.shuffleEnabled());updatePlayback();}});
         TextView backward=iconButton("|‹",this::previous);
         fullPlay=iconButton(playback!=null&&playback.player.getPlayWhenReady()?"Ⅱ":"▶",this::toggle);
         TextView forward=iconButton("›|",this::nextTrack);
-        TextView repeatButton=iconButton("↻",()->{if(playback!=null)playback.modes((playback.player.getRepeatMode()+1)%3,playback.player.getShuffleModeEnabled());});
+        TextView repeatButton=iconButton("↻",()->{if(playback!=null)playback.modes((playback.player.getRepeatMode()+1)%3,playback.shuffleEnabled());});
         for(TextView button:new TextView[]{shuffleButton,backward,forward,repeatButton}){
             button.setBackground(null);button.setPadding(0,0,0,0);button.setTextSize(25);
         }
@@ -1153,21 +1336,32 @@ public final class MainActivity extends Activity {
         JSONObject value=api.request("api/lyrics/"+id);if(value.optString("status").equals("found"))java.nio.file.Files.write(file.toPath(),value.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));return value;
     }
     boolean lyricsPending(JSONObject value){String state=value.optString("status");return state.equals("loading")||state.equals("pending")||state.equals("unavailable");}
-    void fetchLyricsAndPreload(){final String id=currentID;if(id.isEmpty())return;final JSONArray upcoming=new JSONArray();for(int i=0;i<queue.length();i++)if(queue.optJSONObject(i).optString("id").equals(id)){for(int j=i;j<Math.min(queue.length(),i+4);j++)upcoming.put(queue.optJSONObject(j).optString("id"));break;}
-        if(artworkCache!=null) {
-            int warmed=0;
-            for(int i=0;i<queue.length()&&warmed<3;i++) {
-                JSONObject next=queue.optJSONObject(i);
-                if(next!=null&&next.optString("id").equals(id)) {
-                    for(int j=i+1;j<queue.length()&&warmed<3;j++,warmed++) {
-                        JSONObject upcomingTrack=queue.optJSONObject(j);
-                        if(upcomingTrack!=null)artworkCache.prefetch(origin,upcomingTrack.optString("cover_url"));
-                    }
-                    break;
-                }
-            }
+    void fetchLyricsAndPreload(){
+        final String id=currentID;
+        if(id.isEmpty())return;
+        // Audio warmup is owned by PlaybackService. It runs with the MediaSession
+        // in the background and does not wait for lyrics or artwork requests.
+        if(!visible)return;
+        final JSONArray upcoming=new JSONArray();
+        int at=-1;
+        for(int i=0;i<queue.length();i++)if(id.equals(queue.optJSONObject(i).optString("id"))){at=i;break;}
+        if(at>=0)for(int j=at+1;j<Math.min(queue.length(),at+4);j++){
+            JSONObject next=queue.optJSONObject(j);
+            if(next==null)continue;
+            upcoming.put(next.optString("id"));
+            if(artworkCache!=null && j<at+3)artworkCache.prefetch(origin,next.optString("cover_url"));
         }
-        prefetch.execute(()->{try{JSONObject value=cachedLyrics(id);ui.post(()->{if(currentID.equals(id))acceptLyrics(id,value);});if(!user.isEmpty()){try{api.request("api/preload","POST",new JSONObject().put("ids",upcoming));}catch(Exception ignored){}for(int i=1;i<upcoming.length();i++)try{cachedLyrics(upcoming.optString(i));}catch(Exception ignored){}}}catch(Exception ignored){}});
+        prefetch.execute(()->{
+            if(!visible || !currentID.equals(id))return;
+            try{
+                JSONObject value=cachedLyrics(id);
+                ui.post(()->{if(currentID.equals(id))acceptLyrics(id,value);});
+                // Work on only the first few lyric files; never block audio warming.
+                for(int i=0;i<upcoming.length()&&visible&&currentID.equals(id);i++){
+                    try{cachedLyrics(upcoming.optString(i));}catch(Exception ignored){}
+                }
+            }catch(Exception ignored){}
+        });
     }
     private String lyricsPollID="";private int lyricsRound;
     void acceptLyrics(String id,JSONObject value){
@@ -1210,14 +1404,15 @@ public final class MainActivity extends Activity {
     });}
     void syncLyrics(double position){if(lyricsText==null||lyricLines==null||!currentID.equals(lyricsTrack))return;int current=-1;for(int i=0;i<lyricLines.length();i++)if(lyricLines.optJSONObject(i).optDouble("time")<=position)current=i;if(current==activeLyric)return;activeLyric=current;StringBuilder all=new StringBuilder();int start=0,end=0;for(int i=0;i<lyricLines.length();i++){if(i==current)start=all.length();all.append(lyricLines.optJSONObject(i).optString("text")).append("\n\n");if(i==current)end=all.length();}android.text.SpannableString styled=new android.text.SpannableString(all);styled.setSpan(new android.text.style.ForegroundColorSpan(0xff9c9c9c),0,styled.length(),0);if(current>=0){styled.setSpan(new android.text.style.ForegroundColorSpan(0xffeeeeee),start,end,0);styled.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD),start,end,0);}lyricsText.setText(styled);final int offset=start;lyricsText.post(()->{if(lyricsText==null||lyricsScroll==null||lyricsText.getLayout()==null)return;int line=lyricsText.getLayout().getLineForOffset(Math.min(offset,lyricsText.length()));lyricsScroll.smoothScrollTo(0,Math.max(0,lyricsText.getLayout().getLineTop(line)-lyricsScroll.getHeight()/3));});}
 
-    void fullPlayerMenu(JSONObject track){nightwellOptions("Плеер",new String[]{"Эквалайзер","Действия с треком"},n->{if(n==0)feature("sound");else trackMenu(track);});}
+    void fullPlayerMenu(JSONObject track){nightwellOptions("Плеер",new String[]{"Открыть исполнителя","Эквалайзер","Действия с треком"},n->{if(n==0)showArtist(current()==null?track:current());else if(n==1)feature("sound");else trackMenu(track);});}
     void trackMenu(JSONObject track){
         String id=track.optString("id");
         String[] options={
             likes.contains(id)?"Убрать из избранного":"В избранное",
             "Скачать", "Поделиться", "Добавить в плейлист",
             hiddenRecommendations().contains(id)?"Вернуть в рекомендации":"Не рекомендовать",
-            isArtistHidden(track)?"Вернуть исполнителя":"Не рекомендовать исполнителя"
+            isArtistHidden(track)?"Вернуть исполнителя":"Не рекомендовать исполнителя",
+            "Открыть исполнителя"
         };
         AlertDialog actions=new AlertDialog.Builder(this).setTitle(track.optString("title"))
             .setItems(options,(d,n)->{
@@ -1226,6 +1421,7 @@ public final class MainActivity extends Activity {
                 else if(n==2)share(origin+"track/"+id);
                 else if(n==4)toggleRecommendationHidden(track);
                 else if(n==5)toggleArtistHidden(track);
+                else if(n==6)showArtist(track);
                 else {
                     String[] names=new String[playlists.length()];
                     for(int i=0;i<names.length;i++)names[i]=playlists.optJSONObject(i).optString("name");
@@ -1239,6 +1435,286 @@ public final class MainActivity extends Activity {
         styleSheet(actions);actions.show();
     }
     private String playlistSnapshotKey(String id){return "playlist|"+origin+"|"+user+"|"+id;}
+
+    private boolean followingArtist(String name) {
+        String key = origin + "|" + user + "|" + ArtistIdentity.key(name);
+        return getSharedPreferences("artist-follows", MODE_PRIVATE).getBoolean(key, false);
+    }
+
+    private boolean toggleArtistFollow(String name, String serverID) {
+        String key = origin + "|" + user + "|" + ArtistIdentity.key(name);
+        boolean next = !followingArtist(name);
+        getSharedPreferences("artist-follows", MODE_PRIVATE).edit().putBoolean(key, next).apply();
+        final String owner = user, base = origin;
+        task(() -> {
+            if (next) {
+                return api.request("api/artists/following","POST",new JSONObject().put("name",name));
+            }
+            String aid = serverID.matches("artist-[a-f0-9]{20}")
+                ? serverID : serverArtistID(name);
+            return api.request("api/artists/following/"+aid,"DELETE",new JSONObject());
+        }, response -> {
+            if(!owner.equals(user)||!base.equals(origin))return;
+            // Persisted to account on the server. Local cache remains for offline.
+        });
+        return next;
+    }
+
+    private String serverArtistID(String name) {
+        try{
+            String normalized=ArtistIdentity.key(name).replace('ё','е');
+            byte[] digest=java.security.MessageDigest.getInstance("SHA-256")
+                .digest(normalized.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder result=new StringBuilder("artist-");
+            for(int i=0;i<10;i++) result.append(String.format(java.util.Locale.ROOT,"%02x",digest[i]&255));
+            return result.toString();
+        }catch(Exception error){return "";}
+    }
+
+    private void collectArtistTracks(JSONArray incoming, JSONObject seed, String artist,
+                                     ArrayList<JSONObject> tracks, java.util.HashSet<String> ids) {
+        if (incoming == null) return;
+        for (int index = 0; index < incoming.length(); index++) {
+            JSONObject item = incoming.optJSONObject(index);
+            if (item == null || !ArtistIdentity.belongs(item, seed, artist)) continue;
+            String id = item.optString("id", "");
+            if (!id.isEmpty() && ids.add(id)) tracks.add(item);
+        }
+    }
+
+    private JSONArray artistQueue(ArrayList<JSONObject> tracks) {
+        JSONArray result = new JSONArray();
+        for (JSONObject item : tracks) result.put(item);
+        return result;
+    }
+
+    private void renderArtistTracks(LinearLayout panel, ArrayList<JSONObject> tracks,
+                                    Dialog dialog) {
+        panel.removeAllViews();
+        if (tracks.isEmpty()) {
+            TextView empty = text("Пока нет треков, уверенно связанных с исполнителем", 14);
+            empty.setTextColor(0xffaaaaaa);
+            empty.setPadding(0, dp(16), 0, dp(18));
+            panel.addView(empty);
+            return;
+        }
+        JSONArray playQueue = artistQueue(tracks);
+        for (int index = 0; index < Math.min(65, tracks.size()); index++) {
+            final JSONObject selected = tracks.get(index);
+            LinearLayout line = row();
+            line.setGravity(Gravity.CENTER_VERTICAL);
+            line.setPadding(dp(4), dp(8), dp(4), dp(8));
+            TextView number = text(String.valueOf(index + 1), 13);
+            number.setTextColor(0xffa6a6a6);
+            number.setGravity(Gravity.CENTER);
+            line.addView(number, new LinearLayout.LayoutParams(dp(25), dp(52)));
+            android.widget.ImageView art = new android.widget.ImageView(this);
+            art.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+            art.setBackgroundColor(0xff242424);
+            if (artworkCache != null)
+                artworkCache.load(art, origin, selected.optString("cover_url"));
+            LinearLayout.LayoutParams artParams = new LinearLayout.LayoutParams(dp(52), dp(52));
+            artParams.leftMargin = dp(8);
+            line.addView(art, artParams);
+            TextView title = text(selected.optString("title"), 15);
+            title.setMaxLines(2);
+            title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            title.setPadding(dp(12), 0, dp(8), 0);
+            line.addView(title, new LinearLayout.LayoutParams(0, dp(54), 1));
+            TextView more = iconButton("⋯", () -> trackMenu(selected));
+            line.addView(more, new LinearLayout.LayoutParams(dp(42), dp(48)));
+            line.setOnClickListener(v -> {
+                dialog.dismiss();
+                boolean wasFull = full;
+                if (wasFull) { full = false; build(); }
+                play(selected, playQueue, false);
+                if (wasFull) openPlayer();
+            });
+            panel.addView(line);
+        }
+        if (tracks.size() > 65) {
+            TextView more = text("Показаны первые 65 записей", 13);
+            more.setTextColor(0xffaaaaaa);
+            more.setPadding(dp(8), dp(12), dp(8), dp(14));
+            panel.addView(more);
+        }
+    }
+
+    private void searchArtistTracks(String artist, JSONObject seed, Dialog dialog,
+                                   ArrayList<JSONObject> tracks, java.util.HashSet<String> ids,
+                                   LinearLayout list, TextView progress, int attempt) {
+        if (!dialog.isShowing() || attempt >= 6 || user.isEmpty()) return;
+        final String startingUser = user;
+        final String startingOrigin = origin;
+        String sid = seed.optString("artist_id","");
+        boolean useProfile = sid.matches("artist-[a-f0-9]{20}") &&
+            ArtistIdentity.key(artist).equals(ArtistIdentity.key(seed.optString("artist_name")));
+        task(() -> {
+            if(useProfile){
+                try{return api.request("api/artists/"+sid+"?limit=80&offset="+(attempt*80));}
+                catch(Exception error){ /* Old server: fall back to searchable catalog. */ }
+            }
+            return api.request("api/tracks?q=" + java.net.URLEncoder.encode(artist, "UTF-8"));
+        }, response -> {
+            if (!dialog.isShowing() || !startingUser.equals(user) || !startingOrigin.equals(origin)) return;
+            collectArtistTracks(response.optJSONArray("tracks"), seed, artist, tracks, ids);
+            renderArtistTracks(list, tracks, dialog);
+            if ((response.optBoolean("search_pending", false) ||
+                useProfile && response.optBoolean("has_more", false)) && attempt < 5) {
+                progress.setText("Ищем остальные записи…");
+                long delay = Math.max(1500, Math.min(8000, response.optLong("search_retry_after", 2) * 1000));
+                ui.postDelayed(() -> searchArtistTracks(artist, seed, dialog, tracks, ids, list, progress, attempt + 1), delay);
+            } else {
+                progress.setText(tracks.size() + " треков по доступным метаданным");
+            }
+        });
+    }
+
+    void showArtist(JSONObject seed) {
+        if(seed==null)return;
+        java.util.List<String> performers=ArtistIdentity.names(seed);
+        if(performers.size()>1){
+            String[] options=performers.toArray(new String[0]);
+            nightwellOptions("Выбери исполнителя",options,index->showArtist(seed,options[index]));
+            return;
+        }
+        showArtist(seed,performers.isEmpty()?"":performers.get(0));
+    }
+
+    void showArtist(JSONObject seed,String artist) {
+        if (seed == null) return;
+        if (artist.isEmpty()) {
+            AlertDialog unresolved = new AlertDialog.Builder(this)
+                .setTitle("Исполнитель не определён")
+                .setMessage("В записи нет надёжного имени артиста. Аккаунт, загрузивший трек, может принадлежать другому человеку.")
+                .setNegativeButton("Закрыть", null)
+                .setPositiveButton("Поиск по треку", (d, which) -> {
+                    navigate("Поиск");
+                    if (search != null) search.setText(seed.optString("title", ""));
+                }).create();
+            styleSheet(unresolved);
+            unresolved.show();
+            return;
+        }
+        Dialog dialog = new Dialog(this);
+        LinearLayout shell = column();
+        shell.setBackgroundColor(0xff101010);
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(false);
+        shell.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        LinearLayout page = column();
+        scroll.addView(page);
+
+        android.widget.FrameLayout hero = new android.widget.FrameLayout(this);
+        page.addView(hero, new LinearLayout.LayoutParams(-1, dp(335)));
+        android.widget.ImageView banner = new android.widget.ImageView(this);
+        banner.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+        banner.setBackgroundColor(0xff282828);
+        // Artist image comes from an artist profile, never the recording artwork.
+        if (artworkCache != null) {
+            artworkCache.load(banner, origin,
+                "/api/artist-images/"+serverArtistID(artist));
+        }
+        hero.addView(banner, new android.widget.FrameLayout.LayoutParams(-1, -1));
+        View shading = new View(this);
+        shading.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+            new int[] {0x25000000, 0x64000000, 0xff101010}));
+        hero.addView(shading, new android.widget.FrameLayout.LayoutParams(-1, -1));
+        TextView title = text(artist, artist.length() > 17 ? 36 : 49);
+        title.setTypeface(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD);
+        title.setMaxLines(2);
+        title.setPadding(dp(22), 0, dp(18), dp(16));
+        android.widget.FrameLayout.LayoutParams artistLayout = new android.widget.FrameLayout.LayoutParams(
+            -1, -2, Gravity.BOTTOM);
+        hero.addView(title, artistLayout);
+        TextView close = iconButton("‹", dialog::dismiss);
+        close.setContentDescription("Назад");
+        close.setBackground(touchSurface(0xa8000000,26));
+        android.widget.FrameLayout.LayoutParams backLayout =
+            new android.widget.FrameLayout.LayoutParams(dp(48), dp(48), Gravity.TOP | Gravity.LEFT);
+        backLayout.leftMargin = dp(16); backLayout.topMargin = dp(16);
+        hero.addView(close, backLayout);
+
+        LinearLayout actions = row();
+        actions.setGravity(Gravity.CENTER_VERTICAL);
+        actions.setPadding(dp(22), dp(8), dp(22), dp(8));
+        TextView follow = action(followingArtist(artist) ? "Подписки ✓" : "Подписаться", () -> {});
+        follow.setBackground(touchSurface(0xff242424,26));
+        follow.setTextSize(14);
+        follow.setMinHeight(dp(44));
+        follow.setOnClickListener(v -> follow.setText(
+            toggleArtistFollow(artist, seed.optString("artist_id","")) ? "Вы подписаны ✓" : "Подписаться"));
+        final String ownerForFollow=user, originForFollow=origin;
+        task(() -> api.request("api/artists/following"), response -> {
+            if(!dialog.isShowing() || !ownerForFollow.equals(user) || !originForFollow.equals(origin))return;
+            JSONArray follows=response.optJSONArray("artists");
+            boolean remote=false;
+            if(follows!=null)for(int i=0;i<follows.length();i++){
+                JSONObject entry=follows.optJSONObject(i);
+                if(entry!=null && ArtistIdentity.key(artist).equals(ArtistIdentity.key(entry.optString("name")))){
+                    remote=true;break;
+                }
+            }
+            String prefKey=origin+"|"+user+"|"+ArtistIdentity.key(artist);
+            getSharedPreferences("artist-follows",MODE_PRIVATE).edit().putBoolean(prefKey,remote).apply();
+            follow.setText(remote?"Вы подписаны ✓":"Подписаться");
+        });
+        actions.addView(follow, new LinearLayout.LayoutParams(dp(170), dp(46)));
+        View spacer = new View(this);
+        actions.addView(spacer, new LinearLayout.LayoutParams(0, dp(48), 1));
+        ArrayList<JSONObject> matches = new ArrayList<>();
+        java.util.HashSet<String> ids = new java.util.HashSet<>();
+        collectArtistTracks(new JSONArray().put(seed), seed, artist, matches, ids);
+        collectArtistTracks(catalog, seed, artist, matches, ids);
+        collectArtistTracks(shown, seed, artist, matches, ids);
+        collectArtistTracks(queue, seed, artist, matches, ids);
+        TextView playButton = iconButton("▶", () -> {
+            if (matches.isEmpty()) return;
+            dialog.dismiss();
+            boolean wasFull = full;
+            if (wasFull) { full = false; build(); }
+            play(matches.get(0), artistQueue(matches), false);
+            if (wasFull) openPlayer();
+        });
+        playButton.setTextColor(Color.BLACK);
+        playButton.setBackground(touchSurface(0xfff0f0f0,32));
+        actions.addView(playButton, new LinearLayout.LayoutParams(dp(58), dp(58)));
+        page.addView(actions);
+        TextView explanation = text(ArtistIdentity.fromTitle(seed).isEmpty()
+            ? "Имя из метаданных. Оно может принадлежать загрузчику, а не артисту."
+            : "Исполнитель определён по названию записи. Профиль не подтверждён.", 12);
+        explanation.setTextColor(0xff929292);
+        explanation.setPadding(dp(22), dp(8), dp(22), dp(20));
+        page.addView(explanation);
+        TextView heading = text("Треки исполнителя", 26);
+        heading.setTypeface(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD);
+        heading.setPadding(dp(22), 0, dp(20), dp(10));
+        page.addView(heading);
+        LinearLayout songs = column();
+        songs.setPadding(dp(16), 0, dp(16), dp(26));
+        page.addView(songs);
+        renderArtistTracks(songs, matches, dialog);
+        TextView progress = text("", 13);
+        progress.setPadding(dp(22), dp(4), dp(18), dp(10));
+        progress.setTextColor(0xffaaaaaa);
+        page.addView(progress);
+
+        dialog.setContentView(shell);
+        dialog.show();
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawableResource(android.R.color.black);
+            window.setLayout(WindowManager.LayoutParams.MATCH_PARENT,
+                             WindowManager.LayoutParams.MATCH_PARENT);
+        }
+        if (!user.isEmpty()) {
+            progress.setText("Ищем другие треки исполнителя…");
+            searchArtistTracks(artist, seed, dialog, matches, ids, songs, progress, 0);
+        } else {
+            progress.setText(matches.size() + " треков на устройстве");
+        }
+    }
+
     void openPlaylist(JSONObject p){
         final int gen=++generation;api.cancelSearch();
         if(pendingSearch!=null)ui.removeCallbacks(pendingSearch);
@@ -1329,6 +1805,23 @@ public final class MainActivity extends Activity {
             public void onStopTrackingTouch(SeekBar bar){}
         });
         panel.addView(buffer);
+        String[] qualityModes={"original","economy","balanced","high"};
+        String[] qualityLabels={"Оригинал","Экономия · 96 кбит/с","Баланс · 160 кбит/с","Высокое · 256 кбит/с"};
+        String savedQuality=getSharedPreferences("playback",MODE_PRIVATE)
+            .getString("nw-audio-quality","original");
+        int currentQuality=java.util.Arrays.asList(qualityModes).indexOf(savedQuality);
+        if(currentQuality<0)currentQuality=0;
+        TextView qualityChoice=sheetAction("Качество звука · "+qualityLabels[currentQuality]+"  ▾",()->{});
+        qualityChoice.setOnClickListener(v->nightwellOptions("Качество звука",qualityLabels,selectedQuality->{
+            getSharedPreferences("playback",MODE_PRIVATE).edit()
+                .putString("nw-audio-quality",qualityModes[selectedQuality]).apply();
+            qualityChoice.setText("Качество звука · "+qualityLabels[selectedQuality]+"  ▾");
+        }));
+        panel.addView(qualityChoice);
+        TextView qualityHint=text("SoundCloud: выбирается готовый AAC 96/160 без перекодирования. 256 только при наличии доступа у источника, иначе 160. При сбое будет обычный поток. Новое качество действует для новых очередей.",12);
+        qualityHint.setTextColor(0xffa3a3ae);
+        qualityHint.setPadding(0,dp(6),0,dp(16));
+        panel.addView(qualityHint);
         TextView equalLabel=text("Одинаковая громкость · Выкл.",15);
         equalLabel.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
         panel.addView(equalLabel);
@@ -1612,7 +2105,8 @@ public final class MainActivity extends Activity {
     void handleAudioImportResult(int request,int result,Intent data){if(request!=72||result!=RESULT_OK||data==null)return;ArrayList<Uri> uris=new ArrayList<>();if(data.getClipData()!=null)for(int i=0;i<data.getClipData().getItemCount();i++)uris.add(data.getClipData().getItemAt(i).getUri());else if(data.getData()!=null)uris.add(data.getData());io.execute(()->{for(Uri uri:uris)try{OfflineStore.importFile(this,origin,uri);}catch(Exception ex){ui.post(()->status.setText("Не удалось импортировать файл"));}ui.post(()->navigate("Офлайн"));});}
     final class TrackAdapter extends BaseAdapter {
         public int getCount(){return shown.length();}public Object getItem(int p){return shown.optJSONObject(p);}public long getItemId(int p){return p;}
-        public View getView(int position,View recycled,ViewGroup parent){LinearLayout r;TextView title,artist,more;if(recycled==null){r=row();r.setPadding(dp(12),dp(12),dp(8),dp(12));LinearLayout labels=column();title=text("",16);title.setMaxLines(2);artist=text("",12);artist.setMaxLines(1);labels.addView(title);labels.addView(artist);r.addView(labels,new LinearLayout.LayoutParams(0,-2,1));r.addView(new PlayingIndicator(MainActivity.this),new LinearLayout.LayoutParams(dp(20),dp(20)));more=action("⋯",()->{});r.addView(more);r.setTag(new TextView[]{title,artist,more});}else r=(LinearLayout)recycled;TextView[] holder=(TextView[])r.getTag();JSONObject t=shown.optJSONObject(position);holder[0].setText(t.optString("title"));PlayingIndicator indicator=(PlayingIndicator)r.getChildAt(1);indicator.setVisibility(currentID.equals(t.optString("id"))?View.VISIBLE:View.GONE);indicator.playing(lastPlaying);holder[1].setText(t.optString("artist"));holder[2].setOnClickListener(v->trackMenu(t));r.setBackgroundColor(currentID.equals(t.optString("id"))?0x22ffb260:Color.TRANSPARENT);return r;}
+        public View getView(int position,View recycled,ViewGroup parent){LinearLayout r;TextView title,artist,more;if(recycled==null){r=row();r.setPadding(dp(12),dp(12),dp(8),dp(12));LinearLayout labels=column();title=text("",16);title.setMaxLines(2);artist=text("",12);artist.setMaxLines(1);labels.addView(title);labels.addView(artist);r.addView(labels,new LinearLayout.LayoutParams(0,-2,1));r.addView(new PlayingIndicator(MainActivity.this),new LinearLayout.LayoutParams(dp(20),dp(20)));more=action("⋯",()->{});r.addView(more);r.setTag(new TextView[]{title,artist,more});}else r=(LinearLayout)recycled;TextView[] holder=(TextView[])r.getTag();JSONObject t=shown.optJSONObject(position);holder[0].setText(t.optString("title"));PlayingIndicator indicator=(PlayingIndicator)r.getChildAt(1);indicator.setVisibility(currentID.equals(t.optString("id"))?View.VISIBLE:View.GONE);indicator.playing(lastPlaying);holder[1].setText((ArtistIdentity.names(t).isEmpty()
+    ?"Найти исполнителя":String.join(", ",ArtistIdentity.names(t)))+"  ›");holder[1].setTextColor(0xffc4c6d0);holder[1].setMinHeight(dp(36));holder[1].setGravity(Gravity.CENTER_VERTICAL);holder[1].setOnClickListener(v->showArtist(t));holder[1].setContentDescription("Открыть страницу исполнителя");holder[2].setOnClickListener(v->trackMenu(t));r.setBackgroundColor(currentID.equals(t.optString("id"))?0x22ffb260:Color.TRANSPARENT);return r;}
     }
     private String favoriteOrder="recent";
     private void favoriteSortMenu(){

@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 import AVFoundation
 import Combine
+import CryptoKit
 import Network
 
 @MainActor final class TrackStatus: ObservableObject {
@@ -68,6 +69,101 @@ private struct LivePlaybackQueue: Decodable { let tracks: [Track] }
 @MainActor final class MusicStore: ObservableObject {
     enum Screen: String, CaseIterable { case home = "Главная", search = "Поиск", likes = "Избранное", playlists = "Плейлисты", offline = "Офлайн" }
     @Published var screen: Screen = .home
+    @Published var selectedArtist: ArtistSelection?
+    @Published var artistChoice: ArtistChoice?
+    @Published var artistResults: [ArtistSelection] = []
+
+    func openArtist(_ track: Track) {
+        let artists = ArtistIdentity.selections(for: track)
+        guard !artists.isEmpty else {
+            error = "Не удалось определить исполнителя. В метаданных указан загрузчик или название не содержит артиста."
+            return
+        }
+        if artists.count == 1 { selectedArtist = artists[0] }
+        else { artistChoice = ArtistChoice(track: track, artists: artists) }
+    }
+
+    func openArtist(_ selection: ArtistSelection) {
+        selectedArtist = selection
+    }
+
+    private func publishArtistSearch(_ tracks: [Track], query: String) {
+        let searchKey = ArtistIdentity.key(query)
+        guard searchKey.count >= 2 else { artistResults = []; return }
+        var found: [String: ArtistSelection] = [:]
+        for track in tracks {
+            for artist in ArtistIdentity.selections(for: track) {
+                let name = ArtistIdentity.key(artist.name)
+                if name.contains(searchKey), found[name] == nil { found[name] = artist }
+            }
+        }
+        artistResults = Array(found.values)
+            .sorted {
+                let a = ArtistIdentity.key($0.name), b = ArtistIdentity.key($1.name)
+                if a.hasPrefix(searchKey) != b.hasPrefix(searchKey) { return a.hasPrefix(searchKey) }
+                return $0.name.localizedStandardCompare($1.name) == .orderedAscending
+            }.prefix(40).map { $0 }
+    }
+
+    private struct FollowedArtistsResponse: Decodable {
+        struct Item: Decodable { let id: String; let name: String }
+        let artists: [Item]
+    }
+
+    private var artistFollowKey: String {
+        "nw-followed-artists|" + origin.absoluteString + "|" + (account?.id ?? "device")
+    }
+
+    func isFollowingArtist(_ name: String) -> Bool {
+        Set(UserDefaults.standard.stringArray(forKey: artistFollowKey) ?? []).contains(ArtistIdentity.key(name))
+    }
+
+    func refreshFollowingArtists() async {
+        guard account != nil else { return }
+        do {
+            let result: FollowedArtistsResponse = try await api.request("/api/artists/following", timeout: 12)
+            let remote = Set(result.artists.map { ArtistIdentity.key($0.name) }.filter { !$0.isEmpty })
+            UserDefaults.standard.set(Array(remote.sorted().prefix(500)), forKey: artistFollowKey)
+            objectWillChange.send()
+        } catch {
+            // Retain local follows while the older server is still running.
+        }
+    }
+
+    private func derivedArtistID(_ name: String) -> String {
+        let normalized = ArtistIdentity.key(name.precomposedStringWithCompatibilityMapping)
+            .replacingOccurrences(of: "ё", with: "е")
+        let bytes = SHA256.hash(data: Data(normalized.utf8))
+        return "artist-" + String(bytes.map { String(format: "%02x", $0) }.joined().prefix(20))
+    }
+
+    @discardableResult func toggleFollowingArtist(_ name: String, serverID: String? = nil) -> Bool {
+        let key = ArtistIdentity.key(name)
+        guard !key.isEmpty else { return false }
+        let preferencesKey = artistFollowKey
+        var follows = Set(UserDefaults.standard.stringArray(forKey: preferencesKey) ?? [])
+        if follows.contains(key) { follows.remove(key) } else { follows.insert(key) }
+        let isFollowing = follows.contains(key)
+        UserDefaults.standard.set(Array(follows.sorted().prefix(500)), forKey: preferencesKey)
+        objectWillChange.send()
+        guard account != nil else { return isFollowing }
+        let id = serverID?.range(of: #"^artist-[a-f0-9]{20}$"#, options: .regularExpression) != nil
+            ? serverID! : derivedArtistID(name)
+        Task {
+            do {
+                if isFollowing {
+                    let _: OK = try await api.request("/api/artists/following", method: "POST", body: ["name": name])
+                } else {
+                    let _: OK = try await api.request("/api/artists/following/" + id, method: "DELETE")
+                }
+            } catch {
+                // Keep the local control responsive but make sync failures visible.
+                self.error = "Не удалось синхронизировать подписку на артиста с сервером."
+            }
+        }
+        return isFollowing
+    }
+
     @Published var catalog: [Track] = []
     @Published var results: [Track] = []
     @Published var offline: [Track] = []
@@ -437,6 +533,9 @@ private struct LivePlaybackQueue: Decodable { let tracks: [Track] }
         })
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             self?.applicationIsActive = true
+            if let self, let track = self.clock.current {
+                self.lyrics.select(track, api: self.api, origin: self.origin, online: self.account != nil)
+            }
             self?.checkConnection()
         })
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in self?.savePlayback(force: true) })
@@ -518,7 +617,7 @@ private struct LivePlaybackQueue: Decodable { let tracks: [Track] }
         guard force || Date().timeIntervalSince(lastSaved) >= 5, let current = clock.current else { return }
         lastSaved = Date()
         let state = NativePlayer.shared.snapshot(includeQueue: false)
-        let memory = PlaybackMemory(id: current.id, tracks: Array(clock.queue.prefix(1000)), position: clock.position, repeatMode: state["repeat"] as? Int ?? 0, shuffle: state["shuffle"] as? Bool ?? false, wave: state["wave"] as? Bool ?? false)
+        let memory = PlaybackMemory(id: current.id, tracks: clock.queue, position: clock.position, repeatMode: state["repeat"] as? Int ?? 0, shuffle: state["shuffle"] as? Bool ?? false, wave: state["wave"] as? Bool ?? false)
         let origin = origin, account = account?.id ?? "device"
         if force { memory.save(origin, account) } else { Task.detached(priority: .utility) { memory.save(origin, account) } }
     }
@@ -554,25 +653,30 @@ private struct LivePlaybackQueue: Decodable { let tracks: [Track] }
                 UserDefaults.standard.set(mixRecentIDs, forKey: mixRecentKey)
             }
             lastSaved = .distantPast
-            lyrics.select(clock.current, api: api, origin: origin, online: account != nil)
+            if applicationIsActive {
+                lyrics.select(clock.current, api: api, origin: origin, online: account != nil)
+            }
             preloadTask?.cancel()
             preloadTask = nil
             if let at = clock.queue.firstIndex(where: { $0.id == clock.id }), account != nil, hasNetworkPath {
-                // Warm only the nearest tracks; a large queue must not trigger 60 server fetches.
-                let upcoming = Array(clock.queue.dropFirst(at + 1).prefix(8))
+                // Audio has priority over lyrics and artwork, including with the screen locked.
+                // Warm a deeper lookahead, but send one bounded batch per queue position.
+                let upcoming = Array(clock.queue.dropFirst(at + 1).prefix(10))
                 let api = api, origin = origin
-                let ids = upcoming.map(\.id)
-                let shouldPreload = ids != lastPreloadIDs || Date().timeIntervalSince(lastPreloadAt) > 45
-                if !upcoming.isEmpty && shouldPreload {
-                    preloadTask = Task(priority: .utility) {
-                        try? await Task.sleep(nanoseconds: 400_000_000)
+                let ids = upcoming.filter { $0._offline != true }.map(\.id)
+                let shouldPreload = ids != lastPreloadIDs || Date().timeIntervalSince(lastPreloadAt) > 55
+                if !ids.isEmpty && shouldPreload {
+                    lastPreloadIDs = ids
+                    lastPreloadAt = Date()
+                    preloadTask = Task(priority: .userInitiated) {
+                        // CSRF-aware authenticated request. No delay before warming the audio.
+                        let _: OK? = try? await api.request("/api/preload", method: "POST",
+                                                            body: ["ids": ids], timeout: 12)
+                        guard !Task.isCancelled, applicationIsActive else { return }
+                        // Visual extras are optional; never hold up background audio.
+                        await lyrics.preload(Array(upcoming.prefix(4)), api: api, origin: origin)
                         guard !Task.isCancelled else { return }
-                        lastPreloadIDs = ids
-                        lastPreloadAt = Date()
-                        let _: OK? = try? await api.request("/api/preload", method: "POST", body: ["ids": ids])
-                        guard !Task.isCancelled else { return }
-                        await lyrics.preload(Array(upcoming.prefix(3)), api: api, origin: origin)
-                        let covers = upcoming.prefix(3).compactMap { track -> URL? in
+                        let covers = upcoming.prefix(4).compactMap { track -> URL? in
                             guard let path = track.cover_url else { return nil }
                             return URL(string: path, relativeTo: origin)?.absoluteURL
                         }
@@ -730,10 +834,15 @@ private struct LivePlaybackQueue: Decodable { let tracks: [Track] }
     func search() {
         searchTask?.cancel(); searchGeneration = UUID()
         let generation = searchGeneration, text = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { results = []; searchMessage = "Введи название трека или исполнителя"; return }
+        guard !text.isEmpty else {
+            results = []; artistResults = []
+            searchMessage = "Введи название трека или исполнителя"
+            return
+        }
         let cacheKey = text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
         results = searchCache[cacheKey] ?? []
-        searchMessage = results.isEmpty ? "Ищем треки…" : ""
+        publishArtistSearch(catalog + results, query: text)
+        searchMessage = results.isEmpty ? "Ищем треки и исполнителей…" : ""
         searchTask = Task {
             do {
                 try await Task.sleep(nanoseconds: 250_000_000)
@@ -749,8 +858,33 @@ private struct LivePlaybackQueue: Decodable { let tracks: [Track] }
                 }.value
                 guard generation == searchGeneration, !Task.isCancelled else { return }
                 results = searchCache[cacheKey] ?? RecommendationOrder.rankSearch(found, query: text, title: { $0.title }, artist: { $0.artist })
-                searchMessage = "Ищем полные версии…"
+                publishArtistSearch(catalog + results, query: text)
+                searchMessage = "Ищем полные версии и исполнителей…"
                 let encoded = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed.subtracting(CharacterSet(charactersIn: "&+=?#"))) ?? ""
+                struct ArtistSearchReply: Decodable {
+                    struct Item: Decodable {
+                        let name: String
+                        let id: String?
+                        let image_url: String?
+                        let seed_track: Track
+                    }
+                    let artists: [Item]
+                }
+                // Server index includes collaborations and titles the track search can miss.
+                Task {
+                    let response: ArtistSearchReply? = try? await api.request("/api/artist-directory?q=" + encoded, timeout: 10)
+                    guard generation == searchGeneration, !Task.isCancelled, let response else { return }
+                    var combined = artistResults
+                    var keys = Set(combined.map(\.id))
+                    for item in response.artists where keys.insert(ArtistIdentity.key(item.name)).inserted {
+                        var seed = item.seed_track
+                        seed.artist_name = item.name
+                        seed.artist_id = item.id
+                        seed.artist_image_url = item.image_url
+                        combined.append(ArtistSelection(name: item.name, seed: seed, titleDerived: false))
+                    }
+                    artistResults = Array(combined.prefix(45))
+                }
                 for _ in 0..<30 {
                     let response: TrackResult = try await api.request("/api/tracks?q=" + encoded)
                     guard generation == searchGeneration, !Task.isCancelled else { return }
@@ -758,6 +892,10 @@ private struct LivePlaybackQueue: Decodable { let tracks: [Track] }
                     let visible = RecommendationOrder.presentedSearchResults(
                         current: results, incoming: ranked, pending: response.search_pending == true)
                     if results != visible { results = visible }
+                    let previousArtists = artistResults
+                    publishArtistSearch(catalog + results, query: text)
+                    var keys = Set(artistResults.map(\.id))
+                    artistResults += previousArtists.filter { keys.insert($0.id).inserted }
                     searchMessage = response.search_message ?? ""
                     if response.search_pending != true {
                         if searchCache.count >= 20 { searchCache.removeAll(keepingCapacity: true) }
@@ -823,32 +961,56 @@ private struct LivePlaybackQueue: Decodable { let tracks: [Track] }
     }
     func wave() async {
         guard !loading else { return }
-        guard account != nil else { authPresented = true; return }
-        let mixAccount = account?.id
-        let settings = WaveSettings.read(origin, mixAccount ?? "device")
-        loading = true; defer { loading = false }
+        guard let owner = account?.id else { authPresented = true; return }
+        let settings = WaveSettings.read(origin, owner)
+        loading = true
+        defer { loading = false }
+        let previouslyPlayed = DiscoveryHistory.ids(origin: origin, account: owner)
+        let recordings = DiscoveryHistory.recordings(origin: origin, account: owner)
+        let hidden = hiddenRecommendationIDs.union(SkipFeedback.recentIDs(origin: origin, account: owner))
+        let excludedForService = Array(Set(Array(clock.queue.prefix(30)).map(\.id) + [clock.id]))
+        let recent = DiscoveryHistory.excludedIDs(origin: origin, account: owner, limit: 160)
+        let exclusion = Array((excludedForService + recent + Array(mixRecentIDs.reversed())).filter { !$0.isEmpty }
+            .reduce(into: [String]()) { selected, value in
+                if selected.count < 195 && !selected.contains(value) { selected.append(value) }
+            })
+        let encoded = exclusion.joined(separator: ",")
+            .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed.subtracting(CharacterSet(charactersIn: "&+=?#"))) ?? ""
         do {
-            let hidden = hiddenRecommendationIDs.union(SkipFeedback.recentIDs(origin: origin, account: mixAccount ?? "device"))
-            var ids = Array(Set(mixRecentIDs + Array(clock.queue.prefix(8)).map(\.id)))
-            ids.append(contentsOf: hidden.sorted().prefix(80))
-            if !clock.id.isEmpty { ids.removeAll { $0 == clock.id }; ids.append(clock.id) }
-            let excluded = Array(ids.suffix(200)), nonce = UUID().uuidString
-            let query = excluded.joined(separator: ",").addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-            var result: TrackResult = try await api.request("/api/wave?mix=" + nonce + settings.query + "&exclude=" + query)
-            if result.tracks.isEmpty, !clock.id.isEmpty {
-                let recent = Array(Set(Array(mixRecentIDs.suffix(4)) + [clock.id]))
-                result = try await api.request("/api/wave?mix=" + nonce + settings.query + "&exclude=" + recent.joined(separator: ","))
+            // A new mix seed broadens discovery without relaxing repeat protection.
+            // The server may return a narrow pool, so try three independent selections.
+            var pool: [Track] = []
+            for _ in 0..<3 {
+                let nonce = UUID().uuidString
+                let response: TrackResult = try await api.request("/api/wave?mix=" + nonce + settings.query + "&exclude=" + encoded)
+                guard account?.id == owner else { return }
+                pool.append(contentsOf: response.tracks)
+                let fresh = RecommendationOrder.arrange(pool,
+                    recent: previouslyPlayed, hidden: hidden, hiddenArtists: blockedArtists,
+                    current: clock.id, identity: { $0.id }, title: { $0.title }, artist: { $0.artist })
+                    .filter { !previouslyPlayed.contains($0.id) &&
+                        !recordings.contains(DiscoveryHistory.recording(title: $0.title, artist: $0.artist)) }
+                if let first = fresh.first {
+                    lastWave = fresh
+                    saveSessionSnapshot()
+                    play(first, in: fresh, wave: true)
+                    return
+                }
             }
-            guard account?.id == mixAccount else { return }
-            let fresh = RecommendationOrder.arrange(result.tracks, recent: Set(mixRecentIDs.suffix(20)), hidden: hidden, hiddenArtists: blockedArtists, current: clock.id, identity: { $0.id }, title: { $0.title }, artist: { $0.artist })
-            if let first = fresh.first { lastWave = fresh; saveSessionSnapshot(); play(first, in: fresh, wave: true) }
-            else { error = result.message ?? "Нет подходящих треков. Измени настройки или попробуй позже." }
+            error = "Свежих треков по этим настройкам пока нет. Попробуй расширить вкусы в настройках подборки."
+        } catch is CancellationError {
         } catch {
-            let cooled = SkipFeedback.recentIDs(origin: origin, account: mixAccount ?? "device")
-            let cached = lastWave.filter { $0.id != clock.id && !hiddenRecommendationIDs.contains($0.id) && !cooled.contains($0.id) && !blockedArtists.contains(RecommendationOrder.key($0.artist)) }
-            if let first = cached.first {
-                play(first, in: cached, wave: true)
-            } else { self.error = error.localizedDescription }
+            // Offline fallback never replays tracks already in the two-week history.
+            let fallback = lastWave.filter { track in
+                track.id != clock.id && !hidden.contains(track.id) && !previouslyPlayed.contains(track.id)
+                && !recordings.contains(DiscoveryHistory.recording(title: track.title, artist: track.artist))
+                && !blockedArtists.contains(RecommendationOrder.key(track.artist))
+            }
+            if let first = fallback.first {
+                play(first, in: fallback, wave: true)
+            } else {
+                self.error = "Не удалось получить новые треки: " + error.localizedDescription
+            }
         }
     }
     @Published private(set) var automaticFavoritesDownload = false

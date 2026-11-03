@@ -246,21 +246,36 @@ struct MiniPlayer: View {
         GeometryReader { box in
             let compact = box.size.width < 350
             HStack(spacing: compact ? 8 : 12) {
-                Button(action: open) {
-                    HStack(spacing: 7) {
-                        Cover(track: clock.current, origin: store.origin).frame(width: compact ? 42 : 42, height: compact ? 42 : 42).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(clock.current?.title ?? "Выбери трек").font(.system(size: compact ? 12 : 14, weight: .semibold)).lineLimit(1)
-                            Text(clock.current?.artist ?? "Nightwell Music").font(.system(size: compact ? 10 : 12)).foregroundStyle(.white.opacity(0.65)).lineLimit(1)
-                        }.frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: 7) {
+                    Button(action: open) {
+                        Cover(track: clock.current, origin: store.origin)
+                            .frame(width: 42, height: 42)
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     }
-                    .id(clock.id)
-                    .transition(.asymmetric(
-                        insertion: .offset(x: 45 * slideDirection).combined(with: .opacity),
-                        removal: .offset(x: -45 * slideDirection).combined(with: .opacity)
-                    ))
-                    .contentShape(Rectangle())
-                }.buttonStyle(.plain)
+                    .buttonStyle(.plain)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Button(action: open) {
+                            Text(clock.current?.title ?? "Выбери трек")
+                                .font(.system(size: compact ? 12 : 14, weight: .semibold))
+                                .lineLimit(1)
+                        }
+                        .buttonStyle(.plain)
+                        Button(action: open) {
+                            Text(clock.current?.artist ?? "Nightwell Music")
+                                .font(.system(size: compact ? 10 : 12))
+                                .foregroundStyle(.white.opacity(0.65))
+                                .lineLimit(1)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                        }.buttonStyle(.plain)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .id(clock.id)
+                .transition(.asymmetric(
+                    insertion: .offset(x: 45 * slideDirection).combined(with: .opacity),
+                    removal: .offset(x: -45 * slideDirection).combined(with: .opacity)
+                ))
                 .highPriorityGesture(DragGesture(minimumDistance: 18).onEnded { value in
                     if abs(value.translation.width) > 48 && abs(value.translation.width) > abs(value.translation.height) * 1.2 {
                         changeTrack(value.translation.width < 0 ? 1 : -1)
@@ -288,7 +303,6 @@ struct MiniPlayer: View {
         }.frame(height: 68)
         .animation(reduced ? nil : .spring(response: 0.32, dampingFraction: 0.82), value: clock.id)
         .task(id: clock.id) { guard !reduced else { return }; glow = true; try? await Task.sleep(nanoseconds: 80_000_000); guard !Task.isCancelled else { return }; withAnimation(.easeOut(duration: 0.9)) { glow = false } }
-        // Swipe wins over the artwork/title tap, so it never opens the full player.
     }
     private func changeTrack(_ step: Int) {
         slideDirection = step < 0 ? -1 : 1
@@ -505,6 +519,9 @@ struct FullPlayer: View {
     @State private var showLyrics = false
     @State private var feature: PremiumFeatureView.Kind?
     @State private var showQueue = false
+    @State private var artistDestination: ArtistSelection?
+    @State private var artistChoices: ArtistChoice?
+    @State private var artistLookupUnavailable = false
     @State private var seeking = false
     @State private var scrub = 0.0
     @State private var repeatMode = 0
@@ -551,7 +568,31 @@ struct FullPlayer: View {
                 HStack(spacing: 10) {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(clock.current?.title ?? "Выбери трек").font(.system(size: 20, weight: .bold)).lineLimit(2)
-                        Text(clock.current?.artist ?? "").font(.system(size: 15)).foregroundStyle(.secondary).lineLimit(1)
+                        if let current = clock.current {
+                            Button { openArtist(current) } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "person.crop.circle")
+                                        .font(.system(size: 11))
+                                    Text(ArtistIdentity.selections(for: current).map(\.name).joined(separator: ", ").isEmpty
+                                        ? "Найти исполнителя"
+                                        : ArtistIdentity.selections(for: current).map(\.name).joined(separator: ", "))
+                                        .lineLimit(1)
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 8, weight: .semibold))
+                                }
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(.white.opacity(0.85))
+                                .padding(.horizontal, 8)
+                                .frame(height: 29, alignment: .leading)
+                                .background(.white.opacity(0.075), in: Capsule())
+                                .contentShape(Capsule())
+                                .padding(.vertical, 5)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Открыть страницу исполнителя")
+                        } else {
+                            Text("Исполнитель").font(.system(size: 15)).foregroundStyle(.secondary)
+                        }
                     }
                     Spacer(minLength: 4)
                     if let track = clock.current {
@@ -614,6 +655,27 @@ struct FullPlayer: View {
             }
         }
         .sheet(item: $feature) { PremiumFeatureView(kind: $0).environmentObject(store) }
+        .sheet(item: $artistDestination) { selection in
+            ArtistPage(artist: selection)
+                .environmentObject(store)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+                .presentationBackground(.black)
+        }
+        .sheet(item: $artistChoices) { choice in
+            ArtistChoiceSheet(choice: choice).environmentObject(store)
+        }
+        .alert("Исполнитель не определён", isPresented: $artistLookupUnavailable) {
+            Button("Поиск по треку") {
+                store.query = clock.current?.title ?? ""
+                store.screen = .search
+                store.search()
+                dismiss()
+            }
+            Button("Закрыть", role: .cancel) { }
+        } message: {
+            Text("В метаданных нет достоверного имени исполнителя. Загрузчик трека может быть другим человеком.")
+        }
         .sheet(isPresented: $showQueue) {
             PlaybackQueue(clock: clock)
                 .presentationDetents([.medium, .large])
@@ -621,11 +683,18 @@ struct FullPlayer: View {
                 .presentationBackground(.clear)
         }
     }
+    private func openArtist(_ track: Track) {
+        let choices = ArtistIdentity.selections(for: track)
+        if choices.count > 1 { artistChoices = ArtistChoice(track: track, artists: choices) }
+        else if let artist = choices.first { artistDestination = artist }
+        else { artistLookupUnavailable = true }
+    }
     private var tools: some View {
         Menu {
             Button("Эквалайзер", systemImage: "slider.vertical.3") { feature = .sound }
             Button(showLyrics ? "Обложка" : "Текст песни", systemImage: "text.alignleft") { showLyrics.toggle() }
             if let track = clock.current {
+                Button("Страница исполнителя", systemImage: "person.crop.circle") { openArtist(track) }
                 Button(store.isRecommendationHidden(track) ? "Вернуть в рекомендации" : "Не рекомендовать", systemImage: "hand.thumbsdown") {
                     store.toggleRecommendationHidden(track)
                 }
@@ -644,21 +713,26 @@ struct PlaybackQueue: View {
     @ObservedObject var clock: PlaybackClock
 
     private var currentIndex: Int { clock.queue.firstIndex { $0.id == clock.id } ?? -1 }
+    private var playedCount: Int { max(0, currentIndex) }
+
     var body: some View {
         ZStack {
             LinearGradient(colors: [Color(white: 0.10), Color(white: 0.035), .black],
                            startPoint: .topLeading, endPoint: .bottomTrailing)
                 .ignoresSafeArea()
-            Color.black.opacity(0.16).ignoresSafeArea()
-            VStack(spacing: 20) {
+            VStack(spacing: 14) {
                 HStack(alignment: .center) {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("ТВОЯ МУЗЫКА").font(.system(size: 9, weight: .semibold)).tracking(3).foregroundStyle(Color.white)
+                        Text("ТВОЯ МУЗЫКА")
+                            .font(.system(size: 9, weight: .semibold)).tracking(3)
                         Text("Очередь").font(.system(size: 23, weight: .bold))
                     }
                     Spacer()
-                    Text("\(clock.queue.count)").font(.subheadline.monospacedDigit())
-                        .padding(10).nightwellLiquidGlass(20)
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Text("\(clock.queue.count) треков").font(.subheadline.monospacedDigit())
+                        Text("Осталось: \(max(0, clock.queue.count - currentIndex - 1))")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                     Button { dismiss() } label: {
                         Image(systemName: "xmark").frame(width: 42, height: 42).nightwellLiquidGlass(24)
                     }.accessibilityLabel("Закрыть очередь")
@@ -672,23 +746,82 @@ struct PlaybackQueue: View {
                             }
                             ForEach(Array(clock.queue.enumerated()), id: \.offset) { index, track in
                                 VStack(alignment: .leading, spacing: 8) {
-                                    if index == currentIndex {
-                                        Text("СЕЙЧАС ИГРАЕТ").font(.system(size: 9, weight: .semibold))
-                                            .tracking(2).foregroundStyle(Color.white).padding(.horizontal, 12)
-                                    } else if index == currentIndex + 1 {
-                                        Text("ДАЛЬШЕ").font(.system(size: 9, weight: .semibold))
-                                            .tracking(2).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.top, 8)
+                                    if index == 0 && playedCount > 0 {
+                                        sectionLabel("ПРОСЛУШАНО · \(playedCount)")
                                     }
-                                    NativeTrackRow(track: track, queue: clock.queue, status: clock.status, playlist: nil)
-                                }.id(index)
+                                    if index == currentIndex {
+                                        sectionLabel("СЕЙЧАС ИГРАЕТ")
+                                    } else if index == currentIndex + 1 {
+                                        sectionLabel("ДАЛЬШЕ · \(max(0, clock.queue.count - index))")
+                                    }
+                                    HStack(spacing: 12) {
+                                        Button {
+                                            NativePlayer.shared.jump(to: track.id)
+                                        } label: {
+                                            HStack(spacing: 12) {
+                                                Cover(track: track, origin: store.origin)
+                                                    .frame(width: 46, height: 46)
+                                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                                                VStack(alignment: .leading, spacing: 5) {
+                                                    Text(track.title)
+                                                        .font(.system(size: 14, weight: index == currentIndex ? .bold : .medium))
+                                                        .lineLimit(1).foregroundStyle(.white)
+                                                    Text(track.artist)
+                                                        .font(.caption).lineLimit(1)
+                                                        .foregroundStyle(.white.opacity(0.62))
+                                                }.frame(maxWidth: .infinity, alignment: .leading)
+                                                if index == currentIndex {
+                                                    PlayingIndicator(playing: clock.playing)
+                                                        .frame(width: 22, height: 22)
+                                                } else if index < currentIndex {
+                                                    Image(systemName: "checkmark")
+                                                        .font(.caption).foregroundStyle(.white.opacity(0.40))
+                                                }
+                                            }.contentShape(Rectangle())
+                                        }
+                                        .buttonStyle(.plain)
+                                        Menu {
+                                            Button(store.likes.contains(track.id) ? "Убрать из избранного" : "В избранное",
+                                                   systemImage: "heart") {
+                                                Task { await store.like(track) }
+                                            }
+                                            Button("Скачать", systemImage: "arrow.down.to.line") {
+                                                Task { await store.download([track]) }
+                                            }
+                                        } label: {
+                                            Image(systemName: "ellipsis").frame(width: 34, height: 44)
+                                        }
+                                    }
+                                    .padding(12)
+                                    .background(index == currentIndex ? Color.white.opacity(0.14) :
+                                                (index < currentIndex ? Color.white.opacity(0.02) :
+                                                 Color.white.opacity(0.06)),
+                                                in: RoundedRectangle(cornerRadius: 16))
+                                }
+                                .id(index)
                             }
                         }.padding(12)
                     }
                     .nightwellLiquidGlass(28)
-                    .onAppear { if currentIndex >= 0 { reader.scrollTo(currentIndex, anchor: .top) } }
+                    .onAppear { scrollToCurrent(reader) }
+                    .onChange(of: clock.id) { _, _ in scrollToCurrent(reader) }
                 }
             }.padding(.horizontal, 20).padding(.top, 28).padding(.bottom, 18)
-        }.tint(Color.white).foregroundStyle(nightwellText)
+        }
+        .tint(.white).foregroundStyle(.white)
+    }
+
+    private func sectionLabel(_ value: String) -> some View {
+        Text(value).font(.system(size: 10, weight: .semibold))
+            .tracking(1.7).foregroundStyle(.white.opacity(0.67))
+            .padding(.horizontal, 12).padding(.top, 8)
+    }
+
+    private func scrollToCurrent(_ reader: ScrollViewProxy) {
+        guard currentIndex >= 0 else { return }
+        withAnimation(.easeOut(duration: 0.2)) {
+            reader.scrollTo(currentIndex, anchor: .center)
+        }
     }
 }
 
@@ -891,6 +1024,7 @@ struct NativeSettings: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("nw-transition-seconds") private var transition = 1.5
     @AppStorage("nw-stream-buffer-seconds") private var streamBufferSeconds = 4.0
+    @AppStorage("nw-audio-quality") private var audioQuality = "original"
     @AppStorage("nw-equal-volume") private var equalVolume = 0.0
     @AppStorage("nw-ambient-lyrics") private var ambientLyrics = true
     @State private var playbackDiagnostics = "Нет данных о запуске"
@@ -948,6 +1082,21 @@ struct NativeSettings: View {
                                     valueText: String(format: "%.0f с", streamBufferSeconds))
                             .onChange(of: streamBufferSeconds) { NativePlayer.shared.setStreamBufferDuration($0) }
                         Text("Меньше буфер: быстрее старт, но выше риск пауз на слабой сети. При обрывах выбери 8 или 12 секунд.")
+                            .font(.system(size: 12)).foregroundStyle(.white.opacity(0.43))
+                        HStack(spacing: 12) {
+                            Label("Качество звука", systemImage: "music.note")
+                            Spacer()
+                            Picker("Качество звука", selection: $audioQuality) {
+                                Text("Оригинал").tag("original")
+                                Text("Экономия · 96 кбит/с").tag("economy")
+                                Text("Баланс · 160 кбит/с").tag("balanced")
+                                Text("Высокое · 256 кбит/с").tag("high")
+                            }
+                            .pickerStyle(.menu)
+                            .tint(.white)
+                            .onChange(of: audioQuality) { NativePlayer.shared.setAudioQuality($0) }
+                        }
+                        Text("SoundCloud: выбираем готовые AAC 96 или 160 кбит/с через API без перекодирования. 256 кбит/с только при наличии доступного потока, иначе 160. Для локальных файлов используется заранее подготовленный AAC. Настройка применяется со следующего трека.")
                             .font(.system(size: 12)).foregroundStyle(.white.opacity(0.43))
                         HStack {
                             Text("Одинаковая громкость")

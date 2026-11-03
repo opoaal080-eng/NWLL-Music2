@@ -427,6 +427,12 @@ struct NativeRoot: View {
             }
         }
         .fullScreenCover(isPresented: $fullPlayer) { FullPlayer(clock: store.clock) }
+        .fullScreenCover(item: $store.selectedArtist) { selection in
+            ArtistPage(artist: selection).environmentObject(store)
+        }
+        .sheet(item: $store.artistChoice) { choice in
+            ArtistChoiceSheet(choice: choice).environmentObject(store)
+        }
         
         .sheet(isPresented: $transferPresented) { NightwellNativeTransfer().environmentObject(store) }
         .sheet(isPresented: $showShare) { if let shareURL { ShareSheet(items: [shareURL]) } }
@@ -514,7 +520,29 @@ struct NativeRoot: View {
                 HStack { Image(systemName: "magnifyingglass"); TextField("Трек или исполнитель", text: $store.query).textInputAutocapitalization(.never).autocorrectionDisabled().onChange(of: store.query) { _ in store.search() }; if !store.query.isEmpty { Button { store.query = "" } label: { Image(systemName: "xmark.circle.fill") } } }.padding(14)
                     .background { RoundedRectangle(cornerRadius: 18).fill(.ultraThinMaterial).opacity(0.48) }
                     .overlay(RoundedRectangle(cornerRadius: 18).stroke(.white.opacity(0.28), lineWidth: 1))
+                if !store.artistResults.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Исполнители")
+                            .font(.system(size: 21, weight: .semibold))
+                        ForEach(Array(store.artistResults.prefix(12))) { artist in
+                            Button { store.openArtist(artist) } label: {
+                                HStack(spacing: 11) {
+                                    ArtistPortrait(name: artist.name, rawURL: artist.seed.artist_image_url, origin: store.origin)
+                                        .frame(width: 48, height: 48)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(artist.name).font(.system(size: 16, weight: .semibold))
+                                        Text("Открыть страницу и треки")
+                                            .font(.caption).foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    Image(systemName: "chevron.right").foregroundStyle(.secondary)
+                                }.padding(.vertical, 5)
+                            }.buttonStyle(.plain)
+                        }
+                    }.padding(.vertical, 8)
+                }
                 if !store.searchMessage.isEmpty { Text(store.searchMessage).font(.caption).foregroundStyle(.secondary) }
+                if !store.results.isEmpty { Text("Треки").font(.system(size: 21, weight: .semibold)) }
                 TrackList(tracks: store.results)
             }.padding(.horizontal, 20)
         case .likes:
@@ -577,38 +605,82 @@ struct NativeTrackRow: View {
     let queue: [Track]
     @ObservedObject var status: TrackStatus
     var playlist: Playlist?
+
     var body: some View {
         HStack(spacing: 12) {
             Button { store.play(track, in: queue) } label: {
-                HStack(spacing: 12) {
-                    Cover(track: track, origin: store.origin).frame(width: 46, height: 46).clipShape(RoundedRectangle(cornerRadius: 12))
-                    VStack(alignment: .leading, spacing: 5) { Text(track.title).font(.subheadline.weight(.semibold)).lineLimit(2); Text(track.artist).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
-                    Spacer(minLength: 0)
-                    if status.id == track.id { PlayingIndicator(playing: status.playing).frame(width: 20, height: 20) }
-                }.contentShape(Rectangle())
-            }.buttonStyle(.plain)
+                Cover(track: track, origin: store.origin)
+                    .frame(width: 46, height: 46)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+            }.buttonStyle(.plain).accessibilityLabel("Воспроизвести " + track.title)
+
+            VStack(alignment: .leading, spacing: 5) {
+                Button { store.play(track, in: queue) } label: {
+                    Text(track.title).font(.subheadline.weight(.semibold)).lineLimit(2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                }.buttonStyle(.plain)
+                Button { store.openArtist(track) } label: {
+                    Text(ArtistIdentity.selections(for: track).map(\.name).joined(separator: ", ").isEmpty
+                         ? track.artist : ArtistIdentity.selections(for: track).map(\.name).joined(separator: ", ") + "  ›")
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(ArtistIdentity.selection(for: track) == nil)
+                .accessibilityLabel("Открыть исполнителя")
+            }
+            Spacer(minLength: 0)
+            if status.id == track.id {
+                PlayingIndicator(playing: status.playing).frame(width: 20, height: 20)
+            }
             Menu {
-                Button(store.likes.contains(track.id) ? "Убрать из избранного" : "В избранное", systemImage: store.likes.contains(track.id) ? "heart.fill" : "heart") { Task { await store.like(track) } }
+                Button(store.likes.contains(track.id) ? "Убрать из избранного" : "В избранное", systemImage: store.likes.contains(track.id) ? "heart.fill" : "heart") {
+                    Task { await store.like(track) }
+                }
                 if store.isDownloaded(track) {
-                    Button("Удалить загрузку", systemImage: "trash", role: .destructive) { Task { await store.removeDownload(track) } }
+                    Button("Удалить загрузку", systemImage: "trash", role: .destructive) {
+                        Task { await store.removeDownload(track) }
+                    }
                 } else if let fraction = store.downloadProgress(track.id) {
                     Text("Скачивание \(Int(fraction * 100))%")
                 } else {
                     Button("Скачать", systemImage: "arrow.down.to.line") { Task { await store.download([track]) } }
                 }
-                ShareLink(item: store.origin.appendingPathComponent("track/" + track.id)) { Label("Поделиться", systemImage: "square.and.arrow.up") }
+                ShareLink(item: store.origin.appendingPathComponent("track/" + track.id)) {
+                    Label("Поделиться", systemImage: "square.and.arrow.up")
+                }
+                if ArtistIdentity.selection(for: track) != nil {
+                    Button("Открыть исполнителя", systemImage: "person.crop.circle") {
+                        store.openArtist(track)
+                    }
+                }
                 Button(store.isRecommendationHidden(track) ? "Вернуть в рекомендации" : "Не рекомендовать", systemImage: "hand.thumbsdown") {
                     store.toggleRecommendationHidden(track)
                 }
-                if !track.artist.isEmpty {
+                if ArtistIdentity.selection(for: track) != nil {
                     Button(store.isArtistHidden(track) ? "Вернуть исполнителя" : "Не рекомендовать исполнителя", systemImage: "person.crop.circle.badge.xmark") {
                         store.toggleArtistHidden(track)
                     }
                 }
-                Menu("Добавить в плейлист") { ForEach(store.playlists) { p in Button(p.name) { Task { await store.add(track, playlist: p) } } } }
-                if let playlist { Button("Убрать из плейлиста", role: .destructive) { Task { await store.add(track, playlist: playlist, remove: true) } } }
-            } label: { Image(systemName: "ellipsis").frame(width: 34, height: 44) }
-        }.padding(12).background(status.id == track.id ? pumpkin.opacity(0.12) : .white.opacity(0.035), in: RoundedRectangle(cornerRadius: 18))
+                Menu("Добавить в плейлист") {
+                    ForEach(store.playlists) { p in
+                        Button(p.name) { Task { await store.add(track, playlist: p) } }
+                    }
+                }
+                if let playlist {
+                    Button("Убрать из плейлиста", role: .destructive) {
+                        Task { await store.add(track, playlist: playlist, remove: true) }
+                    }
+                }
+            } label: {
+                Image(systemName: "ellipsis").frame(width: 34, height: 44)
+            }
+        }
+        .padding(12)
+        .background(status.id == track.id ? pumpkin.opacity(0.12) : .white.opacity(0.035),
+                    in: RoundedRectangle(cornerRadius: 18))
     }
 }
 struct Cover: View {
@@ -680,11 +752,11 @@ struct PlaylistScreen: View {
             if !activeFractions.isEmpty {
                 let fraction = activeFractions.reduce(0, +) / Double(activeFractions.count)
                 VStack(alignment: .leading, spacing: 5) {
-                    Text("Скачивание · \\(Int(fraction * 100))%").font(.caption).foregroundStyle(.secondary)
+                    Text("Скачивание · \(Int(fraction * 100))%").font(.caption).foregroundStyle(.secondary)
                     ProgressView(value: fraction).tint(pumpkin)
                 }
             }
-            Text("Треки плейлиста · \\(tracks.count)")
+            Text("Треки плейлиста · \(tracks.count)")
                 .font(.caption).foregroundStyle(.secondary)
             TrackList(tracks: tracks, playlist: playlist)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

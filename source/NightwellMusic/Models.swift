@@ -4,6 +4,11 @@ struct Track: Identifiable, Codable, Equatable {
     let id: String
     var title: String
     var artist: String
+    /// Optional canonical performer metadata supplied separately from upload account.
+    var artist_name: String?
+    var artist_id: String?
+    var artist_image_url: String?
+    var artist_verified: Bool?
     var album: String?
     var duration: Double?
     var cover_url: String?
