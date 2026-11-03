@@ -80,9 +80,11 @@ def clean_track(track):
     elif parsed:
         result["artist"] = parsed[0]
         result["title"] = parsed[1]
+    elif uploader and uploader != UNKNOWN:
+        result["artist"] = uploader
     else:
         result["artist"] = UNKNOWN
-    if uploader:
+    if uploader and (direct or parsed) and uploader.casefold() != str(result["artist"]).casefold():
         result.setdefault("uploader", uploader)
     result["_artist_checked"] = True
     return result
