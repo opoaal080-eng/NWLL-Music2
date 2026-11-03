@@ -68,6 +68,34 @@ private struct LivePlaybackQueue: Decodable { let tracks: [Track] }
 @MainActor final class MusicStore: ObservableObject {
     enum Screen: String, CaseIterable { case home = "Главная", search = "Поиск", likes = "Избранное", playlists = "Плейлисты", offline = "Офлайн" }
     @Published var screen: Screen = .home
+    @Published var selectedArtist: ArtistSelection?
+
+    func openArtist(_ track: Track) {
+        guard let selection = ArtistIdentity.selection(for: track) else {
+            error = "Не удалось определить исполнителя. В метаданных указан загрузчик или название не содержит артиста."
+            return
+        }
+        selectedArtist = selection
+    }
+
+    private var artistFollowKey: String {
+        "nw-followed-artists|" + origin.absoluteString + "|" + (account?.id ?? "device")
+    }
+
+    func isFollowingArtist(_ name: String) -> Bool {
+        Set(UserDefaults.standard.stringArray(forKey: artistFollowKey) ?? []).contains(ArtistIdentity.key(name))
+    }
+
+    @discardableResult func toggleFollowingArtist(_ name: String) -> Bool {
+        let key = ArtistIdentity.key(name)
+        guard !key.isEmpty else { return false }
+        var follows = Set(UserDefaults.standard.stringArray(forKey: artistFollowKey) ?? [])
+        if follows.contains(key) { follows.remove(key) } else { follows.insert(key) }
+        UserDefaults.standard.set(Array(follows.sorted().prefix(500)), forKey: artistFollowKey)
+        objectWillChange.send()
+        return follows.contains(key)
+    }
+
     @Published var catalog: [Track] = []
     @Published var results: [Track] = []
     @Published var offline: [Track] = []
