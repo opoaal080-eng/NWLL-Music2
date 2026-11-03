@@ -577,8 +577,10 @@ private struct AudioQualityDecision: Decodable {
     private func updateAudioQualityNotice(_ trackID: String) {
         qualityNoticeTask?.cancel()
         audioQualityNotice = ""
-        let quality = UserDefaults.standard.string(forKey: "nw-audio-quality") ?? "auto"
-        guard quality == "economy" || quality == "high", account != nil else { return }
+        let chosenQuality = UserDefaults.standard.string(forKey: "nw-audio-quality") ?? "auto"
+        let quality = (chosenQuality == "low" || chosenQuality == "economy") ? "economy" :
+            (chosenQuality == "medium" || chosenQuality == "high") ? "high" : "auto"
+        guard quality != "auto", account != nil else { return }
         guard clock.current?._offline != true else { return }
         let wasReady = UserDefaults.standard.bool(forKey: "nw-quality-ready") &&
             UserDefaults.standard.string(forKey: "nw-quality-ready-origin") == origin.absoluteString
@@ -596,8 +598,10 @@ private struct AudioQualityDecision: Decodable {
                     "/api/audio-quality/options?track_id=" + trackID +
                     "&quality=" + quality, timeout: 12)
                 guard !Task.isCancelled && clock.id == trackID else { return }
+                let actual = result.selected_quality == "economy" ? "Низкое" :
+                    result.selected_quality == "high" ? "Высокое" : "Исходное"
                 audioQualityNotice = result.fallback ?
-                    (result.message ?? "Используется доступное качество") : ""
+                    "Выбранное качество недоступно. Используется: \(actual)." : ""
             } catch {
                 if !Task.isCancelled && clock.id == trackID {
                     audioQualityNotice = "Не удалось проверить качество, играет доступный поток"
