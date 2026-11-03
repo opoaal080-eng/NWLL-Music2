@@ -506,6 +506,7 @@ struct FullPlayer: View {
     @State private var feature: PremiumFeatureView.Kind?
     @State private var showQueue = false
     @State private var artistDestination: ArtistSelection?
+    @State private var artistLookupUnavailable = false
     @State private var seeking = false
     @State private var scrub = 0.0
     @State private var repeatMode = 0
@@ -552,14 +553,27 @@ struct FullPlayer: View {
                 HStack(spacing: 10) {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(clock.current?.title ?? "Выбери трек").font(.system(size: 20, weight: .bold)).lineLimit(2)
-                        if let current = clock.current, let identity = ArtistIdentity.selection(for: current) {
-                            Button { artistDestination = identity } label: {
-                                Text(identity.name).font(.system(size: 15))
-                                    .foregroundStyle(.secondary).lineLimit(1)
-                            }.buttonStyle(.plain)
+                        if let current = clock.current {
+                            Button { openArtist(current) } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "person.crop.circle")
+                                        .font(.system(size: 14))
+                                    Text(ArtistIdentity.selection(for: current)?.name ?? "Найти исполнителя")
+                                        .lineLimit(1)
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 10, weight: .semibold))
+                                }
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundStyle(.white.opacity(0.88))
+                                .padding(.horizontal, 10)
+                                .frame(minHeight: 44, alignment: .leading)
+                                .background(.white.opacity(0.10), in: Capsule())
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Открыть страницу исполнителя")
                         } else {
-                            Text(clock.current?.artist ?? "")
-                                .font(.system(size: 15)).foregroundStyle(.secondary).lineLimit(1)
+                            Text("Исполнитель").font(.system(size: 15)).foregroundStyle(.secondary)
                         }
                     }
                     Spacer(minLength: 4)
@@ -623,8 +637,23 @@ struct FullPlayer: View {
             }
         }
         .sheet(item: $feature) { PremiumFeatureView(kind: $0).environmentObject(store) }
-        .fullScreenCover(item: $artistDestination) { selection in
-            ArtistPage(artist: selection).environmentObject(store)
+        .sheet(item: $artistDestination) { selection in
+            ArtistPage(artist: selection)
+                .environmentObject(store)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+                .presentationBackground(.black)
+        }
+        .alert("Исполнитель не определён", isPresented: $artistLookupUnavailable) {
+            Button("Поиск по треку") {
+                store.query = clock.current?.title ?? ""
+                store.screen = .search
+                store.search()
+                dismiss()
+            }
+            Button("Закрыть", role: .cancel) { }
+        } message: {
+            Text("В метаданных нет достоверного имени исполнителя. Загрузчик трека может быть другим человеком.")
         }
         .sheet(isPresented: $showQueue) {
             PlaybackQueue(clock: clock)
@@ -633,11 +662,19 @@ struct FullPlayer: View {
                 .presentationBackground(.clear)
         }
     }
+    private func openArtist(_ track: Track) {
+        if let selection = ArtistIdentity.selection(for: track) {
+            artistDestination = selection
+        } else {
+            artistLookupUnavailable = true
+        }
+    }
     private var tools: some View {
         Menu {
             Button("Эквалайзер", systemImage: "slider.vertical.3") { feature = .sound }
             Button(showLyrics ? "Обложка" : "Текст песни", systemImage: "text.alignleft") { showLyrics.toggle() }
             if let track = clock.current {
+                Button("Страница исполнителя", systemImage: "person.crop.circle") { openArtist(track) }
                 Button(store.isRecommendationHidden(track) ? "Вернуть в рекомендации" : "Не рекомендовать", systemImage: "hand.thumbsdown") {
                     store.toggleRecommendationHidden(track)
                 }
