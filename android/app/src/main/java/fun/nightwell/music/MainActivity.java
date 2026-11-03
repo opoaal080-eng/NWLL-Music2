@@ -1016,7 +1016,7 @@ public final class MainActivity extends Activity {
         LinearLayout metadata=row();metadata.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout names=column();
         TextView title=text(track.optString("title"),25);title.setMaxLines(2);title.setLetterSpacing(-.025f);title.setLineSpacing(dp(2),1f);title.setAutoSizeTextTypeUniformWithConfiguration(19,25,1,android.util.TypedValue.COMPLEX_UNIT_SP);title.setEllipsize(android.text.TextUtils.TruncateAt.END);title.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);title.setPadding(dp(8),dp(18),dp(8),dp(6));names.addView(title);
-        TextView artist=text(track.optString("artist"),16);artist.setTextColor(0xffa4a6b1);artist.setMaxLines(2);artist.setEllipsize(android.text.TextUtils.TruncateAt.END);artist.setPadding(dp(8),0,dp(8),dp(18));names.addView(artist);
+        TextView artist=text(ArtistIdentity.name(track).isEmpty()?track.optString("artist"):ArtistIdentity.name(track),16);artist.setTextColor(0xffa4a6b1);artist.setMaxLines(2);artist.setEllipsize(android.text.TextUtils.TruncateAt.END);artist.setPadding(dp(8),0,dp(8),dp(18));names.addView(artist);artist.setOnClickListener(v->showArtist(track));artist.setContentDescription("Открыть исполнителя");
         metadata.addView(names,new LinearLayout.LayoutParams(0,-2,1));
         fullLike=iconButton(likes.contains(track.optString("id"))?"♥":"♡",()->toggleFavorite(current()));
         fullLike.setContentDescription(likes.contains(track.optString("id"))?"Убрать из избранного":"Добавить в избранное");
@@ -1155,7 +1155,8 @@ public final class MainActivity extends Activity {
             likes.contains(id)?"Убрать из избранного":"В избранное",
             "Скачать", "Поделиться", "Добавить в плейлист",
             hiddenRecommendations().contains(id)?"Вернуть в рекомендации":"Не рекомендовать",
-            isArtistHidden(track)?"Вернуть исполнителя":"Не рекомендовать исполнителя"
+            isArtistHidden(track)?"Вернуть исполнителя":"Не рекомендовать исполнителя",
+            "Открыть исполнителя"
         };
         AlertDialog actions=new AlertDialog.Builder(this).setTitle(track.optString("title"))
             .setItems(options,(d,n)->{
@@ -1164,6 +1165,7 @@ public final class MainActivity extends Activity {
                 else if(n==2)share(origin+"track/"+id);
                 else if(n==4)toggleRecommendationHidden(track);
                 else if(n==5)toggleArtistHidden(track);
+                else if(n==6)showArtist(track);
                 else {
                     String[] names=new String[playlists.length()];
                     for(int i=0;i<names.length;i++)names[i]=playlists.optJSONObject(i).optString("name");
@@ -1177,6 +1179,215 @@ public final class MainActivity extends Activity {
         styleSheet(actions);actions.show();
     }
     private String playlistSnapshotKey(String id){return "playlist|"+origin+"|"+user+"|"+id;}
+
+    private boolean followingArtist(String name) {
+        String key = origin + "|" + user + "|" + ArtistIdentity.key(name);
+        return getSharedPreferences("artist-follows", MODE_PRIVATE).getBoolean(key, false);
+    }
+
+    private boolean toggleArtistFollow(String name) {
+        String key = origin + "|" + user + "|" + ArtistIdentity.key(name);
+        boolean next = !followingArtist(name);
+        getSharedPreferences("artist-follows", MODE_PRIVATE).edit().putBoolean(key, next).apply();
+        return next;
+    }
+
+    private void collectArtistTracks(JSONArray incoming, JSONObject seed, String artist,
+                                     ArrayList<JSONObject> tracks, java.util.HashSet<String> ids) {
+        if (incoming == null) return;
+        for (int index = 0; index < incoming.length(); index++) {
+            JSONObject item = incoming.optJSONObject(index);
+            if (item == null || !ArtistIdentity.belongs(item, seed, artist)) continue;
+            String id = item.optString("id", "");
+            if (!id.isEmpty() && ids.add(id)) tracks.add(item);
+        }
+    }
+
+    private JSONArray artistQueue(ArrayList<JSONObject> tracks) {
+        JSONArray result = new JSONArray();
+        for (JSONObject item : tracks) result.put(item);
+        return result;
+    }
+
+    private void renderArtistTracks(LinearLayout panel, ArrayList<JSONObject> tracks,
+                                    Dialog dialog) {
+        panel.removeAllViews();
+        if (tracks.isEmpty()) {
+            TextView empty = text("Пока нет треков, уверенно связанных с исполнителем", 14);
+            empty.setTextColor(0xffaaaaaa);
+            empty.setPadding(0, dp(16), 0, dp(18));
+            panel.addView(empty);
+            return;
+        }
+        JSONArray playQueue = artistQueue(tracks);
+        for (int index = 0; index < Math.min(65, tracks.size()); index++) {
+            final JSONObject selected = tracks.get(index);
+            LinearLayout line = row();
+            line.setGravity(Gravity.CENTER_VERTICAL);
+            line.setPadding(dp(4), dp(8), dp(4), dp(8));
+            TextView number = text(String.valueOf(index + 1), 13);
+            number.setTextColor(0xffa6a6a6);
+            number.setGravity(Gravity.CENTER);
+            line.addView(number, new LinearLayout.LayoutParams(dp(25), dp(52)));
+            android.widget.ImageView art = new android.widget.ImageView(this);
+            art.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+            art.setBackgroundColor(0xff242424);
+            if (artworkCache != null)
+                artworkCache.load(art, origin, selected.optString("cover_url"));
+            LinearLayout.LayoutParams artParams = new LinearLayout.LayoutParams(dp(52), dp(52));
+            artParams.leftMargin = dp(8);
+            line.addView(art, artParams);
+            TextView title = text(selected.optString("title"), 15);
+            title.setMaxLines(2);
+            title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            title.setPadding(dp(12), 0, dp(8), 0);
+            line.addView(title, new LinearLayout.LayoutParams(0, dp(54), 1));
+            TextView more = iconButton("⋯", () -> trackMenu(selected));
+            line.addView(more, new LinearLayout.LayoutParams(dp(42), dp(48)));
+            line.setOnClickListener(v -> {
+                dialog.dismiss();
+                boolean wasFull = full;
+                if (wasFull) { full = false; build(); }
+                play(selected, playQueue, false);
+                if (wasFull) openPlayer();
+            });
+            panel.addView(line);
+        }
+        if (tracks.size() > 65) {
+            TextView more = text("Показаны первые 65 записей", 13);
+            more.setTextColor(0xffaaaaaa);
+            more.setPadding(dp(8), dp(12), dp(8), dp(14));
+            panel.addView(more);
+        }
+    }
+
+    private void searchArtistTracks(String artist, JSONObject seed, Dialog dialog,
+                                   ArrayList<JSONObject> tracks, java.util.HashSet<String> ids,
+                                   LinearLayout list, TextView progress, int attempt) {
+        if (!dialog.isShowing() || attempt >= 6 || user.isEmpty()) return;
+        final String startingUser = user;
+        final String startingOrigin = origin;
+        task(() -> api.request("api/tracks?q=" + java.net.URLEncoder.encode(artist, "UTF-8")), response -> {
+            if (!dialog.isShowing() || !startingUser.equals(user) || !startingOrigin.equals(origin)) return;
+            collectArtistTracks(response.optJSONArray("tracks"), seed, artist, tracks, ids);
+            renderArtistTracks(list, tracks, dialog);
+            if (response.optBoolean("search_pending", false) && attempt < 5) {
+                progress.setText("Ищем остальные записи…");
+                long delay = Math.max(1500, Math.min(8000, response.optLong("search_retry_after", 2) * 1000));
+                ui.postDelayed(() -> searchArtistTracks(artist, seed, dialog, tracks, ids, list, progress, attempt + 1), delay);
+            } else {
+                progress.setText(tracks.size() + " треков по доступным метаданным");
+            }
+        });
+    }
+
+    void showArtist(JSONObject seed) {
+        if (seed == null) return;
+        String artist = ArtistIdentity.name(seed);
+        if (artist.isEmpty()) {
+            status.setText("Артиста определить не удалось: загрузчик не является подтверждением");
+            return;
+        }
+        Dialog dialog = new Dialog(this);
+        LinearLayout shell = column();
+        shell.setBackgroundColor(0xff101010);
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(false);
+        shell.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        LinearLayout page = column();
+        scroll.addView(page);
+
+        android.widget.FrameLayout hero = new android.widget.FrameLayout(this);
+        page.addView(hero, new LinearLayout.LayoutParams(-1, dp(335)));
+        android.widget.ImageView banner = new android.widget.ImageView(this);
+        banner.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+        banner.setBackgroundColor(0xff282828);
+        if (artworkCache != null) artworkCache.load(banner, origin, seed.optString("cover_url"));
+        hero.addView(banner, new android.widget.FrameLayout.LayoutParams(-1, -1));
+        View shading = new View(this);
+        shading.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+            new int[] {0x25000000, 0x64000000, 0xff101010}));
+        hero.addView(shading, new android.widget.FrameLayout.LayoutParams(-1, -1));
+        TextView title = text(artist, artist.length() > 17 ? 36 : 49);
+        title.setTypeface(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD);
+        title.setMaxLines(2);
+        title.setPadding(dp(22), 0, dp(18), dp(16));
+        android.widget.FrameLayout.LayoutParams artistLayout = new android.widget.FrameLayout.LayoutParams(
+            -1, -2, Gravity.BOTTOM);
+        hero.addView(title, artistLayout);
+        TextView close = iconButton("‹", dialog::dismiss);
+        close.setContentDescription("Назад");
+        close.setBackground(touchSurface(0xa8000000,26));
+        android.widget.FrameLayout.LayoutParams backLayout =
+            new android.widget.FrameLayout.LayoutParams(dp(48), dp(48), Gravity.TOP | Gravity.LEFT);
+        backLayout.leftMargin = dp(16); backLayout.topMargin = dp(16);
+        hero.addView(close, backLayout);
+
+        LinearLayout actions = row();
+        actions.setGravity(Gravity.CENTER_VERTICAL);
+        actions.setPadding(dp(22), dp(8), dp(22), dp(8));
+        TextView follow = action(followingArtist(artist) ? "Подписки ✓" : "Подписаться", () -> {});
+        follow.setBackground(touchSurface(0xff242424,26));
+        follow.setTextSize(14);
+        follow.setMinHeight(dp(44));
+        follow.setOnClickListener(v -> follow.setText(
+            toggleArtistFollow(artist) ? "Подписки ✓" : "Подписаться"));
+        actions.addView(follow, new LinearLayout.LayoutParams(dp(170), dp(46)));
+        View spacer = new View(this);
+        actions.addView(spacer, new LinearLayout.LayoutParams(0, dp(48), 1));
+        ArrayList<JSONObject> matches = new ArrayList<>();
+        java.util.HashSet<String> ids = new java.util.HashSet<>();
+        collectArtistTracks(new JSONArray().put(seed), seed, artist, matches, ids);
+        collectArtistTracks(catalog, seed, artist, matches, ids);
+        collectArtistTracks(shown, seed, artist, matches, ids);
+        collectArtistTracks(queue, seed, artist, matches, ids);
+        TextView playButton = iconButton("▶", () -> {
+            if (matches.isEmpty()) return;
+            dialog.dismiss();
+            boolean wasFull = full;
+            if (wasFull) { full = false; build(); }
+            play(matches.get(0), artistQueue(matches), false);
+            if (wasFull) openPlayer();
+        });
+        playButton.setTextColor(Color.BLACK);
+        playButton.setBackground(touchSurface(0xfff0f0f0,32));
+        actions.addView(playButton, new LinearLayout.LayoutParams(dp(58), dp(58)));
+        page.addView(actions);
+        TextView explanation = text(ArtistIdentity.fromTitle(seed).isEmpty()
+            ? "Имя из метаданных. Оно может принадлежать загрузчику, а не артисту."
+            : "Исполнитель определён по названию записи. Профиль не подтверждён.", 12);
+        explanation.setTextColor(0xff929292);
+        explanation.setPadding(dp(22), dp(8), dp(22), dp(20));
+        page.addView(explanation);
+        TextView heading = text("Треки исполнителя", 26);
+        heading.setTypeface(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD);
+        heading.setPadding(dp(22), 0, dp(20), dp(10));
+        page.addView(heading);
+        LinearLayout songs = column();
+        songs.setPadding(dp(16), 0, dp(16), dp(26));
+        page.addView(songs);
+        renderArtistTracks(songs, matches, dialog);
+        TextView progress = text("", 13);
+        progress.setPadding(dp(22), dp(4), dp(18), dp(10));
+        progress.setTextColor(0xffaaaaaa);
+        page.addView(progress);
+
+        dialog.setContentView(shell);
+        dialog.show();
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawableResource(android.R.color.black);
+            window.setLayout(WindowManager.LayoutParams.MATCH_PARENT,
+                             WindowManager.LayoutParams.MATCH_PARENT);
+        }
+        if (!user.isEmpty()) {
+            progress.setText("Ищем другие треки исполнителя…");
+            searchArtistTracks(artist, seed, dialog, matches, ids, songs, progress, 0);
+        } else {
+            progress.setText(matches.size() + " треков на устройстве");
+        }
+    }
+
     void openPlaylist(JSONObject p){
         final int gen=++generation;api.cancelSearch();
         if(pendingSearch!=null)ui.removeCallbacks(pendingSearch);
@@ -1550,7 +1761,7 @@ public final class MainActivity extends Activity {
     void handleAudioImportResult(int request,int result,Intent data){if(request!=72||result!=RESULT_OK||data==null)return;ArrayList<Uri> uris=new ArrayList<>();if(data.getClipData()!=null)for(int i=0;i<data.getClipData().getItemCount();i++)uris.add(data.getClipData().getItemAt(i).getUri());else if(data.getData()!=null)uris.add(data.getData());io.execute(()->{for(Uri uri:uris)try{OfflineStore.importFile(this,origin,uri);}catch(Exception ex){ui.post(()->status.setText("Не удалось импортировать файл"));}ui.post(()->navigate("Офлайн"));});}
     final class TrackAdapter extends BaseAdapter {
         public int getCount(){return shown.length();}public Object getItem(int p){return shown.optJSONObject(p);}public long getItemId(int p){return p;}
-        public View getView(int position,View recycled,ViewGroup parent){LinearLayout r;TextView title,artist,more;if(recycled==null){r=row();r.setPadding(dp(12),dp(12),dp(8),dp(12));LinearLayout labels=column();title=text("",16);title.setMaxLines(2);artist=text("",12);artist.setMaxLines(1);labels.addView(title);labels.addView(artist);r.addView(labels,new LinearLayout.LayoutParams(0,-2,1));r.addView(new PlayingIndicator(MainActivity.this),new LinearLayout.LayoutParams(dp(20),dp(20)));more=action("⋯",()->{});r.addView(more);r.setTag(new TextView[]{title,artist,more});}else r=(LinearLayout)recycled;TextView[] holder=(TextView[])r.getTag();JSONObject t=shown.optJSONObject(position);holder[0].setText(t.optString("title"));PlayingIndicator indicator=(PlayingIndicator)r.getChildAt(1);indicator.setVisibility(currentID.equals(t.optString("id"))?View.VISIBLE:View.GONE);indicator.playing(lastPlaying);holder[1].setText(t.optString("artist"));holder[2].setOnClickListener(v->trackMenu(t));r.setBackgroundColor(currentID.equals(t.optString("id"))?0x22ffb260:Color.TRANSPARENT);return r;}
+        public View getView(int position,View recycled,ViewGroup parent){LinearLayout r;TextView title,artist,more;if(recycled==null){r=row();r.setPadding(dp(12),dp(12),dp(8),dp(12));LinearLayout labels=column();title=text("",16);title.setMaxLines(2);artist=text("",12);artist.setMaxLines(1);labels.addView(title);labels.addView(artist);r.addView(labels,new LinearLayout.LayoutParams(0,-2,1));r.addView(new PlayingIndicator(MainActivity.this),new LinearLayout.LayoutParams(dp(20),dp(20)));more=action("⋯",()->{});r.addView(more);r.setTag(new TextView[]{title,artist,more});}else r=(LinearLayout)recycled;TextView[] holder=(TextView[])r.getTag();JSONObject t=shown.optJSONObject(position);holder[0].setText(t.optString("title"));PlayingIndicator indicator=(PlayingIndicator)r.getChildAt(1);indicator.setVisibility(currentID.equals(t.optString("id"))?View.VISIBLE:View.GONE);indicator.playing(lastPlaying);holder[1].setText(ArtistIdentity.name(t).isEmpty()?t.optString("artist"):ArtistIdentity.name(t));holder[1].setOnClickListener(ArtistIdentity.name(t).isEmpty()?null:v->showArtist(t));holder[1].setContentDescription("Открыть исполнителя");holder[2].setOnClickListener(v->trackMenu(t));r.setBackgroundColor(currentID.equals(t.optString("id"))?0x22ffb260:Color.TRANSPARENT);return r;}
     }
     private String favoriteOrder="recent";
     private void favoriteSortMenu(){
