@@ -48,7 +48,7 @@ final class PlaybackRecovery {
             }
             // A signed HLS URL can expire while the song itself remains available.
             // Only retry bounded HTTP failures; never rewrite the track as deleted.
-            if let response = value.userInfo[NSURLErrorFailingURLResponseErrorKey] as? HTTPURLResponse {
+            if let response = value.userInfo["NSURLErrorFailingURLResponseErrorKey"] as? HTTPURLResponse {
                 let status = response.statusCode
                 if status == 403 || status == 404 || status == 408 || status == 425 ||
                    status == 429 || (500...599).contains(status) { return true }
