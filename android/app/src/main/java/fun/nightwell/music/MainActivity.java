@@ -1288,11 +1288,34 @@ public final class MainActivity extends Activity {
         return getSharedPreferences("artist-follows", MODE_PRIVATE).getBoolean(key, false);
     }
 
-    private boolean toggleArtistFollow(String name) {
+    private boolean toggleArtistFollow(String name, String serverID) {
         String key = origin + "|" + user + "|" + ArtistIdentity.key(name);
         boolean next = !followingArtist(name);
         getSharedPreferences("artist-follows", MODE_PRIVATE).edit().putBoolean(key, next).apply();
+        final String owner = user, base = origin;
+        task(() -> {
+            if (next) {
+                return api.request("api/artists/following","POST",new JSONObject().put("name",name));
+            }
+            String aid = serverID.matches("artist-[a-f0-9]{20}")
+                ? serverID : serverArtistID(name);
+            return api.request("api/artists/following/"+aid,"DELETE",new JSONObject());
+        }, response -> {
+            if(!owner.equals(user)||!base.equals(origin))return;
+            // Persisted to account on the server. Local cache remains for offline.
+        });
         return next;
+    }
+
+    private String serverArtistID(String name) {
+        try{
+            String normalized=ArtistIdentity.key(name).replace('ё','е');
+            byte[] digest=java.security.MessageDigest.getInstance("SHA-256")
+                .digest(normalized.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder result=new StringBuilder("artist-");
+            for(int i=0;i<10;i++) result.append(String.format(java.util.Locale.ROOT,"%02x",digest[i]&255));
+            return result.toString();
+        }catch(Exception error){return "";}
     }
 
     private void collectArtistTracks(JSONArray incoming, JSONObject seed, String artist,
@@ -1370,11 +1393,20 @@ public final class MainActivity extends Activity {
         if (!dialog.isShowing() || attempt >= 6 || user.isEmpty()) return;
         final String startingUser = user;
         final String startingOrigin = origin;
-        task(() -> api.request("api/tracks?q=" + java.net.URLEncoder.encode(artist, "UTF-8")), response -> {
+        String sid = seed.optString("artist_id","");
+        boolean useProfile = sid.matches("artist-[a-f0-9]{20}");
+        task(() -> {
+            if(useProfile){
+                try{return api.request("api/artists/"+sid+"?limit=80&offset="+(attempt*80));}
+                catch(Exception error){ /* Old server: fall back to searchable catalog. */ }
+            }
+            return api.request("api/tracks?q=" + java.net.URLEncoder.encode(artist, "UTF-8"));
+        }, response -> {
             if (!dialog.isShowing() || !startingUser.equals(user) || !startingOrigin.equals(origin)) return;
             collectArtistTracks(response.optJSONArray("tracks"), seed, artist, tracks, ids);
             renderArtistTracks(list, tracks, dialog);
-            if (response.optBoolean("search_pending", false) && attempt < 5) {
+            if ((response.optBoolean("search_pending", false) ||
+                useProfile && response.optBoolean("has_more", false)) && attempt < 5) {
                 progress.setText("Ищем остальные записи…");
                 long delay = Math.max(1500, Math.min(8000, response.optLong("search_retry_after", 2) * 1000));
                 ui.postDelayed(() -> searchArtistTracks(artist, seed, dialog, tracks, ids, list, progress, attempt + 1), delay);
@@ -1434,7 +1466,22 @@ public final class MainActivity extends Activity {
         follow.setTextSize(14);
         follow.setMinHeight(dp(44));
         follow.setOnClickListener(v -> follow.setText(
-            toggleArtistFollow(artist) ? "Подписки ✓" : "Подписаться"));
+            toggleArtistFollow(artist, seed.optString("artist_id","")) ? "Вы подписаны ✓" : "Подписаться"));
+        final String ownerForFollow=user, originForFollow=origin;
+        task(() -> api.request("api/artists/following"), response -> {
+            if(!dialog.isShowing() || !ownerForFollow.equals(user) || !originForFollow.equals(origin))return;
+            JSONArray follows=response.optJSONArray("artists");
+            boolean remote=false;
+            if(follows!=null)for(int i=0;i<follows.length();i++){
+                JSONObject entry=follows.optJSONObject(i);
+                if(entry!=null && ArtistIdentity.key(artist).equals(ArtistIdentity.key(entry.optString("name")))){
+                    remote=true;break;
+                }
+            }
+            String prefKey=origin+"|"+user+"|"+ArtistIdentity.key(artist);
+            getSharedPreferences("artist-follows",MODE_PRIVATE).edit().putBoolean(prefKey,remote).apply();
+            follow.setText(remote?"Вы подписаны ✓":"Подписаться");
+        });
         actions.addView(follow, new LinearLayout.LayoutParams(dp(170), dp(46)));
         View spacer = new View(this);
         actions.addView(spacer, new LinearLayout.LayoutParams(0, dp(48), 1));
