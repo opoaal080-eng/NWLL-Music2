@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 import AVFoundation
 import Combine
+import CryptoKit
 import Network
 
 @MainActor final class TrackStatus: ObservableObject {
@@ -78,6 +79,11 @@ private struct LivePlaybackQueue: Decodable { let tracks: [Track] }
         selectedArtist = selection
     }
 
+    private struct FollowedArtistsResponse: Decodable {
+        struct Item: Decodable { let id: String; let name: String }
+        let artists: [Item]
+    }
+
     private var artistFollowKey: String {
         "nw-followed-artists|" + origin.absoluteString + "|" + (account?.id ?? "device")
     }
@@ -86,14 +92,50 @@ private struct LivePlaybackQueue: Decodable { let tracks: [Track] }
         Set(UserDefaults.standard.stringArray(forKey: artistFollowKey) ?? []).contains(ArtistIdentity.key(name))
     }
 
-    @discardableResult func toggleFollowingArtist(_ name: String) -> Bool {
+    func refreshFollowingArtists() async {
+        guard account != nil else { return }
+        do {
+            let result: FollowedArtistsResponse = try await api.request("/api/artists/following", timeout: 12)
+            let remote = Set(result.artists.map { ArtistIdentity.key($0.name) }.filter { !$0.isEmpty })
+            UserDefaults.standard.set(Array(remote.sorted().prefix(500)), forKey: artistFollowKey)
+            objectWillChange.send()
+        } catch {
+            // Retain local follows while the older server is still running.
+        }
+    }
+
+    private func derivedArtistID(_ name: String) -> String {
+        let normalized = ArtistIdentity.key(name.precomposedStringWithCompatibilityMapping)
+            .replacingOccurrences(of: "ё", with: "е")
+        let bytes = SHA256.hash(data: Data(normalized.utf8))
+        return "artist-" + String(bytes.map { String(format: "%02x", $0) }.joined().prefix(20))
+    }
+
+    @discardableResult func toggleFollowingArtist(_ name: String, serverID: String? = nil) -> Bool {
         let key = ArtistIdentity.key(name)
         guard !key.isEmpty else { return false }
-        var follows = Set(UserDefaults.standard.stringArray(forKey: artistFollowKey) ?? [])
+        let preferencesKey = artistFollowKey
+        var follows = Set(UserDefaults.standard.stringArray(forKey: preferencesKey) ?? [])
         if follows.contains(key) { follows.remove(key) } else { follows.insert(key) }
-        UserDefaults.standard.set(Array(follows.sorted().prefix(500)), forKey: artistFollowKey)
+        let isFollowing = follows.contains(key)
+        UserDefaults.standard.set(Array(follows.sorted().prefix(500)), forKey: preferencesKey)
         objectWillChange.send()
-        return follows.contains(key)
+        guard account != nil else { return isFollowing }
+        let id = serverID?.range(of: #"^artist-[a-f0-9]{20}$"#, options: .regularExpression) != nil
+            ? serverID! : derivedArtistID(name)
+        Task {
+            do {
+                if isFollowing {
+                    let _: OK = try await api.request("/api/artists/following", method: "POST", body: ["name": name])
+                } else {
+                    let _: OK = try await api.request("/api/artists/following/" + id, method: "DELETE")
+                }
+            } catch {
+                // Keep the local control responsive but make sync failures visible.
+                self.error = "Не удалось синхронизировать подписку на артиста с сервером."
+            }
+        }
+        return isFollowing
     }
 
     @Published var catalog: [Track] = []
