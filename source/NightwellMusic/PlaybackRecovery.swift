@@ -9,7 +9,7 @@ final class PlaybackRecovery {
     private(set) var attempts = 0
     private(set) var pending = false
 
-    init(delays: [TimeInterval] = [1, 2, 4],
+    init(delays: [TimeInterval] = [0.8, 2, 5, 12, 25, 45],
          enqueue: @escaping (TimeInterval, @escaping () -> Void) -> Void = { delay, action in
              DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: action)
          }) {
@@ -44,6 +44,16 @@ final class PlaybackRecovery {
                  NSURLErrorCannotConnectToHost, NSURLErrorNetworkConnectionLost,
                  NSURLErrorDNSLookupFailed, NSURLErrorNotConnectedToInternet,
                  NSURLErrorInternationalRoamingOff, NSURLErrorDataNotAllowed].contains(value.code) {
+                return true
+            }
+            // A signed HLS URL can expire while the song itself remains available.
+            // Only retry bounded HTTP failures; never rewrite the track as deleted.
+            if let response = value.userInfo[NSURLErrorFailingURLResponseErrorKey] as? HTTPURLResponse {
+                let status = response.statusCode
+                if status == 403 || status == 404 || status == 408 || status == 425 ||
+                   status == 429 || (500...599).contains(status) { return true }
+            }
+            if value.domain == NSURLErrorDomain && value.code == NSURLErrorBadServerResponse {
                 return true
             }
             // AVFoundation may wrap a transient network failure in another
