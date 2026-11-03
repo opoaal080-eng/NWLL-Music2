@@ -1,254 +1,273 @@
-"""Optional low-latency audio quality endpoint for an existing Nightwell FastAPI server.
+"""SoundCloud AAC HLS bitrate negotiation for Nightwell Music.
 
-GET /api/audio-quality/options
-GET /api/audio-quality/stream/{track_id}?quality=original|economy|balanced|high&format=file|hls
-POST /api/audio-quality/prewarm  {"tracks": ["id1", "id2"], "quality": "balanced"}
+Uses official SoundCloud OAuth, track resolution and /tracks/{urn}/streams.
+No audio re-encoding, no artificial "320k". Existing /api/stream serves as an
+explicit fallback when the original server cannot resolve official variants.
+Only track IDs found in the signed-in user's /api/tracks catalogue are resolved.
+Requires NW_SC_CLIENT_ID + NW_SC_CLIENT_SECRET for public licensed playback.
 
-Does not replace /api/stream. Cache miss -> immediate original-stream redirect,
-then opportunistic single-worker transcode into an account-scoped AAC cache.
-The client must opt into the new route for this quality selection to take effect.
+Routes:
+GET /api/audio-quality/options?track_id=<id>&quality=auto|economy|high
+GET /api/audio-quality/stream/<id>?quality=auto|economy|high&format=hls|file
+
+A JSON options response includes requested_quality, selected_quality,
+actual_kbps, fallback, message and source. A JSON response is the
+authoritative playback-quality notice shown by clients. Redirects to known
+SoundCloud media hosts are made only for playable authorized tracks.
 """
 import asyncio
+import base64
 import hashlib
 import inspect
-import json
 import os
-from pathlib import Path
 import re
-import shutil
 import time
+from urllib.parse import urlsplit
 
+import httpx
 from fastapi import HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 
-QUALITY = {"original": None, "economy": 96, "balanced": 160, "high": 256}
 TRACK_ID = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
-MAX_SOURCE_BYTES = 64 * 1024 * 1024
-MAX_CACHE_BYTES = 768 * 1024 * 1024
-CACHE_MAX_AGE = 14 * 86400
+SC_URN = re.compile(r"^(?:soundcloud:tracks:)?([0-9]{1,20})$")
+REQUESTED_QUALITY = ("auto", "economy", "high")
+VARIANTS = {"economy": ("hls_aac_96_url", 96), "high": ("hls_aac_160_url", 160)}
+SC_API = "https://api.soundcloud.com"
+SC_AUTH = "https://secure.soundcloud.com/oauth/token"
+PLAYER_HOST = "playback.media-streaming.soundcloud.cloud"
 
 
-class QualityCache:
-    def __init__(self, app, identity, root=None, ffmpeg=None):
-        self.app = app
-        self.identity = identity
-        self.root = Path(root or os.environ.get("NW_AUDIO_QUALITY_CACHE", "data/audio-quality")).resolve()
-        self.root.mkdir(parents=True, exist_ok=True)
-        executable = ffmpeg or os.environ.get("NW_FFMPEG") or "ffmpeg"
-        self.ffmpeg = shutil.which(executable)
-        self.semaphore = asyncio.Semaphore(1)
-        self.pending = set()
-        self.tasks = set()
+def permitted_soundcloud_permalink(value):
+    if not isinstance(value, str) or len(value) > 2048:
+        return False
+    try:
+        parts = urlsplit(value)
+    except ValueError:
+        return False
+    return parts.scheme == "https" and (parts.hostname or "").lower() in {
+        "soundcloud.com", "www.soundcloud.com", "m.soundcloud.com",
+    } and not (parts.username or parts.password or parts.port)
 
-    @staticmethod
-    def validate(track_id, quality, format):
-        if not TRACK_ID.fullmatch(track_id):
-            raise HTTPException(400, detail="Неверный ID трека")
-        if quality not in QUALITY:
-            raise HTTPException(400, detail="Качество: original, economy, balanced, high")
-        if format not in ("file", "hls"):
-            raise HTTPException(400, detail="Формат: file или hls")
 
-    async def owner(self, request):
+def safe_media_url(value):
+    if not isinstance(value, str) or len(value) > 8192:
+        return False
+    try:
+        parts = urlsplit(value)
+        host = (parts.hostname or "").lower()
+        return (
+            parts.scheme == "https" and parts.username is None and parts.password is None
+            and parts.port in (None, 443)
+            and (host == PLAYER_HOST or host == "cf-hls-media.sndcdn.com")
+            and parts.path.endswith(".m3u8")
+        )
+    except ValueError:
+        return False
+
+
+def choose(streams, preferred):
+    """Return (quality, bitrate, url, fallback) using ONLY offered AAC renditions."""
+    if preferred not in REQUESTED_QUALITY:
+        raise ValueError("Unsupported quality")
+    order = ("high", "economy") if preferred in ("auto", "high") else ("economy", "high")
+    for quality in order:
+        key, kbps = VARIANTS[quality]
+        url = streams.get(key) if isinstance(streams, dict) else None
+        if safe_media_url(url):
+            return quality, kbps, url, preferred != "auto" and quality != preferred
+    return None, None, None, True
+
+
+class SoundCloudQuality:
+    def __init__(self, app, identity, token_provider=None, streams_provider=None, track_provider=None):
+        self.app, self.identity = app, identity
+        self.token_provider = token_provider
+        self.streams_provider = streams_provider
+        self.track_provider = track_provider
+        self.token = None
+        self.token_expiry = 0.0
+        self.token_lock = asyncio.Lock()
+        self.cached = {}
+        self.cache_lock = asyncio.Lock()
+
+    async def account(self, request):
         value = self.identity(request)
         if inspect.isawaitable(value):
             value = await value
         if not value:
-            raise HTTPException(401, detail="Войди в Nightwell Music")
-        return hashlib.sha256(("nw-audio-quality:" + str(value)).encode("utf-8")).hexdigest()
+            raise HTTPException(401, detail="Требуется вход в Nightwell Music")
+        return hashlib.sha256(("nw-audio-quality:" + str(value)).encode()).hexdigest()
 
-    def cached_path(self, owner, track_id, quality):
-        name = hashlib.sha256((owner + "|" + track_id + "|" + quality).encode("utf-8")).hexdigest()
-        return self.root / (name + ".m4a")
+    async def official_token(self):
+        if self.token_provider is not None:
+            result = self.token_provider()
+            return await result if inspect.isawaitable(result) else result
+        if self.token and self.token_expiry > time.monotonic() + 90:
+            return self.token
+        async with self.token_lock:
+            if self.token and self.token_expiry > time.monotonic() + 90:
+                return self.token
+            client_id = os.environ.get("NW_SC_CLIENT_ID", "").strip()
+            client_secret = os.environ.get("NW_SC_CLIENT_SECRET", "").strip()
+            if not (client_id and client_secret):
+                return None
+            encoded = base64.b64encode((client_id + ":" + client_secret).encode()).decode()
+            async with httpx.AsyncClient(timeout=8) as client:
+                response = await client.post(SC_AUTH, data={"grant_type": "client_credentials"},
+                    headers={"Authorization": "Basic " + encoded, "Accept": "application/json"})
+                response.raise_for_status()
+                body = response.json()
+            token = body.get("access_token")
+            if not isinstance(token, str) or not token:
+                return None
+            self.token = token
+            self.token_expiry = time.monotonic() + max(120, min(3600, int(body.get("expires_in") or 3600))) - 60
+            return token
+
+    async def track_for(self, request, track_id):
+        if self.track_provider is not None:
+            value = self.track_provider(request, track_id)
+            return await value if inspect.isawaitable(value) else value
+        # Only the logged-in user's own catalogue can authorize a track lookup.
+        headers = {
+            key: value for key, value in request.headers.items()
+            if key.lower() in ("cookie", "x-csrf-token", "origin")
+        }
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=self.app),
+            base_url="http://nightwell.internal", headers=headers, timeout=6.5,
+        ) as client:
+            response = await client.get("/api/tracks")
+            if response.status_code != 200:
+                return None
+            data = response.json()
+        if not isinstance(data, dict) or not isinstance(data.get("tracks"), list):
+            return None
+        for item in data["tracks"][:5000]:
+            if isinstance(item, dict) and item.get("id") == track_id:
+                return item
+        return None
+
+    async def streams_for(self, track, token):
+        if self.streams_provider is not None:
+            value = self.streams_provider(track, token)
+            return await value if inspect.isawaitable(value) else value
+        if not token:
+            return {}
+        urn = track.get("soundcloud_urn") or track.get("soundcloud_id")
+        urn_match = SC_URN.fullmatch(str(urn)) if urn else None
+        headers = {"Authorization": "OAuth " + token, "Accept": "application/json"}
+        async with httpx.AsyncClient(timeout=8, follow_redirects=False) as client:
+            if urn_match:
+                urn = "soundcloud:tracks:" + urn_match.group(1)
+            elif permitted_soundcloud_permalink(track.get("source_url")):
+                result = await client.get(SC_API + "/resolve",
+                    params={"url": track["source_url"]}, headers=headers)
+                result.raise_for_status()
+                payload = result.json()
+                if payload.get("access") not in (None, "playable"):
+                    return {}
+                urn = payload.get("urn") or payload.get("id")
+                urn_match = SC_URN.fullmatch(str(urn)) if urn else None
+                if not urn_match:
+                    return {}
+                urn = "soundcloud:tracks:" + urn_match.group(1)
+            else:
+                return {}
+            response = await client.get(SC_API + "/tracks/" + urn + "/streams", headers=headers)
+            if response.status_code in (401, 403, 404):
+                return {}
+            response.raise_for_status()
+            return response.json()
+
+    async def selected(self, request, owner, track_id, quality):
+        marker = (owner, track_id, quality)
+        cached = self.cached.get(marker)
+        if cached and cached[0] > time.monotonic():
+            return cached[1]
+        track = await self.track_for(request, track_id)
+        if not isinstance(track, dict):
+            return self.status(quality, None, None, None, "Трек не найден в доступном каталоге", "original")
+        source = str(track.get("source", "")).lower()
+        source_url = track.get("source_url")
+        is_sc = ("soundcloud" in source or permitted_soundcloud_permalink(source_url)
+                 or track.get("soundcloud_urn") or track.get("soundcloud_id"))
+        if not is_sc:
+            return self.status(quality, None, None, None,
+                               "Для этого источника доступен исходный поток", "original")
+        try:
+            token = await self.official_token()
+            streams = await self.streams_for(track, token)
+            selected, kbps, url, fallback = choose(streams, quality)
+        except (httpx.HTTPError, ValueError, TypeError, KeyError):
+            selected, kbps, url, fallback = None, None, None, True
+        if selected:
+            message = ""
+            if fallback:
+                message = "Качество " + ("96" if quality == "economy" else "160") + \
+                          " кбит/с недоступно. Воспроизводится доступное AAC " + str(kbps) + " кбит/с."
+            result = self.status(quality, selected, kbps, url, message, "soundcloud", fallback)
+            self.cached[marker] = (time.monotonic() + 45, result)
+            if len(self.cached) > 1200:
+                self.cached = {k:v for k,v in self.cached.items() if v[0] > time.monotonic()}
+            return result
+        return self.status(quality, None, None, None,
+                           "Качество SoundCloud не удалось определить. "
+                           "Воспроизводится обычный доступный поток.", "original")
 
     @staticmethod
-    def original_url(track_id, format):
-        # No user-controlled URL, host or query is accepted by the proxy.
-        return "/api/stream/" + track_id + "?cache=1&format=" + format
-
-    def schedule(self, owner, track_id, quality, headers):
-        if not self.ffmpeg or quality == "original":
-            return False
-        path = self.cached_path(owner, track_id, quality)
-        if path.is_file() or len(self.pending) >= 48:
-            return False
-        key = (owner, track_id, quality)
-        if key in self.pending:
-            return False
-        self.pending.add(key)
-        task = asyncio.create_task(self._generate(owner, track_id, quality, headers, key))
-        self.tasks.add(task)
-        task.add_done_callback(self.tasks.discard)
-        return True
-
-    async def _generate(self, owner, track_id, quality, headers, key):
-        input_path = None
-        output_path = None
-        try:
-            async with self.semaphore:
-                target = self.cached_path(owner, track_id, quality)
-                if target.is_file():
-                    return
-                nonce = hashlib.sha256((key[0] + key[1] + str(time.time_ns())).encode()).hexdigest()[:12]
-                input_path = self.root / (nonce + ".input")
-                output_path = self.root / (nonce + ".pending.m4a")
-                # ASGI transport contacts only this FastAPI app; no network URL or
-                # file path may be supplied by the caller, and auth is forwarded.
-                import httpx
-                async with httpx.AsyncClient(
-                    transport=httpx.ASGITransport(app=self.app),
-                    base_url="http://nightwell.internal", follow_redirects=False,
-                    timeout=35.0,
-                ) as client:
-                    async with client.stream(
-                        "GET", self.original_url(track_id, "file"),
-                        headers=headers,
-                    ) as response:
-                        if response.status_code != 200:
-                            return
-                        mime = response.headers.get("content-type", "").split(";")[0].strip().lower()
-                        if not (mime.startswith("audio/") or mime in
-                                ("application/octet-stream", "video/mp4")):
-                            return
-                        length = response.headers.get("content-length")
-                        if length and int(length) > MAX_SOURCE_BYTES:
-                            return
-                        size = 0
-                        with input_path.open("wb") as output:
-                            async for block in response.aiter_bytes(65536):
-                                size += len(block)
-                                if size > MAX_SOURCE_BYTES:
-                                    return
-                                output.write(block)
-                if not input_path.is_file() or input_path.stat().st_size < 1000:
-                    return
-                proc = await asyncio.create_subprocess_exec(
-                    self.ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
-                    "-i", str(input_path), "-map", "0:a:0", "-vn", "-sn", "-dn",
-                    "-c:a", "aac", "-b:a", str(QUALITY[quality]) + "k",
-                    "-movflags", "+faststart", "-f", "mp4", str(output_path),
-                    stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.DEVNULL,
-                )
-                try:
-                    await asyncio.wait_for(proc.wait(), timeout=110)
-                except asyncio.TimeoutError:
-                    proc.kill()
-                    await proc.wait()
-                    return
-                if proc.returncode != 0 or not output_path.is_file() or output_path.stat().st_size < 1000:
-                    return
-                os.replace(output_path, target)
-                await asyncio.to_thread(self.trim_cache)
-        except (OSError, ValueError, asyncio.CancelledError):
-            return
-        except Exception:
-            # A cache miss is never a playback error. The original source keeps playing.
-            return
-        finally:
-            for path in (input_path, output_path):
-                if path is not None:
-                    try:
-                        path.unlink(missing_ok=True)
-                    except OSError:
-                        pass
-            self.pending.discard(key)
-
-    def trim_cache(self):
-        now = time.time()
-        entries = []
-        for file in self.root.glob("*.m4a"):
-            try:
-                stat = file.stat()
-                if now - stat.st_mtime > CACHE_MAX_AGE:
-                    file.unlink(missing_ok=True)
-                else:
-                    entries.append((stat.st_mtime, stat.st_size, file))
-            except OSError:
-                pass
-        total = sum(size for _, size, _ in entries)
-        if total > MAX_CACHE_BYTES:
-            for _, size, file in sorted(entries):
-                if total <= MAX_CACHE_BYTES:
-                    break
-                try:
-                    file.unlink()
-                    total -= size
-                except OSError:
-                    pass
+    def status(requested, selected, kbps, url, message, source, fallback=True):
+        return {
+            "requested_quality": requested,
+            "selected_quality": selected or "original",
+            "actual_kbps": kbps,
+            "fallback": bool(fallback),
+            "message": message,
+            "source": source,
+            "stream_url": url,
+        }
 
 
-def install(app, identity, cache_root=None, ffmpeg=None):
-    """Attach optional endpoints after the existing authenticated stream routes."""
-    cache = QualityCache(app, identity, root=cache_root, ffmpeg=ffmpeg)
+def install(app, identity, track_provider=None, token_provider=None, streams_provider=None):
+    """Install authenticated quality selection without replacing /api/stream."""
+    service = SoundCloudQuality(app, identity, token_provider, streams_provider, track_provider)
+
+    async def checked(request, track_id, quality):
+        if not TRACK_ID.fullmatch(track_id) or quality not in REQUESTED_QUALITY:
+            raise HTTPException(400, detail="Неверный трек или качество")
+        owner = await service.account(request)
+        result = await service.selected(request, owner, track_id, quality)
+        return result
 
     @app.get("/api/audio-quality/options")
-    async def quality_options(request: Request):
-        await cache.owner(request)
-        return {
-            "options": [
-                {"id": name, "target_kbps": rate}
-                for name, rate in QUALITY.items()
-            ],
-            "ffmpeg_available": bool(cache.ffmpeg),
-            "original_on_miss": True,
-            "message": "Первое воспроизведение идёт без задержки в исходном качестве. "
-                       "AAC-вариант появляется после фонового приготовления.",
-        }
+    async def quality_options(request: Request, track_id: str = "", quality: str = "auto"):
+        if not track_id:
+            await service.account(request)
+            return {"options": [
+                {"id": "auto", "label": "Авто", "target_kbps": None},
+                {"id": "economy", "label": "Экономия", "target_kbps": 96},
+                {"id": "high", "label": "Высокое", "target_kbps": 160},
+            ], "source": "soundcloud", "selected_quality": "auto"}
+        result = await checked(request, track_id, quality)
+        return {k: v for k, v in result.items() if k != "stream_url"}
 
     @app.get("/api/audio-quality/stream/{track_id}")
-    async def quality_stream(
-        request: Request, track_id: str,
-        quality: str = "original", format: str = "file",
-    ):
-        cache.validate(track_id, quality, format)
-        owner = await cache.owner(request)
-        original = cache.original_url(track_id, format)
-        if quality == "original" or format == "hls":
-            return RedirectResponse(original, status_code=307, headers={
-                "X-NW-Audio-Quality": "original"})
-        path = cache.cached_path(owner, track_id, quality)
-        if path.is_file() and path.stat().st_size > 1000:
-            return FileResponse(
-                path, media_type="audio/mp4",
-                headers={"Cache-Control": "private, max-age=300",
-                         "X-NW-Audio-Quality": quality},
-            )
-        headers = {
-            key: value for key, value in request.headers.items()
-            if key.lower() in ("cookie", "x-csrf-token")
-        }
-        cache.schedule(owner, track_id, quality, headers)
-        # Playback is NEVER blocked by encoding. A high quality request with no
-        # cached variant gets the real original, not an upscaled placeholder.
-        return RedirectResponse(original, status_code=307, headers={
-            "X-NW-Audio-Quality": "original-pending"})
+    async def quality_stream(request: Request, track_id: str,
+                             quality: str = "auto", format: str = "hls"):
+        if format not in ("hls", "file"):
+            raise HTTPException(400, detail="Неверный формат")
+        result = await checked(request, track_id, quality)
+        if result["source"] == "soundcloud" and result["stream_url"]:
+            return RedirectResponse(result["stream_url"], status_code=307,
+                headers={
+                    "X-NW-Audio-Quality": result["selected_quality"],
+                    "Cache-Control": "private, no-store",
+                })
+        # Legacy source and non-SoundCloud tracks: no fake bitrate declarations.
+        return RedirectResponse("/api/stream/" + track_id + "?cache=1&format=" + format,
+            status_code=307, headers={
+                "X-NW-Audio-Quality": "original",
+                "Cache-Control": "private, no-store",
+            })
 
-    @app.post("/api/audio-quality/prewarm")
-    async def quality_prewarm(request: Request):
-        owner = await cache.owner(request)
-        try:
-            body = await request.json()
-        except (ValueError, json.JSONDecodeError):
-            raise HTTPException(400, detail="Ожидается JSON")
-        if not isinstance(body, dict):
-            raise HTTPException(400, detail="Ожидается объект")
-        quality = body.get("quality", "balanced")
-        tracks = body.get("tracks", [])
-        if quality not in QUALITY or quality == "original":
-            raise HTTPException(400, detail="Укажи economy, balanced или high")
-        if not isinstance(tracks, list) or len(tracks) > 5:
-            raise HTTPException(400, detail="До пяти треков за запрос")
-        headers = {
-            key: value for key, value in request.headers.items()
-            if key.lower() in ("cookie", "x-csrf-token")
-        }
-        scheduled = 0
-        for track_id in set(tracks):
-            if not isinstance(track_id, str) or not TRACK_ID.fullmatch(track_id):
-                raise HTTPException(400, detail="Неверный ID трека")
-            if cache.schedule(owner, track_id, quality, headers):
-                scheduled += 1
-        return {"queued": scheduled, "ffmpeg_available": bool(cache.ffmpeg)}
-
-    return cache
+    return service
