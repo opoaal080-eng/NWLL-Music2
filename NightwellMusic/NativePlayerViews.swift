@@ -656,21 +656,26 @@ struct PlaybackQueue: View {
     @ObservedObject var clock: PlaybackClock
 
     private var currentIndex: Int { clock.queue.firstIndex { $0.id == clock.id } ?? -1 }
+    private var playedCount: Int { max(0, currentIndex) }
+
     var body: some View {
         ZStack {
             LinearGradient(colors: [Color(white: 0.10), Color(white: 0.035), .black],
                            startPoint: .topLeading, endPoint: .bottomTrailing)
                 .ignoresSafeArea()
-            Color.black.opacity(0.16).ignoresSafeArea()
-            VStack(spacing: 20) {
+            VStack(spacing: 14) {
                 HStack(alignment: .center) {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("ТВОЯ МУЗЫКА").font(.system(size: 9, weight: .semibold)).tracking(3).foregroundStyle(Color.white)
+                        Text("ТВОЯ МУЗЫКА")
+                            .font(.system(size: 9, weight: .semibold)).tracking(3)
                         Text("Очередь").font(.system(size: 23, weight: .bold))
                     }
                     Spacer()
-                    Text("\(clock.queue.count)").font(.subheadline.monospacedDigit())
-                        .padding(10).nightwellLiquidGlass(20)
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Text("\(clock.queue.count) треков").font(.subheadline.monospacedDigit())
+                        Text("Осталось: \(max(0, clock.queue.count - currentIndex - 1))")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                     Button { dismiss() } label: {
                         Image(systemName: "xmark").frame(width: 42, height: 42).nightwellLiquidGlass(24)
                     }.accessibilityLabel("Закрыть очередь")
@@ -684,23 +689,82 @@ struct PlaybackQueue: View {
                             }
                             ForEach(Array(clock.queue.enumerated()), id: \.offset) { index, track in
                                 VStack(alignment: .leading, spacing: 8) {
-                                    if index == currentIndex {
-                                        Text("СЕЙЧАС ИГРАЕТ").font(.system(size: 9, weight: .semibold))
-                                            .tracking(2).foregroundStyle(Color.white).padding(.horizontal, 12)
-                                    } else if index == currentIndex + 1 {
-                                        Text("ДАЛЬШЕ").font(.system(size: 9, weight: .semibold))
-                                            .tracking(2).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.top, 8)
+                                    if index == 0 && playedCount > 0 {
+                                        sectionLabel("ПРОСЛУШАНО · \(playedCount)")
                                     }
-                                    NativeTrackRow(track: track, queue: clock.queue, status: clock.status, playlist: nil)
-                                }.id(index)
+                                    if index == currentIndex {
+                                        sectionLabel("СЕЙЧАС ИГРАЕТ")
+                                    } else if index == currentIndex + 1 {
+                                        sectionLabel("ДАЛЬШЕ · \(max(0, clock.queue.count - index))")
+                                    }
+                                    HStack(spacing: 12) {
+                                        Button {
+                                            NativePlayer.shared.jump(to: track.id)
+                                        } label: {
+                                            HStack(spacing: 12) {
+                                                Cover(track: track, origin: store.origin)
+                                                    .frame(width: 46, height: 46)
+                                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                                                VStack(alignment: .leading, spacing: 5) {
+                                                    Text(track.title)
+                                                        .font(.system(size: 14, weight: index == currentIndex ? .bold : .medium))
+                                                        .lineLimit(1).foregroundStyle(.white)
+                                                    Text(track.artist)
+                                                        .font(.caption).lineLimit(1)
+                                                        .foregroundStyle(.white.opacity(0.62))
+                                                }.frame(maxWidth: .infinity, alignment: .leading)
+                                                if index == currentIndex {
+                                                    PlayingIndicator(playing: clock.playing)
+                                                        .frame(width: 22, height: 22)
+                                                } else if index < currentIndex {
+                                                    Image(systemName: "checkmark")
+                                                        .font(.caption).foregroundStyle(.white.opacity(0.40))
+                                                }
+                                            }.contentShape(Rectangle())
+                                        }
+                                        .buttonStyle(.plain)
+                                        Menu {
+                                            Button(store.likes.contains(track.id) ? "Убрать из избранного" : "В избранное",
+                                                   systemImage: "heart") {
+                                                Task { await store.like(track) }
+                                            }
+                                            Button("Скачать", systemImage: "arrow.down.to.line") {
+                                                Task { await store.download([track]) }
+                                            }
+                                        } label: {
+                                            Image(systemName: "ellipsis").frame(width: 34, height: 44)
+                                        }
+                                    }
+                                    .padding(12)
+                                    .background(index == currentIndex ? Color.white.opacity(0.14) :
+                                                (index < currentIndex ? Color.white.opacity(0.02) :
+                                                 Color.white.opacity(0.06)),
+                                                in: RoundedRectangle(cornerRadius: 16))
+                                }
+                                .id(index)
                             }
                         }.padding(12)
                     }
                     .nightwellLiquidGlass(28)
-                    .onAppear { if currentIndex >= 0 { reader.scrollTo(currentIndex, anchor: .top) } }
+                    .onAppear { scrollToCurrent(reader) }
+                    .onChange(of: clock.id) { _, _ in scrollToCurrent(reader) }
                 }
             }.padding(.horizontal, 20).padding(.top, 28).padding(.bottom, 18)
-        }.tint(Color.white).foregroundStyle(nightwellText)
+        }
+        .tint(.white).foregroundStyle(.white)
+    }
+
+    private func sectionLabel(_ value: String) -> some View {
+        Text(value).font(.system(size: 10, weight: .semibold))
+            .tracking(1.7).foregroundStyle(.white.opacity(0.67))
+            .padding(.horizontal, 12).padding(.top, 8)
+    }
+
+    private func scrollToCurrent(_ reader: ScrollViewProxy) {
+        guard currentIndex >= 0 else { return }
+        withAnimation(.easeOut(duration: 0.2)) {
+            reader.scrollTo(currentIndex, anchor: .center)
+        }
     }
 }
 
