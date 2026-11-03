@@ -131,7 +131,7 @@ class ArtistDirectory:
                 public = {k: item[k] for k in
                           ("id", "title", "artist", "album", "duration", "cover_url",
                            "source", "source_url", "is_remote", "uploader",
-                           "performer", "artist_credit", "_artist_checked")
+                           "performer", "artist_credit", "metadata_artist", "_artist_checked")
                           if k in item and isinstance(item[k], (str, int, float, bool, type(None)))}
                 if isinstance(public.get("cover_url"), str) and len(public["cover_url"]) > 2048:
                     public.pop("cover_url")
