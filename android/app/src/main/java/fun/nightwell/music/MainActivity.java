@@ -692,7 +692,12 @@ public final class MainActivity extends Activity {
         else if(screen.equals("Офлайн")){body.addView(action("Добавить аудиофайлы",this::importFiles));task(()->new JSONObject(OfflineStore.operation(this,origin,"{\"op\":\"listAll\"}")),v->{if(screen.equals("Офлайн")){shown=v.optJSONArray("tracks");updateList();}});shown=new JSONArray();}
         list=new ListView(this);list.setDivider(null);list.setCacheColorHint(Color.TRANSPARENT);adapter=new TrackAdapter();list.setAdapter(adapter);body.addView(list,new LinearLayout.LayoutParams(-1,0,1));list.setOnItemClickListener((p,v,pos,id)->play(shown.optJSONObject(pos),shown,false));list.setOnItemLongClickListener((p,v,pos,id)->{trackMenu(shown.optJSONObject(pos));return true;});
     }
-    void updateList(){if(shown==null)shown=new JSONArray();if(adapter!=null)adapter.notifyDataSetChanged();}
+    void updateList(){
+        if(shown==null)shown=new JSONArray();
+        // Old cached lists may have been saved before the performer-attribution fix.
+        for(int i=0;i<shown.length();i++)NativeAPI.normalizeTrack(shown.optJSONObject(i));
+        if(adapter!=null)adapter.notifyDataSetChanged();
+    }
     private void restoreLibrarySnapshot(String account) {
         try {
             String raw=getSharedPreferences("library-snapshot",MODE_PRIVATE).getString("snapshot",null);
@@ -700,7 +705,10 @@ public final class MainActivity extends Activity {
             JSONObject snapshot=new JSONObject(raw);
             if(!account.equals(snapshot.optString("account")))return;
             JSONArray tracks=snapshot.optJSONArray("tracks");
-            if(tracks!=null)catalog=tracks;
+            if(tracks!=null){
+                for(int i=0;i<tracks.length();i++)NativeAPI.normalizeTrack(tracks.optJSONObject(i));
+                catalog=tracks;
+            }
             JSONArray savedPlaylists=snapshot.optJSONArray("playlists");
             if(savedPlaylists!=null)playlists=savedPlaylists;
             JSONArray savedLikes=snapshot.optJSONArray("likes");
@@ -965,6 +973,7 @@ public final class MainActivity extends Activity {
 
 
     private java.util.List<String> splitArtistNames(String raw) {
+        if(!ArtistAttribution.isKnown(raw))return new java.util.ArrayList<>();
         java.util.LinkedHashMap<String,String> artists=new java.util.LinkedHashMap<>();
         if(raw==null)return new java.util.ArrayList<>();
         String prepared=raw.replaceAll("(?i)[(\\[]\\s*(?:feat\\.?|ft\\.?|featuring)\\s+",", ")
@@ -1007,6 +1016,21 @@ public final class MainActivity extends Activity {
         return values;
     }
 
+    private boolean hasCreditedArtist(String name) {
+        String wanted=RecommendationOrder.key(name);
+        for(JSONArray items:new JSONArray[]{shown,catalog}) {
+            if(items==null)continue;
+            for(int i=0;i<items.length();i++){
+                JSONObject item=items.optJSONObject(i);
+                if(item==null)continue;
+                NativeAPI.normalizeTrack(item);
+                for(String performer:splitArtistNames(item.optString("artist")))
+                    if(wanted.equals(RecommendationOrder.key(performer)))return true;
+            }
+        }
+        return false;
+    }
+
     private void showArtistStrip(JSONArray artists) {
         if(artistStrip==null||!screen.equals("Поиск"))return;
         artistStrip.removeAllViews();
@@ -1021,7 +1045,10 @@ public final class MainActivity extends Activity {
             JSONObject item=artists.optJSONObject(i);
             if(item==null)continue;
             String name=item.optString("name").trim(),url=item.optString("image_url");
-            if(name.isEmpty())continue;
+            if(!ArtistAttribution.isKnown(name))continue;
+            // Older artist-directory APIs can list remote posting accounts. Never expose
+            // such a directory entry unless a normalized track really credits that name.
+            if("nightwell".equals(item.optString("source"))&&!hasCreditedArtist(name))continue;
             LinearLayout chip=row();chip.setGravity(Gravity.CENTER_VERTICAL);
             chip.setPadding(dp(10),dp(6),dp(12),dp(6));
             chip.setBackground(touchSurface(0x553a3a42,22));
@@ -1052,6 +1079,7 @@ public final class MainActivity extends Activity {
     }
 
     private void chooseArtist(String raw) {
+        if(!ArtistAttribution.isKnown(raw))return;
         java.util.List<String> artists=splitArtistNames(raw);
         if(artists.isEmpty())return;
         if(artists.size()==1){openArtistProfile(artists.get(0));return;}
@@ -1101,6 +1129,16 @@ public final class MainActivity extends Activity {
                     profile=api.request("api/artists/profile?name="+encoded);
                     candidates=profile.optJSONArray("tracks");
                 }catch(Exception ex){
+                    // Older server may not have this route.
+                }
+                boolean anyCredited=false;
+                if(candidates!=null)for(int i=0;i<candidates.length();i++){
+                    JSONObject item=candidates.optJSONObject(i);
+                    if(trackByArtist(item,artistName)){anyCredited=true;break;}
+                }
+                if(!anyCredited){
+                    // Old directory indexed the uploader. Do not use its avatar/count.
+                    profile=null;
                     JSONObject fallback=api.request("api/tracks?q="+encoded);
                     candidates=fallback.optJSONArray("tracks");
                 }
@@ -1800,7 +1838,7 @@ public final class MainActivity extends Activity {
     void handleAudioImportResult(int request,int result,Intent data){if(request!=72||result!=RESULT_OK||data==null)return;ArrayList<Uri> uris=new ArrayList<>();if(data.getClipData()!=null)for(int i=0;i<data.getClipData().getItemCount();i++)uris.add(data.getClipData().getItemAt(i).getUri());else if(data.getData()!=null)uris.add(data.getData());io.execute(()->{for(Uri uri:uris)try{OfflineStore.importFile(this,origin,uri);}catch(Exception ex){ui.post(()->status.setText("Не удалось импортировать файл"));}ui.post(()->navigate("Офлайн"));});}
     final class TrackAdapter extends BaseAdapter {
         public int getCount(){return shown.length();}public Object getItem(int p){return shown.optJSONObject(p);}public long getItemId(int p){return p;}
-        public View getView(int position,View recycled,ViewGroup parent){LinearLayout r;TextView title,artist,more;if(recycled==null){r=row();r.setPadding(dp(12),dp(12),dp(8),dp(12));LinearLayout labels=column();title=text("",16);title.setMaxLines(2);artist=text("",12);artist.setMaxLines(1);labels.addView(title);labels.addView(artist);r.addView(labels,new LinearLayout.LayoutParams(0,-2,1));r.addView(new PlayingIndicator(MainActivity.this),new LinearLayout.LayoutParams(dp(20),dp(20)));more=action("⋯",()->{});r.addView(more);r.setTag(new TextView[]{title,artist,more});}else r=(LinearLayout)recycled;TextView[] holder=(TextView[])r.getTag();JSONObject t=shown.optJSONObject(position);holder[0].setText(t.optString("title"));PlayingIndicator indicator=(PlayingIndicator)r.getChildAt(1);indicator.setVisibility(currentID.equals(t.optString("id"))?View.VISIBLE:View.GONE);indicator.playing(lastPlaying);holder[1].setText(t.optString("artist"));holder[1].setOnClickListener(v->chooseArtist(t.optString("artist")));holder[1].setContentDescription("Открыть исполнителя");holder[2].setOnClickListener(v->trackMenu(t));r.setBackgroundColor(currentID.equals(t.optString("id"))?0x22ffb260:Color.TRANSPARENT);return r;}
+        public View getView(int position,View recycled,ViewGroup parent){LinearLayout r;TextView title,artist,more;if(recycled==null){r=row();r.setPadding(dp(12),dp(12),dp(8),dp(12));LinearLayout labels=column();title=text("",16);title.setMaxLines(2);artist=text("",12);artist.setMaxLines(1);labels.addView(title);labels.addView(artist);r.addView(labels,new LinearLayout.LayoutParams(0,-2,1));r.addView(new PlayingIndicator(MainActivity.this),new LinearLayout.LayoutParams(dp(20),dp(20)));more=action("⋯",()->{});r.addView(more);r.setTag(new TextView[]{title,artist,more});}else r=(LinearLayout)recycled;TextView[] holder=(TextView[])r.getTag();JSONObject t=shown.optJSONObject(position);holder[0].setText(t.optString("title"));PlayingIndicator indicator=(PlayingIndicator)r.getChildAt(1);indicator.setVisibility(currentID.equals(t.optString("id"))?View.VISIBLE:View.GONE);indicator.playing(lastPlaying);holder[1].setText(t.optString("artist"));holder[1].setOnClickListener(v->chooseArtist(t.optString("artist")));holder[1].setContentDescription(ArtistAttribution.isKnown(t.optString("artist"))?"Открыть исполнителя":"Исполнитель не указан");holder[2].setOnClickListener(v->trackMenu(t));r.setBackgroundColor(currentID.equals(t.optString("id"))?0x22ffb260:Color.TRANSPARENT);return r;}
     }
     private String favoriteOrder="recent";
     private void favoriteSortMenu(){
