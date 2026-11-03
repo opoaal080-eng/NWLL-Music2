@@ -436,7 +436,10 @@ public final class PlaybackService extends MediaSessionService {
         if(saved!=null)return new MediaItem.Builder().setMediaId(id).setUri(Uri.fromFile(saved)).setMimeType(track.optString("_mime","audio/mp4")).setMediaMetadata(metadata.build()).build();
         if(track.optBoolean("_offline",false))throw new java.io.IOException("Offline file missing");
         boolean remote=StreamPolicy.usesHls(track.optBoolean("is_remote",false),track.optString("source"),track.optString("source_url"));
-        String quality=getSharedPreferences("playback",MODE_PRIVATE).getString("nw-audio-quality","auto");
+        String chosenQuality=getSharedPreferences("playback",MODE_PRIVATE)
+            .getString("nw-audio-quality","auto");
+        String quality=("low".equals(chosenQuality)||"economy".equals(chosenQuality))?
+            "economy":("medium".equals(chosenQuality)||"high".equals(chosenQuality))?"high":"auto";
         boolean supported=getSharedPreferences("playback",MODE_PRIVATE)
             .getBoolean("nw-quality-ready",false) &&
             base.equals(getSharedPreferences("playback",MODE_PRIVATE)
