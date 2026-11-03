@@ -126,7 +126,7 @@ final class NativeAPI {
         if(!remote)return;
         ArtistAttribution.Result credit=ArtistAttribution.resolve(
             track.optString("title"),track.optString("artist"),source,sourceURL,remote,
-            track.optString("metadata_artist").isEmpty?track.optString("performer"):track.optString("metadata_artist"),
+            track.optString("metadata_artist").isEmpty()?track.optString("performer"):track.optString("metadata_artist"),
             track.optString("artist_credit"));
         try {
             track.put("title",credit.title);
