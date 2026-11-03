@@ -109,8 +109,16 @@ class ArtistDirectory:
                     continue
                 item = clean_track(raw_item)
                 if not has_performer(item):
-                    # A remote account that posted a song is not a musician.
-                    # Never publish it as a searchable artist.
+                    # Remove legacy uploader associations from an old index as soon
+                    # as the corresponding track is observed again.
+                    tid = item.get("id")
+                    if isinstance(tid, str) and 1 <= len(tid) <= 128:
+                        db.execute(
+                            "DELETE FROM artist_directory_artist_tracks "
+                            "WHERE owner=? AND track_id=?", (owner, tid))
+                        db.execute(
+                            "DELETE FROM artist_directory_tracks WHERE owner=? AND track_id=?",
+                            (owner, tid))
                     continue
                 tid, title, artist = item.get("id"), item.get("title"), item.get("artist")
                 if (not isinstance(tid, str) or not 1 <= len(tid) <= 128 or
