@@ -552,7 +552,14 @@ public final class PlaybackService extends MediaSessionService {
         if(saved!=null)return new MediaItem.Builder().setMediaId(id).setUri(Uri.fromFile(saved)).setMimeType(track.optString("_mime","audio/mp4")).setMediaMetadata(metadata.build()).build();
         if(track.optBoolean("_offline",false))throw new java.io.IOException("Offline file missing");
         boolean remote=StreamPolicy.usesHls(track.optBoolean("is_remote",false),track.optString("source"),track.optString("source_url"));
-        MediaItem.Builder item=new MediaItem.Builder().setMediaId(id).setUri(base+"api/stream/"+id+"?cache=1&format="+(remote?"hls":"file")).setMediaMetadata(metadata.build());
+        String preferredQuality=getSharedPreferences("playback",MODE_PRIVATE)
+            .getString("nw-audio-quality","original");
+        String qualitySuffix=!remote &&
+            ("economy".equals(preferredQuality)||"balanced".equals(preferredQuality)||"high".equals(preferredQuality))
+                ? "&quality="+preferredQuality : "";
+        MediaItem.Builder item=new MediaItem.Builder().setMediaId(id)
+            .setUri(base+"api/stream/"+id+"?cache=1&format="+(remote?"hls":"file")+qualitySuffix)
+            .setMediaMetadata(metadata.build());
         if(remote)item.setMimeType(MimeTypes.APPLICATION_M3U8);
         return item.build();
     }
