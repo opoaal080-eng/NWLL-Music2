@@ -179,10 +179,25 @@ public final class PlaybackService extends MediaSessionService {
         if(bufferChoiceSeconds!=0 && bufferChoiceSeconds!=4 && bufferChoiceSeconds!=8 && bufferChoiceSeconds!=12) bufferChoiceSeconds=0;
         DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory().setUserAgent("NightwellMusic/0.5").setConnectTimeoutMs(10000).setReadTimeoutMs(20000);
         ResolvingDataSource.Factory source = new ResolvingDataSource.Factory(http, data -> {
-            if (!ServerAddress.sameOrigin(origin, data.uri.toString())) throw new java.io.IOException("Недопустимый адрес аудио");
+            Uri current = data.uri;
+            String hostname = current.getHost()==null?"":current.getHost().toLowerCase(java.util.Locale.ROOT);
+            boolean own=ServerAddress.sameOrigin(origin,current.toString());
+            boolean soundcloudCDN="https".equals(current.getScheme()) &&
+                ("playback.media-streaming.soundcloud.cloud".equals(hostname) ||
+                 hostname.endsWith(".media-streaming.soundcloud.cloud") ||
+                 "cf-hls-media.sndcdn.com".equals(hostname) ||
+                 hostname.endsWith(".sndcdn.com"));
+            if(!own&&!soundcloudCDN)
+                throw new java.io.IOException("Недопустимый аудиоисточник");
             HashMap<String,String> headers = new HashMap<>(data.httpRequestHeaders);
-            String cookie = NativeAPI.cookie(this,origin);
-            if (cookie != null) headers.put("Cookie",cookie);
+            if(own){
+                String cookie=NativeAPI.cookie(this,origin);
+                if(cookie!=null)headers.put("Cookie",cookie);
+            }else{
+                // Session cookies never accompany SoundCloud CDN segments.
+                headers.remove("Cookie");
+                headers.remove("Authorization");
+            }
             return data.buildUpon().setHttpRequestHeaders(headers).build();
         });
         audioCache=new SimpleCache(new java.io.File(getFilesDir(),"audio-cache"),
@@ -421,7 +436,17 @@ public final class PlaybackService extends MediaSessionService {
         if(saved!=null)return new MediaItem.Builder().setMediaId(id).setUri(Uri.fromFile(saved)).setMimeType(track.optString("_mime","audio/mp4")).setMediaMetadata(metadata.build()).build();
         if(track.optBoolean("_offline",false))throw new java.io.IOException("Offline file missing");
         boolean remote=StreamPolicy.usesHls(track.optBoolean("is_remote",false),track.optString("source"),track.optString("source_url"));
-        MediaItem.Builder item=new MediaItem.Builder().setMediaId(id).setUri(base+"api/stream/"+id+"?cache=1&format="+(remote?"hls":"file")).setMediaMetadata(metadata.build());
+        String quality=getSharedPreferences("playback",MODE_PRIVATE).getString("nw-audio-quality","auto");
+        boolean supported=getSharedPreferences("playback",MODE_PRIVATE)
+            .getBoolean("nw-quality-ready",false) &&
+            base.equals(getSharedPreferences("playback",MODE_PRIVATE)
+                .getString("nw-quality-ready-origin",""));
+        boolean soundcloud=track.optString("source").toLowerCase(java.util.Locale.ROOT).contains("soundcloud") ||
+            track.optString("source_url").toLowerCase(java.util.Locale.ROOT).contains("soundcloud.com/");
+        String stream=(supported&&soundcloud&&("economy".equals(quality)||"high".equals(quality)))?
+            base+"api/audio-quality/stream/"+id+"?quality="+quality+"&format=hls":
+            base+"api/stream/"+id+"?cache=1&format="+(remote?"hls":"file");
+        MediaItem.Builder item=new MediaItem.Builder().setMediaId(id).setUri(stream).setMediaMetadata(metadata.build());
         if(remote)item.setMimeType(MimeTypes.APPLICATION_M3U8);
         return item.build();
     }
