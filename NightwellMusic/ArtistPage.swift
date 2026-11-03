@@ -27,7 +27,7 @@ struct ArtistPage: View {
                     VStack(alignment: .leading, spacing: 20) {
                         HStack(spacing: 12) {
                             Button {
-                                following = store.toggleFollowingArtist(artist.name)
+                                following = store.toggleFollowingArtist(artist.name, serverID: artist.seed.artist_id)
                             } label: {
                                 Text(following ? "Вы подписаны ✓" : "Подписаться")
                                     .font(.system(size: 14, weight: .semibold))
