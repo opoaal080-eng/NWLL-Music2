@@ -17,6 +17,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from fastapi import HTTPException, Request
+from artist_metadata import clean_track, has_performer
 
 MAX_TRACKS_PER_RESPONSE = 3000
 MAX_PROFILE_TRACKS = 500
@@ -103,8 +104,13 @@ class ArtistDirectory:
         if not isinstance(items, list):
             return count
         with self.connect() as db:
-            for item in items[:MAX_TRACKS_PER_RESPONSE]:
-                if not isinstance(item, dict):
+            for raw_item in items[:MAX_TRACKS_PER_RESPONSE]:
+                if not isinstance(raw_item, dict):
+                    continue
+                item = clean_track(raw_item)
+                if not has_performer(item):
+                    # A remote account that posted a song is not a musician.
+                    # Never publish it as a searchable artist.
                     continue
                 tid, title, artist = item.get("id"), item.get("title"), item.get("artist")
                 if (not isinstance(tid, str) or not 1 <= len(tid) <= 128 or
@@ -116,7 +122,8 @@ class ArtistDirectory:
                     continue
                 public = {k: item[k] for k in
                           ("id", "title", "artist", "album", "duration", "cover_url",
-                           "source", "source_url", "is_remote")
+                           "source", "source_url", "is_remote", "uploader",
+                           "performer", "artist_credit", "_artist_checked")
                           if k in item and isinstance(item[k], (str, int, float, bool, type(None)))}
                 if isinstance(public.get("cover_url"), str) and len(public["cover_url"]) > 2048:
                     public.pop("cover_url")
