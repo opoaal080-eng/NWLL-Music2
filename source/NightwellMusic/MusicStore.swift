@@ -103,6 +103,7 @@ private struct AudioQualityDecision: Decodable {
     private(set) var api: MusicAPI
     private(set) var origin: URL
     private var searchTask: Task<Void, Never>?
+    private var searchDebounceTask: Task<Void, Never>?
     private var artistSearchTask: Task<Void, Never>?
     private var searchArtistSuggestionTask: Task<Void, Never>?
     private var qualityNoticeTask: Task<Void, Never>?
@@ -821,6 +822,26 @@ private struct AudioQualityDecision: Decodable {
             }
         }
     }
+    func scheduleSearch() {
+        // A separate debounce means typing never scans the catalogue or forces
+        // 100+ image rows to refresh for each individual keyboard event.
+        searchDebounceTask?.cancel()
+        searchTask?.cancel()
+        artistSearchTask?.cancel()
+        searchArtistSuggestionTask?.cancel()
+        searchGeneration = UUID()
+        let expected = query
+        if expected.trimmingCharacters(in: .whitespacesAndNewlines).count < 2 {
+            search()
+            return
+        }
+        searchDebounceTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 260_000_000)
+            guard !Task.isCancelled, let self, self.query == expected,
+                  self.screen == .search else { return }
+            self.search()
+        }
+    }
     func search() {
         searchTask?.cancel(); artistSearchTask?.cancel(); searchArtistSuggestionTask?.cancel()
         searchGeneration = UUID()
@@ -845,7 +866,7 @@ private struct AudioQualityDecision: Decodable {
                 withAllowedCharacters: .urlQueryAllowed.subtracting(CharacterSet(charactersIn: "&+=?#"))) ?? ""
             artistSearchTask = Task {
                 do {
-                    try await Task.sleep(nanoseconds: 320_000_000)
+                    try await Task.sleep(nanoseconds: 40_000_000)
                     let found: ArtistDirectoryResults = try await api.request(
                         "/api/artists?q=" + encodedArtist + "&limit=16", timeout: 9)
                     guard !Task.isCancelled, generation == searchGeneration else { return }
@@ -860,7 +881,7 @@ private struct AudioQualityDecision: Decodable {
         }
         searchTask = Task {
             do {
-                try await Task.sleep(nanoseconds: 250_000_000)
+                try await Task.sleep(nanoseconds: 30_000_000)
                 try Task.checkCancellation()
                 let local = catalog, key = cacheKey
                 let terms = text.split(whereSeparator: { $0.isWhitespace }).map { RecommendationOrder.key(String($0)) }.filter { !$0.isEmpty }
@@ -912,6 +933,7 @@ private struct AudioQualityDecision: Decodable {
         }
     }
     func leaveSearch() {
+        searchDebounceTask?.cancel()
         searchTask?.cancel(); artistSearchTask?.cancel()
         searchArtistSuggestionTask?.cancel()
         searchGeneration = UUID()
