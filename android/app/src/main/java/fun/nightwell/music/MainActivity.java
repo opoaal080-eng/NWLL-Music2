@@ -960,7 +960,7 @@ public final class MainActivity extends Activity {
     void toggle(){cancelMix();if(playback!=null){if(playback.player.getPlayWhenReady())playback.pause();else playback.play();updatePlayback();if(liveOwner)publishLive(false);}}
     private long lastPrevious;private String previousID="";
     void nextTrack(){trackTransitionDirection=1;cancelMix();if(playback!=null)playback.goNextPlayedOrQueued();}
-    void previous(){trackTransitionDirection=-1;cancelMix();if(playback==null)return;long now=SystemClock.uptimeMillis();if(playback.player.getCurrentPosition()>3000&&!(currentID.equals(previousID)&&now-lastPrevious<3000)){previousID=currentID;lastPrevious=now;playback.seek(0);}else{previousID="";playback.goPreviousPlayed();}}
+    void previous(){trackTransitionDirection=-1;cancelMix();if(playback!=null)playback.goPreviousPlayed();}
     void waveSettings(){
         if(user.isEmpty()){auth();return;}
         final String account=user;
@@ -1204,21 +1204,32 @@ public final class MainActivity extends Activity {
         JSONObject value=api.request("api/lyrics/"+id);if(value.optString("status").equals("found"))java.nio.file.Files.write(file.toPath(),value.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));return value;
     }
     boolean lyricsPending(JSONObject value){String state=value.optString("status");return state.equals("loading")||state.equals("pending")||state.equals("unavailable");}
-    void fetchLyricsAndPreload(){final String id=currentID;if(id.isEmpty())return;final JSONArray upcoming=new JSONArray();for(int i=0;i<queue.length();i++)if(queue.optJSONObject(i).optString("id").equals(id)){for(int j=i;j<Math.min(queue.length(),i+4);j++)upcoming.put(queue.optJSONObject(j).optString("id"));break;}
-        if(artworkCache!=null) {
-            int warmed=0;
-            for(int i=0;i<queue.length()&&warmed<3;i++) {
-                JSONObject next=queue.optJSONObject(i);
-                if(next!=null&&next.optString("id").equals(id)) {
-                    for(int j=i+1;j<queue.length()&&warmed<3;j++,warmed++) {
-                        JSONObject upcomingTrack=queue.optJSONObject(j);
-                        if(upcomingTrack!=null)artworkCache.prefetch(origin,upcomingTrack.optString("cover_url"));
-                    }
-                    break;
-                }
-            }
+    void fetchLyricsAndPreload(){
+        final String id=currentID;
+        if(id.isEmpty())return;
+        // Audio warmup is owned by PlaybackService. It runs with the MediaSession
+        // in the background and does not wait for lyrics or artwork requests.
+        if(!visible)return;
+        final JSONArray upcoming=new JSONArray();
+        int at=-1;
+        for(int i=0;i<queue.length();i++)if(id.equals(queue.optJSONObject(i).optString("id"))){at=i;break;}
+        if(at>=0)for(int j=at+1;j<Math.min(queue.length(),at+4);j++){
+            JSONObject next=queue.optJSONObject(j);
+            if(next==null)continue;
+            upcoming.put(next.optString("id"));
+            if(artworkCache!=null && j<at+3)artworkCache.prefetch(origin,next.optString("cover_url"));
         }
-        prefetch.execute(()->{try{JSONObject value=cachedLyrics(id);ui.post(()->{if(currentID.equals(id))acceptLyrics(id,value);});if(!user.isEmpty()){try{api.request("api/preload","POST",new JSONObject().put("ids",upcoming));}catch(Exception ignored){}for(int i=1;i<upcoming.length();i++)try{cachedLyrics(upcoming.optString(i));}catch(Exception ignored){}}}catch(Exception ignored){}});
+        prefetch.execute(()->{
+            if(!visible || !currentID.equals(id))return;
+            try{
+                JSONObject value=cachedLyrics(id);
+                ui.post(()->{if(currentID.equals(id))acceptLyrics(id,value);});
+                // Work on only the first few lyric files; never block audio warming.
+                for(int i=0;i<upcoming.length()&&visible&&currentID.equals(id);i++){
+                    try{cachedLyrics(upcoming.optString(i));}catch(Exception ignored){}
+                }
+            }catch(Exception ignored){}
+        });
     }
     private String lyricsPollID="";private int lyricsRound;
     void acceptLyrics(String id,JSONObject value){
