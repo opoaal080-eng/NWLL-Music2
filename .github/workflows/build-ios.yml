@@ -34,7 +34,7 @@ jobs:
           /tmp/test-nightwell-recommendations
       - name: Test remote uploader and performer attribution
         run: |
-          swiftc NightwellMusic/ArtistAttribution.swift NightwellMusic/Models.swift NightwellMusic/RequestRetry.swift scripts/test-artist-attribution.swift -o /tmp/test-artist-attribution
+          swiftc NightwellMusic/ArtistAttribution.swift scripts/test-artist-attribution.swift -o /tmp/test-artist-attribution
           /tmp/test-artist-attribution
       - name: Test Premium payment confirmation
         run: |
