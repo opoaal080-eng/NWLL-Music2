@@ -1,11 +1,17 @@
 @echo off
-setlocal
-chcp 65001 >nul
-set "TARGET=C:\Nightwell Music\nightwell-music"
-if not "%~1"=="" set "TARGET=%~1"
-if exist "%TARGET%\.venv\Scripts\python.exe" (
-  "%TARGET%\.venv\Scripts\python.exe" "%~dp0installer.py" --check --target "%TARGET%"
-) else (
-  py -3 "%~dp0installer.py" --check --target "%TARGET%"
+setlocal DisableDelayedExpansion
+set "SCRIPT=%~dp0Run-Latest-Server.ps1"
+if not exist "%SCRIPT%" (
+    echo ERROR: Run-Latest-Server.ps1 is missing. Extract the ZIP first.
+    pause
+    exit /b 1
 )
+if "%~1"=="" (
+    powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT%" -Mode Check
+) else (
+    powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT%" -Mode Check -Target "%~1"
+)
+set "RESULT=%ERRORLEVEL%"
+if not "%RESULT%"=="0" echo Installation/check failed. See the error above.
 pause
+exit /b %RESULT%
