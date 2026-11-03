@@ -136,6 +136,55 @@ public final class PlaybackService extends MediaSessionService {
     private int streamRetryCount = 0;
     private Runnable pendingStreamRetry;
     private boolean waveActive, waveLoading, waveShuffle;
+    private int queueRevision;
+    private final java.util.ArrayList<String> playedOrder=new java.util.ArrayList<>();
+    private int playedCursor=-1;
+
+    private void rememberTransition(String id){
+        if(id==null||id.isEmpty())return;
+        if(playedCursor>=0&&playedCursor<playedOrder.size()&&id.equals(playedOrder.get(playedCursor)))return;
+        if(playedCursor+1<playedOrder.size())
+            playedOrder.subList(playedCursor+1,playedOrder.size()).clear();
+        playedOrder.add(id);playedCursor=playedOrder.size()-1;
+    }
+
+    boolean goPreviousPlayed(){
+        if(playedCursor>0) {
+            playedCursor--;
+            String id=playedOrder.get(playedCursor);
+            for(int i=0;i<player.getMediaItemCount();i++){
+                if(id.equals(player.getMediaItemAt(i).mediaId)){
+                    player.seekTo(i,0);
+                    return true;
+                }
+            }
+            playedCursor++;
+        }
+        return false;
+    }
+
+    boolean goNextPlayedOrQueued(){
+        if(playedCursor+1<playedOrder.size()){
+            playedCursor++;
+            String id=playedOrder.get(playedCursor);
+            for(int i=0;i<player.getMediaItemCount();i++){
+                if(id.equals(player.getMediaItemAt(i).mediaId)){
+                    player.seekTo(i,0);return true;
+                }
+            }
+            playedCursor--;
+        }
+        int current=player.getCurrentMediaItemIndex();
+        if(current>=0&&current+1<player.getMediaItemCount()){
+            player.seekTo(current+1,0);return true;
+        }
+        refillWave();
+        return false;
+    }
+
+    int currentQueueIndex(){return player.getCurrentMediaItemIndex();}
+    int queueRevision(){return queueRevision;}
+
     private WaveSettings waveSettings=new WaveSettings(new JSONObject());
     private int waveGeneration;
     private final LatestRequest waveRequest = new LatestRequest();
@@ -229,6 +278,7 @@ public final class PlaybackService extends MediaSessionService {
             @Override public void onMediaItemTransition(MediaItem item,int reason) {
                 loudnessAverage=0; loudnessGain=1;
                 beginTrackTiming(item);
+                if(item!=null)rememberTransition(item.mediaId);
                 cancelStreamRetry();
                 retriedTrackId = "";
                 streamRetryCount = 0;
@@ -365,6 +415,7 @@ public final class PlaybackService extends MediaSessionService {
             }
             if(selected<0)return;
             waveActive=false;cancelWaveRequest();
+            playedOrder.clear();playedCursor=-1;queueRevision++;
             player.stop();player.setPlayWhenReady(false);
             String account=data.optString("account","");
             if(!account.matches("[A-Za-z0-9_-]{1,80}"))account=String.valueOf(NativeAPI.cookie(this,nextOrigin));
@@ -374,10 +425,14 @@ public final class PlaybackService extends MediaSessionService {
             boolean nextWave=data.optBoolean("wave",false);
             waveSettings=new WaveSettings(data.optJSONObject("wave_preferences")==null?new JSONObject():data.optJSONObject("wave_preferences"));
             if(!waveActive||!nextWave)waveSeen.clear();
-            waveActive=nextWave;waveShuffle=nextWave&&data.optBoolean("shuffle",false);
+            waveActive=nextWave;waveShuffle=false;
+            boolean requestedShuffle=data.optBoolean("shuffle",false);
             waveGeneration++;waveLoading=false;waveRetryAt=0;
-            if(waveActive){player.setRepeatMode(Player.REPEAT_MODE_OFF);player.setShuffleModeEnabled(false);}
+            player.setShuffleModeEnabled(false);
+            if(waveActive)player.setRepeatMode(Player.REPEAT_MODE_OFF);
             player.setMediaSources(items,selected,Math.max(0,data.optLong("position",0)));
+            queueRevision++;
+            if(requestedShuffle)modes(0,true);
             player.prepare();
         } catch (Exception ex) { error="Не удалось загрузить очередь."; }
     }
@@ -411,23 +466,24 @@ public final class PlaybackService extends MediaSessionService {
         if(volumeLevelingStrength==0){loudnessAverage=0;loudnessGain=1;}
         updateFade();
     }
-    boolean shuffleEnabled() { return waveActive ? waveShuffle : player.getShuffleModeEnabled(); }
+    boolean shuffleEnabled() { return waveShuffle; }
     void modes(int repeat, boolean shuffle) {
-        player.setRepeatMode(repeat==1&&!waveActive?Player.REPEAT_MODE_ALL:repeat==2?Player.REPEAT_MODE_ONE:Player.REPEAT_MODE_OFF);
-        if(waveActive) {
-            boolean changed=waveShuffle!=shuffle;
-            waveShuffle=shuffle;
-            player.setShuffleModeEnabled(false);
-            if(changed&&shuffle) {
-                // Shuffle only the unplayed part. Keep the listened history in place.
-                int from=player.getCurrentMediaItemIndex()+1;
-                java.util.Random random=new java.util.Random();
-                for(int i=from;i<player.getMediaItemCount()-1;i++) {
-                    int choice=i+random.nextInt(player.getMediaItemCount()-i);
-                    if(choice!=i)player.moveMediaItem(choice,i);
-                }
+        player.setRepeatMode(repeat==1&&!waveActive?Player.REPEAT_MODE_ALL:
+            repeat==2?Player.REPEAT_MODE_ONE:Player.REPEAT_MODE_OFF);
+        boolean changed=waveShuffle!=shuffle;
+        waveShuffle=shuffle;
+        // Media3's internal shuffle has a hidden order that differs from the queue UI.
+        // Instead physically shuffle upcoming songs so transport, list and prefetch agree.
+        player.setShuffleModeEnabled(false);
+        if(changed&&shuffle) {
+            int from=player.getCurrentMediaItemIndex()+1;
+            java.util.Random random=new java.util.Random();
+            for(int i=Math.max(0,from);i<player.getMediaItemCount()-1;i++){
+                int choice=i+random.nextInt(player.getMediaItemCount()-i);
+                if(choice!=i)player.moveMediaItem(choice,i);
             }
-        } else player.setShuffleModeEnabled(shuffle);
+            queueRevision++;
+        }
         if(player.isPlaying())scheduleNextFilePrefetch();
     }
     private MediaSource mediaSource(MediaItem item) {
@@ -561,7 +617,7 @@ public final class PlaybackService extends MediaSessionService {
                     if(fresh.isEmpty()){error=data.optString("message","Новые треки пока не найдены.");return;}
                     boolean ended=player.getPlaybackState()==Player.STATE_ENDED,continuePlaying=player.getPlayWhenReady();
                     // Append-only discovery queue. Never prune songs the user has played.
-                    int firstNew=player.getMediaItemCount();player.addMediaSources(fresh);error="";
+                    int firstNew=player.getMediaItemCount();player.addMediaSources(fresh);queueRevision++;error="";
                     waveRetryAt=System.currentTimeMillis()+30000;
                     if(ended&&continuePlaying){player.seekTo(firstNew,0);player.prepare();player.play();}
                 }catch(Exception ignored){error=message;}
@@ -625,6 +681,7 @@ public final class PlaybackService extends MediaSessionService {
             state.put("ended",player.getPlaybackState()==Player.STATE_ENDED);
             state.put("repeat",player.getRepeatMode()==Player.REPEAT_MODE_ALL?1:player.getRepeatMode()==Player.REPEAT_MODE_ONE?2:0);state.put("shuffle",shuffleEnabled());
             state.put("error",error);state.put("volume",baseVolume);state.put("smoothTransitions",true);state.put("transitionSeconds",transitionSeconds);
+            state.put("queueRevision",queueRevision);state.put("queueIndex",player.getCurrentMediaItemIndex());
             state.put("wave_preferences",waveSettings.json());state.put("wave",waveActive);state.put("waveSupported",true);
             JSONArray fullQueue=new JSONArray();
             for(int i=0;includeQueue&&i<player.getMediaItemCount();i++){
