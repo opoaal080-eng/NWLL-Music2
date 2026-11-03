@@ -269,16 +269,17 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
     if(where>=0){index=where;PlayCurrent();return;}
     playedCursor--;
    }
+   int nextIndex=index+1;
    if(shuffle){
     var heard=playedOrder.ToHashSet();
     var heardFingerprints=queue.Where(t=>heard.Contains(t.id))
         .Select(DiscoveryHistory.Fingerprint).ToHashSet();
-    while(index+1<queue.Count &&
-          (heard.Contains(queue[index+1].id) ||
-           heardFingerprints.Contains(DiscoveryHistory.Fingerprint(queue[index+1]))))
-     index++;
+    while(nextIndex<queue.Count &&
+          (heard.Contains(queue[nextIndex].id) ||
+           heardFingerprints.Contains(DiscoveryHistory.Fingerprint(queue[nextIndex]))))
+     nextIndex++;
    }
-   if(index+1<queue.Count)index++;
+   if(nextIndex<queue.Count)index=nextIndex;
    else if(repeat==1)index=0;
    else return;
    PlayCurrent();
