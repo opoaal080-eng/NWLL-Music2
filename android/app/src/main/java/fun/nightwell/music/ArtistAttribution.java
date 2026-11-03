@@ -70,7 +70,9 @@ final class ArtistAttribution {
         }
         if(inferred!=null)return new Result(inferred[1],inferred[0],
             artist.isEmpty()?null:artist,true);
-        return new Result(title,UNKNOWN,artist.isEmpty()?null:artist,false);
+        if(!artist.isEmpty()&&!artist.equals(UNKNOWN))
+            return new Result(title,artist,null,true);
+        return new Result(title,UNKNOWN,null,false);
     }
 
     static boolean isKnown(String name) {
