@@ -1,5 +1,87 @@
 import SwiftUI
 
+struct ArtistChoice: Identifiable {
+    let track: Track
+    let artists: [ArtistSelection]
+    var id: String { track.id }
+}
+
+struct ArtistChoiceSheet: View {
+    let choice: ArtistChoice
+    @EnvironmentObject private var store: MusicStore
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 10) {
+                    Text("Участники записи")
+                        .font(.system(size: 26, weight: .bold))
+                        .padding(.bottom, 12)
+                    ForEach(choice.artists) { item in
+                        NavigationLink {
+                            ArtistPage(artist: item).environmentObject(store)
+                        } label: {
+                            HStack(spacing: 14) {
+                                ArtistPortrait(name: item.name, rawURL: item.seed.artist_image_url, origin: store.origin)
+                                    .frame(width: 56, height: 56)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(item.name).font(.system(size: 17, weight: .semibold))
+                                    Text(item.titleDerived ? "Указан в названии записи" : "Указан в метаданных")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer(minLength: 4)
+                                Image(systemName: "chevron.right").foregroundStyle(.secondary)
+                            }
+                            .padding(12)
+                            .background(.white.opacity(0.075), in: RoundedRectangle(cornerRadius: 19))
+                        }.buttonStyle(.plain)
+                    }
+                    Text("Профили могут быть не подтверждены. Загрузчик SoundCloud не считается исполнителем автоматически.")
+                        .font(.caption).foregroundStyle(.secondary).padding(.top, 8)
+                }.padding(20)
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .background(Color.black.ignoresSafeArea())
+        }
+        .tint(.white).preferredColorScheme(.dark)
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+}
+
+struct ArtistPortrait: View {
+    let name: String
+    let rawURL: String?
+    let origin: URL
+    private var url: URL? {
+        guard let rawURL, let result = URL(string: rawURL, relativeTo: origin)?.absoluteURL,
+              result.scheme == "https", result.user == nil, result.password == nil,
+              (result.host == origin.host || result.host?.hasSuffix(".sndcdn.com") == true)
+        else { return nil }
+        return result
+    }
+    var body: some View {
+        GeometryReader { box in
+            ZStack {
+                LinearGradient(colors: [Color(white: 0.25), Color(white: 0.08)],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+                if let url {
+                    AsyncImage(url: url) { phase in
+                        if let image = phase.image {
+                            image.resizable().scaledToFill()
+                        } else { fallback }
+                    }
+                } else { fallback }
+            }.frame(width: box.size.width, height: box.size.height)
+                .clipShape(Circle())
+        }
+    }
+    private var fallback: some View {
+        Text(String(name.prefix(1)).uppercased())
+            .font(.system(size: 32, weight: .semibold))
+            .foregroundStyle(.white.opacity(0.85))
+    }
+}
+
 /// A Spotify-style artist surface using only facts that Nightwell actually knows.
 struct ArtistPage: View {
     @EnvironmentObject private var store: MusicStore
@@ -11,13 +93,13 @@ struct ArtistPage: View {
     @State private var message = ""
     @State private var following = false
     @State private var showPlayer = false
+    @State private var profileImageURL: String?
     private struct ServerArtist: Decodable {
         let tracks: [Track]
         let has_more: Bool?
         let total: Int?
+        let image_url: String?
     }
-
-    private var hero: Track { tracks.first ?? artist.seed }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -146,18 +228,17 @@ struct ArtistPage: View {
     }
 
     @ViewBuilder private var bannerImage: some View {
-        if let raw = artist.seed.artist_image_url,
-           let url = URL(string: raw, relativeTo: store.origin),
-           url.scheme == "https" {
-            AsyncImage(url: url) { phase in
-                if let image = phase.image {
-                    image.resizable().scaledToFill()
-                } else {
-                    Cover(track: hero, origin: store.origin, pixelWidth: 1000)
-                }
-            }
-        } else {
-            Cover(track: hero, origin: store.origin, pixelWidth: 1000)
+        // SoundCloud avatar, never an album/track cover masquerading as a portrait.
+        let imageSource = profileImageURL ?? (
+            ArtistIdentity.key(artist.seed.artist_name ?? "") == artist.id
+            ? artist.seed.artist_image_url : nil)
+        ZStack {
+            LinearGradient(colors: [Color(white: 0.23), Color(white: 0.06), .black],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+            ArtistPortrait(name: artist.name, rawURL: imageSource, origin: store.origin)
+                .frame(width: 260, height: 260)
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, 34)
         }
     }
 
@@ -173,6 +254,7 @@ struct ArtistPage: View {
         // Prefer the canonical server profile, which merges reliable metadata
         // without confusing a SoundCloud uploader with the performer.
         if let serverID = artist.seed.artist_id,
+           ArtistIdentity.key(artist.seed.artist_name ?? "") == artist.id,
            serverID.range(of: #"^artist-[a-f0-9]{20}$"#, options: .regularExpression) != nil {
             do {
                 var offset = 0
@@ -182,6 +264,7 @@ struct ArtistPage: View {
                         "/api/artists/" + serverID + "?limit=80&offset=\(offset)", timeout: 18)
                     try Task.checkCancellation()
                     tracks = ArtistIdentity.unique(tracks + response.tracks, for: artist)
+                    if let url = response.image_url { profileImageURL = url }
                     offset += response.tracks.count
                     if response.has_more != true || response.tracks.isEmpty { return }
                 }
