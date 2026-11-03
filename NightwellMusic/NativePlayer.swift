@@ -62,6 +62,29 @@ final class NativePlayer {
     private var appIsActive = UIApplication.shared.applicationState == .active
     private var offlineAccount = ""
     private var index = 0
+    // Playback traversal, not the original playlist order. Back always follows what
+    // the listener really heard, including shuffled and manually selected tracks.
+    private var navigationHistory: [String] = []
+    private var navigationPosition = -1
+
+    private func rememberNavigation(_ id: String) {
+        guard !id.isEmpty else { return }
+        if navigationHistory.indices.contains(navigationPosition), navigationHistory[navigationPosition] == id { return }
+        if navigationPosition + 1 < navigationHistory.count {
+            navigationHistory.removeSubrange((navigationPosition + 1)..<navigationHistory.count)
+        }
+        navigationHistory.append(id)
+        navigationPosition = navigationHistory.count - 1
+    }
+
+    func jump(to id: String) {
+        guard let next = tracks.firstIndex(where: { $0.id == id }) else { return }
+        guard next != index else { return }
+        index = next
+        rememberNavigation(id)
+        load()
+        play()
+    }
     private var cookies: [HTTPCookie] = []
     private var requestedPosition = 0.0
     private var waitingForReady = false
@@ -214,6 +237,7 @@ final class NativePlayer {
         waveSettings = WaveSettings(data["wave_preferences"] as? [String: Any] ?? [:])
         waveActive = nextWave; waveWaiting = false; waveRetryAt = .distantPast
         tracks = queue; queueRevision += 1; index = selectedIndex; wantsPlay = false
+        navigationHistory = [queue[selectedIndex].id]; navigationPosition = 0
         load(position: max(0, ((data["position"] as? NSNumber)?.doubleValue ?? 0) / 1000))
     }
 
@@ -559,9 +583,22 @@ final class NativePlayer {
             recovery.cancel(resetBudget: true); independentMeter.cancel(keepingEnvelope: true); resumeAfterInterruption = false
             wantsPlay = true; waveWaiting = true; enginePlayback.pause(); player.pause(); refillWave(force: true); publish(); return
         }
-        // The remaining queue is already shuffled when the mode is enabled.
-        // Never jump to an unprepared random stream at playback time.
-        index = (index + direction + tracks.count) % tracks.count
+        // Follow the actual playback history while moving backwards.
+        // Forward replays that history first, then continues the already
+        // shuffled, prefetched upcoming queue.
+        if direction < 0 && navigationPosition > 0 {
+            navigationPosition -= 1
+            guard let previousIndex = tracks.firstIndex(where: { $0.id == navigationHistory[navigationPosition] }) else { return }
+            index = previousIndex
+        } else if direction > 0 && navigationPosition + 1 < navigationHistory.count {
+            navigationPosition += 1
+            guard let nextIndex = tracks.firstIndex(where: { $0.id == navigationHistory[navigationPosition] }) else { return }
+            index = nextIndex
+        } else {
+            if direction < 0 && shuffle { return } // No previous play: don't choose an arbitrary playlist predecessor.
+            index = (index + direction + tracks.count) % tracks.count
+            rememberNavigation(tracks[index].id)
+        }
         load(); play()
     }
     private func restartSmoothly() {
