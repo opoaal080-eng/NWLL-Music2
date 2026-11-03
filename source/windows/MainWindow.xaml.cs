@@ -73,7 +73,7 @@ public partial class MainWindow:Window {
  if(prefs.TryGetProperty("volume",out var vu)&&vu.TryGetDouble(out var v))userVolume=Math.Clamp(v,0,1);
 }catch{}
 api=new NativeAPI(origin);proxy=new StreamProxy(api);Core.Initialize();
-var audioArgs=new List<string>{"--no-video","--no-xlib"};
+var audioArgs=new List<string>{"--no-video","--no-xlib","--network-caching=1800"};
 if(normalization>0){
  // VLC's native PCM volume normalizer avoids a second decoder and works on HLS and files.
  audioArgs.Add("--audio-filter=normvol");
@@ -184,6 +184,8 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
      Status.Text="Свежих треков по этим настройкам пока нет. Измени настройки подборки.";
      return;
     }
+    var uniqueRecordings=new HashSet<string>();
+    found=found.Where(t=>uniqueRecordings.Add(DiscoveryHistory.Fingerprint(t))).ToList();
     if(shuffle&&found.Count>1){
      var first=found[0];
      found=[first,..found.Skip(1).OrderBy(_=>Random.Shared.Next())];
@@ -247,11 +249,6 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
  void NextClick(object sender,RoutedEventArgs e)=>Advance();
  void PreviousClick(object sender,RoutedEventArgs e){
   if(Current==null)return;
-  long now=Environment.TickCount64;
-  if(player.Time>3000&&!(previousID==currentID&&now-lastPrevious<3000)){
-   lastPrevious=now;previousID=currentID;player.Time=0;return;
-  }
-  previousID="";
   if(playedCursor>0){
    var previous=playedOrder[--playedCursor];
    int where=queue.FindIndex(t=>t.id==previous);
@@ -272,6 +269,15 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
     if(where>=0){index=where;PlayCurrent();return;}
     playedCursor--;
    }
+   if(shuffle){
+    var heard=playedOrder.ToHashSet();
+    var heardFingerprints=queue.Where(t=>heard.Contains(t.id))
+        .Select(DiscoveryHistory.Fingerprint).ToHashSet();
+    while(index+1<queue.Count &&
+          (heard.Contains(queue[index+1].id) ||
+           heardFingerprints.Contains(DiscoveryHistory.Fingerprint(queue[index+1]))))
+     index++;
+   }
    if(index+1<queue.Count)index++;
    else if(repeat==1)index=0;
    else return;
@@ -284,9 +290,10 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
    await Guard(async()=>{
     string owner=account;
     var existing=queue.Select(t=>t.id).ToHashSet();
+    var existingRecordings=queue.Select(DiscoveryHistory.Fingerprint).ToHashSet();
     var heard=discovery.Ids(origin,owner);
     var heardRecordings=discovery.Recordings(origin,owner);
-    var exclusions=queue.TakeLast(45).Select(t=>t.id)
+    var exclusions=queue.AsEnumerable().Reverse().Select(t=>t.id)
         .Concat(discovery.Recent(origin,owner,125))
         .Concat(mixRecent.Reverse())
         .Where(id=>id.Length>0).Distinct().Take(190).ToArray();
@@ -296,9 +303,11 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
          "&exclude="+Uri.EscapeDataString(string.Join(",",exclusions)));
      if(!wave||account!=owner)return;
      foreach(var track in ParseTracks(value)){
+      var fingerprint=DiscoveryHistory.Fingerprint(track);
       if(existing.Contains(track.id)||heard.Contains(track.id)||
-         heardRecordings.Contains(DiscoveryHistory.Fingerprint(track))||
-         fresh.Any(t=>t.id==track.id))continue;
+         heardRecordings.Contains(fingerprint)||
+         existingRecordings.Contains(fingerprint)||
+         fresh.Any(t=>t.id==track.id || DiscoveryHistory.Fingerprint(t)==fingerprint))continue;
       fresh.Add(track);
      }
     }
@@ -317,14 +326,16 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
   warmNextCancellation?.Dispose();
   warmNextCancellation=null;
   if(index+1>=queue.Count||account.Length==0)return;
-  var song=queue[index+1];
-  if(song.LocalPath!=null)return;
+  // A bounded batch warms streams early without a competing audio decoder.
+  var ids=queue.Skip(index+1).Where(t=>t.LocalPath==null)
+      .Take(8).Select(t=>t.id).ToArray();
+  if(ids.Length==0)return;
   var cancel=new CancellationTokenSource();warmNextCancellation=cancel;
   _=Task.Run(async()=>{
    try{
-    await Task.Delay(1100,cancel.Token);
+    await Task.Delay(150,cancel.Token);
     if(cancel.IsCancellationRequested)return;
-    await api.Request("api/preload","POST",new {ids=new[]{song.id}},cancel.Token);
+    await api.Request("api/preload","POST",new {ids},cancel.Token);
    }catch(OperationCanceledException){}catch{ /* Prefetch cannot block playback. */ }
   });
  }
@@ -350,16 +361,20 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
   if(!scrubbing){FullSeek.Maximum=duration;FullSeek.Value=Math.Min(duration,position);}
   FullTime.Text=$"{Time(position)}    /    {Time(duration)}";
   ApplyVolume();
-  if(wave&&queue.Count-index<8&&!refilling)_=Refill();
+  if(wave&&queue.Count-index<20&&!refilling)_=Refill();
  }
  string Time(double s)=>$"{(int)s/60}:{(int)s%60:00}";
  void SeekStart(object sender,MouseButtonEventArgs e)=>scrubbing=true;
  void SeekEnd(object sender,MouseButtonEventArgs e){player.Time=(long)(FullSeek.Value*1000);scrubbing=false;}
  void ShuffleClick(object sender,RoutedEventArgs e){
   shuffle=!shuffle;
-  if(shuffle&&index+2<queue.Count){
+  if(shuffle&&index+1<queue.Count){
    var past=queue.Take(index+1).ToList();
-   var upcoming=queue.Skip(index+1).OrderBy(_=>Random.Shared.Next()).ToList();
+   var ids=past.Select(t=>t.id).Concat(playedOrder).ToHashSet();
+   var fingerprints=past.Select(DiscoveryHistory.Fingerprint).ToHashSet();
+   var upcoming=queue.Skip(index+1).Where(t=>
+       ids.Add(t.id) && fingerprints.Add(DiscoveryHistory.Fingerprint(t)))
+       .OrderBy(_=>Random.Shared.Next()).ToList();
    queue=[..past,..upcoming];
    refreshQueueView?.Invoke();
   }
