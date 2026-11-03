@@ -83,6 +83,7 @@ private struct AudioQualityDecision: Decodable {
     @Published var catalog: [Track] = []
     @Published var results: [Track] = []
     @Published var artistResults: [ArtistDirectoryItem] = []
+    @Published var searchArtistSuggestions: [ArtistDirectoryItem] = []
     @Published var offline: [Track] = []
     @Published var playlists: [Playlist] = []
     @Published var likes: Set<String> = []
@@ -103,6 +104,7 @@ private struct AudioQualityDecision: Decodable {
     private(set) var origin: URL
     private var searchTask: Task<Void, Never>?
     private var artistSearchTask: Task<Void, Never>?
+    private var searchArtistSuggestionTask: Task<Void, Never>?
     private var qualityNoticeTask: Task<Void, Never>?
     private var artistSearchCache: [String: [ArtistDirectoryItem]] = [:]
     private var searchGeneration = UUID()
@@ -795,13 +797,48 @@ private struct AudioQualityDecision: Decodable {
             account = nil; restoreAutoFavoritesSetting(); mixRecentIDs = []; cacheAccount(); catalog = []; results = []; likes = []; playlists = []; lastWave = []; query = ""; await api.setCSRF(nil)
         } catch { self.error = error.localizedDescription }
     }
+    private func refreshSearchArtists(for text: String, generation: UUID) {
+        searchArtistSuggestionTask?.cancel()
+        // Derive short chip lists in the background. The old SwiftUI View ran
+        // regular expressions across the entire catalogue on every redraw.
+        let visibleTracks = Array(results.prefix(180))
+        let directory = Array(artistResults.prefix(16))
+        searchArtistSuggestionTask = Task(priority: .utility) {
+            let suggestions = await Task.detached(priority: .utility) {
+                let names = ArtistNames.matches(query: text, tracks: visibleTracks)
+                let byKey = Dictionary(directory.map { (ArtistNames.normalized($0.name), $0) },
+                                       uniquingKeysWith: { first, _ in first })
+                return names.map { name in
+                    let key = ArtistNames.normalized(name)
+                    return byKey[key] ?? ArtistDirectoryItem(
+                        id: key, name: name, image_url: nil,
+                        track_count: nil, source: nil)
+                }
+            }.value
+            guard !Task.isCancelled, generation == searchGeneration else { return }
+            if searchArtistSuggestions != suggestions {
+                searchArtistSuggestions = suggestions
+            }
+        }
+    }
     func search() {
-        searchTask?.cancel(); artistSearchTask?.cancel(); searchGeneration = UUID()
+        searchTask?.cancel(); artistSearchTask?.cancel(); searchArtistSuggestionTask?.cancel()
+        searchGeneration = UUID()
         let generation = searchGeneration, text = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { results = []; artistResults = []; searchMessage = "Введи название трека или исполнителя"; return }
+        guard !text.isEmpty else {
+            results = []; artistResults = []; searchArtistSuggestions = []
+            searchMessage = "Введи название трека или исполнителя"
+            return
+        }
+        guard text.count >= 2 else {
+            results = []; artistResults = []; searchArtistSuggestions = []
+            searchMessage = "Введи ещё один символ"
+            return
+        }
         let cacheKey = text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
         results = searchCache[cacheKey] ?? []
         artistResults = artistSearchCache[cacheKey] ?? []
+        refreshSearchArtists(for: text, generation: generation)
         searchMessage = results.isEmpty ? "Ищем треки…" : ""
         if account != nil && text.count >= 2 {
             let encodedArtist = text.addingPercentEncoding(
@@ -813,6 +850,7 @@ private struct AudioQualityDecision: Decodable {
                         "/api/artists?q=" + encodedArtist + "&limit=16", timeout: 9)
                     guard !Task.isCancelled, generation == searchGeneration else { return }
                     artistResults = found.artists
+                    refreshSearchArtists(for: text, generation: generation)
                     if artistSearchCache.count >= 20 { artistSearchCache.removeAll(keepingCapacity: true) }
                     artistSearchCache[cacheKey] = found.artists
                 } catch {
@@ -827,23 +865,40 @@ private struct AudioQualityDecision: Decodable {
                 let local = catalog, key = cacheKey
                 let terms = text.split(whereSeparator: { $0.isWhitespace }).map { RecommendationOrder.key(String($0)) }.filter { !$0.isEmpty }
                 let found = await Task.detached(priority: .userInitiated) {
-                    local.filter { track in
+                    var matches: [Track] = []
+                    matches.reserveCapacity(160)
+                    for track in local {
+                        if Task.isCancelled { break }
                         let combined = (track.title + " " + track.artist).folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
                         let compact = RecommendationOrder.key(track.title + " " + track.artist)
-                        return combined.contains(key) || (!terms.isEmpty && terms.allSatisfy { compact.contains($0) })
+                        if combined.contains(key) || (!terms.isEmpty && terms.allSatisfy({ compact.contains($0) })) {
+                            matches.append(track)
+                            if matches.count >= 180 { break }
+                        }
                     }
+                    return Array(RecommendationOrder.rankSearch(matches, query: text,
+                               title: { $0.title }, artist: { $0.artist }).prefix(140))
                 }.value
                 guard generation == searchGeneration, !Task.isCancelled else { return }
-                results = searchCache[cacheKey] ?? RecommendationOrder.rankSearch(found, query: text, title: { $0.title }, artist: { $0.artist })
+                results = searchCache[cacheKey] ?? found
+                refreshSearchArtists(for: text, generation: generation)
                 searchMessage = "Ищем полные версии…"
                 let encoded = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed.subtracting(CharacterSet(charactersIn: "&+=?#"))) ?? ""
                 for _ in 0..<30 {
                     let response: TrackResult = try await api.request("/api/tracks?q=" + encoded)
                     guard generation == searchGeneration, !Task.isCancelled else { return }
-                    let ranked = RecommendationOrder.rankSearch(response.tracks, query: text, title: { $0.title }, artist: { $0.artist })
+                    let incoming = Array(response.tracks.prefix(250))
+                    let ranked = await Task.detached(priority: .userInitiated) {
+                        Array(RecommendationOrder.rankSearch(incoming, query: text,
+                              title: { $0.title }, artist: { $0.artist }).prefix(140))
+                    }.value
+                    guard generation == searchGeneration, !Task.isCancelled else { return }
                     let visible = RecommendationOrder.presentedSearchResults(
                         current: results, incoming: ranked, pending: response.search_pending == true)
-                    if results != visible { results = visible }
+                    if results != visible {
+                        results = visible
+                        refreshSearchArtists(for: text, generation: generation)
+                    }
                     searchMessage = response.search_message ?? ""
                     if response.search_pending != true {
                         if searchCache.count >= 20 { searchCache.removeAll(keepingCapacity: true) }
@@ -856,7 +911,12 @@ private struct AudioQualityDecision: Decodable {
             catch { if generation == searchGeneration { searchMessage = error.localizedDescription } }
         }
     }
-    func leaveSearch() { searchTask?.cancel(); artistSearchTask?.cancel(); searchGeneration = UUID() }
+    func leaveSearch() {
+        searchTask?.cancel(); artistSearchTask?.cancel()
+        searchArtistSuggestionTask?.cancel()
+        searchGeneration = UUID()
+        searchArtistSuggestions = []
+    }
     // Resolve a shared track URL to the catalogue and start native playback.
     func openSharedTrack(_ id: String) async {
         guard id.count == 32, id.allSatisfy({ $0.isHexDigit }) else { return }
