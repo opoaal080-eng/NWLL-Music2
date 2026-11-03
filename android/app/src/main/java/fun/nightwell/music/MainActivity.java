@@ -929,13 +929,16 @@ public final class MainActivity extends Activity {
                 try {
                     if(gen!=generation)return;
                     if(attempt==0&&!user.isEmpty()) {
-                        try {
-                            JSONObject artistData=api.request("api/artists?q="+java.net.URLEncoder.encode(text,"UTF-8")+"&limit=16");
-                            JSONArray serverArtists=artistData.optJSONArray("artists");
-                            if(serverArtists!=null&&serverArtists.length()>0) {
-                                ui.post(()->{if(gen==generation&&screen.equals("Поиск"))showArtistStrip(serverArtists);});
-                            }
-                        } catch(Exception ignored) { /* Older server: keep local suggestions. */ }
+                        // Do not block audio-track search while the artist directory responds.
+                        io.execute(()->{
+                            try {
+                                JSONObject artistData=api.request("api/artists?q="+java.net.URLEncoder.encode(text,"UTF-8")+"&limit=16");
+                                JSONArray serverArtists=artistData.optJSONArray("artists");
+                                if(serverArtists!=null&&serverArtists.length()>0) {
+                                    ui.post(()->{if(gen==generation&&screen.equals("Поиск"))showArtistStrip(serverArtists);});
+                                }
+                            } catch(Exception ignored) { /* Older server: keep local suggestions. */ }
+                        });
                     }
                     if(gen!=generation)return;
                     JSONObject found=api.search("api/tracks?q="+java.net.URLEncoder.encode(text,"UTF-8"));
