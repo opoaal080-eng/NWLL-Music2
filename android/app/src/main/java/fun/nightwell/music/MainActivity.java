@@ -19,6 +19,61 @@ public final class MainActivity extends Activity {
     private final ExecutorService io=Executors.newFixedThreadPool(3);
     private final ExecutorService prefetch=Executors.newSingleThreadExecutor();
     private TextView liveHandoff;
+    private TextView nightwellBadge, nightwellMenuStatus;
+    private String nightwellStatus = "Проверка…";
+    private final Runnable nightwellProbe = new Runnable() {
+        @Override public void run() {
+            if (smokeMode) { setNightwellStatus("Онлайн"); return; }
+            if (!visible || isDestroyed()) return;
+            io.execute(() -> {
+                String result;
+                if (!hasNetwork()) result = "Оффлайн";
+                else {
+                    java.net.HttpURLConnection connection = null;
+                    try {
+                        connection = (java.net.HttpURLConnection) new java.net.URL(origin + "api/me").openConnection();
+                        connection.setConnectTimeout(4000);
+                        connection.setReadTimeout(4000);
+                        connection.setUseCaches(false);
+                        connection.setRequestProperty("Accept", "application/json");
+                        int code = connection.getResponseCode();
+                        String type = connection.getContentType();
+                        boolean valid = type != null && type.toLowerCase(java.util.Locale.ROOT).contains("json");
+                        result = valid && ((code >= 200 && code < 300) || code == 401) ? "Онлайн" : "Ограничен";
+                    } catch (Exception ex) { result = hasNetwork() ? "Ограничен" : "Оффлайн"; }
+                    finally { if (connection != null) connection.disconnect(); }
+                }
+                final String next = result;
+                ui.post(() -> {
+                    if (isDestroyed() || !visible) return;
+                    setNightwellStatus(next);
+                    ui.removeCallbacks(nightwellProbe);
+                    ui.postDelayed(nightwellProbe, 12000);
+                });
+            });
+        }
+    };
+    private boolean hasNetwork() {
+        android.net.ConnectivityManager manager =
+            (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+        if (manager == null) return false;
+        if (Build.VERSION.SDK_INT >= 23) return manager.getActiveNetwork() != null;
+        android.net.NetworkInfo info = manager.getActiveNetworkInfo();
+        return info != null && info.isConnected();
+    }
+    private void setNightwellStatus(String value) {
+        nightwellStatus = value;
+        int color = value.equals("Онлайн") ? 0xff64d98b :
+                    value.equals("Ограничен") ? 0xffffbd64 : 0xffa7abb7;
+        if (nightwellBadge != null) {
+            nightwellBadge.setText("● Nightwell · " + value);
+            nightwellBadge.setTextColor(color);
+        }
+        if (nightwellMenuStatus != null) {
+            nightwellMenuStatus.setText(value);
+            nightwellMenuStatus.setTextColor(color);
+        }
+    }
     private JSONObject liveRemote;
     private boolean liveOwner, liveBusy;
     private int liveRevision;
@@ -236,9 +291,9 @@ public final class MainActivity extends Activity {
         super.onSaveInstanceState(saved);
     }
 
-    @Override protected void onResume(){super.onResume();restoreRecent();visible=true;if(!smokeMode&&sessionReady&&SystemClock.elapsedRealtime()-lastResumeRefresh>30000)load();if(premiumRefresh!=null)premiumRefresh.run();BackgroundDownloads.reconcile(this);if(ribbon!=null)ribbon.running(!smokeMode&&!full&&screen.equals("Главная"));ui.removeCallbacks(tick);if(!smokeMode)ui.post(tick);}
-    @Override protected void onPause(){super.onPause();ui.removeCallbacks(connectionRecovery);if(navigationPopup!=null)navigationPopup.dismiss();if(playback!=null)playback.persistPlayback(true);visible=false;if(ribbon!=null)ribbon.running(false);ui.removeCallbacks(tick);}
-    @Override protected void onDestroy(){generation++;cancelMix();accountRequest.cancel();if(api!=null)api.close();ui.removeCallbacksAndMessages(null);if(artworkCache!=null)artworkCache.close();io.shutdownNow();prefetch.shutdownNow();if(playback!=null)playback.player.removeListener(playbackIntentObserver);if(bindingRegistered){unbindService(connection);bindingRegistered=false;}super.onDestroy();}
+    @Override protected void onResume(){super.onResume();restoreRecent();visible=true;ui.removeCallbacks(nightwellProbe);ui.post(nightwellProbe);if(!smokeMode&&sessionReady&&SystemClock.elapsedRealtime()-lastResumeRefresh>30000)load();if(premiumRefresh!=null)premiumRefresh.run();BackgroundDownloads.reconcile(this);if(ribbon!=null)ribbon.running(!smokeMode&&!full&&screen.equals("Главная"));ui.removeCallbacks(tick);if(!smokeMode)ui.post(tick);}
+    @Override protected void onPause(){super.onPause();ui.removeCallbacks(nightwellProbe);ui.removeCallbacks(connectionRecovery);if(navigationPopup!=null)navigationPopup.dismiss();if(playback!=null)playback.persistPlayback(true);visible=false;if(ribbon!=null)ribbon.running(false);ui.removeCallbacks(tick);}
+    @Override protected void onDestroy(){ui.removeCallbacks(nightwellProbe);generation++;cancelMix();accountRequest.cancel();if(api!=null)api.close();ui.removeCallbacksAndMessages(null);if(artworkCache!=null)artworkCache.close();io.shutdownNow();prefetch.shutdownNow();if(playback!=null)playback.player.removeListener(playbackIntentObserver);if(bindingRegistered){unbindService(connection);bindingRegistered=false;}super.onDestroy();}
     int dp(float n){return (int)(n*getResources().getDisplayMetrics().density+.5f);}
     LinearLayout column(){LinearLayout v=new LinearLayout(this);v.setOrientation(LinearLayout.VERTICAL);return v;}
     LinearLayout row(){LinearLayout v=new LinearLayout(this);v.setGravity(Gravity.CENTER_VERTICAL);return v;}
@@ -274,6 +329,14 @@ public final class MainActivity extends Activity {
         wordmark.addView(brandName,new LinearLayout.LayoutParams(-1,dp(33)));
         TextView brandCaption=text("M U S I C",12);brandCaption.setIncludeFontPadding(false);brandCaption.setSingleLine(true);brandCaption.setTextColor(0xff92959f);LinearLayout.LayoutParams captionParams=new LinearLayout.LayoutParams(-1,-2);captionParams.topMargin=dp(1);wordmark.addView(brandCaption,captionParams);
         wordmark.setOnClickListener(v->navigate("Главная"));wordmark.setContentDescription("Nightwell Music, на главный экран");head.addView(wordmark,new LinearLayout.LayoutParams(0,-2,1));TextView searchButton=iconButton("⌕",()->navigate("Поиск"));searchButton.setBackground(touchSurface(0x40202228,24));head.addView(searchButton,new LinearLayout.LayoutParams(dp(48),dp(48)));TextView menuButton=iconButton("☰",this::menu);menuButton.setBackground(touchSurface(0x40202228,24));head.addView(menuButton,new LinearLayout.LayoutParams(dp(48),dp(48)));LinearLayout.LayoutParams headerParams=new LinearLayout.LayoutParams(-1,dp(58));headerParams.bottomMargin=dp(12);root.addView(head,headerParams);if(backgroundOnly)head.setVisibility(View.GONE);
+        nightwellBadge = text("", 11);
+        nightwellBadge.setContentDescription("Состояние подключения Nightwell");
+        setNightwellStatus(nightwellStatus);
+        if (!backgroundOnly) {
+            LinearLayout.LayoutParams networkParams = new LinearLayout.LayoutParams(-1, dp(17));
+            networkParams.bottomMargin = dp(3);
+            root.addView(nightwellBadge, networkParams);
+        }
         liveHandoff=sheetAction("Музыка на другом устройстве · Продолжить здесь",this::continueLiveHere);
         liveHandoff.setVisibility(View.GONE);root.addView(liveHandoff);
         refreshLiveHandoff();
@@ -334,7 +397,7 @@ public final class MainActivity extends Activity {
         View anchor=head.getChildAt(head.getChildCount()-1);
         LinearLayout entries=column();entries.setPadding(0,dp(6),0,dp(6));
         TextView connectionHeading=text("Подключение",11);connectionHeading.setTextColor(0xffa6a4af);connectionHeading.setPadding(dp(14),dp(4),dp(14),dp(2));entries.addView(connectionHeading);
-        TextView connectionState=text("Проверка…",15);connectionState.setPadding(dp(14),0,dp(14),dp(6));entries.addView(connectionState);
+        TextView connectionState=text(nightwellStatus,15);connectionState.setPadding(dp(14),0,dp(14),dp(6));entries.addView(connectionState);nightwellMenuStatus=connectionState;setNightwellStatus(nightwellStatus);
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(false);scroll.setVerticalScrollBarEnabled(false);scroll.addView(entries);
         android.graphics.Rect frame=new android.graphics.Rect();anchor.getWindowVisibleDisplayFrame(frame);int[] location=new int[2];anchor.getLocationOnScreen(location);
         int available=Math.max(dp(96),frame.bottom-location[1]-anchor.getHeight()-dp(12));
@@ -359,8 +422,7 @@ public final class MainActivity extends Activity {
         }
         entries.measure(View.MeasureSpec.makeMeasureSpec(width,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(0,View.MeasureSpec.UNSPECIFIED));popup.setHeight(Math.min(entries.getMeasuredHeight()+dp(12),available));
         popup.showAsDropDown(anchor,0,dp(6),Gravity.END);
-        if(smokeMode){connectionState.setText("Онлайн");connectionState.setTextColor(0xff64d98b);}
-        else {final NativeAPI client=api;io.execute(()->{boolean online;try{client.request("api/me");online=true;}catch(Exception ignored){online=false;}final boolean connected=online;ui.post(()->{if(popup.isShowing()){connectionState.setText(connected?"Онлайн":"Оффлайн");connectionState.setTextColor(connected?0xff64d98b:0xffff787f);}});});}
+        // Network state is refreshed independently while the app is visible.
     }
     void selectMenu(String tab){
         if(tab.equals("Перенести музыку")){nativeTransfer();return;}

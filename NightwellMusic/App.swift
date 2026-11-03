@@ -225,9 +225,11 @@ private struct StableNavigationSheet: View {
             .padding(.horizontal, 20).padding(.top, 24)
             ScrollView(.vertical, showsIndicators: false) {
                 LazyVStack(alignment: .leading, spacing: 8) {
-                    Label(status, systemImage: status == "Онлайн" ? "wifi" :
+                    Label("Nightwell · " + status, systemImage: status == "Онлайн" ? "wifi" :
                           status == "Загрузка…" ? "arrow.triangle.2.circlepath" : "wifi.slash")
-                        .font(.system(size: 13)).foregroundStyle(.white.opacity(0.65))
+                        .font(.system(size: 13))
+                        .foregroundStyle(status == "Онлайн" ? .green :
+                                         status == "Ограничен" ? .orange : .white.opacity(0.65))
                         .padding(.horizontal, 18).padding(.vertical, 8)
                     ForEach(MusicStore.Screen.allCases, id: \.self) { screen in
                         entry(screen.rawValue, icon: screen == .home ? "house" :
@@ -300,6 +302,18 @@ struct NativeRoot: View {
             } else {
                 VStack(spacing: 18) {
                     header
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(store.connectionStatus == "Онлайн" ? Color.green :
+                                  store.connectionStatus == "Ограничен" ? Color.orange : Color.gray)
+                            .frame(width: 6, height: 6)
+                        Text("Nightwell · \(store.connectionStatus)")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.65))
+                        Spacer()
+                    }
+                    .accessibilityLabel("Подключение Nightwell: \(store.connectionStatus)")
+                    .padding(.horizontal, 22)
                     if store.hasRemotePlayback {
                         Button {
                             Task { await store.continuePlaybackHere() }
