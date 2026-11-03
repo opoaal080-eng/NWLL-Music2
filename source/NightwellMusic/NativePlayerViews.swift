@@ -1023,6 +1023,7 @@ struct NativeSettings: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("nw-transition-seconds") private var transition = 1.5
     @AppStorage("nw-stream-buffer-seconds") private var streamBufferSeconds = 4.0
+    @AppStorage("nw-audio-quality") private var audioQuality = "original"
     @AppStorage("nw-equal-volume") private var equalVolume = 0.0
     @AppStorage("nw-ambient-lyrics") private var ambientLyrics = true
     @State private var playbackDiagnostics = "Нет данных о запуске"
@@ -1080,6 +1081,21 @@ struct NativeSettings: View {
                                     valueText: String(format: "%.0f с", streamBufferSeconds))
                             .onChange(of: streamBufferSeconds) { NativePlayer.shared.setStreamBufferDuration($0) }
                         Text("Меньше буфер: быстрее старт, но выше риск пауз на слабой сети. При обрывах выбери 8 или 12 секунд.")
+                            .font(.system(size: 12)).foregroundStyle(.white.opacity(0.43))
+                        HStack(spacing: 12) {
+                            Label("Качество звука", systemImage: "music.note")
+                            Spacer()
+                            Picker("Качество звука", selection: $audioQuality) {
+                                Text("Оригинал").tag("original")
+                                Text("Экономия · 96 кбит/с").tag("economy")
+                                Text("Баланс · 160 кбит/с").tag("balanced")
+                                Text("Высокое · 256 кбит/с").tag("high")
+                            }
+                            .pickerStyle(.menu)
+                            .tint(.white)
+                            .onChange(of: audioQuality) { NativePlayer.shared.setAudioQuality($0) }
+                        }
+                        Text("Нужный AAC готовится на сервере заранее. Если файла пока нет, воспроизведение сразу идёт в оригинальном качестве. Для внешних HLS действует качество источника. Новая настройка применяется со следующего трека.")
                             .font(.system(size: 12)).foregroundStyle(.white.opacity(0.43))
                         HStack {
                             Text("Одинаковая громкость")
