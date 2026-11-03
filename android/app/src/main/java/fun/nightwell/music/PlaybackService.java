@@ -284,9 +284,9 @@ public final class PlaybackService extends MediaSessionService {
         };
         // Small (350/1000 ms) restart buffers caused repeated audible stalls
         // on bursty HLS streams. Keep a larger safety margin after rebuffers.
-        // Keep Android's existing 1-second fast mode as the default. Other choices
-        // increase the startup margin without reducing the 3-second rebuffer reserve.
-        int playbackBufferMs = bufferChoiceSeconds == 0 ? 2000 : bufferChoiceSeconds * 1000;
+        // Start after the first usable audio chunk, without waiting for the
+        // 2-second startup fill. Keep a larger *rebuffer* reserve for shaky links.
+        int playbackBufferMs = bufferChoiceSeconds == 0 ? 900 : bufferChoiceSeconds * 1000;
         androidx.media3.exoplayer.DefaultLoadControl buffering = new androidx.media3.exoplayer.DefaultLoadControl.Builder()
             .setBufferDurationsMs(30000,90000,playbackBufferMs,Math.max(5000,playbackBufferMs))
             .setPrioritizeTimeOverSizeThresholds(true).build();
