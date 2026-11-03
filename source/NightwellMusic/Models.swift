@@ -28,6 +28,19 @@ struct TrackResult: Codable {
     var search_retry_after: Double?
     var search_message: String?
 }
+struct ArtistDirectoryItem: Identifiable, Codable, Equatable {
+    let id: String
+    let name: String
+    var image_url: String?
+    var track_count: Int?
+    var source: String?
+}
+struct ArtistDirectoryResults: Codable { let artists: [ArtistDirectoryItem] }
+struct ArtistDirectoryProfile: Codable {
+    let artist: ArtistDirectoryItem
+    let tracks: [Track]
+    let total: Int?
+}
 struct LikeResult: Codable { let ids: [String] }
 struct PlaylistResult: Codable { let playlists: [Playlist] }
 struct Lyrics: Codable, Equatable {

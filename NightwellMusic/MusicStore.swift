@@ -70,6 +70,7 @@ private struct LivePlaybackQueue: Decodable { let tracks: [Track] }
     @Published var screen: Screen = .home
     @Published var catalog: [Track] = []
     @Published var results: [Track] = []
+    @Published var artistResults: [ArtistDirectoryItem] = []
     @Published var offline: [Track] = []
     @Published var playlists: [Playlist] = []
     @Published var likes: Set<String> = []
@@ -88,6 +89,8 @@ private struct LivePlaybackQueue: Decodable { let tracks: [Track] }
     private(set) var api: MusicAPI
     private(set) var origin: URL
     private var searchTask: Task<Void, Never>?
+    private var artistSearchTask: Task<Void, Never>?
+    private var artistSearchCache: [String: [ArtistDirectoryItem]] = [:]
     private var searchGeneration = UUID()
     private var searchCache: [String: [Track]] = [:]
     @Published private(set) var hasRemotePlayback = false
@@ -728,12 +731,30 @@ private struct LivePlaybackQueue: Decodable { let tracks: [Track] }
         } catch { self.error = error.localizedDescription }
     }
     func search() {
-        searchTask?.cancel(); searchGeneration = UUID()
+        searchTask?.cancel(); artistSearchTask?.cancel(); searchGeneration = UUID()
         let generation = searchGeneration, text = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { results = []; searchMessage = "Введи название трека или исполнителя"; return }
+        guard !text.isEmpty else { results = []; artistResults = []; searchMessage = "Введи название трека или исполнителя"; return }
         let cacheKey = text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
         results = searchCache[cacheKey] ?? []
+        artistResults = artistSearchCache[cacheKey] ?? []
         searchMessage = results.isEmpty ? "Ищем треки…" : ""
+        if account != nil && text.count >= 2 {
+            let encodedArtist = text.addingPercentEncoding(
+                withAllowedCharacters: .urlQueryAllowed.subtracting(CharacterSet(charactersIn: "&+=?#"))) ?? ""
+            artistSearchTask = Task {
+                do {
+                    try await Task.sleep(nanoseconds: 320_000_000)
+                    let found: ArtistDirectoryResults = try await api.request(
+                        "/api/artists?q=" + encodedArtist + "&limit=16", timeout: 9)
+                    guard !Task.isCancelled, generation == searchGeneration else { return }
+                    artistResults = found.artists
+                    if artistSearchCache.count >= 20 { artistSearchCache.removeAll(keepingCapacity: true) }
+                    artistSearchCache[cacheKey] = found.artists
+                } catch {
+                    // Older servers continue to use local artist matches.
+                }
+            }
+        }
         searchTask = Task {
             do {
                 try await Task.sleep(nanoseconds: 250_000_000)
@@ -770,7 +791,7 @@ private struct LivePlaybackQueue: Decodable { let tracks: [Track] }
             catch { if generation == searchGeneration { searchMessage = error.localizedDescription } }
         }
     }
-    func leaveSearch() { searchTask?.cancel(); searchGeneration = UUID() }
+    func leaveSearch() { searchTask?.cancel(); artistSearchTask?.cancel(); searchGeneration = UUID() }
     // Resolve a shared track URL to the catalogue and start native playback.
     func openSharedTrack(_ id: String) async {
         guard id.count == 32, id.allSatisfy({ $0.isHexDigit }) else { return }
