@@ -308,7 +308,9 @@ final class NativePlayer {
         fadeInActive = fadeNextAutomatically && transitionSeconds > 0; fadeNextAutomatically = false
         player.volume = fadeInActive ? 0 : baseVolume
         requestedPosition = position; lastPosition = position; waitingForReady = true
-        ended = false; error = ""; artworkLoadTask?.cancel(); artwork = makeArtwork(placeholder())
+        ended = false; error = ""; artworkLoadTask?.cancel()
+        // Avoid flashing a placeholder when the same track is being rebuffered.
+        if !recovering || artwork == nil { artwork = makeArtwork(placeholder()) }
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
         if let failureObserver { NotificationCenter.default.removeObserver(failureObserver) }
         if let stallObserver { NotificationCenter.default.removeObserver(stallObserver); self.stallObserver = nil }
@@ -784,8 +786,8 @@ final class NativePlayer {
             resumeAfterInterruption = false
         }
     }
-    private func fetchArtwork(_ track: NativeTrack, generation: UUID) {
-        artworkLoadTask?.cancel()
+    private func fetchArtwork(_ track: NativeTrack, generation: UUID, attempt: Int = 0) {
+        if attempt == 0 { artworkLoadTask?.cancel() }
         if let cover = track.cover, cover.hasPrefix("data:image/"), let comma = cover.firstIndex(of: ","),
            let data = Data(base64Encoded: String(cover[cover.index(after: comma)...])),
            data.count < 2 * 1024 * 1024, let image = UIImage(data: data) {
@@ -799,11 +801,22 @@ final class NativePlayer {
         // pipeline as the visible player, including its disk cache and deduplication.
         artworkLoadTask = Task { [weak self] in
             let image = await CoverImagePipeline.shared.image(for: url, maxPixel: 512)
-            guard !Task.isCancelled, let image else { return }
-            await MainActor.run {
-                guard let self, self.itemGeneration == generation else { return }
-                self.artwork = self.makeArtwork(image)
-                self.publish()
+            guard !Task.isCancelled else { return }
+            if let image {
+                await MainActor.run {
+                    guard let self, self.itemGeneration == generation else { return }
+                    self.artwork = self.makeArtwork(image)
+                    self.publish()
+                }
+            } else if attempt < 2 {
+                // The audio stream may be ready before a remote artwork CDN.
+                // Retry only for the same song; never show a previous song's cover.
+                try? await Task.sleep(nanoseconds: attempt == 0 ? 750_000_000 : 2_000_000_000)
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    guard let self, self.itemGeneration == generation else { return }
+                    self.fetchArtwork(track, generation: generation, attempt: attempt + 1)
+                }
             }
         }
     }
