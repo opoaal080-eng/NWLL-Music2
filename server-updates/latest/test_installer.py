@@ -54,6 +54,34 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(result.count(module.BANNER_ARTIST),1)
         self.assertEqual(result.count(module.BANNER_QUALITY),1)
 
+    def test_real_nightwell_session_contract(self):
+        # Older production app.py exposes session(), not identity().
+        legacy = (
+            "from fastapi import FastAPI\napp=FastAPI()\n"
+            "def session(request,required=True):\n"
+            "    row = lookup('SELECT sessions.user_id FROM sessions')\n"
+            "    if required and not row: raise ValueError('login required')\n"
+            "    return dict(row) if row else None\n"
+            "@app.get('/api/tracks')\ndef tracks():return {}\n"
+            "@app.api_route('/api/stream/{tid}',methods=['GET','HEAD'])\n"
+            "def stream(tid):return {}\n"
+        )
+        updated = module.patch(legacy)
+        self.assertIn(module.BANNER_SESSION, updated)
+        self.assertIn("def identity(request):", updated)
+        self.assertIn("session(request, False)", updated)
+        self.assertLess(updated.index(module.BANNER_SESSION),
+                        updated.index(module.BANNER_ARTIST))
+        self.assertEqual(module.patch(updated), updated)
+
+    def test_ambiguous_auth_is_not_overwritten(self):
+        unknown = (
+            "app=1\ndef session(request):return {'user_id':'admin'}\n"
+            "# /api/tracks and /api/stream\n"
+        )
+        with self.assertRaisesRegex(ValueError, "совместимая авторизация"):
+            module.patch(unknown)
+
     def test_conflict_refused(self):
         (self.server/"app.py").write_text(FAKE_APP+"\n# /api/audio-quality/stream\n",encoding="utf-8")
         with self.assertRaises(ValueError):module.install(self.server,self.payload)
