@@ -354,7 +354,7 @@ private struct LivePlaybackQueue: Decodable { let tracks: [Track] }
                 if changedAccount {
                     self.libraryRefresh.cancel()
                     self.catalog = []; self.likes = []; self.playlists = []; self.lastWave = []; self.results = []
-                    self.searchTask?.cancel(); self.searchGeneration = UUID(); self.searchCache.removeAll()
+                    self.searchTask?.cancel(); self.artistSearchTask?.cancel(); self.searchGeneration = UUID(); self.searchCache.removeAll(); self.artistResults = []; self.artistSearchCache.removeAll()
                     NativePlayer.shared.stop()
                 }
                 self.account = identity.user
@@ -480,7 +480,7 @@ private struct LivePlaybackQueue: Decodable { let tracks: [Track] }
             if account?.id != identity.user?.id {
                 libraryRefresh.cancel()
                 catalog = []; likes = []; playlists = []; lastWave = []; results = []
-                searchTask?.cancel(); searchGeneration = UUID(); searchCache.removeAll()
+                searchTask?.cancel(); artistSearchTask?.cancel(); searchGeneration = UUID(); searchCache.removeAll(); artistResults = []; artistSearchCache.removeAll()
                 NativePlayer.shared.stop()
             }
             account = identity.user
@@ -663,7 +663,7 @@ private struct LivePlaybackQueue: Decodable { let tracks: [Track] }
         if account?.id != user.id {
             NativePlayer.shared.stop()
             catalog = []; likes = []; playlists = []; lastWave = []; results = []
-            searchTask?.cancel(); searchGeneration = UUID(); searchCache = [:]
+            searchTask?.cancel(); artistSearchTask?.cancel(); searchGeneration = UUID(); searchCache = [:]; artistResults = []; artistSearchCache = [:]
         }
         account = user
         restoreAutoFavoritesSetting()
@@ -723,7 +723,7 @@ private struct LivePlaybackQueue: Decodable { let tracks: [Track] }
     func logout() async {
         do {
             let _: OK = try await api.request("/api/logout", method: "POST")
-            NativePlayer.shared.stop(); preloadTask?.cancel(); preloadTask = nil; lastPreloadIDs = []; lastPreloadAt = .distantPast; searchTask?.cancel(); searchGeneration = UUID(); searchCache = [:]
+            NativePlayer.shared.stop(); preloadTask?.cancel(); preloadTask = nil; lastPreloadIDs = []; lastPreloadAt = .distantPast; searchTask?.cancel(); artistSearchTask?.cancel(); searchGeneration = UUID(); searchCache = [:]; artistResults = []; artistSearchCache = [:]
             sessionGeneration = UUID(); starting = false; snapshotSaveTask?.cancel(); libraryRefresh.cancel()
             connectionCheck?.cancel(); connectionCheck = nil; connectionCheckGeneration = UUID(); sessionReady = false
             stopLiveSync()
@@ -1030,7 +1030,7 @@ private struct LivePlaybackQueue: Decodable { let tracks: [Track] }
     }
     func changeServer(_ value: String) async {
         guard let url = ServerAddress.validated(value) else { error = "Нужен HTTPS-адрес без пути и параметров"; return }
-        NativePlayer.shared.stop(); preloadTask?.cancel(); preloadTask = nil; lastPreloadIDs = []; lastPreloadAt = .distantPast; leaveSearch(); catalog = []; results = []; playlists = []; likes = []; account = nil; searchCache = [:]
+        NativePlayer.shared.stop(); preloadTask?.cancel(); preloadTask = nil; lastPreloadIDs = []; lastPreloadAt = .distantPast; leaveSearch(); catalog = []; results = []; artistResults = []; playlists = []; likes = []; account = nil; searchCache = [:]; artistSearchCache = [:]
         sessionGeneration = UUID(); starting = false; snapshotSaveTask?.cancel(); libraryRefresh.cancel(); connectionCheck?.cancel(); connectionCheck = nil; connectionCheckGeneration = UUID(); sessionReady = false
         stopLiveSync()
         origin = url; api = MusicAPI(origin: url); lastWave = []; restoreAutoFavoritesSetting(); cacheAccount(); await api.setCSRF(nil); UserDefaults.standard.set(url.absoluteString, forKey: "nightwell.server"); await start()
