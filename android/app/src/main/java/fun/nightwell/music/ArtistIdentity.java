@@ -54,8 +54,11 @@ final class ArtistIdentity {
 
     static String name(JSONObject track) {
         if (track == null) return "";
+        String canonical = lead(track.optString("artist_name", ""));
+        if (usable(canonical)) return canonical;
         String titleArtist = fromTitle(track);
         if (!titleArtist.isEmpty()) return titleArtist;
+        if (isCloud(track)) return "";
         String metadata = lead(track.optString("artist", ""));
         return usable(metadata) ? metadata : "";
     }
@@ -69,6 +72,8 @@ final class ArtistIdentity {
         if (track == null || seed == null || artist.isEmpty()) return false;
         String trackID = track.optString("id", "");
         if (!trackID.isEmpty() && trackID.equals(seed.optString("id", ""))) return true;
+        String canonical = lead(track.optString("artist_name", ""));
+        if (usable(canonical)) return key(canonical).equals(key(artist));
         String inTitle = fromTitle(track);
         if (!inTitle.isEmpty()) return key(inTitle).equals(key(artist));
         // An uploader name is not proof of authorship.
