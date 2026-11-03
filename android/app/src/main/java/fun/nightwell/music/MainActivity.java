@@ -969,7 +969,7 @@ public final class MainActivity extends Activity {
             shown=cached==null?new JSONArray():cached;
             updateList();
             final String artistQuery=text;
-            task(()->api.request("api/artists/search?q="+
+            task(()->api.request("api/artist-directory?q="+
                 java.net.URLEncoder.encode(artistQuery,"UTF-8")),result->{
                 if(gen!=generation || !screen.equals("Поиск") || !query.equals(artistQuery))return;
                 remoteArtistMatches=result.optJSONArray("artists")==null
@@ -1741,6 +1741,23 @@ public final class MainActivity extends Activity {
             public void onStopTrackingTouch(SeekBar bar){}
         });
         panel.addView(buffer);
+        String[] qualityModes={"original","economy","balanced","high"};
+        String[] qualityLabels={"Оригинал","Экономия · 96 кбит/с","Баланс · 160 кбит/с","Высокое · 256 кбит/с"};
+        String savedQuality=getSharedPreferences("playback",MODE_PRIVATE)
+            .getString("nw-audio-quality","original");
+        int currentQuality=java.util.Arrays.asList(qualityModes).indexOf(savedQuality);
+        if(currentQuality<0)currentQuality=0;
+        TextView qualityChoice=sheetAction("Качество звука · "+qualityLabels[currentQuality]+"  ▾",()->{});
+        qualityChoice.setOnClickListener(v->nightwellOptions("Качество звука",qualityLabels,selectedQuality->{
+            getSharedPreferences("playback",MODE_PRIVATE).edit()
+                .putString("nw-audio-quality",qualityModes[selectedQuality]).apply();
+            qualityChoice.setText("Качество звука · "+qualityLabels[selectedQuality]+"  ▾");
+        }));
+        panel.addView(qualityChoice);
+        TextView qualityHint=text("AAC готовится отдельно на сервере. До подготовки сразу играет оригинал. Для SoundCloud HLS качество источника не меняется. Настройка действует для новых очередей.",12);
+        qualityHint.setTextColor(0xffa3a3ae);
+        qualityHint.setPadding(0,dp(6),0,dp(16));
+        panel.addView(qualityHint);
         TextView equalLabel=text("Одинаковая громкость · Выкл.",15);
         equalLabel.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
         panel.addView(equalLabel);
