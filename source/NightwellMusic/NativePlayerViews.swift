@@ -570,6 +570,12 @@ struct FullPlayer: View {
                         .buttonStyle(.plain)
                         .accessibilityLabel("Открыть исполнителя")
                         .disabled(!ArtistAttribution.isKnown(clock.current?.artist ?? ""))
+                        if !store.audioQualityNotice.isEmpty {
+                            Text(store.audioQualityNotice)
+                                .font(.system(size: 10))
+                                .foregroundStyle(.yellow.opacity(0.85))
+                                .lineLimit(2)
+                        }
                     }
                     Spacer(minLength: 4)
                     if let track = clock.current {
@@ -919,6 +925,7 @@ struct NativeSettings: View {
     @AppStorage("nw-stream-buffer-seconds") private var streamBufferSeconds = 4.0
     @AppStorage("nw-equal-volume") private var equalVolume = 0.0
     @AppStorage("nw-ambient-lyrics") private var ambientLyrics = true
+    @AppStorage("nw-audio-quality") private var audioQuality = "auto"
     @State private var playbackDiagnostics = "Нет данных о запуске"
     private var buildCaption: String {
         let info = Bundle.main.infoDictionary ?? [:]
@@ -963,6 +970,21 @@ struct NativeSettings: View {
                             .padding(.vertical, 2)
                             .onChange(of: transition) { NativePlayer.shared.transitionDuration($0) }
                         Text("Плавное затухание и нарастание громкости.").font(.system(size: 12)).foregroundStyle(.white.opacity(0.43))
+                        Picker("Качество SoundCloud", selection: $audioQuality) {
+                            Text("Авто").tag("auto")
+                            Text("96").tag("economy")
+                            Text("160").tag("high")
+                        }
+                        .pickerStyle(.segmented)
+                        .onChange(of: audioQuality) { _ in
+                            Task { await store.checkAudioQualitySupport() }
+                        }
+                        Text("Настоящее качество AAC-потока SoundCloud в кбит/с. Если выбранного варианта нет, включится доступный с уведомлением. Применяется со следующего трека.")
+                            .font(.system(size: 12)).foregroundStyle(.white.opacity(0.46))
+                        if !store.audioQualityNotice.isEmpty {
+                            Text(store.audioQualityNotice)
+                                .font(.system(size: 12)).foregroundStyle(.yellow.opacity(0.85))
+                        }
                         HStack {
                             Text("Буфер потока")
                             Spacer(minLength: 4)
@@ -1001,6 +1023,7 @@ struct NativeSettings: View {
                 }.padding(.vertical, 2)
             }
         }.font(.system(size: 17)).padding(20).tint(Color.white)
+            .task { await store.checkAudioQualitySupport() }
 
     }
 }
