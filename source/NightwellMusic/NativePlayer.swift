@@ -236,7 +236,9 @@ final class NativePlayer {
 
     private func streamPath(for track: NativeTrack) -> String {
         let format = (track.remote || track.source == "soundcloud") ? "hls" : "file"
-        let quality = UserDefaults.standard.string(forKey: "nw-audio-quality") ?? "auto"
+        let choice = UserDefaults.standard.string(forKey: "nw-audio-quality") ?? "auto"
+        let quality = (choice == "low" || choice == "economy") ? "economy" :
+            (choice == "medium" || choice == "high") ? "high" : "auto"
         let soundCloud = track.source?.lowercased().contains("soundcloud") == true ||
             track.sourceURL?.lowercased().contains("soundcloud.com/") == true
         let available = UserDefaults.standard.bool(forKey: "nw-quality-ready") &&
