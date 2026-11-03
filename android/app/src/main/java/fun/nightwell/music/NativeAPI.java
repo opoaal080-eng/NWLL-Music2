@@ -93,8 +93,49 @@ final class NativeAPI {
             throw new NetworkRetry.HttpFailure(code,message);
         }
         int limit=c.getURL().getPath().equals("/api/tracks")?32*1024*1024:4*1024*1024;
-        return new JSONObject(new String(read(c.getInputStream(),limit),StandardCharsets.UTF_8));
+        JSONObject payload=new JSONObject(new String(read(c.getInputStream(),limit),StandardCharsets.UTF_8));
+        normalizeArtistCredits(payload);
+        return payload;
     }
+    /** Normalize only known track-shaped JSON, not artist-directory/user objects. */
+    static void normalizeArtistCredits(JSONObject payload) {
+        if(payload==null)return;
+        normalizeTrack(payload);
+        String[] arrays={"tracks","queue","items","playlists","recommendations"};
+        for(String name:arrays){
+            JSONArray list=payload.optJSONArray(name);
+            if(list==null)continue;
+            for(int i=0;i<Math.min(5000,list.length());i++){
+                JSONObject item=list.optJSONObject(i);
+                if(item!=null)normalizeArtistCredits(item);
+            }
+        }
+        String[] objects={"track","current","playlist"};
+        for(String key:objects){
+            JSONObject item=payload.optJSONObject(key);
+            if(item!=null)normalizeArtistCredits(item);
+        }
+    }
+
+    static void normalizeTrack(JSONObject track) {
+        if(track==null||!track.has("id")||!track.has("title")||!track.has("artist")||
+                track.optBoolean("_artist_checked",false))return;
+        String source=track.optString("source"),sourceURL=track.optString("source_url");
+        boolean remote=ArtistAttribution.isRemote(
+            source,sourceURL,track.optBoolean("is_remote",false));
+        if(!remote)return;
+        ArtistAttribution.Result credit=ArtistAttribution.resolve(
+            track.optString("title"),track.optString("artist"),source,sourceURL,remote,
+            track.optString("performer"),track.optString("artist_credit"));
+        try {
+            track.put("title",credit.title);
+            track.put("artist",credit.artist);
+            if(credit.uploader!=null&&!track.has("uploader"))
+                track.put("uploader",credit.uploader);
+            track.put("_artist_checked",true);
+        }catch(JSONException ignored){}
+    }
+
     HttpURLConnection connection(String path) throws Exception {
         if(closed)throw new InterruptedIOException("Запрос отменён");
         URL url=new URL(new URL(origin),path);if(!ServerAddress.sameOrigin(origin,url.toString()))throw new IOException("Некорректный адрес");
