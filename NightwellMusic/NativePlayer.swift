@@ -252,7 +252,7 @@ final class NativePlayer {
         let preference = UserDefaults.standard.string(forKey: "nw-audio-quality") ?? "original"
         let quality = ["economy", "balanced", "high"].contains(preference) ? preference : "original"
         return "api/stream/" + track.id + "?cache=1&format=" + (hls ? "hls" : "file")
-            + (hls || quality == "original" ? "" : "&quality=" + quality)
+            + "&quality=" + quality
     }
 
     func setAudioQuality(_ value: String) {
