@@ -1095,9 +1095,42 @@ private struct AudioQualityDecision: Decodable {
         do { let _: OK = try await api.request("/api/playlists/" + playlist.id + "/tracks/" + track.id, method: remove ? "DELETE" : "POST") }
         catch { self.error = error.localizedDescription }
     }
-    func share(kind: String, playlist: String = "") async -> URL? {
-        do { let result: ShareResult = try await api.request("/api/shares", method: "POST", body: ["kind": kind, "playlist_id": playlist]); return URL(string: result.path, relativeTo: origin)?.absoluteURL }
-        catch { self.error = error.localizedDescription; return nil }
+    func share(kind: String, playlist: String = "", title: String = "", tracks: [Track] = []) async -> String? {
+        // Prefer an actual hosted collection link if the current server supports it.
+        // Older Nightwell servers do not expose /api/shares at all: fall back to
+        // a real shareable text list, not an invented or broken URL.
+        if account != nil {
+            do {
+                let response: ShareResult = try await api.request(
+                    "/api/shares", method: "POST",
+                    body: ["kind": kind, "playlist_id": playlist])
+                let path = response.path.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !path.isEmpty, !path.contains("\n"),
+                   let link = URL(string: path, relativeTo: origin)?.absoluteURL,
+                   link.scheme == "https", link.host == origin.host {
+                    return link.absoluteString
+                }
+            } catch {
+                // Continue with a usable collection export if sharing is not deployed.
+            }
+        }
+        var entries = tracks
+        if kind == "playlist" && !playlist.isEmpty && entries.isEmpty {
+            entries = (try? await playlistTracks(playlist)) ?? []
+        } else if kind == "likes" && entries.isEmpty {
+            entries = catalog.filter { likes.contains($0.id) }
+        }
+        let header = title.isEmpty ? (kind == "likes" ? "Избранное Nightwell Music" : "Плейлист Nightwell Music") : title
+        guard !entries.isEmpty else {
+            self.error = "Не получилось получить треки для отправки. Проверь подключение и повтори."
+            return nil
+        }
+        var lines = ["🎵 " + header, "Nightwell Music", ""]
+        for (index, track) in entries.prefix(300).enumerated() {
+            lines.append("\(index + 1). \(track.artist) — \(track.title)")
+        }
+        if entries.count > 300 { lines.append("И ещё \(entries.count - 300) треков") }
+        return lines.joined(separator: "\n")
     }
     func refreshOffline() async {
         let server = origin
