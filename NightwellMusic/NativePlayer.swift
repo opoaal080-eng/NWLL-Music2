@@ -190,7 +190,7 @@ final class NativePlayer {
     func prepare(_ data: [String: Any], origin: URL, cookies: [HTTPCookie]) {
         guard let raw = data["queue"] as? [[String: Any]], let selected = data["id"] as? String else { return }
         let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
-        let queue = raw.prefix(1000).compactMap { item -> NativeTrack? in
+        let queue = raw.compactMap { item -> NativeTrack? in
             guard let id = item["id"] as? String, !id.isEmpty,
                   id.unicodeScalars.allSatisfy({ allowed.contains($0) }) else { return nil }
             return NativeTrack(id: id, title: item["title"] as? String ?? "",
@@ -218,7 +218,7 @@ final class NativePlayer {
     }
 
     private func prewarmNextAsset() {
-        guard !shuffle, !waveWaiting, index + 1 < tracks.count, let origin else {
+        guard !waveWaiting, index + 1 < tracks.count, let origin else {
             nextAssetWarmup?.cancel(); nextAssetWarmup = nil
             nextAsset = nil; nextAssetID = nil; return
         }
@@ -273,7 +273,14 @@ final class NativePlayer {
             error = "Офлайн-файл не найден. Скачай трек заново."; publish(); return
         }
         guard let url = saved ?? URL(string: "api/stream/" + current.id + "?cache=1&format=" + (current.remote || current.source == "soundcloud" ? "hls" : "file"), relativeTo: origin)?.absoluteURL else { return }
-        if waveActive && !recovering { waveSeen.append(current.id); waveSeen = Array(waveSeen.suffix(120)) }
+        if !recovering {
+            DiscoveryHistory.record(id: current.id, title: current.title, artist: current.artist,
+                                    origin: origin, account: offlineAccount)
+        }
+        if waveActive && !recovering {
+            waveSeen.append(current.id)
+            waveSeen = Array(waveSeen.suffix(120))
+        }
         fadeInActive = fadeNextAutomatically && transitionSeconds > 0; fadeNextAutomatically = false
         player.volume = fadeInActive ? 0 : baseVolume
         requestedPosition = position; lastPosition = position; waitingForReady = true
@@ -515,7 +522,25 @@ final class NativePlayer {
     }
     deinit { if let fadeObserver { player.removeTimeObserver(fadeObserver) } }
 
-    func modes(repeatMode: Int, shuffle: Bool) { self.repeatMode = max(0, min(2, repeatMode)); self.shuffle = shuffle; publish() }
+    func modes(repeatMode: Int, shuffle: Bool) {
+        self.repeatMode = max(0, min(2, repeatMode))
+        if self.shuffle != shuffle {
+            self.shuffle = shuffle
+            // Shuffle only future tracks; the played history stays in place.
+            // This makes the actual next track predictable and prefetchable.
+            if shuffle && index + 2 < tracks.count {
+                let past = Array(tracks.prefix(index + 1))
+                var upcoming = Array(tracks.dropFirst(index + 1))
+                upcoming.shuffle()
+                tracks = past + upcoming
+                queueRevision += 1
+            }
+            nextAssetWarmup?.cancel(); nextAssetWarmup = nil
+            nextAsset = nil; nextAssetID = nil
+            prewarmNextAsset()
+        }
+        publish()
+    }
     private var previousRestartTrackID: String?
     private var previousRestartAt: TimeInterval = -Double.infinity
     func step(_ direction: Int) {
@@ -534,10 +559,9 @@ final class NativePlayer {
             recovery.cancel(resetBudget: true); independentMeter.cancel(keepingEnvelope: true); resumeAfterInterruption = false
             wantsPlay = true; waveWaiting = true; enginePlayback.pause(); player.pause(); refillWave(force: true); publish(); return
         }
-        if shuffle && direction > 0 && tracks.count > 1 {
-            let choices = waveActive ? tracks.indices.filter { $0 > index } : tracks.indices.filter { $0 != index }
-            index = choices.randomElement() ?? index
-        } else { index = (index + direction + tracks.count) % tracks.count }
+        // The remaining queue is already shuffled when the mode is enabled.
+        // Never jump to an unprepared random stream at playback time.
+        index = (index + direction + tracks.count) % tracks.count
         load(); play()
     }
     private func restartSmoothly() {
@@ -551,7 +575,7 @@ final class NativePlayer {
             fadeNextAutomatically = true
             waveWaiting = true; enginePlayback.pause(); player.pause(); refillWave(force: true); publish()
         }
-        else if shuffle || index + 1 < tracks.count || repeatMode == 1 { fadeNextAutomatically = true; step(1) }
+        else if index + 1 < tracks.count || repeatMode == 1 { fadeNextAutomatically = true; step(1) }
         else { ended = true; pause() }
     }
     private func refillWave(force: Bool = false) {
@@ -562,16 +586,24 @@ final class NativePlayer {
         let hiddenArtists = Set(UserDefaults.standard.stringArray(forKey: artistKey) ?? [])
         let historyKey = "nw-recent-recommendations|" + origin.absoluteString + "|" + offlineAccount
         let hidden = Set(UserDefaults.standard.stringArray(forKey: hiddenKey) ?? []).union(SkipFeedback.recentIDs(origin: origin, account: offlineAccount))
-        let recent = Array((UserDefaults.standard.stringArray(forKey: historyKey) ?? []).suffix(60))
-        var excluded = waveSeen
-        excluded.append(contentsOf: tracks.dropFirst(index).map { $0.id })
-        excluded.append(contentsOf: recent)
+        let recent = Array((UserDefaults.standard.stringArray(forKey: historyKey) ?? []).suffix(120))
+        let listenedIDs = DiscoveryHistory.ids(origin: origin, account: offlineAccount)
+        let listenedRecordings = DiscoveryHistory.recordings(origin: origin, account: offlineAccount)
+        // Exclude the oldest queue too, including entries long before the current index.
+        // The service receives newest exclusions first; local validation covers all IDs.
+        var excluded = Array(tracks.dropFirst(index).map(\.id).reversed())
+        excluded.append(contentsOf: DiscoveryHistory.excludedIDs(origin: origin, account: offlineAccount, limit: 160))
+        excluded.append(contentsOf: recent.reversed())
+        excluded.append(contentsOf: waveSeen.reversed())
         excluded.append(contentsOf: hidden.sorted().prefix(70))
         var seen = Set<String>()
-        excluded = excluded.filter { seen.insert($0).inserted }
+        excluded = excluded.filter { !$0.isEmpty && seen.insert($0).inserted }
         guard let base = URL(string: "api/wave", relativeTo: origin)?.absoluteURL,
               var components = URLComponents(url: base, resolvingAgainstBaseURL: false) else { return }
-        components.queryItems = [URLQueryItem(name: "exclude", value: Array(excluded.suffix(200)).joined(separator: ","))] + WaveSettings.keys.map { URLQueryItem(name: $0, value: waveSettings.dictionary[$0]) }
+        components.queryItems = [
+            URLQueryItem(name: "mix", value: UUID().uuidString),
+            URLQueryItem(name: "exclude", value: Array(excluded.prefix(190)).joined(separator: ","))
+        ] + WaveSettings.keys.map { URLQueryItem(name: $0, value: waveSettings.dictionary[$0]) }
         guard let url = components.url else { return }
         var request = URLRequest(url: url); request.timeoutInterval = 60
         request.allHTTPHeaderFields = HTTPCookie.requestHeaderFields(with: cookies)
@@ -586,12 +618,17 @@ final class NativePlayer {
                     self.error = "Не удалось пополнить волну. Повторим запрос."; self.publish(); return
                 }
                 let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
-                let waiting = Set(self.tracks.dropFirst(self.index).map { $0.id })
+                let waiting = Set(self.tracks.map { $0.id })
                 var added = Set<String>()
-                let fresh = raw.prefix(20).compactMap { item -> NativeTrack? in
+                let fresh = raw.prefix(120).compactMap { item -> NativeTrack? in
                     guard let id = item["id"] as? String, !id.isEmpty, id.count <= 80,
                           id.unicodeScalars.allSatisfy({ allowed.contains($0) }),
-                          !waiting.contains(id), !hidden.contains(id), !hiddenArtists.contains(RecommendationOrder.key(item["artist"] as? String ?? "")), !self.waveSeen.contains(id), added.insert(id).inserted else { return nil }
+                          !waiting.contains(id), !listenedIDs.contains(id), !hidden.contains(id),
+                          !hiddenArtists.contains(RecommendationOrder.key(item["artist"] as? String ?? "")),
+                          !listenedRecordings.contains(DiscoveryHistory.recording(
+                            title: item["title"] as? String ?? "",
+                            artist: item["artist"] as? String ?? "")),
+                          !self.waveSeen.contains(id), added.insert(id).inserted else { return nil }
                     return NativeTrack(id: id, title: item["title"] as? String ?? "",
                         artist: item["artist"] as? String ?? "", album: item["album"] as? String ?? "",
                         duration: (item["duration"] as? NSNumber)?.doubleValue ?? 0, cover: item["cover_url"] as? String, source: item["source"] as? String,
@@ -601,10 +638,10 @@ final class NativePlayer {
                     self.error = json?["message"] as? String ?? "Новые треки пока не найдены."; self.publish(); return
                 }
                 self.error = ""; self.waveRetryAt = Date().addingTimeInterval(30)
-                let removeCount = max(0, self.index - 5)
-                if removeCount > 0 { self.tracks.removeFirst(removeCount); self.index -= removeCount }
-                let ordered = RecommendationOrder.arrange(fresh, recent: Set(recent), hidden: hidden, hiddenArtists: hiddenArtists,
+                var ordered = RecommendationOrder.arrange(fresh, recent: Set(recent).union(listenedIDs), hidden: hidden, hiddenArtists: hiddenArtists,
                     current: self.current?.id ?? "", identity: { $0.id }, title: { $0.title }, artist: { $0.artist })
+                if self.shuffle { ordered.shuffle() }
+                // The session queue is append-only. Played songs remain navigable.
                 self.tracks.append(contentsOf: ordered); self.queueRevision += 1
                 if self.waveWaiting && self.wantsPlay { self.waveWaiting = false; self.step(1) }
                 self.publish()
