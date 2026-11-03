@@ -24,7 +24,7 @@ struct ArtistPage: View {
                             Button {
                                 following = store.toggleFollowingArtist(artist.name)
                             } label: {
-                                Text(following ? "Подписки ✓" : "Подписаться")
+                                Text(following ? "Вы подписаны ✓" : "Подписаться")
                                     .font(.system(size: 14, weight: .semibold))
                                     .padding(.horizontal, 22).frame(height: 42)
                                     .overlay(Capsule().stroke(.white.opacity(0.7), lineWidth: 1))
@@ -48,7 +48,7 @@ struct ArtistPage: View {
                             .font(.caption).foregroundStyle(.white.opacity(0.58))
                             .fixedSize(horizontal: false, vertical: true)
 
-                        Text("Популярное").font(.system(size: 26, weight: .bold))
+                        Text("Треки исполнителя").font(.system(size: 26, weight: .bold))
                         if tracks.isEmpty && !loading {
                             Text("Пока нет треков, которые удалось уверенно связать с этим исполнителем.")
                                 .font(.subheadline).foregroundStyle(.secondary)
@@ -109,7 +109,7 @@ struct ArtistPage: View {
 
     private var header: some View {
         ZStack(alignment: .bottomLeading) {
-            Cover(track: hero, origin: store.origin, pixelWidth: 1000)
+            bannerImage
                 .frame(maxWidth: .infinity)
                 .frame(height: 360)
                 .clipped()
@@ -133,6 +133,22 @@ struct ArtistPage: View {
             }
             .padding(.leading, 22).padding(.top, 16)
             .accessibilityLabel("Назад")
+        }
+    }
+
+    @ViewBuilder private var bannerImage: some View {
+        if let raw = artist.seed.artist_image_url,
+           let url = URL(string: raw, relativeTo: store.origin),
+           url.scheme == "https" {
+            AsyncImage(url: url) { phase in
+                if let image = phase.image {
+                    image.resizable().scaledToFill()
+                } else {
+                    Cover(track: hero, origin: store.origin, pixelWidth: 1000)
+                }
+            }
+        } else {
+            Cover(track: hero, origin: store.origin, pixelWidth: 1000)
         }
     }
 
