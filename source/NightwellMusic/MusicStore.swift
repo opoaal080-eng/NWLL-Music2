@@ -346,7 +346,7 @@ private struct LivePlaybackQueue: Decodable { let tracks: [Track] }
                 let identity: Identity = try await client.request("/api/me", timeout: 8)
                 guard !Task.isCancelled, self.hasNetworkPath, self.origin == server,
                       self.sessionGeneration == session, self.connectionCheckGeneration == checkID else { return }
-                let wasOffline = self.connectionStatus == "Оффлайн"
+                let wasOffline = self.connectionStatus == "Оффлайн" || self.connectionStatus == "Ограничен"
                 let changedAccount = self.account?.id != identity.user?.id
                 if changedAccount {
                     self.libraryRefresh.cancel()
@@ -373,7 +373,7 @@ private struct LivePlaybackQueue: Decodable { let tracks: [Track] }
                     }
                 }
             } catch {
-                if !Task.isCancelled, self.origin == server, self.sessionGeneration == session, self.connectionCheckGeneration == checkID, self.hasNetworkPath { self.connectionStatus = "Оффлайн" }
+                if !Task.isCancelled, self.origin == server, self.sessionGeneration == session, self.connectionCheckGeneration == checkID, self.hasNetworkPath { self.connectionStatus = "Ограничен" }
             }
         }
     }
@@ -499,12 +499,12 @@ private struct LivePlaybackQueue: Decodable { let tracks: [Track] }
             }
         } catch {
             guard generation == sessionGeneration, !Task.isCancelled else { return }
-            connectionStatus = "Оффлайн"
+            connectionStatus = hasNetworkPath ? "Ограничен" : "Оффлайн"
             sessionReady = true
         }
         await localFiles
         guard generation == sessionGeneration else { return }
-        if connectionStatus == "Оффлайн", catalog.isEmpty {
+        if connectionStatus != "Онлайн", catalog.isEmpty {
             restorePlayback(offlineOnly: true)
             if !offline.isEmpty { screen = .offline }
         }
@@ -639,7 +639,7 @@ private struct LivePlaybackQueue: Decodable { let tracks: [Track] }
             })
             guard current() else { return }
             if successes == 0 {
-                self.connectionStatus = "Оффлайн"
+                self.connectionStatus = self.hasNetworkPath ? "Ограничен" : "Оффлайн"
                 if self.catalog.isEmpty { self.error = failures.first }
             }
         }
