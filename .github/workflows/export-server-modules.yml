@@ -1,27 +1,64 @@
-name: Export Nightwell Music server modules
+name: Build complete Nightwell Music server update package
 on:
   push:
     branches: [main]
     paths:
+      - 'server-updates/**'
+      - 'server/**'
+      - 'Install_Nightwell_Server.bat'
+      - 'Check_Nightwell_Server.bat'
+      - 'Rollback_Nightwell_Server.bat'
+      - 'README-СЕРВЕР-ОБНОВЛЕНИЯ.txt'
       - '.github/workflows/export-server-modules.yml'
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
-  export-server-modules:
+  test-and-package:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - name: Collect server updates and integration modules
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test dependencies
+        run: python -m pip install fastapi httpx
+      - name: Validate all server Python syntax
+        run: python -m compileall -q server-updates server
+      - name: Verify artist identity and old-index cleanup
+        run: python -m unittest discover -s server-updates/artist-catalog -p 'test_*.py' -v
+      - name: Verify one-click installation and rollback
+        run: python -m unittest discover -s server-updates/unified-install -p 'test_*.py' -v
+      - name: Verify playlist transfer
+        run: python -m unittest discover -s server-updates/playlist-transfer -p 'test_*.py' -v
+      - name: Verify email auth module
+        run: python -m unittest discover -s server-updates/email-auth -p 'test_*.py' -v
+      - name: Package server modules and Windows installers
         run: |
           set -euo pipefail
-          mkdir -p export
-          cp -r server server-updates export/
-          cd export
-          zip -qr ../nightwell-music-server-modules.zip .
+          mkdir -p dist/Nightwell-Server-Updates
+          cp -r server-updates server dist/Nightwell-Server-Updates/
+          cp Install_Nightwell_Server.bat Check_Nightwell_Server.bat \
+            Rollback_Nightwell_Server.bat README-СЕРВЕР-ОБНОВЛЕНИЯ.txt \
+            dist/Nightwell-Server-Updates/
+          cat > dist/Nightwell-Server-Updates/provenance.txt <<EOF
+          GitHub repository: $GITHUB_REPOSITORY
+          Commit: $GITHUB_SHA
+          Workflow: $GITHUB_WORKFLOW
+          Run ID: $GITHUB_RUN_ID
+          Build date UTC: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+          EOF
+          find dist/Nightwell-Server-Updates -type d -name __pycache__ -prune -exec rm -rf '{}' '+'
+          cd dist
+          zip -qr Nightwell-Music-Server-Updates.zip Nightwell-Server-Updates
+          sha256sum Nightwell-Music-Server-Updates.zip > SHA256SUMS.txt
+          ls -lh Nightwell-Music-Server-Updates.zip
       - uses: actions/upload-artifact@v4
         with:
-          name: Nightwell-Music-Server-Modules
-          path: nightwell-music-server-modules.zip
+          name: Nightwell-Music-All-Server-Updates
+          path: |
+            dist/Nightwell-Music-Server-Updates.zip
+            dist/SHA256SUMS.txt
           if-no-files-found: error
+          retention-days: 30
