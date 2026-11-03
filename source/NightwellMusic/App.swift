@@ -416,6 +416,9 @@ struct NativeRoot: View {
         .fullScreenCover(item: $store.selectedArtist) { selection in
             ArtistPage(artist: selection).environmentObject(store)
         }
+        .sheet(item: $store.artistChoice) { choice in
+            ArtistChoiceSheet(choice: choice).environmentObject(store)
+        }
         
         .sheet(isPresented: $transferPresented) { NightwellNativeTransfer().environmentObject(store) }
         .sheet(isPresented: $showShare) { if let shareURL { ShareSheet(items: [shareURL]) } }
@@ -503,7 +506,29 @@ struct NativeRoot: View {
                 HStack { Image(systemName: "magnifyingglass"); TextField("Трек или исполнитель", text: $store.query).textInputAutocapitalization(.never).autocorrectionDisabled().onChange(of: store.query) { _ in store.search() }; if !store.query.isEmpty { Button { store.query = "" } label: { Image(systemName: "xmark.circle.fill") } } }.padding(14)
                     .background { RoundedRectangle(cornerRadius: 18).fill(.ultraThinMaterial).opacity(0.48) }
                     .overlay(RoundedRectangle(cornerRadius: 18).stroke(.white.opacity(0.28), lineWidth: 1))
+                if !store.artistResults.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Исполнители")
+                            .font(.system(size: 21, weight: .semibold))
+                        ForEach(Array(store.artistResults.prefix(12))) { artist in
+                            Button { store.openArtist(artist) } label: {
+                                HStack(spacing: 11) {
+                                    ArtistPortrait(name: artist.name, rawURL: artist.seed.artist_image_url, origin: store.origin)
+                                        .frame(width: 48, height: 48)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(artist.name).font(.system(size: 16, weight: .semibold))
+                                        Text("Открыть страницу и треки")
+                                            .font(.caption).foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    Image(systemName: "chevron.right").foregroundStyle(.secondary)
+                                }.padding(.vertical, 5)
+                            }.buttonStyle(.plain)
+                        }
+                    }.padding(.vertical, 8)
+                }
                 if !store.searchMessage.isEmpty { Text(store.searchMessage).font(.caption).foregroundStyle(.secondary) }
+                if !store.results.isEmpty { Text("Треки").font(.system(size: 21, weight: .semibold)) }
                 TrackList(tracks: store.results)
             }.padding(.horizontal, 20)
         case .likes:
@@ -582,7 +607,8 @@ struct NativeTrackRow: View {
                         .contentShape(Rectangle())
                 }.buttonStyle(.plain)
                 Button { store.openArtist(track) } label: {
-                    Text(ArtistIdentity.selection(for: track)?.name ?? track.artist)
+                    Text(ArtistIdentity.selections(for: track).map(\.name).joined(separator: ", ").isEmpty
+                         ? track.artist : ArtistIdentity.selections(for: track).map(\.name).joined(separator: ", ") + "  ›")
                         .font(.caption).foregroundStyle(.secondary).lineLimit(2)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
