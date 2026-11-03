@@ -11,6 +11,13 @@ final class NativeAPI {
     volatile String csrf="";
     private HttpURLConnection activeSearch;
     private long searchGeneration;
+    // Disconnect may block on an underlying socket. Never do that on Android's UI thread.
+    private static final java.util.concurrent.ExecutorService SEARCH_CANCEL_IO =
+        java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+            Thread worker = new Thread(r, "NightwellSearchCancel");
+            worker.setDaemon(true);
+            return worker;
+        });
     private volatile boolean closed;
     private final java.util.Set<HttpURLConnection> activeConnections=java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>());
     NativeAPI(Context context,String origin){this.context=context.getApplicationContext();this.origin=origin;csrf=this.context.getSharedPreferences("native-api",Context.MODE_PRIVATE).getString("csrf|"+origin,"");}
@@ -46,7 +53,12 @@ final class NativeAPI {
         cancelSearch();
         for(HttpURLConnection connection:pending)connection.disconnect();
     }
-    synchronized void cancelSearch(){searchGeneration++;HttpURLConnection value=activeSearch;activeSearch=null;if(value!=null)value.disconnect();}
+    synchronized void cancelSearch(){
+        searchGeneration++;
+        HttpURLConnection value=activeSearch;
+        activeSearch=null;
+        if(value!=null)SEARCH_CANCEL_IO.execute(value::disconnect);
+    }
     private synchronized boolean searchCancelled(long generation){return closed||searchGeneration!=generation;}
     JSONObject search(String path)throws Exception {
         final long generation;
