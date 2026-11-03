@@ -872,7 +872,7 @@ private struct LivePlaybackQueue: Decodable { let tracks: [Track] }
                 }
                 // Server index includes collaborations and titles the track search can miss.
                 Task {
-                    let response: ArtistSearchReply? = try? await api.request("/api/artists/search?q=" + encoded, timeout: 10)
+                    let response: ArtistSearchReply? = try? await api.request("/api/artist-directory?q=" + encoded, timeout: 10)
                     guard generation == searchGeneration, !Task.isCancelled, let response else { return }
                     var combined = artistResults
                     var keys = Set(combined.map(\.id))
