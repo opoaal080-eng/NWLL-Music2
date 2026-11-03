@@ -266,7 +266,7 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
    }
    refreshQueueView?.Invoke();
    pausedAtMs=0;if(t.LocalPath==null&&account.Length==0){Login();return;}string path=t.LocalPath??proxy.URL("api/stream/"+t.id+"?cache=1&format="+(t.is_remote||t.source=="soundcloud"?"hls":"file")+
-   (!(t.is_remote||t.source=="soundcloud")&&audioQuality!="original"?"&quality="+audioQuality:""));using var media=new Media(vlc,path,t.LocalPath==null?FromType.FromLocation:FromType.FromPath);player.Play(media);lyricsCancellation?.Cancel();currentLyrics=null;lyricsID="";renderedLyric=int.MinValue;currentID=t.id;mixRecent.Enqueue(t.id);while(mixRecent.Count>120)mixRecent.Dequeue();discovery.Remember(origin,account,t);
+   "&quality="+audioQuality);using var media=new Media(vlc,path,t.LocalPath==null?FromType.FromLocation:FromType.FromPath);player.Play(media);lyricsCancellation?.Cancel();currentLyrics=null;lyricsID="";renderedLyric=int.MinValue;currentID=t.id;mixRecent.Enqueue(t.id);while(mixRecent.Count>120)mixRecent.Dequeue();discovery.Remember(origin,account,t);
  // Background preloading is intentionally delayed until playback is audible.
  // Do not compete with the first SoundCloud segment for the upstream connection.
  string warmFor=t.id;
@@ -515,7 +515,7 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
   audioQuality=modes[selector.SelectedIndex];SaveSettings();
  };
  panel.Children.Add(selector);
- panel.Children.Add(new TextBlock{Text="AAC готовится заранее на сервере. Если вариант ещё не готов, сразу запускается оригинал. Для внешнего SoundCloud HLS качество исходное. Новое качество применяется со следующей композиции.",TextWrapping=TextWrapping.Wrap,Foreground=Brushes.LightGray,Margin=new Thickness(0,0,0,18)});
+ panel.Children.Add(new TextBlock{Text="SoundCloud: сервер выбирает доступные готовые AAC 96/160 кбит/с, без перекодирования. 256 кбит/с используется только если источник реально его предлагает. При сбое или отсутствии авторизации работает обычный поток. Для локальных файлов AAC готовится заранее.",TextWrapping=TextWrapping.Wrap,Foreground=Brushes.LightGray,Margin=new Thickness(0,0,0,18)});
  var w=new Window{Title="Nightwell · Настройки",Width=520,Height=480,Owner=this,Background=new SolidColorBrush(Color.FromRgb(18,21,27)),Content=new ScrollViewer{Content=panel,VerticalScrollBarVisibility=ScrollBarVisibility.Auto}};
  var done=new Button{Content="Готово",HorizontalAlignment=HorizontalAlignment.Right};
  done.Click+=(_,_)=>w.Close();panel.Children.Add(done);w.ShowDialog();
