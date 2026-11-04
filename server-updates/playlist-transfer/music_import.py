@@ -56,16 +56,22 @@ def _similar(left, right):
 def _candidate_parts(candidate):
     raw_title = str(candidate.get('title', ''))
     title = norm(raw_title)
-    uploader = norm(candidate.get('artist', ''))
     if not title: return []
-    parts = [(title, uploader, False)]
-    # Split *before* norm(): norm removes punctuation and separators.
+    credits = []
+    for field in ('performer', 'metadata_artist', 'artist_credit', 'artist'):
+        value = candidate.get(field)
+        if isinstance(value, str) and norm(value) and norm(value) not in credits:
+            credits.append(norm(value))
+    # Provider uploader is only a fallback. Credits take priority over the
+    # uploader's account name, which often is not the actual musician.
+    parts = [(title, artist, False) for artist in credits]
     for sep in (' - ', ' – ', ' — ', ' | ', ' : '):
         if sep in raw_title:
             first, second = raw_title.split(sep, 1)
             if norm(first) and norm(second):
                 parts.extend(((norm(second), norm(first), True), (norm(first), norm(second), True)))
     return parts
+
 
 def select_match(source, candidates, mode='balanced'):
     a, b = norm(source.get('title', '')), norm(source.get('artist', ''))
@@ -263,6 +269,112 @@ def install(app,identity,csrf,path):
     def view(data,summary=False):
         if summary or data['state'] in ACTIVE:return {**data,'items':[]}
         return data
+
+    async def retry_missing(key, user, request, requested_mode):
+        data = jobs.get(key, user)
+        mode = requested_mode
+        try:
+            async with client(request) as api:
+                attempted = 0
+                for item in data['items']:
+                    if item.get('track_id') or item.get('reason') == 'Пропущен вручную':
+                        continue
+                    if jobs.cancelled(key, user): return
+                    attempted += 1
+                    found = None
+                    reason = 'Не найдено надёжного совпадения'
+                    for query in search_queries(item, mode):
+                        if jobs.cancelled(key, user): return
+                        for attempt in range(3):
+                            result = await host(api, 'GET', '/api/tracks', params={'q': query})
+                            found, reason = await asyncio.to_thread(
+                                select_match, item, result.get('tracks', [])[:200], mode)
+                            if found or not result.get('search_pending'):
+                                break
+                            await asyncio.sleep(min(2.5, max(0.6, float(result.get('search_retry_after', 1)))))
+                        if found: break
+                        await asyncio.sleep(0.2)
+                    if found:
+                        item.update(track_id=str(found['id']),
+                                    found_title=str(found.get('title', '')),
+                                    found_artist=str(found.get('performer') or found.get('metadata_artist') or found.get('artist', '')),
+                                    reason='Найдено при повторном поиске')
+                    else:
+                        item['reason'] = reason
+                    data['matched'] = sum(bool(x.get('track_id')) for x in data['items'])
+                    data['message'] = 'Повторно проверено ' + str(attempted) + ' пропущенных'
+                    jobs.put(key, user, data)
+            data.update(state='ready', progress=data['total'], matched=sum(
+                bool(x.get('track_id')) for x in data['items']),
+                message='Найдено ' + str(data['matched']) + ' из ' + str(data['total']) + '. Проверь результат.')
+            jobs.put(key, user, data)
+        except asyncio.CancelledError: raise
+        except Exception as error:
+            if not jobs.cancelled(key, user):
+                data.update(state='ready', message='Повторный поиск завершился с ошибкой. Можно сохранить уже найденное.')
+                jobs.put(key, user, data)
+
+    @app.post('/api/imports/{key}/retry')
+    async def retry(key: str, request: Request):
+        user = who(request, True)
+        data = jobs.get(key, user)
+        if data['state'] != 'ready':
+            raise HTTPException(409, 'Повторный поиск доступен после проверки')
+        try:
+            body = await request.json()
+        except ValueError:
+            body = {}
+        mode = body.get('mode', 'wide') if isinstance(body, dict) else 'wide'
+        if mode not in ('safe', 'balanced', 'wide'):
+            raise HTTPException(422, 'Неизвестный режим поиска')
+        data.update(state='matching', message='Повторно ищем пропущенные записи')
+        with jobs.db() as db:
+            count = db.execute(
+                "UPDATE music_import_jobs SET state='matching',updated=?,data=? "
+                "WHERE id=? AND user_id=? AND state='ready'",
+                (time.time(), json.dumps(data, ensure_ascii=False), key, user)).rowcount
+        if not count:
+            raise HTTPException(409, 'Перенос уже обрабатывается')
+        jobs.launch(retry_missing(key, user, request, mode))
+        return view(jobs.get(key, user))
+
+    @app.patch('/api/imports/{key}/items/{position}')
+    async def replace_match(key: str, position: int, request: Request):
+        user = who(request, True)
+        data = jobs.get(key, user)
+        if data['state'] != 'ready':
+            raise HTTPException(409, 'Редактирование доступно после поиска')
+        if position < 0 or position >= len(data.get('items', [])):
+            raise HTTPException(404, 'Трек не найден в переносе')
+        try:
+            body = await request.json()
+        except ValueError:
+            raise HTTPException(400, 'Некорректный JSON')
+        identifier = body.get('track_id') if isinstance(body, dict) else None
+        item = data['items'][position]
+        if identifier is None:
+            item.update(track_id=None, found_title='', found_artist='', reason='Пропущен вручную')
+        else:
+            if not isinstance(identifier, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,100}', identifier):
+                raise HTTPException(422, 'Некорректный ID трека')
+            query = body.get('q', '')
+            if not isinstance(query, str) or not 2 <= len(query.strip()) <= 160:
+                raise HTTPException(422, 'Укажи запрос, по которому найден трек')
+            async with client(request) as api:
+                result = await host(api, 'GET', '/api/tracks', params={'q': query.strip()})
+                candidates = result.get('tracks', [])
+                match = next((candidate for candidate in candidates
+                              if isinstance(candidate, dict) and candidate.get('id') == identifier), None)
+            if match is None:
+                raise HTTPException(409, 'Сервер не подтвердил выбранный трек. Повтори поиск.')
+            item.update(track_id=identifier, found_title=str(match.get('title', '')),
+                        found_artist=str(match.get('performer') or match.get('metadata_artist') or match.get('artist', '')),
+                        reason='Выбран вручную')
+        data['matched'] = sum(bool(x.get('track_id')) for x in data['items'])
+        data['message'] = 'Проверено: ' + str(data['matched']) + ' из ' + str(data['total'])
+        jobs.put(key, user, data)
+        return view(jobs.get(key, user))
+
     @app.get('/api/imports')
     def listing(request:Request):
         user=who(request)
