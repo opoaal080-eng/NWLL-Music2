@@ -277,6 +277,7 @@ struct NativeRoot: View {
     @State private var backgroundOnly = false
     @State private var importFiles = false
     @State private var selectedPlaylist: Playlist?
+    @State private var selectedCommunityPlaylist: CommunityPlaylist?
     @State private var playlistName = ""
     @State private var createPlaylist = false
     @State private var shareText: String?
@@ -374,6 +375,11 @@ struct NativeRoot: View {
                 NightwellPopup(title: "", maxHeight: 618, dimsBackground: false, centered: true, transparentSettings: true, close: { selectedPlaylist = nil }) {
                     PlaylistScreen(close: { selectedPlaylist = nil }, playlist: playlist)
                         .id(playlist.id)
+                }
+            } else if let publicPlaylist = selectedCommunityPlaylist {
+                NightwellPopup(title: "", maxHeight: 618, dimsBackground: false, centered: true, transparentSettings: true, close: { selectedCommunityPlaylist = nil }) {
+                    CommunityPlaylistView(playlist: publicPlaylist, close: { selectedCommunityPlaylist = nil })
+                        .id(publicPlaylist.id)
                 }
             }
     }
@@ -516,10 +522,36 @@ struct NativeRoot: View {
         case .search:
             VStack(alignment: .leading, spacing: 14) {
                 Text("Поиск").font(.largeTitle.bold())
-                HStack { Image(systemName: "magnifyingglass"); TextField("Трек или исполнитель", text: $store.query).textInputAutocapitalization(.never).autocorrectionDisabled().onChange(of: store.query) { _ in store.scheduleSearch() }; if !store.query.isEmpty { Button { store.query = "" } label: { Image(systemName: "xmark.circle.fill") } } }.padding(14)
+                HStack { Image(systemName: "magnifyingglass"); TextField("Трек, исполнитель или плейлист", text: $store.query).textInputAutocapitalization(.never).autocorrectionDisabled().onChange(of: store.query) { _ in store.scheduleSearch() }; if !store.query.isEmpty { Button { store.query = "" } label: { Image(systemName: "xmark.circle.fill") } } }.padding(14)
                     .background { RoundedRectangle(cornerRadius: 18).fill(.ultraThinMaterial).opacity(0.48) }
                     .overlay(RoundedRectangle(cornerRadius: 18).stroke(.white.opacity(0.28), lineWidth: 1))
                 if !store.searchMessage.isEmpty { Text(store.searchMessage).font(.caption).foregroundStyle(.secondary) }
+                if !store.communityResults.isEmpty {
+                    Text(store.query.isEmpty ? "Недавно опубликованные плейлисты" : "Плейлисты сообщества")
+                        .font(.headline)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 10) {
+                            ForEach(store.communityResults) { playlist in
+                                Button { selectedCommunityPlaylist = playlist } label: {
+                                    HStack(spacing: 10) {
+                                        Image(systemName: "music.note.list")
+                                            .font(.title3)
+                                            .frame(width: 38, height: 38)
+                                            .background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 11))
+                                        VStack(alignment: .leading, spacing: 3) {
+                                            Text(playlist.name).font(.subheadline.weight(.semibold)).lineLimit(2)
+                                            Text("\(playlist.count) треков · \(playlist.author)")
+                                                .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                                        }
+                                        Spacer(minLength: 0)
+                                    }
+                                    .frame(width: 242, alignment: .leading)
+                                    .padding(12).glass()
+                                }.buttonStyle(.plain)
+                            }
+                        }
+                    }
+                }
                 // Prepared off the UI thread. Never rescan the whole catalogue while typing.
                 let combinedArtists = store.searchArtistSuggestions
                 if !combinedArtists.isEmpty {
@@ -546,6 +578,7 @@ struct NativeRoot: View {
                 }
                 TrackList(tracks: store.results)
             }.padding(.horizontal, 20)
+                .task { store.searchCommunityPlaylists(store.query) }
         case .likes:
             VStack(alignment: .leading) { HStack { collectionHeading("Избранное", tracks: favoriteTracks, kind: "likes"); Spacer(); Menu { if favoritePremium.allowed { Button("Недавние") { favoriteSort = "recent" }; Button("По названию") { favoriteSort = "title" }; Button("По исполнителю") { favoriteSort = "artist" } } else { Button("Оформить Premium") { premiumPresented = true } } } label: { Label("Сортировка · Premium", systemImage: "arrow.up.arrow.down").font(.caption) } }; TrackList(tracks: favoriteTracks) }.padding(.horizontal, 20)
         case .playlists:
@@ -557,11 +590,21 @@ struct NativeRoot: View {
                     HStack { Button { selectedPlaylist = p } label: { Text(p.name).frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 16) }; Menu {
                         Button("Скачать", systemImage: "arrow.down.to.line") { Task { do { await store.download(try await store.playlistTracks(p.id)) } catch { store.error = error.localizedDescription } } }
                         Button("Поделиться", systemImage: "square.and.arrow.up") { Task { shareText = await store.share(kind: "playlist", playlist: p.id, title: p.name); showShare = shareText != nil } }
+                        if store.publishedPlaylistIDs.contains(p.id) {
+                            Button("Убрать из поиска", systemImage: "eye.slash") {
+                                Task { await store.unpublishPlaylist(p.id) }
+                            }
+                        } else {
+                            Button("Опубликовать в поиске", systemImage: "globe") {
+                                Task { await store.publishPlaylist(p.id) }
+                            }
+                        }
                         Button("Удалить", role: .destructive) { Task { await store.deletePlaylist(p.id) } }
                     } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }
                     }.padding(.horizontal, 18).glass()
                 } } }
             }.padding(.horizontal, 20)
+                .task { await store.refreshPublishedPlaylists() }
         case .offline:
             VStack(alignment: .leading, spacing: 16) {
                 HStack {
