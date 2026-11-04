@@ -1269,10 +1269,12 @@ private struct AudioQualityDecision: Decodable {
             tasteArtists = response.artists
             tasteConfigured = response.configured
             tasteLoaded = true
+            UserDefaults.standard.set(true, forKey: "nw-taste-available|" + origin.absoluteString + "|" + owner)
         } catch {
             // Leave onboarding disabled when running against a legacy backend.
             guard account?.id == owner else { return }
             tasteLoaded = false
+            UserDefaults.standard.set(false, forKey: "nw-taste-available|" + origin.absoluteString + "|" + owner)
         }
     }
     func saveMusicTaste(_ names: [String]) async throws {
@@ -1284,6 +1286,7 @@ private struct AudioQualityDecision: Decodable {
         tasteConfigured = response.configured
         tasteLoaded = true
         tasteDismissed = false
+        UserDefaults.standard.set(true, forKey: "nw-taste-available|" + origin.absoluteString + "|" + owner)
     }
     func createPlaylist(_ name: String) async {
         do { let _: Playlist = try await api.request("/api/playlists", method: "POST", body: ["name": name]); await refresh() }
