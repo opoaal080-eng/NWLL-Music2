@@ -1425,7 +1425,21 @@ public final class MainActivity extends Activity {
                 }
             }
         }
-        prefetch.execute(()->{if(!user.isEmpty()&&upcoming.length()>0){try{api.request("api/preload","POST",new JSONObject().put("ids",upcoming).put("current_id",id));}catch(Exception ignored){}}try{JSONObject value=cachedLyrics(id);ui.post(()->{if(currentID.equals(id))acceptLyrics(id,value);});if(!user.isEmpty()){for(int i=0;i<Math.min(2,upcoming.length());i++)try{cachedLyrics(upcoming.optString(i));}catch(Exception ignored){}}}catch(Exception ignored){}});
+        // Request server preloads only once current playback is audible. Lyrics never block them.
+        if(!user.isEmpty()&&upcoming.length()>0){
+            final Runnable warm=new Runnable(){int attempts=0;
+                @Override public void run(){
+                    if(!currentID.equals(id)||isDestroyed())return;
+                    if(playback==null||!playback.player.isPlaying()){
+                        if(++attempts<12)ui.postDelayed(this,500);
+                        return;
+                    }
+                    io.execute(()->{try{api.request("api/preload","POST",new JSONObject().put("ids",upcoming).put("current_id",id));}catch(Exception ignored){}});
+                }
+            };
+            ui.postDelayed(warm,1000);
+        }
+        prefetch.execute(()->{try{JSONObject value=cachedLyrics(id);ui.post(()->{if(currentID.equals(id))acceptLyrics(id,value);});if(!user.isEmpty()){for(int i=0;i<Math.min(2,upcoming.length());i++)try{cachedLyrics(upcoming.optString(i));}catch(Exception ignored){}}}catch(Exception ignored){}});
     }
     private String lyricsPollID="";private int lyricsRound;
     void acceptLyrics(String id,JSONObject value){
