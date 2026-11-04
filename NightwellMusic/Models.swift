@@ -87,23 +87,6 @@ struct Track: Identifiable, Codable, Equatable {
     }
 }
 struct Playlist: Identifiable, Codable { let id: String; let name: String }
-struct CommunityPlaylist: Identifiable, Decodable {
-    let id: String
-    let name: String
-    let author: String
-    let count: Int
-    let cover_url: String?
-    let source_playlist_id: String?
-}
-struct CommunityPlaylistResults: Decodable { let playlists: [CommunityPlaylist] }
-struct CommunityPlaylistDetailResponse: Decodable {
-    struct Detail: Decodable {
-        let id: String
-        let name: String
-        let tracks: [Track]
-    }
-    let playlist: Detail
-}
 struct MusicTasteResponse: Decodable {
     let artists: [String]
     let configured: Bool
