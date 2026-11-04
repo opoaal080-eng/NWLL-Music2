@@ -102,7 +102,7 @@ struct NativeWaveSettingsView: View {
                             Image(systemName: "person.2.fill")
                             Text("Выбрать любимых исполнителей")
                             Spacer()
-                            Text("\\(store.tasteArtists.count)")
+                            Text("\(store.tasteArtists.count)")
                             Image(systemName: "chevron.right")
                         }
                         .padding(14)
