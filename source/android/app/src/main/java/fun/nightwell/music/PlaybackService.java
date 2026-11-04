@@ -226,10 +226,19 @@ public final class PlaybackService extends MediaSessionService {
             for (int i=0;i<queue.length() && i<1000;i++) {
                 JSONObject track=queue.getJSONObject(i);String trackId=track.getString("id");
                 if (!trackId.matches("[A-Za-z0-9_-]+")) continue;
-                if (trackId.equals(id)) selected=items.size();
-                items.add(mediaSource(mediaItem(track,nextOrigin)));
+                try {
+                    MediaSource source=mediaSource(mediaItem(track,nextOrigin));
+                    if (trackId.equals(id)) selected=items.size();
+                    items.add(source);
+                } catch(Exception invalidItem) {
+                    // One missing offline file must not invalidate the rest of a playlist.
+                    if(trackId.equals(id)) error="Аудиофайл повреждён. Скачай трек повторно.";
+                }
             }
-            if(selected<0)return;
+            if(selected<0){
+                error="Этот аудиофайл недоступен. Открой «Офлайн» и скачай его снова.";
+                return;
+            }
             waveActive=false;cancelWaveRequest();
             player.stop();player.setPlayWhenReady(false);
             String account=data.optString("account","");
