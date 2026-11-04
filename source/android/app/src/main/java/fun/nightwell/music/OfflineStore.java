@@ -10,7 +10,7 @@ import android.media.MediaFormat;
 final class OfflineStore {
     // An artwork/title record must never be mistaken for a playable download.
     private static final java.util.Map<String,String> checked=new java.util.HashMap<>();
-    private static boolean playable(File file) {
+    private static synchronized boolean playable(File file) {
         if(!file.isFile() || file.length()<=256 || file.length()>LIMIT)return false;
         String stamp=file.length()+"|"+file.lastModified(),key=file.getAbsolutePath();
         String cached=checked.get(key);
@@ -53,8 +53,7 @@ final class OfflineStore {
             if(size<=256||headerSize<8||!new String(header,4,4,StandardCharsets.US_ASCII).equals("ftyp")||!playable(temp))throw new IOException("Invalid audio");
             JSONObject meta=new JSONObject(track.toString()).put("_offline",true).put("_offline_account",account).put("offline_bytes",size);
             byte[] bytes=meta.toString().getBytes(StandardCharsets.UTF_8);if(bytes.length>2*1024*1024)throw new IOException("Metadata too large");
-            if(target.exists()&&!target.delete())throw new IOException("Unable to replace audio");
-            if(!temp.renameTo(target))throw new IOException("Unable to save");
+            java.nio.file.Files.move(temp.toPath(),target.toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING);
             checked.remove(target.getAbsolutePath());
             atomic(new File(root,id+".json"),bytes);
         }finally{temp.delete();}
@@ -114,8 +113,7 @@ final class OfflineStore {
             try{
                 atomic(staging,bytes);
                 if(!playable(staging))throw new IOException("Invalid audio");
-                if(audio.exists()&&!audio.delete())throw new IOException("Cannot replace old audio");
-                if(!staging.renameTo(audio))throw new IOException("Cannot save audio");
+                java.nio.file.Files.move(staging.toPath(),audio.toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING);
                 checked.remove(audio.getAbsolutePath());
                 atomic(meta,metadata);
             }finally{staging.delete();}
