@@ -563,7 +563,39 @@ struct NativeRoot: View {
                 } } }
             }.padding(.horizontal, 20)
         case .offline:
-            VStack(alignment: .leading, spacing: 16) { HStack { Text("Офлайн").font(.largeTitle.bold()); Spacer(); Button { importFiles = true } label: { Label("Файлы", systemImage: "folder") } }; Text("Музыка на этом устройстве — без входа").font(.caption).foregroundStyle(.secondary); TrackList(tracks: store.offline) }.padding(.horizontal, 20)
+            VStack(alignment: .leading, spacing: 16) {
+                HStack {
+                    Text("Офлайн").font(.largeTitle.bold())
+                    Spacer()
+                    Button { importFiles = true } label: { Label("Файлы", systemImage: "folder") }
+                }
+                Text("Музыка на этом устройстве, доступная без интернета")
+                    .font(.caption).foregroundStyle(.secondary)
+                if !store.damagedOffline.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Не удалось открыть файлы: \(store.damagedOffline.count)")
+                            .font(.subheadline.weight(.semibold))
+                        Text("Название и обложка сохранились, но сами аудиофайлы повреждены или отсутствуют.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        if store.damagedOffline.contains(where: { !$0.id.hasPrefix("local_") }) {
+                            Button {
+                                Task { await store.repairDamagedDownloads() }
+                            } label: {
+                                Label("Скачать эти треки повторно", systemImage: "arrow.clockwise")
+                            }
+                            .disabled(store.downloading)
+                        }
+                        if store.damagedOffline.contains(where: { $0.id.hasPrefix("local_") }) {
+                            Text("Аудиофайлы, добавленные вручную, нужно повторно импортировать через «Файлы».")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(14)
+                    .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 16))
+                }
+                TrackList(tracks: store.offline)
+            }
+            .padding(.horizontal, 20)
         }
     }
     private func collectionHeading(_ title: String, tracks: [Track], kind: String) -> some View {

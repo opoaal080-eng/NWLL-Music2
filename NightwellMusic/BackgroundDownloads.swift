@@ -75,7 +75,10 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
         reconnect()
         if state.jobs.isEmpty { state = State() }
         for track in tracks {
-            guard track._offline != true, track.id.range(of: "^[A-Za-z0-9_-]{1,80}$", options: .regularExpression) != nil else { continue }
+            // A stale _offline flag must not block repair of a corrupt download.
+            // Imported local files have no remote source and cannot be re-downloaded.
+            guard !track.id.hasPrefix("local_"),
+                  track.id.range(of: "^[A-Za-z0-9_-]{1,80}$", options: .regularExpression) != nil else { continue }
             let key = origin.absoluteString + "|" + account + "|" + track.id
             guard state.jobs[key] == nil else { continue }
             state.total += 1

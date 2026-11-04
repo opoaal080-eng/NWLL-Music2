@@ -21,7 +21,7 @@ final class BackgroundDownloads {
             Set<String> existing=new HashSet<>();for(Object raw:prefs(c).getAll().values())if(raw instanceof String)try{JSONObject j=new JSONObject((String)raw);existing.add(j.getString("origin")+"|"+j.getString("account")+"|"+j.getJSONObject("track").getString("id"));}catch(Exception ignored){}
             for(int i=0;i<tracks.length();i++){
                 JSONObject track=tracks.optJSONObject(i);if(track==null)continue;String id=track.optString("id"),key=origin+"|"+account+"|"+id;
-                if(!id.matches("[A-Za-z0-9_-]{1,80}")||track.optBoolean("_offline")||!existing.add(key)||OfflineStore.audio(c,origin,account,id)!=null)continue;
+                if(!id.matches("[A-Za-z0-9_-]{1,80}")||id.startsWith("local_")||!existing.add(key)||OfflineStore.audio(c,origin,account,id)!=null)continue;
                 JSONObject job=new JSONObject().put("origin",origin).put("account",account).put("track",track);
                 if(!prefs(c).edit().putString("prepare."+UUID.randomUUID(),job.toString()).commit())throw new IOException("Не удалось сохранить очередь загрузки");
             }
