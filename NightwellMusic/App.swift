@@ -440,6 +440,15 @@ struct NativeRoot: View {
         }
         
         .sheet(isPresented: $transferPresented) { NightwellNativeTransfer().environmentObject(store) }
+        .sheet(isPresented: Binding(
+            get: { store.needsTasteSetup && !store.authPresented && !transferPresented },
+            set: { if !$0 { store.dismissTasteSetup() } }
+        )) {
+            ArtistTastePickerView(firstRun: true).environmentObject(store)
+        }
+        .task(id: store.account?.id) {
+            if store.account != nil { await store.loadMusicTaste() }
+        }
         .sheet(isPresented: $showShare) { if let shareText { ShareSheet(items: [shareText]) } }
         .fileImporter(isPresented: $importFiles, allowedContentTypes: [.audio], allowsMultipleSelection: true) { result in
             if case let .success(urls) = result { Task { await store.importFiles(urls) } }
