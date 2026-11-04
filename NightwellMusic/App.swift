@@ -1051,6 +1051,7 @@ private struct NightwellNativeTransfer: View {
     @State private var etaProgress = 0
     @State private var etaText = ""
     @State private var saving = false
+    @State private var reviewPresented = false
     @State private var job: ImportJob?
     @State private var errorText = ""
     @State private var busy = false
@@ -1106,8 +1107,27 @@ private struct NightwellNativeTransfer: View {
                             Text(job.total > 0 ? "Обработано \(Int(Double(job.progress) / Double(job.total) * 100))% списка" : "Подготовка поиска")
                                 .font(.caption).foregroundStyle(.secondary)
                             if !etaText.isEmpty { Text(etaText).font(.caption).foregroundStyle(.secondary) }
-                            if (job.state == "ready" || job.state == "error") && job.matched > 0 {
-                                Button(saving ? "Добавляем…" : "Добавить") { Task { await commit() } }.buttonStyle(.borderedProminent).tint(Color(white: 0.24)).foregroundStyle(.white).disabled(saving)
+                            if job.state == "ready" || job.state == "error" {
+                                if job.matched < job.total {
+                                    Text("Не все треки найдены. Режим «Точный» пропускает другие варианты записи. Проверь пропущенные и попробуй повторный поиск.")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                                Button {
+                                    reviewPresented = true
+                                } label: {
+                                    Label("Проверить все треки", systemImage: "list.bullet.rectangle")
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .buttonStyle(.bordered)
+                                if job.matched > 0 {
+                                    Button(saving ? "Добавляем…" : "Сохранить найденные") {
+                                        Task { await commit() }
+                                    }
+                                    .buttonStyle(.borderedProminent)
+                                    .tint(Color(white: 0.24))
+                                    .foregroundStyle(.white)
+                                    .disabled(saving)
+                                }
                             }
                             if activeStates.contains(job.state) {
                                 Button("Остановить") { Task { await cancel() } }.tint(.white)
@@ -1184,6 +1204,13 @@ private struct NightwellNativeTransfer: View {
                     }
                 }
                 .ignoresSafeArea()
+            }
+            .sheet(isPresented: $reviewPresented) {
+                if let job {
+                    NightwellImportReviewView(jobID: job.id, onRetry: {
+                        Task { await poll(job.id) }
+                    }).environmentObject(store)
+                }
             }
         }.preferredColorScheme(.dark)
     }
