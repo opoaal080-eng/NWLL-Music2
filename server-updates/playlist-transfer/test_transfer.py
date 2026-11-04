@@ -63,4 +63,30 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
         await self.client.post('/api/imports/'+key+'/commit')
         self.assertEqual(len(self.created),1);self.assertEqual(self.saved,[('playlist1','track1')])
 
+
+    async def test_review_and_manual_replacement(self):
+        result=await self.client.post('/api/imports',json={
+            'provider':'yandex','name':'Review',
+            'text':'Artist - Song\\nOther - Missing', 'mode':'safe'})
+        self.assertEqual(result.status_code,200)
+        key=result.json()['id']
+        job=await self.wait_state(key,'ready')
+        self.assertEqual(job['total'],2)
+        self.assertEqual(job['matched'],1)
+        self.assertEqual(len(job['items']),2)
+        self.assertEqual(job['items'][0]['found_title'],'Song')
+        new=await self.client.patch('/api/imports/'+key+'/items/1',
+            json={'track_id':'track1','q':'Song'})
+        self.assertEqual(new.status_code,200)
+        self.assertEqual(new.json()['matched'],2)
+        skipped=await self.client.patch('/api/imports/'+key+'/items/0',
+            json={'track_id':None})
+        self.assertEqual(skipped.status_code,200)
+        self.assertEqual(skipped.json()['matched'],1)
+        # Preview is private to the account and can be read before saving.
+        hidden=await self.client.get('/api/imports/'+key,headers={'x-user':'other'})
+        self.assertEqual(hidden.status_code,404)
+        self.assertEqual(len(self.created),0)
+
+
 if __name__=='__main__':unittest.main()
