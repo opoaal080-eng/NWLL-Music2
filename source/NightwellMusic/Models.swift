@@ -87,6 +87,20 @@ struct Track: Identifiable, Codable, Equatable {
     }
 }
 struct Playlist: Identifiable, Codable { let id: String; let name: String }
+struct CommunityPlaylist: Identifiable, Codable, Equatable {
+    let id: String
+    let name: String
+    let author: String
+    let count: Int
+    let cover_url: String?
+    let published_at: Double?
+    let source_playlist_id: String?
+    let tracks: [Track]?
+}
+struct CommunityPlaylistResults: Decodable { let playlists: [CommunityPlaylist] }
+struct CommunityPlaylistDetail: Decodable { let playlist: CommunityPlaylist }
+struct CommunityPublication: Decodable { let id: String; let name: String; let published: Bool }
+struct SavedCommunityPlaylist: Decodable { let id: String; let name: String }
 struct Account: Codable { let id: String; let email: String; let is_admin: Bool? }
 struct Identity: Codable { let user: Account?; let csrf: String? }
 struct TrackResult: Codable {
