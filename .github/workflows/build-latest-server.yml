@@ -43,6 +43,7 @@ jobs:
           cp server-updates/artist-catalog/artist_metadata.py dist/Nightwell-Latest-Server/
           cp server-updates/audio-quality/audio_quality.py dist/Nightwell-Latest-Server/
           cp server-updates/latest/community_playlists.py dist/Nightwell-Latest-Server/
+          cp server-updates/latest/wave_artists.py dist/Nightwell-Latest-Server/
           printf 'Commit: %s\nRun: %s\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > dist/Nightwell-Latest-Server/build.txt
           cd dist
           zip -qr Nightwell-Music-Latest-Server.zip Nightwell-Latest-Server
