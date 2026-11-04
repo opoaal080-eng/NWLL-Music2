@@ -1,7 +1,7 @@
 name: Build Nightwell Music latest server update (Artists, Audio Quality, Public Playlists)
 on:
   push:
-    branches: [main]
+    branches: [main, feature/community-playlist-search]
     paths:
       - 'server-updates/latest/**'
       - 'server-updates/audio-quality/**'
@@ -9,7 +9,7 @@ on:
       - '.github/workflows/build-latest-server.yml'
   workflow_dispatch:
   pull_request:
-    branches: [main]
+    branches: [main, feature/community-playlist-search]
     paths:
       - 'server-updates/latest/**'
       - 'server-updates/audio-quality/**'
