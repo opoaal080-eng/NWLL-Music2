@@ -1,5 +1,7 @@
 name: Build Nightwell Music latest server update (Artists, Audio Quality, Public Playlists)
 on:
+  pull_request:
+    branches: [main]
   push:
     branches: [main]
     paths:
