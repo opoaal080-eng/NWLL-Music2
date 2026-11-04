@@ -87,6 +87,14 @@ private struct AudioQualityDecision: Decodable {
     @Published var offline: [Track] = []
     @Published private(set) var damagedOffline: [Track] = []
     @Published var playlists: [Playlist] = []
+    @Published var communityPlaylists: [CommunityPlaylist] = []
+    @Published var publicPlaylistSourceIDs: Set<String> = []
+    @Published var tasteArtists: [String] = []
+    @Published private(set) var tasteConfigured = false
+    @Published private(set) var tasteLoaded = false
+    @Published private(set) var tasteDismissed = false
+    var needsTasteSetup: Bool { account != nil && tasteLoaded && !tasteConfigured && !tasteDismissed }
+    func dismissTasteSetup() { tasteDismissed = true }
     @Published var communityResults: [CommunityPlaylist] = []
     @Published var publishedPlaylistIDs: Set<String> = []
     @Published var likes: Set<String> = []
@@ -107,6 +115,7 @@ private struct AudioQualityDecision: Decodable {
     private(set) var origin: URL
     private var searchTask: Task<Void, Never>?
     private var searchDebounceTask: Task<Void, Never>?
+    private var communitySearchTask: Task<Void, Never>?
     private var artistSearchTask: Task<Void, Never>?
     private var communitySearchTask: Task<Void, Never>?
     private var searchArtistSuggestionTask: Task<Void, Never>?
@@ -514,6 +523,13 @@ private struct AudioQualityDecision: Decodable {
             if let id = pendingSharedTrackID { pendingSharedTrackID = nil; await openSharedTrack(id) }
             restorePlayback()
             startLiveSync()
+            if account != nil {
+                Task { [weak self] in
+                    guard let self, self.sessionGeneration == generation else { return }
+                    await self.loadMusicTaste()
+                    await self.refreshPublicPlaylistState()
+                }
+            }
             // Cached library is already visible. Refresh from the server without holding up startup.
             if account != nil {
                 Task { [weak self] in
@@ -864,10 +880,25 @@ private struct AudioQualityDecision: Decodable {
         }
     }
     func search() {
-        searchTask?.cancel(); artistSearchTask?.cancel(); searchArtistSuggestionTask?.cancel()
+        searchTask?.cancel(); artistSearchTask?.cancel(); searchArtistSuggestionTask?.cancel(); communitySearchTask?.cancel()
         communitySearchTask?.cancel()
         searchGeneration = UUID()
         let generation = searchGeneration, text = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        communityPlaylists = []
+        if account != nil {
+            let encodedCommunity = text.addingPercentEncoding(
+                withAllowedCharacters: .urlQueryAllowed.subtracting(CharacterSet(charactersIn: "&+=?#"))) ?? ""
+            communitySearchTask = Task {
+                do {
+                    let found: CommunityPlaylistResults = try await api.request(
+                        "/api/community-playlists?q=" + encodedCommunity + "&limit=25", timeout: 8)
+                    guard !Task.isCancelled && generation == searchGeneration else { return }
+                    communityPlaylists = found.playlists
+                } catch {
+                    // Older servers do not have community playlist discovery.
+                }
+            }
+        }
         searchCommunityPlaylists(text)
         guard !text.isEmpty else {
             results = []; artistResults = []; searchArtistSuggestions = []
@@ -957,7 +988,7 @@ private struct AudioQualityDecision: Decodable {
     }
     func leaveSearch() {
         searchDebounceTask?.cancel()
-        searchTask?.cancel(); artistSearchTask?.cancel()
+        searchTask?.cancel(); artistSearchTask?.cancel(); communitySearchTask?.cancel()
         searchArtistSuggestionTask?.cancel(); communitySearchTask?.cancel()
         searchGeneration = UUID()
         searchArtistSuggestions = []; communityResults = []
@@ -1046,7 +1077,7 @@ private struct AudioQualityDecision: Decodable {
             if !clock.id.isEmpty { ids.removeAll { $0 == clock.id }; ids.append(clock.id) }
             let excluded = Array(ids.suffix(200)), nonce = UUID().uuidString
             let query = excluded.joined(separator: ",").addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-            var result: TrackResult = try await api.request("/api/wave?mix=" + nonce + settings.query + "&exclude=" + query)
+            var result: TrackResult = try await api.request("/api/music-taste/wave?mix=" + nonce + settings.query + "&exclude=" + query)
             if result.tracks.isEmpty, !clock.id.isEmpty {
                 let recent = Array(Set(Array(mixRecentIDs.suffix(4)) + [clock.id]))
                 result = try await api.request("/api/wave?mix=" + nonce + settings.query + "&exclude=" + recent.joined(separator: ","))
@@ -1055,11 +1086,29 @@ private struct AudioQualityDecision: Decodable {
             let recent = Set(mixRecentIDs.suffix(20))
             let hiddenArtists = blockedArtists, currentID = clock.id
             let candidates = result.tracks
+            let favorites = Set(tasteArtists.map { RecommendationOrder.key($0) })
             // Ranking a large provider result must not block gestures or audio UI.
             let fresh = await Task.detached(priority: .userInitiated) {
-                RecommendationOrder.arrange(candidates, recent: recent, hidden: hidden,
+                let ranked = RecommendationOrder.arrange(candidates, recent: recent, hidden: hidden,
                     hiddenArtists: hiddenArtists, current: currentID, identity: { $0.id },
                     title: { $0.title }, artist: { $0.artist })
+                guard !favorites.isEmpty else { return ranked }
+                let preferred = ranked.filter { track in
+                    favorites.contains(RecommendationOrder.key(track.artist)) ||
+                    favorites.contains(where: { track.artist.localizedCaseInsensitiveContains($0) })
+                }
+                let other = ranked.filter { track in !preferred.contains(where: { $0.id == track.id }) }
+                var output: [Track] = []
+                var special = 0, ordinary = 0
+                while special < preferred.count || ordinary < other.count {
+                    if special < preferred.count {
+                        output.append(preferred[special]); special += 1
+                    }
+                    for _ in 0..<2 where ordinary < other.count {
+                        output.append(other[ordinary]); ordinary += 1
+                    }
+                }
+                return output
             }.value
             guard account?.id == mixAccount, !Task.isCancelled else { return }
             if let first = fresh.first {
@@ -1227,6 +1276,63 @@ private struct AudioQualityDecision: Decodable {
             self.error = "Не удалось сохранить плейлист: " + error.localizedDescription
             return false
         }
+    }
+    func refreshPublicPlaylistState() async {
+        guard account != nil else { publicPlaylistSourceIDs = []; return }
+        do {
+            let response: CommunityPlaylistResults = try await api.request("/api/community-playlists/mine")
+            publicPlaylistSourceIDs = Set(response.playlists.compactMap(\.source_playlist_id))
+        } catch { publicPlaylistSourceIDs = [] }
+    }
+    func publishPlaylist(_ id: String) async {
+        guard account != nil else { authPresented = true; return }
+        do {
+            struct Published: Decodable { let id: String; let published: Bool }
+            let _: Published = try await api.request("/api/community-playlists/publish",
+                                                     method: "POST", body: ["playlist_id": id])
+            await refreshPublicPlaylistState()
+        } catch { error = "Не удалось опубликовать: " + error.localizedDescription }
+    }
+    func unpublishPlaylist(_ id: String) async {
+        guard account != nil else { authPresented = true; return }
+        do {
+            let _: OK = try await api.request("/api/community-playlists/publish/" + id, method: "DELETE")
+            await refreshPublicPlaylistState()
+        } catch { error = "Не удалось снять публикацию: " + error.localizedDescription }
+    }
+    func saveCommunityPlaylist(_ id: String) async throws {
+        guard account != nil else { authPresented = true; throw APIError(message: "Войди в аккаунт") }
+        struct Saved: Decodable { let id: String; let name: String }
+        let _: Saved = try await api.request("/api/community-playlists/" + id + "/save",
+                                            method: "POST", body: [:])
+        await refresh()
+    }
+    func loadMusicTaste() async {
+        guard let owner = account?.id else {
+            tasteLoaded = false; tasteArtists = []; tasteConfigured = false; return
+        }
+        tasteLoaded = false
+        do {
+            let response: MusicTasteResponse = try await api.request("/api/music-taste", timeout: 8)
+            guard account?.id == owner else { return }
+            tasteArtists = response.artists
+            tasteConfigured = response.configured
+            tasteLoaded = true
+        } catch {
+            // Leave onboarding disabled when running against a legacy backend.
+            guard account?.id == owner else { return }
+            tasteLoaded = false
+        }
+    }
+    func saveMusicTaste(_ names: [String]) async throws {
+        guard let owner = account?.id else { authPresented = true; throw APIError(message: "Войди в аккаунт") }
+        let response: MusicTasteResponse = try await api.request("/api/music-taste",
+                                        method: "PUT", body: ["artists": names])
+        guard account?.id == owner else { return }
+        tasteArtists = response.artists
+        tasteConfigured = response.configured
+        tasteLoaded = true
+        tasteDismissed = false
     }
     func createPlaylist(_ name: String) async {
         do { let _: Playlist = try await api.request("/api/playlists", method: "POST", body: ["name": name]); await refresh() }
