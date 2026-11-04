@@ -1,10 +1,41 @@
 import Foundation
 import CryptoKit
+import AVFoundation
 
 /// Device-only files, separated by server and account. No arbitrary file paths.
 enum OfflineStore {
     static let limit = 32 * 1024 * 1024
     private static let lock = NSRecursiveLock()
+    // Decode only once per unchanged file. A saved title/cover is not proof
+    // that the server returned a complete and decodable audio recording.
+    private static var validated: [String: (bytes: Int, changed: Date?, playable: Bool)] = [:]
+
+    private static func playableAudio(_ url: URL, expectedBytes: Int? = nil) -> Bool {
+        guard let attrs = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey]),
+              attrs.isRegularFile == true,
+              let bytes = attrs.fileSize, bytes > 256, bytes <= limit,
+              expectedBytes == nil || expectedBytes == bytes else { return false }
+        if let hit = validated[url.path], hit.bytes == bytes, hit.changed == attrs.contentModificationDate {
+            return hit.playable
+        }
+        let good: Bool
+        if let handle = try? FileHandle(forReadingFrom: url) {
+            let header = (try? handle.read(upToCount: 12)) ?? Data()
+            try? handle.close()
+            if header.count >= 8, String(data: header[4..<8], encoding: .ascii) == "ftyp",
+               let audio = try? AVAudioFile(forReading: url),
+               audio.length > 0, audio.processingFormat.channelCount > 0 {
+                good = true
+            } else {
+                good = false
+            }
+        } else {
+            good = false
+        }
+        validated[url.path] = (bytes: bytes, changed: attrs.contentModificationDate, playable: good)
+        return good
+    }
+
     private static func valid(_ s: String) -> Bool { !s.isEmpty && s.count <= 80 && s.range(of: "^[A-Za-z0-9_-]+$", options: .regularExpression) != nil }
     private static func storageRoot() throws -> URL {
         try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("Offline", isDirectory: true)
@@ -20,7 +51,8 @@ enum OfflineStore {
                 guard let size = try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= 2 * 1024 * 1024,
                       let data = try? Data(contentsOf: file), var item = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                       let id = item["id"] as? String, valid(id),
-                      FileManager.default.fileExists(atPath: dir.appendingPathComponent(id + ".m4a").path) else { continue }
+                      playableAudio(dir.appendingPathComponent(id + ".m4a"),
+                          expectedBytes: (item["offline_bytes"] as? NSNumber)?.intValue) else { continue }
                 item["_offline"] = true; item["_offline_account"] = "local_" + dir.lastPathComponent
                 tracks.append(item)
             }
@@ -39,7 +71,7 @@ enum OfflineStore {
         lock.lock(); defer { lock.unlock() }
         guard valid(id), let dir = try? directory(origin, account) else { return nil }
         let audio = dir.appendingPathComponent(id + ".m4a"), meta = dir.appendingPathComponent(id + ".json")
-        return FileManager.default.fileExists(atPath: audio.path) && FileManager.default.fileExists(atPath: meta.path) ? audio : nil
+        return FileManager.default.fileExists(atPath: meta.path) && playableAudio(audio) ? audio : nil
     }
     /// Called directly from the download delegate while the system temporary file exists.
     /// Copy on disk instead of allocating base64 versions of an entire track in memory.
@@ -55,13 +87,17 @@ enum OfflineStore {
         var item = track.dictionary
         item["_offline"] = true; item["_offline_account"] = account; item["offline_bytes"] = size
         let metadata = try JSONSerialization.data(withJSONObject: item)
-        let staging = dir.appendingPathComponent(UUID().uuidString + ".tmp")
+        let staging = dir.appendingPathComponent(UUID().uuidString + ".m4a")
         defer { try? FileManager.default.removeItem(at: staging) }
         try FileManager.default.copyItem(at: file, to: staging)
+        guard playableAudio(staging, expectedBytes: size) else {
+            throw URLError(.cannotDecodeContentData)
+        }
         try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: staging.path)
         if FileManager.default.fileExists(atPath: target.path) { _ = try FileManager.default.replaceItemAt(target, withItemAt: staging) }
         else { try FileManager.default.moveItem(at: staging, to: target) }
         try metadata.write(to: dir.appendingPathComponent(track.id + ".json"), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        validated.removeValue(forKey: target.path)
     }
     static func operation(_ body: [String: Any], origin: URL) throws -> [String: Any] {
         lock.lock(); defer { lock.unlock() }
@@ -78,7 +114,12 @@ enum OfflineStore {
         }
         guard let id = body["id"] as? String, valid(id) else { throw URLError(.badURL) }
         let target = dir.appendingPathComponent(id + ".m4a"), meta = dir.appendingPathComponent(id + ".json")
-        if op == "remove" { try? FileManager.default.removeItem(at: meta); try? FileManager.default.removeItem(at: target); return ["ok": true] }
+        if op == "remove" {
+            try? FileManager.default.removeItem(at: meta)
+            try? FileManager.default.removeItem(at: target)
+            validated.removeValue(forKey: target.path)
+            return ["ok": true]
+        }
         guard op == "save", let encoded = body["audio"] as? String, encoded.count <= limit * 4 / 3 + 4,
               let bytes = Data(base64Encoded: encoded), bytes.count > 256, bytes.count <= limit,
               String(data: bytes.subdata(in: 4..<8), encoding: .ascii) == "ftyp",
@@ -86,7 +127,17 @@ enum OfflineStore {
         track["_offline"] = true; track["_offline_account"] = account; track["offline_bytes"] = bytes.count
         let metadata = try JSONSerialization.data(withJSONObject: track)
         guard metadata.count <= 2 * 1024 * 1024 else { throw URLError(.dataLengthExceedsMaximum) }
-        try bytes.write(to: target, options: .atomic); try metadata.write(to: meta, options: .atomic)
+        let staging = dir.appendingPathComponent(UUID().uuidString + ".m4a")
+        defer { try? FileManager.default.removeItem(at: staging) }
+        try bytes.write(to: staging, options: .atomic)
+        guard playableAudio(staging, expectedBytes: bytes.count) else {
+            throw URLError(.cannotDecodeContentData)
+        }
+        try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: staging.path)
+        if FileManager.default.fileExists(atPath: target.path) { _ = try FileManager.default.replaceItemAt(target, withItemAt: staging) }
+        else { try FileManager.default.moveItem(at: staging, to: target) }
+        try metadata.write(to: meta, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        validated.removeValue(forKey: target.path)
         return ["ok": true, "size": bytes.count]
     }
 }
