@@ -515,7 +515,10 @@ public final class PlaybackService extends MediaSessionService {
                 java.util.List<String> ids=new java.util.ArrayList<>(excluded);
                 String query=URLEncoder.encode(String.join(",",ids.subList(
                     Math.max(0,ids.size()-160),ids.size())),"UTF-8");
-                result=client.search("api/wave?exclude="+query+settingsQuery);
+                boolean supportsTaste=getSharedPreferences("nw-taste-api",MODE_PRIVATE)
+                    .getBoolean(base+"|"+offlineAccount,false);
+                result=client.search((supportsTaste?"api/wave-artists/mix":"api/wave")
+                    +"?exclude="+query+settingsQuery);
             }catch(Exception ignored){}
             finally{client.close();}
             final JSONObject data=result;final String message=failure;
