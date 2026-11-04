@@ -166,6 +166,7 @@ struct NightwellImportReviewView: View {
             }
         }
     }
+    }
 
     @MainActor private func reload() async {
         busy = true
