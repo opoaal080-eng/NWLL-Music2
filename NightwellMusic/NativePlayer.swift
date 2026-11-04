@@ -79,10 +79,12 @@ final class NativePlayer {
     private var waveWaiting = false
     private var waveTimer: Timer?
     private var itemObservation: NSKeyValueObservation?
+    private var playbackStatusObservation: NSKeyValueObservation?
     private var endObserver: NSObjectProtocol?
     private var failureObserver: NSObjectProtocol?
     private var stallObserver: NSObjectProtocol?
     private var stallCheck: DispatchWorkItem?
+    private var backgroundHandoffTask: UIBackgroundTaskIdentifier = .invalid
     private let recovery = PlaybackRecovery()
     private var lastPosition = 0.0
     private var streamBufferSeconds = UserDefaults.standard.object(forKey: "nw-stream-buffer-seconds") == nil
@@ -117,6 +119,14 @@ final class NativePlayer {
         // Buffer intermittent HLS/HTTP streams instead of forcing immediate playback
         // and risking short rebuffering gaps on fluctuating connections.
         player.automaticallyWaitsToMinimizeStalling = true
+        // Track the native playback clock even while the SwiftUI scene is asleep.
+        // A handoff task is released only once the new stream really starts.
+        playbackStatusObservation = player.observe(\.timeControlStatus, options: [.new]) { [weak self] player, _ in
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                if player.timeControlStatus == .playing { self.endBackgroundHandoff() }
+            }
+        }
         do { try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, policy: .longFormAudio) }
         catch { self.error = "Не удалось настроить звук." }
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.5, preferredTimescale: 600),
@@ -135,11 +145,11 @@ final class NativePlayer {
         }
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification,
             object: nil, queue: .main) { [weak self] _ in
-                self?.appIsActive = true; self?.refreshIndependentMeter(); self?.publish()
+                self?.appIsActive = true; self?.endBackgroundHandoff(); self?.refreshIndependentMeter(); self?.publish()
             })
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.willResignActiveNotification,
             object: nil, queue: .main) { [weak self] _ in
-                self?.appIsActive = false; self?.independentMeter.cancel(keepingEnvelope: true); self?.publish()
+                self?.appIsActive = false; self?.updateFade(); self?.independentMeter.cancel(keepingEnvelope: true); self?.publish()
             })
         fadeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.04, preferredTimescale: 600), queue: .main) { [weak self] _ in self?.updateFade() }
         nowPlayingSession.automaticallyPublishesNowPlayingInfo = false
@@ -283,6 +293,23 @@ final class NativePlayer {
         }
     }
 
+    private func beginBackgroundHandoff() {
+        guard !appIsActive, wantsPlay, backgroundHandoffTask == .invalid else { return }
+        // Finishing a stream must not leave the process suspended before the
+        // replacement AVPlayerItem becomes ready and produces audio.
+        backgroundHandoffTask = UIApplication.shared.beginBackgroundTask(
+            withName: "Nightwell audio track transition") { [weak self] in
+                DispatchQueue.main.async { [weak self] in self?.endBackgroundHandoff() }
+            }
+    }
+
+    private func endBackgroundHandoff() {
+        let task = backgroundHandoffTask
+        guard task != .invalid else { return }
+        backgroundHandoffTask = .invalid
+        UIApplication.shared.endBackgroundTask(task)
+    }
+
     private func load(position: Double = 0, recovering: Bool = false) {
         nextAssetWarmup?.cancel(); nextAssetWarmup = nil
         startupUptime = ProcessInfo.processInfo.systemUptime
@@ -301,11 +328,12 @@ final class NativePlayer {
             artworkLoadTask?.cancel(); audioMeter = LocalAudioMeter()
             player.pause(); player.replaceCurrentItem(with: nil)
             wantsPlay = false; waitingForReady = false; requestedPosition = max(0, position); lastPosition = requestedPosition
-            error = "Офлайн-файл не найден. Скачай трек заново."; publish(); return
+            error = "Офлайн-файл не найден. Скачай трек заново."; endBackgroundHandoff(); publish(); return
         }
         guard let url = saved ?? URL(string: streamPath(for: current), relativeTo: origin)?.absoluteURL else { return }
+        beginBackgroundHandoff()
         if waveActive && !recovering { waveSeen.append(current.id); waveSeen = Array(waveSeen.suffix(120)) }
-        fadeInActive = fadeNextAutomatically && transitionSeconds > 0; fadeNextAutomatically = false
+        fadeInActive = appIsActive && fadeNextAutomatically && transitionSeconds > 0; fadeNextAutomatically = false
         player.volume = fadeInActive ? 0 : baseVolume
         requestedPosition = position; lastPosition = position; waitingForReady = true
         ended = false; error = ""; artworkLoadTask?.cancel()
@@ -344,6 +372,7 @@ final class NativePlayer {
                     if target <= 0 {
                         self.waitingForReady = false
                         if self.wantsPlay && !self.enginePlayback.ready { self.player.play() }
+                        self.updateFade()
                         self.publish(); return
                     }
                     self.seekCurrentItem(to: target)
@@ -400,6 +429,7 @@ final class NativePlayer {
             recovery.cancel(); wantsPlay = false
             error = "Трек недоступен. Проверь подключение и нажми Play."
         }
+        if !wantsPlay { endBackgroundHandoff() }
         publish()
     }
 
@@ -433,11 +463,14 @@ final class NativePlayer {
         if rebuild { load(position: lastPosition) }
         guard wantsPlay else { return }
         updateFade()
-        if !waitingForReady { player.play() }
+        // Queue AVPlayer playback before a zero-position stream is ready.
+        // Waiting for status KVO can strand the app after a background transition.
+        if !waitingForReady || requestedPosition <= 0 { player.play() }
         refreshIndependentMeter()
         refillWave(); publish()
     }
     func pause() {
+        endBackgroundHandoff()
         // Snapshot the running clock BEFORE pausing either audio engine.
         // Some output routes report zero render time immediately after pause.
         if wantsPlay && !waitingForReady {
@@ -533,6 +566,13 @@ final class NativePlayer {
             else { player.isMuted = false }
         }
         let leveledVolume = baseVolume * Float(loudnessGain)
+        // Foreground animations may pause in the background. Never depend on
+        // a periodic timer to lift a new track from zero volume.
+        guard appIsActive else {
+            fadeInActive = false
+            player.volume = leveledVolume
+            return
+        }
         guard transitionSeconds > 0 else { fadeInActive = false; player.volume = leveledVolume; return }
         guard wantsPlay, !waitingForReady else { player.volume = fadeInActive ? 0 : leveledVolume; return }
         let position = playbackPosition
@@ -696,7 +736,7 @@ final class NativePlayer {
             player.pause()
             waitingForReady = false
             premiumSoundStatus = "Эквалайзер подключён к аудиовыходу."
-            updateFade(); publish()
+            updateFade(); if enginePlayback.playing { endBackgroundHandoff() }; publish()
         } catch {
             if temporary { try? FileManager.default.removeItem(at: file) }
             player.isMuted = false
