@@ -214,6 +214,7 @@ public final class MainActivity extends Activity {
     private final LatestRequest waveRequest=new LatestRequest(),accountRequest=new LatestRequest();
     private JSONArray catalog=new JSONArray(),shown=new JSONArray(),playlists=new JSONArray(),queue=new JSONArray();
     private final Set<String> likes=new HashSet<>();
+    private final Set<String> publishedPlaylistIDs=new HashSet<>();
     private final java.util.LinkedHashMap<String,JSONArray> searchCache =
         new java.util.LinkedHashMap<String,JSONArray>(24,0.75f,true) {
             @Override protected boolean removeEldestEntry(java.util.Map.Entry<String,JSONArray> entry) {
@@ -227,7 +228,7 @@ public final class MainActivity extends Activity {
     private TextView fullTime,homePlay,fullPlay,fullLike,fullDislike,fullAudioOutput;
     private SeekBar seek;
     private EditText search;
-    private LinearLayout artistStrip;
+    private LinearLayout artistStrip,communityStrip;
     private TextView lyricsText;private android.widget.ScrollView lyricsScroll;private JSONArray lyricLines;private int activeLyric=-2;private String lyricsTrack="";
     private ListView list;
     private TrackAdapter adapter;
@@ -657,7 +658,7 @@ public final class MainActivity extends Activity {
     void showScreen(){
         if(atmosphere!=null)atmosphere.setVisibility(screen.equals("Главная")?View.VISIBLE:View.GONE);
         if(android.animation.ValueAnimator.areAnimatorsEnabled()){body.setAlpha(.5f);body.animate().alpha(1).setDuration(180);}
-        if(ribbon!=null){ribbon.running(false);ribbon.setVisibility(View.GONE);}body.removeAllViews();list=null;search=null;artistStrip=null;adapter=null;if(!screen.equals("Главная"))body.addView(text(screen,30));
+        if(ribbon!=null){ribbon.running(false);ribbon.setVisibility(View.GONE);}body.removeAllViews();list=null;search=null;artistStrip=null;communityStrip=null;adapter=null;if(!screen.equals("Главная"))body.addView(text(screen,30));
         if(screen.equals("Главная")){
             boolean compact=getResources().getConfiguration().orientation==android.content.res.Configuration.ORIENTATION_LANDSCAPE;
             android.widget.FrameLayout stage=new android.widget.FrameLayout(this);body.addView(stage,new LinearLayout.LayoutParams(-1,0,1));
@@ -686,9 +687,9 @@ public final class MainActivity extends Activity {
                 stage.addView(restore,new android.widget.FrameLayout.LayoutParams(dp(48),dp(48),Gravity.TOP|Gravity.LEFT));
             }return;
         }
-        if(screen.equals("Поиск")){search=new EditText(this);search.setTextColor(Color.WHITE);search.setSingleLine(true);search.setTextSize(16);search.setHintTextColor(0xff999ca8);search.setPadding(dp(16),dp(14),dp(16),dp(14));search.setBackground(touchSurface(0xff202228,24));search.setHint("Трек или исполнитель");body.addView(search);search.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int st,int c,int a){}public void onTextChanged(CharSequence s,int st,int before,int count){query=s.toString();search(query);}public void afterTextChanged(Editable e){}});shown=new JSONArray();artistStrip=column();body.addView(artistStrip);}
+        if(screen.equals("Поиск")){search=new EditText(this);search.setTextColor(Color.WHITE);search.setSingleLine(true);search.setTextSize(16);search.setHintTextColor(0xff999ca8);search.setPadding(dp(16),dp(14),dp(16),dp(14));search.setBackground(touchSurface(0xff202228,24));search.setHint("Трек, исполнитель или плейлист");body.addView(search);search.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int st,int c,int a){}public void onTextChanged(CharSequence s,int st,int before,int count){query=s.toString();search(query);}public void afterTextChanged(Editable e){}});shown=new JSONArray();artistStrip=column();body.addView(artistStrip);communityStrip=column();body.addView(communityStrip);loadCommunitySearch("",generation);}
         else if(screen.equals("Избранное")){shown=new JSONArray();for(int i=0;i<catalog.length();i++)if(likes.contains(catalog.optJSONObject(i).optString("id")))shown.put(catalog.optJSONObject(i));shown=sortedFavorites(shown);LinearLayout actionsRow=column();actionsRow.setGravity(Gravity.RIGHT);TextView sort=iconButton("⇅",()->favoriteSortMenu());actionsRow.addView(sort);TextView more=iconButton("⋯",()->collectionMenu("likes",""));LinearLayout.LayoutParams moreParams=new LinearLayout.LayoutParams(dp(52),dp(48));moreParams.gravity=Gravity.RIGHT;actionsRow.addView(more,moreParams);body.addView(actionsRow);}
-        else if(screen.equals("Плейлисты")){android.widget.ScrollView scroll=new android.widget.ScrollView(this);LinearLayout entries=column();scroll.addView(entries);body.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));entries.addView(sheetAction("Умные плейлисты · Premium",()->feature("smart")));entries.addView(sheetAction("Подборки дня · обновляются ежедневно",this::dailyPublicPlaylists));entries.addView(action("＋ Создать плейлист",()->input("Новый плейлист",name->task(()->api.request("api/playlists","POST",new JSONObject().put("name",name)),v->load()))));for(int i=0;i<playlists.length();i++){JSONObject p=playlists.optJSONObject(i);LinearLayout r=row();r.setBackground(surface());r.addView(action(p.optString("name"),()->openPlaylist(p)),new LinearLayout.LayoutParams(0,-2,1));r.addView(action("⋯",()->collectionMenu("playlist",p.optString("id"))));LinearLayout.LayoutParams gap=new LinearLayout.LayoutParams(-1,-2);gap.bottomMargin=dp(10);entries.addView(r,gap);}return;}
+        else if(screen.equals("Плейлисты")){android.widget.ScrollView scroll=new android.widget.ScrollView(this);LinearLayout entries=column();scroll.addView(entries);body.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));entries.addView(sheetAction("Умные плейлисты · Premium",()->feature("smart")));entries.addView(sheetAction("Подборки дня · обновляются ежедневно",this::dailyPublicPlaylists));entries.addView(action("＋ Создать плейлист",()->input("Новый плейлист",name->task(()->api.request("api/playlists","POST",new JSONObject().put("name",name)),v->load()))));for(int i=0;i<playlists.length();i++){JSONObject p=playlists.optJSONObject(i);LinearLayout r=row();r.setBackground(surface());r.addView(action(p.optString("name"),()->openPlaylist(p)),new LinearLayout.LayoutParams(0,-2,1));r.addView(action("⋯",()->collectionMenu("playlist",p.optString("id"))));LinearLayout.LayoutParams gap=new LinearLayout.LayoutParams(-1,-2);gap.bottomMargin=dp(10);entries.addView(r,gap);}refreshPublications();return;}
         else if(screen.equals("Офлайн")){
             body.addView(action("Добавить аудиофайлы",this::importFiles));
             TextView repairNotice=text("",13);
@@ -930,6 +931,7 @@ public final class MainActivity extends Activity {
         api.cancelSearch();
         if(pendingSearch!=null)ui.removeCallbacks(pendingSearch);
         final String text=value.trim();
+        if(attempt==0)loadCommunitySearch(text,gen);
         if(text.isEmpty()){
             shown=new JSONArray();updateList();
             if(artistStrip!=null)artistStrip.removeAllViews();
@@ -1582,11 +1584,31 @@ public final class MainActivity extends Activity {
         styleSheet(dialog);dialog.show();
     }
     void collectionMenu(String kind,String id){
-        String[] options=kind.equals("playlist")?new String[]{"Скачать всё","Поделиться","Удалить"}:new String[]{"Скачать всё","Поделиться"};
+        final boolean personal=kind.equals("playlist");
+        final boolean published=personal&&publishedPlaylistIDs.contains(id);
+        String[] options=personal?
+            new String[]{"Скачать всё","Поделиться",published?"Убрать из поиска":"Опубликовать в поиске","Удалить"}:
+            new String[]{"Скачать всё","Поделиться"};
         nightwellOptions("Действия",options,n->{
             if(n==0){if(kind.equals("likes"))download(shown);else task(()->api.request("api/playlists/"+id+"/tracks"),v->download(v.optJSONArray("tracks")));}
             else if(n==1)shareCollection(kind,id);
-            else {AlertDialog confirm=new AlertDialog.Builder(this).setMessage("Удалить плейлист?").setNegativeButton("Отмена",null).setPositiveButton("Удалить",(d,b)->task(()->api.request("api/playlists/"+id,"DELETE",null),v->load())).create();styleSheet(confirm);confirm.show();}
+            else if(personal&&n==2){
+                if(user.isEmpty()){auth();return;}
+                task(()->published?
+                    api.request("api/community-playlists/publish/"+Uri.encode(id),"DELETE",null):
+                    api.request("api/community-playlists/publish","POST",new JSONObject().put("playlist_id",id)),v->{
+                        if(published){publishedPlaylistIDs.remove(id);status.setText("Плейлист убран из поиска");}
+                        else {publishedPlaylistIDs.add(id);status.setText("Плейлист опубликован в поиске");}
+                    });
+            }
+            else if(personal){AlertDialog confirm=new AlertDialog.Builder(this)
+                .setMessage("Удалить плейлист?")
+                .setNegativeButton("Отмена",null)
+                .setPositiveButton("Удалить",(d,b)->task(()->{
+                    if(published)api.request("api/community-playlists/publish/"+Uri.encode(id),"DELETE",null);
+                    return api.request("api/playlists/"+Uri.encode(id),"DELETE",null);
+                },v->{publishedPlaylistIDs.remove(id);load();})).create();
+                styleSheet(confirm);confirm.show();}
         });
     }
     void shareCollection(String kind,String playlistID){
@@ -1922,6 +1944,82 @@ public final class MainActivity extends Activity {
             card.addView(toggle);
         }
         card.addView(premiumAction("Сохранить оформление",()->savePremium(note)));featureDialog("Оформление",panel);
+    }
+    void refreshPublications(){
+        final String owner=user,host=origin;
+        if(owner.isEmpty()){publishedPlaylistIDs.clear();return;}
+        io.execute(()->{
+            try{
+                JSONObject result=api.request("api/community-playlists/mine");
+                JSONArray entries=result.optJSONArray("playlists");
+                Set<String> found=new HashSet<>();
+                for(int i=0;entries!=null&&i<entries.length();i++){
+                    JSONObject item=entries.optJSONObject(i);
+                    if(item!=null)found.add(item.optString("source_playlist_id"));
+                }
+                ui.post(()->{if(owner.equals(user)&&host.equals(origin)){
+                    publishedPlaylistIDs.clear();publishedPlaylistIDs.addAll(found);
+                }});
+            }catch(Exception ignored){/* Older server version. */}
+        });
+    }
+    void loadCommunitySearch(String queryText,int searchGeneration){
+        final String host=origin;
+        io.execute(()->{
+            try{
+                JSONObject response=api.request("api/community-playlists?q="+
+                    java.net.URLEncoder.encode(queryText,"UTF-8")+"&limit=30");
+                JSONArray entries=response.optJSONArray("playlists");
+                ui.post(()->{
+                    if(searchGeneration!=generation||!screen.equals("Поиск")||
+                       !host.equals(origin)||communityStrip==null)return;
+                    communityStrip.removeAllViews();
+                    if(entries==null||entries.length()==0)return;
+                    communityStrip.addView(text("Плейлисты сообщества",17));
+                    for(int i=0;i<Math.min(entries.length(),8);i++){
+                        JSONObject p=entries.optJSONObject(i);
+                        if(p==null)continue;
+                        TextView row=sheetAction("♫ "+p.optString("name")+" · "+
+                            p.optInt("count")+" треков",()->openCommunityPlaylist(p));
+                        communityStrip.addView(row);
+                    }
+                });
+            }catch(Exception ignored){/* Discovery is optional on older servers. */}
+        });
+    }
+    void openCommunityPlaylist(JSONObject summary){
+        final String id=summary.optString("id");
+        if(id.isEmpty())return;
+        task(()->api.request("api/community-playlists/"+Uri.encode(id)),data->{
+            JSONObject p=data.optJSONObject("playlist");
+            if(p==null)return;
+            JSONArray tracks=p.optJSONArray("tracks");
+            LinearLayout outer=column();
+            LinearLayout panel=premiumCard(outer,p.optString("name"));
+            panel.addView(text("Плейлист сообщества · "+p.optInt("count")+" треков",13));
+            if(tracks!=null&&tracks.length()>0){
+                panel.addView(sheetAction("▶ Слушать",()->play(tracks.optJSONObject(0),tracks,false)));
+            }
+            panel.addView(sheetAction("＋ Сохранить к себе",()->{
+                if(user.isEmpty()){auth();return;}
+                final String owner=user;
+                task(()->api.request("api/community-playlists/"+Uri.encode(id)+"/save",
+                    "POST",new JSONObject()),result->{
+                    if(!owner.equals(user))return;
+                    status.setText("Сохранено в твои плейлисты");
+                    loadLibrary(user);
+                });
+            }));
+            for(int i=0;tracks!=null&&i<Math.min(80,tracks.length());i++){
+                JSONObject track=tracks.optJSONObject(i);
+                if(track!=null)panel.addView(sheetAction("▶ "+
+                    track.optString("artist")+" — "+track.optString("title"),
+                    ()->play(track,tracks,false)));
+            }
+            if(tracks!=null&&tracks.length()>80)
+                panel.addView(text("Остальные треки доступны через прослушивание плейлиста",12));
+            featureDialog(p.optString("name"),outer);
+        });
     }
     void dailyPublicPlaylists(){
         final String owner=user;
