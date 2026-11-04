@@ -26,7 +26,9 @@ def identity(request):
 
 BANNER_ARTIST = "# Nightwell artist directory module"
 BANNER_QUALITY = "# Nightwell SoundCloud audio quality module"
-FILES = ("artist_catalog.py", "artist_metadata.py", "audio_quality.py")
+BANNER_COMMUNITY = "# Nightwell public community playlists module"
+BANNER_WAVE_ARTISTS = "# Nightwell wave artist preferences module"
+FILES = ("artist_catalog.py", "artist_metadata.py", "audio_quality.py", "community_playlists.py", "wave_artists.py")
 HOOKS = [
     (BANNER_ARTIST, """
 # Nightwell artist directory module
@@ -39,6 +41,22 @@ _nw_install_artist_catalog(
 # Nightwell SoundCloud audio quality module
 from audio_quality import install as _nw_install_audio_quality
 _nw_install_audio_quality(app, identity)
+"""),
+    (BANNER_COMMUNITY, """
+# Nightwell public community playlists module
+from pathlib import Path as _NWCommunityPath
+from community_playlists import install as _nw_install_community_playlists
+_nw_install_community_playlists(
+    app, identity,
+    db_path=_NWCommunityPath(__file__).resolve().with_name("nightwell_community_playlists.sqlite3"))
+"""),
+    (BANNER_WAVE_ARTISTS, """
+# Nightwell wave artist preferences module
+from pathlib import Path as _NWArtistPrefsPath
+from wave_artists import install as _nw_install_wave_artists
+_nw_install_wave_artists(
+    app, identity,
+    db_path=_NWArtistPrefsPath(__file__).resolve().with_name("nightwell_artist_preferences.sqlite3"))
 """),
 ]
 
@@ -84,6 +102,10 @@ def patch(contents):
     if "identity" in names and not identity_found:
         raise ValueError("В app.py есть переменная identity неизвестного вида. "
                          "Не заменяем существующую авторизацию.")
+    if "/api/wave-artists" in contents and BANNER_WAVE_ARTISTS not in contents:
+        raise ValueError("На сервере уже есть настройка исполнителей. Изменения не применены.")
+    if "/api/community-playlists" in contents and BANNER_COMMUNITY not in contents:
+        raise ValueError("На сервере уже реализованы публичные плейлисты. Изменения не применены.")
     if "/api/artists" in contents and BANNER_ARTIST not in contents:
         raise ValueError("У сервера уже существует другой /api/artists. Изменения не применены.")
     if "/api/audio-quality/" in contents and BANNER_QUALITY not in contents:

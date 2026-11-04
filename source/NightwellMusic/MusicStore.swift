@@ -87,6 +87,8 @@ private struct AudioQualityDecision: Decodable {
     @Published var offline: [Track] = []
     @Published private(set) var damagedOffline: [Track] = []
     @Published var playlists: [Playlist] = []
+    @Published var communityResults: [CommunityPlaylist] = []
+    @Published var publishedPlaylistIDs: Set<String> = []
     @Published var likes: Set<String> = []
     @Published var account: Account?
     @Published var query = ""
@@ -106,6 +108,7 @@ private struct AudioQualityDecision: Decodable {
     private var searchTask: Task<Void, Never>?
     private var searchDebounceTask: Task<Void, Never>?
     private var artistSearchTask: Task<Void, Never>?
+    private var communitySearchTask: Task<Void, Never>?
     private var searchArtistSuggestionTask: Task<Void, Never>?
     private var qualityNoticeTask: Task<Void, Never>?
     private var artistSearchCache: [String: [ArtistDirectoryItem]] = [:]
@@ -749,7 +752,7 @@ private struct AudioQualityDecision: Decodable {
         if account?.id != user.id {
             NativePlayer.shared.stop()
             catalog = []; likes = []; playlists = []; lastWave = []; results = []
-            searchTask?.cancel(); artistSearchTask?.cancel(); searchGeneration = UUID(); searchCache = [:]; artistResults = []; artistSearchCache = [:]
+            searchTask?.cancel(); artistSearchTask?.cancel(); communitySearchTask?.cancel(); searchGeneration = UUID(); searchCache = [:]; artistResults = []; artistSearchCache = [:]
         }
         account = user
         restoreAutoFavoritesSetting()
@@ -813,7 +816,7 @@ private struct AudioQualityDecision: Decodable {
             sessionGeneration = UUID(); starting = false; snapshotSaveTask?.cancel(); libraryRefresh.cancel()
             connectionCheck?.cancel(); connectionCheck = nil; connectionCheckGeneration = UUID(); sessionReady = false
             stopLiveSync()
-            account = nil; restoreAutoFavoritesSetting(); mixRecentIDs = []; cacheAccount(); catalog = []; results = []; likes = []; playlists = []; lastWave = []; query = ""; await api.setCSRF(nil)
+            account = nil; restoreAutoFavoritesSetting(); mixRecentIDs = []; cacheAccount(); catalog = []; results = []; likes = []; playlists = []; publishedPlaylistIDs = []; communityResults = []; lastWave = []; query = ""; await api.setCSRF(nil)
         } catch { self.error = error.localizedDescription }
     }
     private func refreshSearchArtists(for text: String, generation: UUID) {
@@ -862,8 +865,10 @@ private struct AudioQualityDecision: Decodable {
     }
     func search() {
         searchTask?.cancel(); artistSearchTask?.cancel(); searchArtistSuggestionTask?.cancel()
+        communitySearchTask?.cancel()
         searchGeneration = UUID()
         let generation = searchGeneration, text = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        searchCommunityPlaylists(text)
         guard !text.isEmpty else {
             results = []; artistResults = []; searchArtistSuggestions = []
             searchMessage = "Введи название трека или исполнителя"
@@ -953,9 +958,9 @@ private struct AudioQualityDecision: Decodable {
     func leaveSearch() {
         searchDebounceTask?.cancel()
         searchTask?.cancel(); artistSearchTask?.cancel()
-        searchArtistSuggestionTask?.cancel()
+        searchArtistSuggestionTask?.cancel(); communitySearchTask?.cancel()
         searchGeneration = UUID()
-        searchArtistSuggestions = []
+        searchArtistSuggestions = []; communityResults = []
     }
     // Resolve a shared track URL to the catalogue and start native playback.
     func openSharedTrack(_ id: String) async {
@@ -1162,13 +1167,81 @@ private struct AudioQualityDecision: Decodable {
             throw error
         }
     }
+    func searchCommunityPlaylists(_ text: String) {
+        communitySearchTask?.cancel()
+        let expectedGeneration = searchGeneration
+        let expectedQuery = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        communityResults = []
+        communitySearchTask = Task { [weak self] in
+            guard let self else { return }
+            let encoded = expectedQuery.addingPercentEncoding(
+                withAllowedCharacters: .urlQueryAllowed.subtracting(CharacterSet(charactersIn: "&+=?#"))) ?? ""
+            do {
+                let response: CommunityPlaylistResults = try await api.request(
+                    "/api/community-playlists?q=" + encoded + "&limit=30", timeout: 10)
+                guard !Task.isCancelled, expectedGeneration == searchGeneration,
+                      query.trimmingCharacters(in: .whitespacesAndNewlines) == expectedQuery else { return }
+                communityResults = response.playlists
+            } catch {
+                // Legacy servers do not provide community discovery.
+            }
+        }
+    }
+    func refreshPublishedPlaylists() async {
+        guard let owner = account?.id else { publishedPlaylistIDs = []; return }
+        do {
+            let response: CommunityPlaylistResults = try await api.request(
+                "/api/community-playlists/mine", timeout: 10)
+            guard account?.id == owner else { return }
+            publishedPlaylistIDs = Set(response.playlists.compactMap(\.source_playlist_id))
+        } catch {
+            // Publication buttons still work when upgrading an older server.
+        }
+    }
+    func publishPlaylist(_ id: String) async {
+        guard account != nil else { authPresented = true; return }
+        do {
+            let _: CommunityPublication = try await api.request(
+                "/api/community-playlists/publish", method: "POST", body: ["playlist_id": id])
+            publishedPlaylistIDs.insert(id)
+            await refreshPublishedPlaylists()
+        } catch { self.error = "Не удалось опубликовать плейлист: " + error.localizedDescription }
+    }
+    func unpublishPlaylist(_ id: String) async {
+        guard account != nil else { authPresented = true; return }
+        do {
+            let _: OK = try await api.request(
+                "/api/community-playlists/publish/" + id, method: "DELETE")
+            publishedPlaylistIDs.remove(id)
+            await refreshPublishedPlaylists()
+        } catch { self.error = "Не удалось снять публикацию: " + error.localizedDescription }
+    }
+    func saveCommunityPlaylist(_ id: String) async -> Bool {
+        guard account != nil else { authPresented = true; return false }
+        do {
+            let _: SavedCommunityPlaylist = try await api.request(
+                "/api/community-playlists/" + id + "/save", method: "POST")
+            await refresh()
+            return true
+        } catch {
+            self.error = "Не удалось сохранить плейлист: " + error.localizedDescription
+            return false
+        }
+    }
     func createPlaylist(_ name: String) async {
         do { let _: Playlist = try await api.request("/api/playlists", method: "POST", body: ["name": name]); await refresh() }
         catch { self.error = error.localizedDescription }
     }
     func deletePlaylist(_ id: String) async {
-        do { let _: OK = try await api.request("/api/playlists/" + id, method: "DELETE"); await refresh() }
-        catch { self.error = error.localizedDescription }
+        do {
+            if publishedPlaylistIDs.contains(id) {
+                let _: OK = try await api.request(
+                    "/api/community-playlists/publish/" + id, method: "DELETE")
+                publishedPlaylistIDs.remove(id)
+            }
+            let _: OK = try await api.request("/api/playlists/" + id, method: "DELETE")
+            await refresh()
+        } catch { self.error = error.localizedDescription }
     }
     func add(_ track: Track, playlist: Playlist, remove: Bool = false) async {
         do { let _: OK = try await api.request("/api/playlists/" + playlist.id + "/tracks/" + track.id, method: remove ? "DELETE" : "POST") }
@@ -1288,7 +1361,7 @@ private struct AudioQualityDecision: Decodable {
     }
     func changeServer(_ value: String) async {
         guard let url = ServerAddress.validated(value) else { error = "Нужен HTTPS-адрес без пути и параметров"; return }
-        NativePlayer.shared.stop(); preloadTask?.cancel(); preloadTask = nil; lastPreloadIDs = []; lastPreloadAt = .distantPast; leaveSearch(); catalog = []; results = []; artistResults = []; playlists = []; likes = []; account = nil; searchCache = [:]; artistSearchCache = [:]
+        NativePlayer.shared.stop(); preloadTask?.cancel(); preloadTask = nil; lastPreloadIDs = []; lastPreloadAt = .distantPast; leaveSearch(); catalog = []; results = []; artistResults = []; playlists = []; likes = []; publishedPlaylistIDs = []; communityResults = []; account = nil; searchCache = [:]; artistSearchCache = [:]
         sessionGeneration = UUID(); starting = false; snapshotSaveTask?.cancel(); libraryRefresh.cancel(); connectionCheck?.cancel(); connectionCheck = nil; connectionCheckGeneration = UUID(); sessionReady = false
         stopLiveSync()
         origin = url; api = MusicAPI(origin: url); lastWave = []; restoreAutoFavoritesSetting(); cacheAccount(); await api.setCSRF(nil); UserDefaults.standard.set(url.absoluteString, forKey: "nightwell.server"); await start()

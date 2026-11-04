@@ -4,7 +4,7 @@ root = Path(__file__).resolve().parents[1]
 app = (root / 'NightwellMusic/App.swift').read_text()
 views = (root / 'NightwellMusic/NativePlayerViews.swift').read_text()
 assert 'struct NightwellPopup' in app
-assert app.count('NightwellPopup(title:') == 5
+assert app.count('NightwellPopup(title:') == 6
 assert 'NativeSupportView(close:' in app
 assert '.fill(.ultraThinMaterial)' in app
 assert 'opacity(0.98)' not in app
@@ -21,4 +21,4 @@ assert '.sheet(isPresented: $waveSettingsPresented)' not in views
 assert 'NWSourceCommit' in views
 for file in (root / 'NightwellMusic').rglob('*.swift'):
     assert 'WKWebView' not in file.read_text(), file
-print('Native entry point, three popup surfaces and build provenance verified')
+print('Native entry point, popup surfaces and build provenance verified')
