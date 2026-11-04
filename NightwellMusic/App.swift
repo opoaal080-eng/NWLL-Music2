@@ -593,8 +593,8 @@ struct TrackList: View {
         }
         .scrollDismissesKeyboard(.interactively)
         .task(id: tracks.prefix(6).map { $0.id }.joined(separator: "|")) {
-            let urls = tracks.prefix(6).compactMap { track in
-                track.cover_url.flatMap { URL(string: $0, relativeTo: store.origin)?.absoluteURL }
+            let urls = tracks.prefix(6).compactMap {
+                CoverImagePipeline.coverURL(for: $0, origin: store.origin)
             }
             await CoverImagePipeline.shared.prefetch(urls)
         }
@@ -859,7 +859,7 @@ struct Cover: View {
     @State private var artwork: UIImage?
 
     private var coverURL: URL? {
-        track?.cover_url.flatMap { URL(string: $0, relativeTo: origin)?.absoluteURL }
+        track.flatMap { CoverImagePipeline.coverURL(for: $0, origin: origin) }
     }
     var body: some View {
         ZStack {
