@@ -2,7 +2,7 @@ name: Build Nightwell Music iOS (Recovered)
 on:
   workflow_dispatch:
   pull_request:
-    branches: [main]
+    branches: [main, feature/community-playlist-search]
     paths:
       - 'NightwellMusic/**'
       - 'source/NightwellMusic/**'
@@ -10,7 +10,7 @@ on:
       - 'project.yml'
       - '.github/workflows/build-ios.yml'
   push:
-    branches: [main]
+    branches: [main, feature/community-playlist-search]
     paths:
       - 'NightwellMusic/**'
       - 'source/NightwellMusic/**'
