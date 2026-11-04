@@ -645,7 +645,10 @@ final class NativePlayer {
         excluded.append(contentsOf: hidden.sorted().prefix(70))
         var seen = Set<String>()
         excluded = excluded.filter { seen.insert($0).inserted }
-        guard let base = URL(string: "api/wave", relativeTo: origin)?.absoluteURL,
+        let tasteKey = "nw-taste-available|" + origin.absoluteString + "|" + offlineAccount
+        let waveEndpoint = UserDefaults.standard.bool(forKey: tasteKey)
+            ? "api/wave-artists/mix" : "api/wave"
+        guard let base = URL(string: waveEndpoint, relativeTo: origin)?.absoluteURL,
               var components = URLComponents(url: base, resolvingAgainstBaseURL: false) else { return }
         components.queryItems = [URLQueryItem(name: "exclude", value: Array(excluded.suffix(200)).joined(separator: ","))] + WaveSettings.keys.map { URLQueryItem(name: $0, value: waveSettings.dictionary[$0]) }
         guard let url = components.url else { return }
