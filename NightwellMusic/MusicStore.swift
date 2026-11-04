@@ -752,7 +752,7 @@ private struct AudioQualityDecision: Decodable {
         if account?.id != user.id {
             NativePlayer.shared.stop()
             catalog = []; likes = []; playlists = []; lastWave = []; results = []
-            searchTask?.cancel(); artistSearchTask?.cancel(); searchGeneration = UUID(); searchCache = [:]; artistResults = []; artistSearchCache = [:]
+            searchTask?.cancel(); artistSearchTask?.cancel(); communitySearchTask?.cancel(); searchGeneration = UUID(); searchCache = [:]; artistResults = []; artistSearchCache = [:]
         }
         account = user
         restoreAutoFavoritesSetting()
@@ -816,7 +816,7 @@ private struct AudioQualityDecision: Decodable {
             sessionGeneration = UUID(); starting = false; snapshotSaveTask?.cancel(); libraryRefresh.cancel()
             connectionCheck?.cancel(); connectionCheck = nil; connectionCheckGeneration = UUID(); sessionReady = false
             stopLiveSync()
-            account = nil; restoreAutoFavoritesSetting(); mixRecentIDs = []; cacheAccount(); catalog = []; results = []; likes = []; playlists = []; lastWave = []; query = ""; await api.setCSRF(nil)
+            account = nil; restoreAutoFavoritesSetting(); mixRecentIDs = []; cacheAccount(); catalog = []; results = []; likes = []; playlists = []; publishedPlaylistIDs = []; communityResults = []; lastWave = []; query = ""; await api.setCSRF(nil)
         } catch { self.error = error.localizedDescription }
     }
     private func refreshSearchArtists(for text: String, generation: UUID) {
@@ -1233,8 +1233,15 @@ private struct AudioQualityDecision: Decodable {
         catch { self.error = error.localizedDescription }
     }
     func deletePlaylist(_ id: String) async {
-        do { let _: OK = try await api.request("/api/playlists/" + id, method: "DELETE"); await refresh() }
-        catch { self.error = error.localizedDescription }
+        do {
+            if publishedPlaylistIDs.contains(id) {
+                let _: OK = try await api.request(
+                    "/api/community-playlists/publish/" + id, method: "DELETE")
+                publishedPlaylistIDs.remove(id)
+            }
+            let _: OK = try await api.request("/api/playlists/" + id, method: "DELETE")
+            await refresh()
+        } catch { self.error = error.localizedDescription }
     }
     func add(_ track: Track, playlist: Playlist, remove: Bool = false) async {
         do { let _: OK = try await api.request("/api/playlists/" + playlist.id + "/tracks/" + track.id, method: remove ? "DELETE" : "POST") }
@@ -1354,7 +1361,7 @@ private struct AudioQualityDecision: Decodable {
     }
     func changeServer(_ value: String) async {
         guard let url = ServerAddress.validated(value) else { error = "Нужен HTTPS-адрес без пути и параметров"; return }
-        NativePlayer.shared.stop(); preloadTask?.cancel(); preloadTask = nil; lastPreloadIDs = []; lastPreloadAt = .distantPast; leaveSearch(); catalog = []; results = []; artistResults = []; playlists = []; likes = []; account = nil; searchCache = [:]; artistSearchCache = [:]
+        NativePlayer.shared.stop(); preloadTask?.cancel(); preloadTask = nil; lastPreloadIDs = []; lastPreloadAt = .distantPast; leaveSearch(); catalog = []; results = []; artistResults = []; playlists = []; likes = []; publishedPlaylistIDs = []; communityResults = []; account = nil; searchCache = [:]; artistSearchCache = [:]
         sessionGeneration = UUID(); starting = false; snapshotSaveTask?.cancel(); libraryRefresh.cancel(); connectionCheck?.cancel(); connectionCheck = nil; connectionCheckGeneration = UUID(); sessionReady = false
         stopLiveSync()
         origin = url; api = MusicAPI(origin: url); lastWave = []; restoreAutoFavoritesSetting(); cacheAccount(); await api.setCSRF(nil); UserDefaults.standard.set(url.absoluteString, forKey: "nightwell.server"); await start()
