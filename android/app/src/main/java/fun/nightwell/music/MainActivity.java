@@ -248,7 +248,8 @@ public final class MainActivity extends Activity {
     private void retryConnectionIfVisible(){if(visible&&!smokeMode&&!isDestroyed())load();}
     private String downloadProgress="";
     private String pendingDeepLinkTrack="";
-    private boolean sessionReady,smokeMode;
+    private boolean sessionReady,smokeMode,tasteAPIAvailable;
+    private String tastePromptAccount="";
     private void acceptDeepLink(Intent intent){
         if(intent==null||intent.getData()==null)return;
         Uri uri=intent.getData();String scheme=uri.getScheme(),host=uri.getHost(),id=null;
@@ -1235,6 +1236,99 @@ public final class MainActivity extends Activity {
     private long lastPrevious;private String previousID="";
     void nextTrack(){trackTransitionDirection=1;cancelMix();if(playback!=null)playback.player.seekToNextMediaItem();}
     void previous(){trackTransitionDirection=-1;cancelMix();if(playback==null)return;long now=SystemClock.uptimeMillis();if(playback.player.getCurrentPosition()>3000&&!(currentID.equals(previousID)&&now-lastPrevious<3000)){previousID=currentID;lastPrevious=now;playback.seek(0);}else{previousID="";playback.player.seekToPreviousMediaItem();}}
+
+    void loadArtistTastePrompt(){
+        final String account=user;
+        if(account.isEmpty())return;
+        task(()->api.request("api/wave-artists/preferences"),result->{
+            if(isDestroyed()||!account.equals(user))return;
+            tasteAPIAvailable=true;
+            getSharedPreferences("nw-taste-api",MODE_PRIVATE).edit()
+                .putBoolean(origin+"|"+account,true).apply();
+            if(!result.optBoolean("configured",false)&&!account.equals(tastePromptAccount)){
+                tastePromptAccount=account;
+                chooseArtistsDialog(true);
+            }
+        });
+    }
+
+    void chooseArtistsDialog(boolean firstRun){
+        if(user.isEmpty()){auth();return;}
+        final String account=user;
+        task(()->{
+            JSONObject saved=api.request("api/wave-artists/preferences");
+            try{
+                saved.put("suggestions",api.request("api/wave-artists/suggestions").optJSONArray("artists"));
+            }catch(Exception ignored){}
+            return saved;
+        },response->{
+            if(isDestroyed()||!account.equals(user))return;
+            java.util.LinkedHashSet<String> selected=new java.util.LinkedHashSet<>();
+            JSONArray existing=response.optJSONArray("artists");
+            if(existing!=null)for(int i=0;i<existing.length();i++)selected.add(existing.optString(i));
+            LinearLayout panel=column();
+            panel.setPadding(dp(18),dp(10),dp(18),dp(10));
+            TextView hint=text("Выбери артистов, чьи песни хочешь чаще слышать в подборке.",14);
+            hint.setTextColor(0xffdddddd);panel.addView(hint);
+            EditText input=new EditText(this);input.setTextColor(0xffffffff);
+            input.setHint("Имя исполнителя");input.setHintTextColor(0xff999999);
+            input.setSingleLine(true);panel.addView(input);
+            LinearLayout chosen=column();panel.addView(chosen);
+            final Runnable[] redraw={null};
+            redraw[0]=()->{
+                chosen.removeAllViews();
+                chosen.addView(text("Выбрано "+selected.size()+" / 20",14));
+                for(String name:new java.util.ArrayList<>(selected)){
+                    TextView v=action("✓  "+name+"  ×",()->{selected.remove(name);redraw[0].run();});
+                    v.setTextColor(0xffffffff);chosen.addView(v);
+                }
+            };
+            redraw[0].run();
+            TextView add=action("＋ Добавить",()->{
+                String name=input.getText().toString().trim();
+                if(name.length()<2||selected.size()>=20)return;
+                selected.add(name);input.setText("");redraw[0].run();
+            });panel.addView(add);
+            panel.addView(text("Исполнители из каталога",16));
+            JSONArray suggestions=response.optJSONArray("suggestions");
+            if(suggestions!=null)for(int i=0;i<Math.min(24,suggestions.length());i++){
+                JSONObject item=suggestions.optJSONObject(i);
+                if(item==null)continue;
+                String name=item.optString("name");
+                if(name.isEmpty())continue;
+                TextView v=action(name+"   ＋",()->{
+                    if(selected.contains(name))selected.remove(name);
+                    else if(selected.size()<20)selected.add(name);
+                    redraw[0].run();
+                });v.setTextColor(0xffeeeeee);panel.addView(v);
+            }
+            android.widget.ScrollView scroll=new android.widget.ScrollView(this);
+            scroll.addView(panel);
+            AlertDialog dialog=new AlertDialog.Builder(this)
+                .setTitle(firstRun?"Настрой свою музыку":"Любимые исполнители")
+                .setView(scroll).setPositiveButton("Сохранить",null)
+                .setNegativeButton(firstRun?"Позже":"Закрыть",null).create();
+            styleSheet(dialog);dialog.show();
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+                if(selected.isEmpty()){
+                    android.widget.Toast.makeText(this,"Выбери хотя бы одного исполнителя",android.widget.Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);
+                task(()->{
+                    JSONObject payload=new JSONObject();JSONArray arr=new JSONArray();
+                    for(String name:selected)arr.put(name);
+                    return api.request("api/wave-artists/preferences","PUT",payload.put("artists",arr));
+                },result->{
+                    if(isDestroyed()||!account.equals(user))return;
+                    tasteAPIAvailable=true;
+                    getSharedPreferences("nw-taste-api",MODE_PRIVATE).edit().putBoolean(origin+"|"+account,true).apply();
+                    dialog.dismiss();status.setText("Любимые исполнители сохранены");
+                });
+            });
+        });
+    }
+
     void waveSettings(){
         if(user.isEmpty()){auth();return;}
         final String account=user;
@@ -1257,6 +1351,8 @@ public final class MainActivity extends Activity {
                 }
             }
             TextView note=text("Настроение и язык определяются по описанию треков и могут совпадать не точно.",12);note.setTextColor(0xffaaaaaa);note.setPadding(0,dp(8),0,0);panel.addView(note);
+             TextView choose=action("Любимые исполнители  ›",()->chooseArtistsDialog(false));
+             choose.setTextColor(0xffffffff);panel.addView(choose);
         };render[0].run();
         android.widget.ScrollView scroll=new android.widget.ScrollView(this);scroll.addView(panel);
         AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Настроить подборку").setView(scroll).setPositiveButton("Применить",null).setNeutralButton("Сбросить",null).setNegativeButton("Отмена",null).create();
@@ -1291,9 +1387,9 @@ public final class MainActivity extends Activity {
             try{
                 if(!waveRequest.pending(ticket))return;
                 String nonce=UUID.randomUUID().toString();
-                JSONObject value=client.search("api/wave?mix="+nonce+settings.query()+"&exclude="+java.net.URLEncoder.encode(limitedExclusions(excluded),"UTF-8"));
+                JSONObject value=client.search((tasteAPIAvailable?"api/wave-artists/mix":"api/wave")+"?mix="+nonce+settings.query()+"&exclude="+java.net.URLEncoder.encode(limitedExclusions(excluded),"UTF-8"));
                 JSONArray raw=value.optJSONArray("tracks");
-                if((raw==null||raw.length()==0)&&!playingID.isEmpty())raw=client.search("api/wave?mix="+nonce+settings.query()+"&exclude="+playingID).optJSONArray("tracks");
+                if((raw==null||raw.length()==0)&&!playingID.isEmpty())raw=client.search((tasteAPIAvailable?"api/wave-artists/mix":"api/wave")+"?mix="+nonce+settings.query()+"&exclude="+playingID).optJSONArray("tracks");
                 final JSONArray fresh=new JSONArray();
                 if(raw!=null)for(int i=0;i<raw.length();i++)if(!playingID.equals(raw.optJSONObject(i).optString("id"))&&!hidden.contains(raw.optJSONObject(i).optString("id")))fresh.put(raw.optJSONObject(i));
                 ui.post(()->{
