@@ -645,8 +645,12 @@ private struct AudioQualityDecision: Decodable {
                         let covers = upcoming.prefix(3).compactMap {
                             CoverImagePipeline.coverURL(for: $0, origin: origin)
                         }
-                        // Same downloader as row/player artwork, no redundant second cache.
-                        await CoverImagePipeline.shared.prefetch(covers)
+                        // Cover requests do not hold up the next-track audio preload.
+                        // Cancel speculative art if a different song takes over.
+                        let coverTask = Task(priority: .utility) {
+                            await CoverImagePipeline.shared.prefetch(covers)
+                        }
+                        defer { coverTask.cancel() }
                         guard !Task.isCancelled, clock.id == playingID else { return }
                         // Only warm new audio after the current track is actually audible.
                         // Give slower mobile networks a short grace period.
@@ -660,6 +664,7 @@ private struct AudioQualityDecision: Decodable {
                         let _: OK? = try? await api.request("/api/preload", method: "POST", body: ["ids": ids], timeout: 10)
                         guard !Task.isCancelled, clock.id == playingID else { return }
                         await lyrics.preload(Array(upcoming.prefix(2)), api: api, origin: origin)
+                        await coverTask.value
                     }
                 }
             }
@@ -1022,9 +1027,10 @@ private struct AudioQualityDecision: Decodable {
             guard account?.id == mixAccount else { return }
             let recent = Set(mixRecentIDs.suffix(20))
             let hiddenArtists = blockedArtists, currentID = clock.id
+            let candidates = result.tracks
             // Ranking a large provider result must not block gestures or audio UI.
             let fresh = await Task.detached(priority: .userInitiated) {
-                RecommendationOrder.arrange(result.tracks, recent: recent, hidden: hidden,
+                RecommendationOrder.arrange(candidates, recent: recent, hidden: hidden,
                     hiddenArtists: hiddenArtists, current: currentID, identity: { $0.id },
                     title: { $0.title }, artist: { $0.artist })
             }.value
