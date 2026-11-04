@@ -11,7 +11,7 @@ from soundcloud_proxy import (
 
 class SoundCloudProxyTests(unittest.TestCase):
     def test_default_happ_proxy(self):
-        with patch.dict(os.environ, {"NW_SC_PROXY_URL": DEFAULT_SC_PROXY}):
+        with patch.dict(os.environ, {"NW_SC_PROXY": DEFAULT_SC_PROXY}):
             self.assertEqual(soundcloud_proxy_url(), "http://127.0.0.1:10809")
             with patch("soundcloud_proxy.httpx.AsyncClient") as factory:
                 soundcloud_async_client(timeout=7)
@@ -22,13 +22,20 @@ class SoundCloudProxyTests(unittest.TestCase):
                 factory.assert_called_once_with(
                     proxy=DEFAULT_SC_PROXY, trust_env=False, timeout=5)
 
+    def test_legacy_server_proxy_variable_has_priority(self):
+        with patch.dict(os.environ, {
+            "NW_SC_PROXY": "http://127.0.0.1:10809",
+            "NW_SC_PROXY_URL": "http://127.0.0.1:18080",
+        }):
+            self.assertEqual(soundcloud_proxy_url(), DEFAULT_SC_PROXY)
+
     def test_direct_client_never_receives_happ(self):
         with patch("soundcloud_proxy.httpx.AsyncClient") as factory:
             direct_async_client(timeout=6)
             factory.assert_called_once_with(trust_env=False, timeout=6)
 
     def test_no_global_proxy_or_leak_to_other_services(self):
-        with patch.dict(os.environ, {"NW_SC_PROXY_URL": DEFAULT_SC_PROXY,
+        with patch.dict(os.environ, {"NW_SC_PROXY": DEFAULT_SC_PROXY,
                                      "HTTPS_PROXY": "http://untrusted.invalid:8080"}):
             with patch("soundcloud_proxy.httpx.AsyncClient") as factory:
                 soundcloud_async_client()
@@ -45,13 +52,13 @@ class SoundCloudProxyTests(unittest.TestCase):
             "http://127.0.0.1:10809/proxy",
         ):
             with self.subTest(invalid=invalid):
-                with patch.dict(os.environ, {"NW_SC_PROXY_URL": invalid}):
+                with patch.dict(os.environ, {"NW_SC_PROXY": invalid}):
                     with self.assertRaises(ValueError):
                         soundcloud_proxy_url()
 
     def test_per_invocation_ytdlp_options(self):
         opts = {"quiet": True}
-        with patch.dict(os.environ, {"NW_SC_PROXY_URL": DEFAULT_SC_PROXY}):
+        with patch.dict(os.environ, {"NW_SC_PROXY": DEFAULT_SC_PROXY}):
             routed = soundcloud_ytdlp_options(opts)
         self.assertEqual(routed, {"quiet": True, "proxy": DEFAULT_SC_PROXY})
         self.assertEqual(opts, {"quiet": True})
