@@ -67,7 +67,7 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
     async def test_review_and_manual_replacement(self):
         result=await self.client.post('/api/imports',json={
             'provider':'yandex','name':'Review',
-            'text':'Artist - Song\\nOther - Missing', 'mode':'safe'})
+            'text':'Artist - Song\nOther - Missing', 'mode':'safe'})
         self.assertEqual(result.status_code,200)
         key=result.json()['id']
         job=await self.wait_state(key,'ready')
