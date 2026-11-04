@@ -330,7 +330,25 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
  void BackgroundClick(object sender,RoutedEventArgs e){Header.Visibility=Dock.Visibility=Visibility.Collapsed;MouseDoubleClick+=RestoreBackground;}
  void RestoreBackground(object sender,MouseButtonEventArgs e){Header.Visibility=Dock.Visibility=Visibility.Visible;MouseDoubleClick-=RestoreBackground;}
  void ShowPlaylists(){var menu=new ContextMenu();foreach(var p in playlists){var item=new MenuItem{Header=p.name};item.Click+=async(_,_)=>await Guard(async()=>{playlist=p.id;screen=p.name;Heading.Text=p.name;shown=ParseTracks(await api.Request("api/playlists/"+p.id+"/tracks"));Tracks.ItemsSource=shown;});menu.Items.Add(item);}var add=new MenuItem{Header="＋ Создать плейлист"};add.Click+=(_,_)=>Prompt("Новый плейлист","Название",async name=>{await api.Request("api/playlists","POST",new{name});await LoadAccount();});menu.Items.Add(add);menu.PlacementTarget=CollectionActions;menu.IsOpen=true;}
- void CollectionClick(object sender,RoutedEventArgs e){if(screen=="Плейлисты"){ShowPlaylists();return;}var menu=new ContextMenu();var get=new MenuItem{Header="Скачать всё"};get.Click+=async(_,_)=>await Download(shown.ToList());menu.Items.Add(get);if(screen=="Офлайн"){var import=new MenuItem{Header="Добавить файлы"};import.Click+=(_,_)=>Import();menu.Items.Add(import);}else{var share=new MenuItem{Header="Поделиться"};share.Click+=async(_,_)=>await Guard(async()=>{var response=await api.Request("api/shares","POST",new{kind=screen=="Избранное"?"likes":"playlist",playlist_id=playlist});Clipboard.SetText(new Uri(api.Origin,response.GetProperty("path").GetString()!).AbsoluteUri);Status.Text="Ссылка скопирована";});menu.Items.Add(share);}menu.PlacementTarget=(UIElement)sender;menu.IsOpen=true;}
+ void CollectionClick(object sender,RoutedEventArgs e){if(screen=="Плейлисты"){ShowPlaylists();return;}var menu=new ContextMenu();var get=new MenuItem{Header="Скачать всё"};get.Click+=async(_,_)=>await Download(shown.ToList());menu.Items.Add(get);if(screen=="Офлайн"){var import=new MenuItem{Header="Добавить файлы"};import.Click+=(_,_)=>Import();menu.Items.Add(import);}else{var share=new MenuItem{Header="Поделиться"};share.Click+=async(_,_)=>await Guard(async()=>{var response=await api.Request("api/shares","POST",new{kind=screen=="Избранное"?"likes":"playlist",playlist_id=playlist});Clipboard.SetText(new Uri(api.Origin,response.GetProperty("path").GetString()!).AbsoluteUri);Status.Text="Ссылка скопирована";});menu.Items.Add(share);}
+   if(playlist.Length>0&&playlists.Any(p=>p.id==playlist&&p.name==screen)){
+    bool published=publishedPlaylistIDs.Contains(playlist);
+    var publication=new MenuItem{Header=published?"Убрать из поиска":"Опубликовать в поиске"};
+    publication.Click+=async(_,_)=>await Guard(async()=>{
+     if(account.Length==0){Login();return;}
+     if(published){
+      await api.Request("api/community-playlists/publish/"+Uri.EscapeDataString(playlist),"DELETE");
+      publishedPlaylistIDs.Remove(playlist);
+      Status.Text="Плейлист убран из поиска";
+     }else{
+      await api.Request("api/community-playlists/publish","POST",new{playlist_id=playlist});
+      publishedPlaylistIDs.Add(playlist);
+      Status.Text="Плейлист опубликован в поиске";
+     }
+    });
+    menu.Items.Add(publication);
+   }
+   menu.PlacementTarget=(UIElement)sender;menu.IsOpen=true;}
  string OfflineRoot=>Path.Combine(NativeAPI.Storage,"offline");
  List<Track> ReadOffline(){Directory.CreateDirectory(OfflineRoot);var result=new List<Track>();foreach(var f in Directory.GetFiles(OfflineRoot,"*.json")){try{var t=JsonSerializer.Deserialize<Track>(File.ReadAllText(f));if(t?.LocalPath!=null&&File.Exists(t.LocalPath))result.Add(t);}catch{}}return result;}
  void Import(){var picker=new OpenFileDialog{Multiselect=true,Filter="Аудиофайлы|*.mp3;*.m4a;*.aac;*.flac;*.wav;*.ogg"};if(picker.ShowDialog()!=true)return;Directory.CreateDirectory(OfflineRoot);foreach(var file in picker.FileNames){string id="local_"+Guid.NewGuid().ToString("N"),target=Path.Combine(OfflineRoot,id+Path.GetExtension(file));File.Copy(file,target);var t=new Track{id=id,title=Path.GetFileNameWithoutExtension(file),artist="На этом устройстве",LocalPath=target};File.WriteAllText(Path.Combine(OfflineRoot,id+".json"),JsonSerializer.Serialize(t));}Show("Офлайн");}
