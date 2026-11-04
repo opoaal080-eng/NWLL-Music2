@@ -114,7 +114,8 @@ actor CoverImagePipeline {
     /// Warm small groups without serially waiting for each remote cover.
     /// Limit concurrent speculative requests to leave bandwidth for audio.
     func prefetch(_ urls: [URL], maxPixel: Int = 160) async {
-        let candidates = Array(Set(urls.prefix(6))).sorted { $0.absoluteString < $1.absoluteString }
+        var seen = Set<URL>()
+        let candidates = urls.prefix(6).filter { seen.insert($0).inserted }
         for start in stride(from: 0, to: candidates.count, by: 2) {
             if Task.isCancelled { return }
             let groupURLs = Array(candidates[start..<min(start + 2, candidates.count)])
