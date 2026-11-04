@@ -630,24 +630,41 @@ private struct AudioQualityDecision: Decodable {
             preloadTask = nil
             if let at = clock.queue.firstIndex(where: { $0.id == clock.id }), account != nil, hasNetworkPath {
                 // Warm only the nearest tracks; a large queue must not trigger 60 server fetches.
-                let upcoming = Array(clock.queue.dropFirst(at + 1).prefix(8))
-                let api = api, origin = origin
-                let ids = upcoming.map(\.id)
+                let upcoming = Array(clock.queue.dropFirst(at + 1).prefix(4))
+                let api = api, origin = origin, playingID = clock.id
+                let ids = Array(upcoming.prefix(3)).map(\.id)
                 let shouldPreload = ids != lastPreloadIDs || Date().timeIntervalSince(lastPreloadAt) > 45
                 if !upcoming.isEmpty && shouldPreload {
                     preloadTask = Task(priority: .utility) {
-                        try? await Task.sleep(nanoseconds: 400_000_000)
-                        guard !Task.isCancelled else { return }
+                        // Don't start server-side preloads alongside the first stream request.
+                        // Speculative downloads previously competed with audio for bandwidth.
+                        do { try await Task.sleep(nanoseconds: 1_800_000_000) } catch { return }
+                        guard !Task.isCancelled, clock.id == playingID else { return }
                         lastPreloadIDs = ids
                         lastPreloadAt = Date()
-                        let _: OK? = try? await api.request("/api/preload", method: "POST", body: ["ids": ids])
-                        guard !Task.isCancelled else { return }
-                        await lyrics.preload(Array(upcoming.prefix(3)), api: api, origin: origin)
-                        let covers = upcoming.prefix(3).compactMap { track -> URL? in
-                            guard let path = track.cover_url else { return nil }
-                            return URL(string: path, relativeTo: origin)?.absoluteURL
+                        let covers = upcoming.prefix(3).compactMap {
+                            CoverImagePipeline.coverURL(for: $0, origin: origin)
                         }
-                        await ArtworkCache.shared.prefetch(covers)
+                        // Cover requests do not hold up the next-track audio preload.
+                        // Cancel speculative art if a different song takes over.
+                        let coverTask = Task(priority: .utility) {
+                            await CoverImagePipeline.shared.prefetch(covers)
+                        }
+                        defer { coverTask.cancel() }
+                        guard !Task.isCancelled, clock.id == playingID else { return }
+                        // Only warm new audio after the current track is actually audible.
+                        // Give slower mobile networks a short grace period.
+                        for _ in 0..<12 {
+                            guard !Task.isCancelled, clock.id == playingID else { return }
+                            if NativePlayer.shared.snapshot(includeQueue: false)["audible"] as? Bool == true { break }
+                            do { try await Task.sleep(nanoseconds: 500_000_000) } catch { return }
+                        }
+                        guard !Task.isCancelled, clock.id == playingID,
+                              NativePlayer.shared.snapshot(includeQueue: false)["audible"] as? Bool == true else { return }
+                        let _: OK? = try? await api.request("/api/preload", method: "POST", body: ["ids": ids], timeout: 10)
+                        guard !Task.isCancelled, clock.id == playingID else { return }
+                        await lyrics.preload(Array(upcoming.prefix(2)), api: api, origin: origin)
+                        await coverTask.value
                     }
                 }
             }
@@ -1008,8 +1025,26 @@ private struct AudioQualityDecision: Decodable {
                 result = try await api.request("/api/wave?mix=" + nonce + settings.query + "&exclude=" + recent.joined(separator: ","))
             }
             guard account?.id == mixAccount else { return }
-            let fresh = RecommendationOrder.arrange(result.tracks, recent: Set(mixRecentIDs.suffix(20)), hidden: hidden, hiddenArtists: blockedArtists, current: clock.id, identity: { $0.id }, title: { $0.title }, artist: { $0.artist })
-            if let first = fresh.first { lastWave = fresh; saveSessionSnapshot(); play(first, in: fresh, wave: true) }
+            let recent = Set(mixRecentIDs.suffix(20))
+            let hiddenArtists = blockedArtists, currentID = clock.id
+            let candidates = result.tracks
+            // Ranking a large provider result must not block gestures or audio UI.
+            let fresh = await Task.detached(priority: .userInitiated) {
+                RecommendationOrder.arrange(candidates, recent: recent, hidden: hidden,
+                    hiddenArtists: hiddenArtists, current: currentID, identity: { $0.id },
+                    title: { $0.title }, artist: { $0.artist })
+            }.value
+            guard account?.id == mixAccount, !Task.isCancelled else { return }
+            if let first = fresh.first {
+                lastWave = fresh
+                saveSessionSnapshot()
+                play(first, in: fresh, wave: true)
+                let server = origin
+                Task(priority: .utility) {
+                    let covers = fresh.prefix(4).compactMap { CoverImagePipeline.coverURL(for: $0, origin: server) }
+                    await CoverImagePipeline.shared.prefetch(covers)
+                }
+            }
             else { error = result.message ?? "Нет подходящих треков. Измени настройки или попробуй позже." }
         } catch {
             let cooled = SkipFeedback.recentIDs(origin: origin, account: mixAccount ?? "device")

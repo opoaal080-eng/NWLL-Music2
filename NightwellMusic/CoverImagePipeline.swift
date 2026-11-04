@@ -33,6 +33,23 @@ actor CoverImagePipeline {
         session = URLSession(configuration: configuration)
     }
 
+    /// Resolve the same server/CDN cover used by the lock-screen player.
+    /// Provider tracks sometimes have no cover_url but do have /api/covers/id.
+    static func coverURL(for track: Track, origin: URL) -> URL? {
+        let raw = track.cover_url?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let path: String
+        if !raw.isEmpty {
+            path = raw
+        } else if track.is_remote == true || track.source?.lowercased().contains("soundcloud") == true {
+            path = "/api/covers/" + track.id
+        } else {
+            return nil
+        }
+        guard let url = URL(string: path, relativeTo: origin)?.absoluteURL,
+              url.scheme?.lowercased() == "https", url.user == nil, url.password == nil else { return nil }
+        return url
+    }
+
     func image(for url: URL, maxPixel: Int = 160) async -> UIImage? {
         let dimension = min(1200, max(96, maxPixel))
         let key = "\(url.absoluteString)#\(dimension)"
@@ -94,13 +111,21 @@ actor CoverImagePipeline {
         return result
     }
 
-    /// Warm only the first few tracks; all later rows load on demand.
+    /// Warm small groups without serially waiting for each remote cover.
+    /// Limit concurrent speculative requests to leave bandwidth for audio.
     func prefetch(_ urls: [URL], maxPixel: Int = 160) async {
-        // Low-priority prefetch avoids a large burst of downloads when opening a
-        // playlist. The actor shares results with visible covers.
-        for url in urls.prefix(6) {
+        var seen = Set<URL>()
+        let candidates = urls.prefix(6).filter { seen.insert($0).inserted }
+        for start in stride(from: 0, to: candidates.count, by: 2) {
             if Task.isCancelled { return }
-            _ = await image(for: url, maxPixel: maxPixel)
+            let groupURLs = Array(candidates[start..<min(start + 2, candidates.count)])
+            await withTaskGroup(of: Void.self) { group in
+                for url in groupURLs {
+                    group.addTask(priority: .utility) {
+                        _ = await self.image(for: url, maxPixel: maxPixel)
+                    }
+                }
+            }
         }
     }
 }

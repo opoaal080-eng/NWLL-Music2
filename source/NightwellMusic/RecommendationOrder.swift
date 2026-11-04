@@ -44,24 +44,31 @@ enum RecommendationOrder {
 
     static func arrange<T>(_ values: [T], recent: Set<String> = [], hidden: Set<String> = [], hiddenArtists: Set<String> = [], current: String = "", identity: (T) -> String, title: (T) -> String, artist: (T) -> String) -> [T] {
         var ids = Set<String>(), recordings = Set<String>()
-        var pool = values.prefix(200).enumerated().filter { _, value in
+        // Normalize artist names once per candidate, not on every comparison.
+        // With 200 tracks the old O(n²) ranking repeatedly folded thousands of strings.
+        var pool: [(rank: Int, value: T, id: String, performer: String)] = []
+        pool.reserveCapacity(min(200, values.count))
+        for (rank, value) in values.prefix(200).enumerated() {
             let id = identity(value), name = key(title(value)), performer = key(artist(value))
-            guard id != current, !hidden.contains(id), !hiddenArtists.contains(performer), ids.insert(id).inserted else { return false }
-            return name.isEmpty || performer.isEmpty || recordings.insert(performer + ":" + name).inserted
-        }.map { (rank: $0.offset, value: $0.element) }
+            guard id != current, !hidden.contains(id), !hiddenArtists.contains(performer),
+                  ids.insert(id).inserted else { continue }
+            guard name.isEmpty || performer.isEmpty || recordings.insert(performer + ":" + name).inserted else { continue }
+            pool.append((rank: rank, value: value, id: id, performer: performer))
+        }
         var result: [T] = [], counts: [String: Int] = [:], previous = ""
+        result.reserveCapacity(pool.count)
         while !pool.isEmpty {
-            func score(_ candidate: (rank: Int, value: T)) -> Double {
-                let performer = key(artist(candidate.value))
-                return 1 / (1 + Double(candidate.rank) * 0.12) - (recent.contains(identity(candidate.value)) ? 2.5 : 0)
+            func score(_ candidate: (rank: Int, value: T, id: String, performer: String)) -> Double {
+                let performer = candidate.performer
+                return 1 / (1 + Double(candidate.rank) * 0.12) - (recent.contains(candidate.id) ? 2.5 : 0)
                     - (performer.isEmpty ? 0 : Double(counts[performer, default: 0]) * 0.19 + (performer == previous ? 0.85 : 0))
             }
             var best = 0
             for index in pool.indices.dropFirst() { if score(pool[index]) > score(pool[best]) { best = index } }
-            let next = pool.remove(at: best).value, performer = key(artist(next))
-            result.append(next)
-            if !performer.isEmpty { counts[performer, default: 0] += 1 }
-            previous = performer
+            let next = pool.remove(at: best)
+            result.append(next.value)
+            if !next.performer.isEmpty { counts[next.performer, default: 0] += 1 }
+            previous = next.performer
         }
         return result
     }
