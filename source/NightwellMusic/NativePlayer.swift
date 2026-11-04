@@ -428,7 +428,9 @@ final class NativePlayer {
             error = "Восстанавливаем подключение…"
         } else {
             recovery.cancel(); wantsPlay = false
-            error = "Трек недоступен. Проверь подключение и нажми Play."
+            error = current?.offline == true
+                ? "Скачанный аудиофайл не воспроизводится. Открой «Офлайн» и загрузи его повторно."
+                : "Трек недоступен. Проверь подключение и нажми Play."
         }
         if !wantsPlay { endBackgroundHandoff() }
         publish()
