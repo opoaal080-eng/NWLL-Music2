@@ -108,6 +108,7 @@ final class NativePlayer {
     private var fadeNextAutomatically = false
     private var timeObserver: Any?
     private var artwork: MPMediaItemArtwork?
+    private lazy var placeholderArtwork = makeArtwork(placeholder())
     private var artworkLoadTask: Task<Void, Never>?
     private var itemGeneration = UUID()
     private var seekGeneration = UUID()
@@ -338,7 +339,7 @@ final class NativePlayer {
         requestedPosition = position; lastPosition = position; waitingForReady = true
         ended = false; error = ""; artworkLoadTask?.cancel()
         // Avoid flashing a placeholder when the same track is being rebuffered.
-        if !recovering || artwork == nil { artwork = makeArtwork(placeholder()) }
+        if !recovering || artwork == nil { artwork = placeholderArtwork }
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
         if let failureObserver { NotificationCenter.default.removeObserver(failureObserver) }
         if let stallObserver { NotificationCenter.default.removeObserver(stallObserver); self.stallObserver = nil }
