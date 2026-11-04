@@ -25,6 +25,7 @@ import time
 from urllib.parse import urlsplit
 
 import httpx
+from soundcloud_proxy import soundcloud_async_client
 from fastapi import HTTPException, Request
 from fastapi.responses import RedirectResponse
 
@@ -112,7 +113,7 @@ class SoundCloudQuality:
             if not (client_id and client_secret):
                 return None
             encoded = base64.b64encode((client_id + ":" + client_secret).encode()).decode()
-            async with httpx.AsyncClient(timeout=8) as client:
+            async with soundcloud_async_client(timeout=8) as client:
                 response = await client.post(SC_AUTH, data={"grant_type": "client_credentials"},
                     headers={"Authorization": "Basic " + encoded, "Accept": "application/json"})
                 response.raise_for_status()
@@ -135,7 +136,7 @@ class SoundCloudQuality:
         }
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=self.app),
-            base_url="http://nightwell.internal", headers=headers, timeout=6.5,
+            base_url="http://nightwell.internal", headers=headers, timeout=6.5, trust_env=False,
         ) as client:
             response = await client.get("/api/tracks")
             if response.status_code != 200:
@@ -157,7 +158,7 @@ class SoundCloudQuality:
         urn = track.get("soundcloud_urn") or track.get("soundcloud_id")
         urn_match = SC_URN.fullmatch(str(urn)) if urn else None
         headers = {"Authorization": "OAuth " + token, "Accept": "application/json"}
-        async with httpx.AsyncClient(timeout=8, follow_redirects=False) as client:
+        async with soundcloud_async_client(timeout=8, follow_redirects=False) as client:
             if urn_match:
                 urn = "soundcloud:tracks:" + urn_match.group(1)
             elif permitted_soundcloud_permalink(track.get("source_url")):

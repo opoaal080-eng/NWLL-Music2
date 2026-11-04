@@ -26,7 +26,7 @@ def identity(request):
 
 BANNER_ARTIST = "# Nightwell artist directory module"
 BANNER_QUALITY = "# Nightwell SoundCloud audio quality module"
-FILES = ("artist_catalog.py", "artist_metadata.py", "audio_quality.py")
+FILES = ("artist_catalog.py", "artist_metadata.py", "audio_quality.py", "soundcloud_proxy.py")
 HOOKS = [
     (BANNER_ARTIST, """
 # Nightwell artist directory module

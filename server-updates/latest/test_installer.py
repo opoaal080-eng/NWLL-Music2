@@ -30,7 +30,7 @@ class InstallerTests(unittest.TestCase):
 
     def test_dry_run_leaves_server_unchanged(self):
         result=module.check(self.server,self.payload)
-        self.assertEqual(len(result["changes"]),4)
+        self.assertEqual(len(result["changes"]),5)
         self.assertEqual((self.server/"app.py").read_text(),FAKE_APP)
         self.assertFalse((self.server/"backups").exists())
 
