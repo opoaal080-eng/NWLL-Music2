@@ -161,7 +161,7 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
   };
   controls.Children.Add(save);
   header.Children.Add(controls);
-  DockPanel.SetDock(header,Dock.Top);
+  DockPanel.SetDock(header,System.Windows.Controls.Dock.Top);
   panel.Children.Add(header);
   var list=new ListBox{
    ItemsSource=tracks,DisplayMemberPath="title",Foreground=Brushes.White,
