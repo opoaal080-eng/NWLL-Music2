@@ -4,8 +4,31 @@ import org.json.*;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import android.media.MediaExtractor;
+import android.media.MediaFormat;
 
 final class OfflineStore {
+    // An artwork/title record must never be mistaken for a playable download.
+    private static final java.util.Map<String,String> checked=new java.util.HashMap<>();
+    private static boolean playable(File file) {
+        if(!file.isFile() || file.length()<=256 || file.length()>LIMIT)return false;
+        String stamp=file.length()+"|"+file.lastModified(),key=file.getAbsolutePath();
+        String cached=checked.get(key);
+        if(cached!=null && cached.substring(2).equals(stamp))return cached.startsWith("1|");
+        MediaExtractor extractor=new MediaExtractor();
+        boolean found=false;
+        try{
+            extractor.setDataSource(file.getAbsolutePath());
+            for(int i=0;i<extractor.getTrackCount();i++){
+                MediaFormat format=extractor.getTrackFormat(i);
+                String mime=format.getString(MediaFormat.KEY_MIME);
+                if(mime!=null&&mime.startsWith("audio/")){found=true;break;}
+            }
+        }catch(Exception ignored){}finally{extractor.release();}
+        if(checked.size()>2500)checked.clear();
+        checked.put(key,(found?"1|":"0|")+stamp);
+        return found;
+    }
     static void importFile(Context context,String origin,android.net.Uri uri)throws Exception {
         String name="Локальный трек";
         try(android.database.Cursor cursor=context.getContentResolver().query(uri,null,null,null,null)){if(cursor!=null&&cursor.moveToFirst()){int index=cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);if(index>=0)name=cursor.getString(index);}}
@@ -14,7 +37,10 @@ final class OfflineStore {
         File root=directory(context,origin,"device");
         String mime=context.getContentResolver().getType(uri);
         JSONObject meta=new JSONObject().put("id",id).put("title",name).put("artist","На этом устройстве").put("_offline",true).put("_offline_account","device").put("_mime",mime==null?"audio/mpeg":mime);
-        atomic(new File(root,id+".m4a"),bytes);atomic(new File(root,id+".json"),meta.toString().getBytes(StandardCharsets.UTF_8));
+        File audio=new File(root,id+".m4a");
+        atomic(audio,bytes);
+        if(!playable(audio)){audio.delete();throw new IOException("Неподдерживаемый или повреждённый аудиофайл");}
+        atomic(new File(root,id+".json"),meta.toString().getBytes(StandardCharsets.UTF_8));
     }
     static synchronized void saveStream(Context context,String origin,String account,JSONObject track,InputStream input)throws Exception {
         String id=track.getString("id");if(!valid(id))throw new IOException("Invalid track");
@@ -24,10 +50,13 @@ final class OfflineStore {
             try(FileOutputStream out=new FileOutputStream(temp)){
                 byte[] buffer=new byte[16384];int n;while((n=input.read(buffer))!=-1){size+=n;if(size>LIMIT)throw new IOException("Слишком большой файл");if(headerSize<8){int copy=Math.min(n,8-headerSize);System.arraycopy(buffer,0,header,headerSize,copy);headerSize+=copy;}out.write(buffer,0,n);}out.getFD().sync();
             }
-            if(size<=256||headerSize<8||!new String(header,4,4,StandardCharsets.US_ASCII).equals("ftyp"))throw new IOException("Invalid audio");
+            if(size<=256||headerSize<8||!new String(header,4,4,StandardCharsets.US_ASCII).equals("ftyp")||!playable(temp))throw new IOException("Invalid audio");
             JSONObject meta=new JSONObject(track.toString()).put("_offline",true).put("_offline_account",account).put("offline_bytes",size);
             byte[] bytes=meta.toString().getBytes(StandardCharsets.UTF_8);if(bytes.length>2*1024*1024)throw new IOException("Metadata too large");
-            if(!temp.renameTo(target))throw new IOException("Unable to save");atomic(new File(root,id+".json"),bytes);
+            if(target.exists()&&!target.delete())throw new IOException("Unable to replace audio");
+            if(!temp.renameTo(target))throw new IOException("Unable to save");
+            checked.remove(target.getAbsolutePath());
+            atomic(new File(root,id+".json"),bytes);
         }finally{temp.delete();}
     }
     static final int LIMIT=32*1024*1024;
@@ -40,7 +69,7 @@ final class OfflineStore {
         File root=new File(new File(context.getFilesDir(),"offline"),scope);if(!root.isDirectory()&&!root.mkdirs())throw new IOException("Storage unavailable");return root;
     }
     static synchronized File audio(Context context,String origin,String account,String id){
-        try{if(!valid(id))return null;File root=directory(context,origin,account),file=new File(root,id+".m4a");return file.isFile()&&new File(root,id+".json").isFile()?file:null;}catch(Exception e){return null;}
+        try{if(!valid(id))return null;File root=directory(context,origin,account),file=new File(root,id+".m4a");return new File(root,id+".json").isFile()&&playable(file)?file:null;}catch(Exception e){return null;}
     }
     private static void atomic(File file,byte[] data) throws IOException {
         File temp=new File(file.getParentFile(),file.getName()+".tmp");
@@ -51,17 +80,23 @@ final class OfflineStore {
         try{
             JSONObject body=new JSONObject(raw);String op=body.getString("op");
             if(op.equals("listAll")){
-                JSONArray tracks=new JSONArray();File[] dirs=new File(context.getFilesDir(),"offline").listFiles();
+                JSONArray tracks=new JSONArray(),damaged=new JSONArray();File[] dirs=new File(context.getFilesDir(),"offline").listFiles();
                 if(dirs!=null)for(File dir:dirs)if(dir.isDirectory()&&dir.getName().matches("[a-f0-9]{64}")){
                     File[] files=dir.listFiles();if(files==null)continue;
                     for(File f:files)if(f.getName().endsWith(".json")&&f.length()<=2*1024*1024){
                         try{byte[] data=new byte[(int)f.length()];try(DataInputStream in=new DataInputStream(new FileInputStream(f))){in.readFully(data);}
                             JSONObject t=new JSONObject(new String(data,StandardCharsets.UTF_8));String id=t.optString("id");
-                            if(valid(id)&&new File(dir,id+".m4a").isFile())tracks.put(t.put("_offline",true).put("_offline_account","local_"+dir.getName()));
+                            if(valid(id)){
+                                File audio=new File(dir,id+".m4a");
+                                long expected=t.optLong("offline_bytes",0);
+                                if(playable(audio)&&(expected<=0||expected==audio.length()))
+                                    tracks.put(t.put("_offline",true).put("_offline_account","local_"+dir.getName()));
+                                else damaged.put(t);
+                            }
                         }catch(Exception ignored){}
                     }
                 }
-                return new JSONObject().put("tracks",tracks).toString();
+                return new JSONObject().put("tracks",tracks).put("damaged",damaged).toString();
             }
             String account=body.optString("account","device");File root=directory(context,origin,account);
             if(op.equals("list")){
@@ -70,12 +105,21 @@ final class OfflineStore {
                 }return new JSONObject().put("tracks",tracks).toString();
             }
             String id=body.getString("id");if(!valid(id))throw new IOException("Invalid track");File audio=new File(root,id+".m4a"),meta=new File(root,id+".json");
-            if(op.equals("remove")){meta.delete();audio.delete();return "{\"ok\":true}";}
+            if(op.equals("remove")){meta.delete();audio.delete();checked.remove(audio.getAbsolutePath());return "{\"ok\":true}";}
             String encoded=body.optString("audio");if(!op.equals("save")||encoded.length()>LIMIT*4/3+4)throw new IOException("Invalid audio");
             byte[] bytes=android.util.Base64.decode(encoded,android.util.Base64.DEFAULT);if(bytes.length<=256||bytes.length>LIMIT||!new String(bytes,4,4,StandardCharsets.US_ASCII).equals("ftyp"))throw new IOException("Invalid audio");
             JSONObject track=body.getJSONObject("track");if(!track.optString("id").equals(id))throw new IOException("Invalid metadata");track.put("_offline",true).put("_offline_account",account).put("offline_bytes",bytes.length);
             byte[] metadata=track.toString().getBytes(StandardCharsets.UTF_8);if(metadata.length>2*1024*1024)throw new IOException("Metadata too large");
-            atomic(audio,bytes);atomic(meta,metadata);return new JSONObject().put("ok",true).put("size",bytes.length).toString();
+            File staging=new File(root,id+"."+java.util.UUID.randomUUID()+".m4a");
+            try{
+                atomic(staging,bytes);
+                if(!playable(staging))throw new IOException("Invalid audio");
+                if(audio.exists()&&!audio.delete())throw new IOException("Cannot replace old audio");
+                if(!staging.renameTo(audio))throw new IOException("Cannot save audio");
+                checked.remove(audio.getAbsolutePath());
+                atomic(meta,metadata);
+            }finally{staging.delete();}
+            return new JSONObject().put("ok",true).put("size",bytes.length).toString();
         }catch(Exception e){return "{\"error\":\"Не удалось сохранить трек на устройстве\"}";}
     }
 }
