@@ -87,6 +87,8 @@ private struct AudioQualityDecision: Decodable {
     @Published var offline: [Track] = []
     @Published private(set) var damagedOffline: [Track] = []
     @Published var playlists: [Playlist] = []
+    @Published var communityResults: [CommunityPlaylist] = []
+    @Published var publishedPlaylistIDs: Set<String> = []
     @Published var likes: Set<String> = []
     @Published var account: Account?
     @Published var query = ""
@@ -106,6 +108,7 @@ private struct AudioQualityDecision: Decodable {
     private var searchTask: Task<Void, Never>?
     private var searchDebounceTask: Task<Void, Never>?
     private var artistSearchTask: Task<Void, Never>?
+    private var communitySearchTask: Task<Void, Never>?
     private var searchArtistSuggestionTask: Task<Void, Never>?
     private var qualityNoticeTask: Task<Void, Never>?
     private var artistSearchCache: [String: [ArtistDirectoryItem]] = [:]
@@ -862,8 +865,10 @@ private struct AudioQualityDecision: Decodable {
     }
     func search() {
         searchTask?.cancel(); artistSearchTask?.cancel(); searchArtistSuggestionTask?.cancel()
+        communitySearchTask?.cancel()
         searchGeneration = UUID()
         let generation = searchGeneration, text = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        searchCommunityPlaylists(text)
         guard !text.isEmpty else {
             results = []; artistResults = []; searchArtistSuggestions = []
             searchMessage = "Введи название трека или исполнителя"
@@ -953,9 +958,9 @@ private struct AudioQualityDecision: Decodable {
     func leaveSearch() {
         searchDebounceTask?.cancel()
         searchTask?.cancel(); artistSearchTask?.cancel()
-        searchArtistSuggestionTask?.cancel()
+        searchArtistSuggestionTask?.cancel(); communitySearchTask?.cancel()
         searchGeneration = UUID()
-        searchArtistSuggestions = []
+        searchArtistSuggestions = []; communityResults = []
     }
     // Resolve a shared track URL to the catalogue and start native playback.
     func openSharedTrack(_ id: String) async {
@@ -1160,6 +1165,67 @@ private struct AudioQualityDecision: Decodable {
                 return saved
             }
             throw error
+        }
+    }
+    func searchCommunityPlaylists(_ text: String) {
+        communitySearchTask?.cancel()
+        let expectedGeneration = searchGeneration
+        let expectedQuery = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        communityResults = []
+        communitySearchTask = Task { [weak self] in
+            guard let self else { return }
+            let encoded = expectedQuery.addingPercentEncoding(
+                withAllowedCharacters: .urlQueryAllowed.subtracting(CharacterSet(charactersIn: "&+=?#"))) ?? ""
+            do {
+                let response: CommunityPlaylistResults = try await api.request(
+                    "/api/community-playlists?q=" + encoded + "&limit=30", timeout: 10)
+                guard !Task.isCancelled, expectedGeneration == searchGeneration,
+                      query.trimmingCharacters(in: .whitespacesAndNewlines) == expectedQuery else { return }
+                communityResults = response.playlists
+            } catch {
+                // Legacy servers do not provide community discovery.
+            }
+        }
+    }
+    func refreshPublishedPlaylists() async {
+        guard let owner = account?.id else { publishedPlaylistIDs = []; return }
+        do {
+            let response: CommunityPlaylistResults = try await api.request(
+                "/api/community-playlists/mine", timeout: 10)
+            guard account?.id == owner else { return }
+            publishedPlaylistIDs = Set(response.playlists.compactMap(\.source_playlist_id))
+        } catch {
+            // Publication buttons still work when upgrading an older server.
+        }
+    }
+    func publishPlaylist(_ id: String) async {
+        guard account != nil else { authPresented = true; return }
+        do {
+            let _: CommunityPublication = try await api.request(
+                "/api/community-playlists/publish", method: "POST", body: ["playlist_id": id])
+            publishedPlaylistIDs.insert(id)
+            await refreshPublishedPlaylists()
+        } catch { self.error = "Не удалось опубликовать плейлист: " + error.localizedDescription }
+    }
+    func unpublishPlaylist(_ id: String) async {
+        guard account != nil else { authPresented = true; return }
+        do {
+            let _: OK = try await api.request(
+                "/api/community-playlists/publish/" + id, method: "DELETE")
+            publishedPlaylistIDs.remove(id)
+            await refreshPublishedPlaylists()
+        } catch { self.error = "Не удалось снять публикацию: " + error.localizedDescription }
+    }
+    func saveCommunityPlaylist(_ id: String) async -> Bool {
+        guard account != nil else { authPresented = true; return false }
+        do {
+            let _: SavedCommunityPlaylist = try await api.request(
+                "/api/community-playlists/" + id + "/save", method: "POST")
+            await refresh()
+            return true
+        } catch {
+            self.error = "Не удалось сохранить плейлист: " + error.localizedDescription
+            return false
         }
     }
     func createPlaylist(_ name: String) async {
