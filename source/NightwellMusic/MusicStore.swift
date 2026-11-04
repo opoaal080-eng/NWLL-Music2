@@ -1058,7 +1058,8 @@ private struct AudioQualityDecision: Decodable {
             if !clock.id.isEmpty { ids.removeAll { $0 == clock.id }; ids.append(clock.id) }
             let excluded = Array(ids.suffix(200)), nonce = UUID().uuidString
             let query = excluded.joined(separator: ",").addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-            var result: TrackResult = try await api.request("/api/wave-artists/mix?mix=" + nonce + settings.query + "&exclude=" + query)
+            let waveRoute = tasteLoaded ? "/api/wave-artists/mix" : "/api/wave"
+            var result: TrackResult = try await api.request(waveRoute + "?mix=" + nonce + settings.query + "&exclude=" + query)
             if result.tracks.isEmpty, !clock.id.isEmpty {
                 let recent = Array(Set(Array(mixRecentIDs.suffix(4)) + [clock.id]))
                 result = try await api.request("/api/wave?mix=" + nonce + settings.query + "&exclude=" + recent.joined(separator: ","))
