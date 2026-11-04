@@ -9,6 +9,7 @@ import re
 import sqlite3
 import time
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import quote
 
@@ -25,10 +26,18 @@ def install(app, identity, db_path):
     path = Path(db_path).resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
 
+    @contextmanager
     def connect():
         conn = sqlite3.connect(str(path), timeout=10)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA busy_timeout=10000")
+        try:
+            with conn:
+                yield conn
+        finally:
+            conn.close()
+
+    with connect() as conn:
         conn.execute("""CREATE TABLE IF NOT EXISTS community_playlists (
             id TEXT PRIMARY KEY,
             owner TEXT NOT NULL,
@@ -43,7 +52,6 @@ def install(app, identity, db_path):
             UNIQUE(owner, source_playlist_id))""")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_community_recent ON community_playlists(updated_at DESC)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_community_owner ON community_playlists(owner)")
-        return conn
 
     def require_user(request):
         account = identity(request)
