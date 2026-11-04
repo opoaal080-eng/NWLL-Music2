@@ -30,7 +30,7 @@ class InstallerTests(unittest.TestCase):
 
     def test_dry_run_leaves_server_unchanged(self):
         result=module.check(self.server,self.payload)
-        self.assertEqual(len(result["changes"]),4)
+        self.assertEqual(len(result["changes"]),5)
         self.assertEqual((self.server/"app.py").read_text(),FAKE_APP)
         self.assertFalse((self.server/"backups").exists())
 
@@ -40,6 +40,7 @@ class InstallerTests(unittest.TestCase):
         installed=(self.server/"app.py").read_text(encoding="utf-8")
         self.assertIn(module.BANNER_ARTIST,installed)
         self.assertIn(module.BANNER_QUALITY,installed)
+        self.assertIn(module.BANNER_COMMUNITY,installed)
         self.assertLess(installed.index(module.BANNER_QUALITY),installed.index("if __name__"))
         again,result=module.install(self.server,self.payload)
         self.assertIsNone(again)
@@ -53,6 +54,7 @@ class InstallerTests(unittest.TestCase):
         result=module.patch(app)
         self.assertEqual(result.count(module.BANNER_ARTIST),1)
         self.assertEqual(result.count(module.BANNER_QUALITY),1)
+        self.assertEqual(result.count(module.BANNER_COMMUNITY),1)
 
     def test_real_nightwell_session_contract(self):
         # Older production app.py exposes session(), not identity().
