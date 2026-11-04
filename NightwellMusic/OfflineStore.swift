@@ -40,24 +40,30 @@ enum OfflineStore {
     private static func storageRoot() throws -> URL {
         try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("Offline", isDirectory: true)
     }
-    private static func allTracks() throws -> [[String: Any]] {
+    private static func allTracks() throws -> (tracks: [[String: Any]], damaged: [[String: Any]]) {
         let root = try storageRoot()
-        guard let dirs = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) else { return [] }
-        var tracks: [[String: Any]] = []
+        guard let dirs = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) else { return ([], []) }
+        var tracks: [[String: Any]] = [], damaged: [[String: Any]] = []
         for dir in dirs where dir.lastPathComponent.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil {
             guard (try? dir.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true,
                   let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.fileSizeKey]) else { continue }
             for file in files where file.pathExtension == "json" {
                 guard let size = try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= 2 * 1024 * 1024,
                       let data = try? Data(contentsOf: file), var item = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let id = item["id"] as? String, valid(id),
-                      playableAudio(dir.appendingPathComponent(id + ".m4a"),
-                          expectedBytes: (item["offline_bytes"] as? NSNumber)?.intValue) else { continue }
-                item["_offline"] = true; item["_offline_account"] = "local_" + dir.lastPathComponent
-                tracks.append(item)
+                      let id = item["id"] as? String, valid(id) else { continue }
+                if playableAudio(dir.appendingPathComponent(id + ".m4a"),
+                    expectedBytes: (item["offline_bytes"] as? NSNumber)?.intValue) {
+                    item["_offline"] = true
+                    item["_offline_account"] = "local_" + dir.lastPathComponent
+                    tracks.append(item)
+                } else {
+                    // Preserve metadata so the user can retry the download, but
+                    // never present artwork as if it were a playable audio file.
+                    damaged.append(item)
+                }
             }
         }
-        return tracks
+        return (tracks, damaged)
     }
     private static func directory(_ origin: URL, _ account: String) throws -> URL {
         guard valid(account) else { throw URLError(.badURL) }
@@ -102,7 +108,10 @@ enum OfflineStore {
     static func operation(_ body: [String: Any], origin: URL) throws -> [String: Any] {
         lock.lock(); defer { lock.unlock() }
         guard let op = body["op"] as? String else { throw URLError(.badURL) }
-        if op == "listAll" { return ["tracks": try allTracks()] }
+        if op == "listAll" {
+            let scan = try allTracks()
+            return ["tracks": scan.tracks, "damaged": scan.damaged]
+        }
         let account = body["account"] as? String ?? "device"
         let dir = try directory(origin, account)
         if op == "list" {
