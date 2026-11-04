@@ -101,6 +101,81 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
  void SearchClick(object sender,RoutedEventArgs e)=>Show("Поиск");
  async void SearchChanged(object sender,TextChangedEventArgs e){if(screen!="Поиск")return;searchCancellation?.Cancel();searchCancellation=new();var cancellation=searchCancellation.Token;string query=SearchBox.Text.Trim();_ = LoadCommunitySearch(query,cancellation);if(query.Length==0){Tracks.ItemsSource=new List<Track>();return;}await Guard(async()=>{await Task.Delay(300,cancellation);var local=await Task.Run(()=>catalog.Where(t=>(t.title+" "+t.artist).Contains(query,StringComparison.OrdinalIgnoreCase)).ToList(),cancellation);cancellation.ThrowIfCancellationRequested();shown=local;Tracks.ItemsSource=shown;Status.Text="Ищем полные версии…";for(int i=0;i<30;i++){var result=await api.Request("api/tracks?q="+Uri.EscapeDataString(query),cancellation:cancellation);cancellation.ThrowIfCancellationRequested();shown=ParseTracks(result);Tracks.ItemsSource=shown;Status.Text=result.TryGetProperty("search_message",out var message)?message.GetString():"";if(!result.TryGetProperty("search_pending",out var pending)||!pending.GetBoolean())break;await Task.Delay(2000,cancellation);}});}
 
+ async Task RefreshPublishedPlaylists(){
+  if(account.Length==0){publishedPlaylistIDs.Clear();return;}
+  var expected=account;
+  try{
+   var data=await api.Request("api/community-playlists/mine");
+   if(account!=expected)return;
+   publishedPlaylistIDs=data.GetProperty("playlists").EnumerateArray()
+      .Select(x=>x.GetProperty("source_playlist_id").GetString()??"")
+      .Where(x=>x.Length>0).ToHashSet();
+  }catch{ /* Older servers have no community module. */ }
+ }
+ async Task LoadCommunitySearch(string text,CancellationToken cancellation){
+  try{
+   var data=await api.Request("api/community-playlists?q="+Uri.EscapeDataString(text)+"&limit=30",cancellation:cancellation);
+   cancellation.ThrowIfCancellationRequested();
+   if(screen!="Поиск")return;
+   var found=data.GetProperty("playlists").Deserialize<List<CommunityEntry>>()??[];
+   CommunityResults.ItemsSource=found;
+   CommunitySection.Visibility=found.Count==0?Visibility.Collapsed:Visibility.Visible;
+  }catch(OperationCanceledException){}catch{
+   if(screen=="Поиск"&&!cancellation.IsCancellationRequested)CommunitySection.Visibility=Visibility.Collapsed;
+  }
+ }
+ async void CommunityDoubleClick(object sender,MouseButtonEventArgs e){
+  if(CommunityResults.SelectedItem is CommunityEntry entry)await Guard(()=>OpenCommunityPlaylist(entry));
+ }
+ async Task OpenCommunityPlaylist(CommunityEntry entry){
+  var result=await api.Request("api/community-playlists/"+Uri.EscapeDataString(entry.id));
+  var tracks=ParseTracks(result.GetProperty("playlist"));
+  var window=new Window{
+   Owner=this,Title="Nightwell · "+entry.name,Width=540,Height=600,
+   WindowStartupLocation=WindowStartupLocation.CenterOwner,
+   Background=new SolidColorBrush(Color.FromRgb(22,23,28))
+  };
+  var panel=new DockPanel{Margin=new Thickness(20)};
+  var header=new StackPanel{Margin=new Thickness(0,0,0,12)};
+  header.Children.Add(new TextBlock{
+   Text=entry.name,FontSize=22,FontWeight=FontWeights.SemiBold,
+   Foreground=Brushes.White,TextWrapping=TextWrapping.Wrap});
+  header.Children.Add(new TextBlock{
+   Text=entry.count+" треков · "+entry.author,Foreground=Brushes.LightGray,
+   Margin=new Thickness(0,6,0,10)});
+  var controls=new StackPanel{Orientation=Orientation.Horizontal};
+  var listen=new Button{Content="▶ Слушать",Padding=new Thickness(16,10,16,10),Margin=new Thickness(0,0,10,0)};
+  listen.IsEnabled=tracks.Count>0;
+  listen.Click+=(_,_)=>{queue=tracks.ToList();index=0;wave=false;PlayCurrent();};
+  controls.Children.Add(listen);
+  var save=new Button{Content="＋ Сохранить к себе",Padding=new Thickness(16,10,16,10)};
+  save.Click+=async(_,_)=>{
+   if(account.Length==0){Login();return;}
+   save.IsEnabled=false;
+   await Guard(async()=>{
+    await api.Request("api/community-playlists/"+Uri.EscapeDataString(entry.id)+"/save","POST",new{});
+    save.Content="✓ Сохранено";
+    await LoadAccount();
+   });
+   if(save.Content?.ToString()!="✓ Сохранено")save.IsEnabled=true;
+  };
+  controls.Children.Add(save);
+  header.Children.Add(controls);
+  DockPanel.SetDock(header,Dock.Top);
+  panel.Children.Add(header);
+  var list=new ListBox{
+   ItemsSource=tracks,DisplayMemberPath="title",Foreground=Brushes.White,
+   Background=Brushes.Transparent,BorderThickness=new Thickness(0)};
+  list.MouseDoubleClick+=(_,_)=>{
+   if(list.SelectedItem is Track track){
+    queue=tracks.ToList();index=queue.FindIndex(x=>x.id==track.id);
+    wave=false;PlayCurrent();
+   }
+  };
+  panel.Children.Add(list);
+  window.Content=panel;
+  window.ShowDialog();
+ }
  async Task SortFavorites(){
   await Guard(async()=>{
    var status=await api.Request("api/premium/me");
