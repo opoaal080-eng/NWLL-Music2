@@ -629,16 +629,16 @@ private struct AudioQualityDecision: Decodable {
             preloadTask?.cancel()
             preloadTask = nil
             if let at = clock.queue.firstIndex(where: { $0.id == clock.id }), account != nil, hasNetworkPath {
-                // Warm only the nearest tracks; a large queue must not trigger 60 server fetches.
-                let upcoming = Array(clock.queue.dropFirst(at + 1).prefix(4))
+                // Send the next 12 tracks; the server gives only the nearest two full audio prefetch.
+                let upcoming = Array(clock.queue.dropFirst(at + 1).prefix(12))
                 let api = api, origin = origin, playingID = clock.id
-                let ids = Array(upcoming.prefix(3)).map(\.id)
+                let ids = upcoming.map(\.id)
                 let shouldPreload = ids != lastPreloadIDs || Date().timeIntervalSince(lastPreloadAt) > 45
                 if !upcoming.isEmpty && shouldPreload {
                     preloadTask = Task(priority: .utility) {
                         // Don't start server-side preloads alongside the first stream request.
                         // Speculative downloads previously competed with audio for bandwidth.
-                        do { try await Task.sleep(nanoseconds: 1_800_000_000) } catch { return }
+                        do { try await Task.sleep(nanoseconds: 1_000_000_000) } catch { return }
                         guard !Task.isCancelled, clock.id == playingID else { return }
                         lastPreloadIDs = ids
                         lastPreloadAt = Date()
@@ -661,7 +661,7 @@ private struct AudioQualityDecision: Decodable {
                         }
                         guard !Task.isCancelled, clock.id == playingID,
                               NativePlayer.shared.snapshot(includeQueue: false)["audible"] as? Bool == true else { return }
-                        let _: OK? = try? await api.request("/api/preload", method: "POST", body: ["ids": ids], timeout: 10)
+                        let _: OK? = try? await api.request("/api/preload", method: "POST", body: ["ids": ids, "current_id": playingID], timeout: 10)
                         guard !Task.isCancelled, clock.id == playingID else { return }
                         await lyrics.preload(Array(upcoming.prefix(2)), api: api, origin: origin)
                         await coverTask.value
