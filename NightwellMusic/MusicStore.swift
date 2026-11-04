@@ -85,6 +85,7 @@ private struct AudioQualityDecision: Decodable {
     @Published var artistResults: [ArtistDirectoryItem] = []
     @Published var searchArtistSuggestions: [ArtistDirectoryItem] = []
     @Published var offline: [Track] = []
+    @Published private(set) var damagedOffline: [Track] = []
     @Published var playlists: [Playlist] = []
     @Published var likes: Set<String> = []
     @Published var account: Account?
@@ -987,9 +988,30 @@ private struct AudioQualityDecision: Decodable {
     func play(_ track: Track, in queue: [Track], wave: Bool = false) {
         // Reuse the downloaded audio for tracks listed in favorites or playlists.
         let downloaded = Dictionary(offline.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let localQueue = queue.map { downloaded[$0.id] ?? $0 }
         let selected = downloaded[track.id] ?? track
+        let scope = selected._offline_account ?? account?.id ?? "device"
+        let damagedSelected = selected._offline == true &&
+            OfflineStore.audio(origin: origin, account: scope, id: selected.id) == nil
+        if damagedSelected && (selected.id.hasPrefix("local_") || account == nil || !hasNetworkPath) {
+            error = "Скачанный файл повреждён или удалён. Подключись к интернету и скачай его снова."
+            return
+        }
         if account == nil && selected._offline != true { authPresented = true; return }
+        // Old restored queues may contain an _offline marker for a file that no
+        // longer exists. Fall back to the online source instead of silence.
+        func verified(_ candidate: Track) -> Track {
+            guard candidate._offline == true else { return candidate }
+            let owner = candidate._offline_account ?? account?.id ?? "device"
+            guard OfflineStore.audio(origin: origin, account: owner, id: candidate.id) == nil else { return candidate }
+            var remote = candidate
+            remote._offline = false
+            remote._offline_account = nil
+            return remote
+        }
+        let localQueue = queue.map { verified(downloaded[$0.id] ?? $0) }
+        if damagedSelected {
+            error = "Офлайн-копия недоступна. Воспроизводим через интернет. Загрузи трек повторно."
+        }
         NativePlayer.shared.prepare(["id": selected.id, "queue": localQueue.map(\.dictionary), "account": account?.id ?? "device", "wave": wave, "wave_preferences": WaveSettings.read(origin, account?.id ?? "device").dictionary], origin: origin, cookies: HTTPCookieStorage.shared.cookies(for: origin) ?? [])
         NativePlayer.shared.play()
         Task { await publishLiveSync(takeover: true) }
@@ -1193,7 +1215,16 @@ private struct AudioQualityDecision: Decodable {
         let server = origin
         let value = await Task.detached { try? OfflineStore.operation(["op": "listAll"], origin: server) }.value
         guard origin == server else { return }
-        if let value, let data = try? JSONSerialization.data(withJSONObject: value["tracks"] ?? []), let tracks = try? JSONDecoder().decode([Track].self, from: data) { offline = tracks }
+        if let value {
+            if let data = try? JSONSerialization.data(withJSONObject: value["tracks"] ?? []),
+               let tracks = try? JSONDecoder().decode([Track].self, from: data) {
+                offline = tracks
+            }
+            if let data = try? JSONSerialization.data(withJSONObject: value["damaged"] ?? []),
+               let broken = try? JSONDecoder().decode([Track].self, from: data) {
+                damagedOffline = broken
+            }
+        }
     }
     func download(_ list: [Track]) async {
         guard let account else { authPresented = true; return }
@@ -1206,19 +1237,31 @@ private struct AudioQualityDecision: Decodable {
         } catch { self.error = error.localizedDescription; return }
         BackgroundDownloads.shared.enqueue(list, origin: origin, account: account.id)
     }
+    func repairDamagedDownloads() async {
+        guard account != nil else { authPresented = true; return }
+        let broken = damagedOffline.filter { !$0.id.hasPrefix("local_") }
+        guard !broken.isEmpty else {
+            error = "Повреждённые локальные файлы нужно импортировать заново из «Файлов»."
+            return
+        }
+        await download(broken)
+    }
     func downloadProgress(_ id: String) -> Double? {
         guard let account else { return nil }
         return downloadFractions[origin.absoluteString + "|" + account.id + "|" + id]
     }
     func isDownloaded(_ track: Track) -> Bool {
-        offline.contains { $0.id == track.id } || track._offline == true
+        if offline.contains(where: { $0.id == track.id }) { return true }
+        guard track._offline == true else { return false }
+        let owner = track._offline_account ?? account?.id ?? "device"
+        return OfflineStore.audio(origin: origin, account: owner, id: track.id) != nil
     }
     func removeDownload(_ track: Track) async {
-        guard let account else { return }
+        let owner = track._offline_account ?? account?.id ?? "device"
         let server = origin
         do {
             _ = try await Task.detached {
-                try OfflineStore.operation(["op": "remove", "account": account.id, "id": track.id], origin: server)
+                try OfflineStore.operation(["op": "remove", "account": owner, "id": track.id], origin: server)
             }.value
             await refreshOffline()
         } catch { self.error = error.localizedDescription }
