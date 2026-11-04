@@ -83,3 +83,15 @@ metadata_artist. Имя аккаунта загрузчика хранится �
 Справка SoundCloud:
 https://developers.soundcloud.com/blog/api-streaming-urls/
 https://developers.soundcloud.com/docs/api/
+
+## Выбор исполнителей для персональной подборки
+
+Новое при первом входе: выбери до 20 любимых исполнителей или пропусти.
+Выбор сохранится на аккаунте и синхронизируется между iOS, Android и Windows.
+Потом его можно изменить в «Настройка подборки».
+
+Новые API: GET/PUT /api/wave-artists/preferences,
+GET /api/wave-artists/suggestions?q=..., GET /api/wave-artists/mix.
+Последний использует действующий /api/wave, дополняет его выбранными
+исполнителями с ограниченным временем поиска и сохраняет разнообразие.
+Если дополнительный поиск не отвечает, остаётся обычная подборка.
