@@ -32,6 +32,7 @@ struct NativeWaveSettingsView: View {
     @State private var draft = WaveSettings()
     @State private var applying = false
     @State private var message = ""
+    @State private var artistPickerPresented = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -94,6 +95,21 @@ struct NativeWaveSettingsView: View {
                         }
                     }
 
+                    Button {
+                        artistPickerPresented = true
+                    } label: {
+                        HStack {
+                            Image(systemName: "person.2.fill")
+                            Text("Выбрать любимых исполнителей")
+                            Spacer()
+                            Text("\\(store.tasteArtists.count)")
+                            Image(systemName: "chevron.right")
+                        }
+                        .padding(14)
+                        .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 18))
+                    }
+                    .buttonStyle(.plain)
+
                     if !message.isEmpty {
                         Text(message)
                             .font(.footnote)
@@ -131,6 +147,9 @@ struct NativeWaveSettingsView: View {
         .frame(maxHeight: .infinity, alignment: .top)
         .background(Color.clear)
         .onAppear { draft = WaveSettings.read(store.origin, store.account?.id ?? "device") }
+        .sheet(isPresented: $artistPickerPresented) {
+            ArtistTastePickerView(firstRun: false).environmentObject(store)
+        }
 
     }
 }
