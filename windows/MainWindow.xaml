@@ -40,10 +40,27 @@
       </StackPanel>
      </Grid>
      <Grid x:Name="Library" Visibility="Collapsed" Margin="22,20,22,16">
-      <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+      <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
       <DockPanel LastChildFill="False"><TextBlock x:Name="Heading" Text="Поиск" FontSize="29" FontWeight="SemiBold" VerticalAlignment="Center"/><Button x:Name="CollectionActions" Content="⋯" FontSize="22" HorizontalAlignment="Right" DockPanel.Dock="Right" Click="CollectionClick"/></DockPanel>
       <TextBox x:Name="SearchBox" Grid.Row="1" Margin="0,14,0,14" TextChanged="SearchChanged" Height="48"/>
-      <ListBox x:Name="Tracks" Grid.Row="2" Background="Transparent" BorderThickness="0" Foreground="White" ScrollViewer.CanContentScroll="True" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling" MouseDoubleClick="TrackDoubleClick" HorizontalContentAlignment="Stretch">
+      <StackPanel Grid.Row="2" x:Name="CommunitySection" Visibility="Collapsed" Margin="0,0,0,12">
+        <TextBlock Text="Плейлисты сообщества" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,8"/>
+        <ListBox x:Name="CommunityResults" MaxHeight="138" Background="Transparent" BorderThickness="0" Foreground="White" MouseDoubleClick="CommunityDoubleClick">
+         <ListBox.ItemTemplate><DataTemplate>
+          <Border Background="#1DFFFFFF" CornerRadius="9" Margin="0,2" Padding="9">
+           <StackPanel>
+            <TextBlock Text="{Binding name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+            <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
+             <TextBlock Text="{Binding count}" Foreground="#B9C0C9" FontSize="12"/>
+             <TextBlock Text=" треков · " Foreground="#B9C0C9" FontSize="12"/>
+             <TextBlock Text="{Binding author}" Foreground="#B9C0C9" FontSize="12"/>
+            </StackPanel>
+           </StackPanel>
+          </Border>
+         </DataTemplate></ListBox.ItemTemplate>
+        </ListBox>
+       </StackPanel>
+      <ListBox x:Name="Tracks" Grid.Row="3" Background="Transparent" BorderThickness="0" Foreground="White" ScrollViewer.CanContentScroll="True" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling" MouseDoubleClick="TrackDoubleClick" HorizontalContentAlignment="Stretch">
        <ListBox.ItemTemplate><DataTemplate><Border BorderBrush="#16FFFFFF" BorderThickness="0,0,0,1" Padding="5,7"><Grid Margin="6,6"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
         <StackPanel><TextBlock Text="{Binding title}" FontSize="16" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding artist}" Foreground="#AEB5C0" Margin="0,5,0,0" FontSize="13"/></StackPanel>
         <Button Grid.Column="1" Content="⋯" Tag="{Binding}" Click="TrackMenuClick" FontSize="19" Background="#15FFFFFF"/>
