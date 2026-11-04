@@ -2,9 +2,9 @@ name: Build Nightwell Music Windows (Recovered)
 on:
   workflow_dispatch:
   pull_request:
-    branches: [main]
+    branches: [main, feature/community-playlist-search]
   push:
-    branches: [main]
+    branches: [main, feature/community-playlist-search]
     paths:
       - 'windows/**'
       - 'scripts/validate-app-sources.py'
