@@ -47,6 +47,9 @@ jobs:
           cp server-updates/latest/Run-Latest-Server.ps1 dist/Nightwell-Latest-Server/
           cp server-updates/latest/*_Latest_Server.bat dist/Nightwell-Latest-Server/
           cp server-updates/latest/README-RU.md dist/Nightwell-Latest-Server/
+          mkdir -p dist/Nightwell-Latest-Server/Import-Review
+          cp server-updates/playlist-transfer/music_import.py dist/Nightwell-Latest-Server/Import-Review/
+          printf '%s\n' 'ДОПОЛНЕНИЕ К ПЕРЕНОСУ' 'После остановки сервера сделай резервную копию существующего music_import.py.' 'Замени существующий music_import.py на Import-Review/music_import.py только если он уже подключен к вашему app.py.' 'Если модуль переноса отсутствует, этот файл сам по себе его не установит.' 'Перезапусти сервер.' > dist/Nightwell-Latest-Server/Import-Review/README.txt
           cp server-updates/artist-catalog/artist_catalog.py dist/Nightwell-Latest-Server/
           cp server-updates/artist-catalog/artist_metadata.py dist/Nightwell-Latest-Server/
           cp server-updates/audio-quality/audio_quality.py dist/Nightwell-Latest-Server/
