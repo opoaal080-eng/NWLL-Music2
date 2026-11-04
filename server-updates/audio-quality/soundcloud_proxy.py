@@ -13,15 +13,15 @@ DEFAULT_SC_PROXY = "http://127.0.0.1:10809"
 
 def soundcloud_proxy_url():
     """Return a validated local Happ proxy. Fail closed when Happ is unavailable."""
-    value = os.environ.get("NW_SC_PROXY_URL", DEFAULT_SC_PROXY).strip()
+    value = (os.environ["NW_SC_PROXY"] if "NW_SC_PROXY" in os.environ else os.environ.get("NW_SC_PROXY_URL", DEFAULT_SC_PROXY)).strip()
     if not value:
-        raise ValueError("NW_SC_PROXY_URL cannot be empty")
+        raise ValueError("SoundCloud proxy cannot be empty")
     parts = urlsplit(value)
     if (parts.scheme != "http" or parts.hostname not in
             ("127.0.0.1", "localhost", "::1") or not parts.port or
             parts.username is not None or parts.password is not None or
             parts.path not in ("", "/") or parts.query or parts.fragment):
-        raise ValueError("NW_SC_PROXY_URL must point to a local HTTP proxy, e.g. http://127.0.0.1:10809")
+        raise ValueError("SoundCloud proxy must point to a local HTTP proxy, e.g. http://127.0.0.1:10809")
     return value
 
 
