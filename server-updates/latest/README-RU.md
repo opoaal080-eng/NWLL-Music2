@@ -66,3 +66,55 @@ metadata_artist. Имя аккаунта загрузчика хранится �
 Справка SoundCloud:
 https://developers.soundcloud.com/blog/api-streaming-urls/
 https://developers.soundcloud.com/docs/api/
+
+
+## Разделение Happ и прямых соединений
+
+Для Windows в режиме Happ Proxy доступен HTTP-прокси
+`http://127.0.0.1:10809`. В текущем обновлении только исходящие запросы
+SoundCloud OAuth и SoundCloud API в `audio_quality.py` идут через Happ.
+Остальная работа Nightwell Music, Caddy, база данных, авторизация,
+премиум и Nightwell Chat не перенаправляются в Happ.
+
+При необходимости переопредели локальный адрес ДО запуска сервера:
+
+```bat
+set "NW_SC_PROXY_URL=http://127.0.0.1:10809"
+call "Start_Nightwell.bat"
+```
+
+НЕ задавай глобальные `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` для
+всего сервера. НЕ включай TUN. Если Happ отключён, запросы к SoundCloud
+через новые клиенты завершатся ошибкой, но не утекут в прямой канал.
+
+Для существующего загрузчика SoundCloud в основном `app.py` используй
+`soundcloud_proxy.py` при создании ТОЛЬКО его сетевых клиентов:
+
+```python
+from soundcloud_proxy import (
+    soundcloud_async_client, soundcloud_requests_session,
+    soundcloud_ytdlp_options,
+)
+
+# httpx: только обращения к SoundCloud
+async with soundcloud_async_client(timeout=12) as client:
+    response = await client.get("https://api.soundcloud.com/...")
+
+# requests: отдельная сессия только SoundCloud
+sc_session = soundcloud_requests_session()
+
+# yt-dlp: параметры одного SoundCloud-запроса
+ydl_opts = soundcloud_ytdlp_options({"quiet": True})
+```
+
+Используй обычный прямой HTTP-клиент для собственных API и платежей.
+Не нужно проксировать входящие соединения на 80/443, Caddyfile не меняется.
+
+Важно: без исходного работающего `app.py` нельзя автоматически изменить
+его существующие `/api/stream` и загрузчик. Кроме того,
+`/api/audio-quality/stream` отдаёт HTTP 307 на SoundCloud CDN.
+Если клиент сам открывает этот URL, его последующее соединение
+НЕ идёт через серверный Happ. Чтобы CDN тоже всегда проходил через Happ,
+надо заменить прямой редирект серверной потоковой отдачей с поддержкой
+Range/HLS и пересылкой медиа через прокси. Этот пакет не заявляет такую
+функцию и не меняет существующий рабочий аудиопоток.
