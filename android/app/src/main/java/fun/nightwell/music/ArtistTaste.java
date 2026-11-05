@@ -63,7 +63,7 @@ final class ArtistTaste {
         load(context);
         String key=RecommendationOrder.key(artist);
         if(session==null||session.isEmpty()||key.isEmpty()||!Double.isFinite(seconds))return;
-        double delta=skipped&&seconds<30 ? -0.95 : seconds>=45 ? 0.42 : seconds>=25 ? 0.20 : 0;
+        double delta=skipped&&seconds<30 ? -0.95 : seconds>=60 ? 0.45 : seconds>=30 ? 0.24 : 0;
         if(delta==0)return;
         SharedPreferences prefs=context.getSharedPreferences(PREFS,0);
         try {
