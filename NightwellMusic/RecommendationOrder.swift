@@ -22,7 +22,7 @@ enum RecommendationOrder {
     static func learn(session: String, artist: String, seconds: Double, skipped: Bool) {
         let performer = key(artist)
         guard !session.isEmpty, !performer.isEmpty, seconds.isFinite else { return }
-        let increment = skipped && seconds < 30 ? -0.95 : seconds >= 45 ? 0.42 : seconds >= 25 ? 0.20 : 0
+        let increment = skipped && seconds < 30 ? -0.95 : seconds >= 60 ? 0.45 : seconds >= 30 ? 0.24 : 0
         guard increment != 0 else { return }
         let prefs = UserDefaults.standard
         var reported = prefs.stringArray(forKey: "nw-taste-learning-sessions-v1") ?? []
