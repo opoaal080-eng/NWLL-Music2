@@ -259,6 +259,7 @@ public final class PlaybackService extends MediaSessionService {
 
     @Override public void onCreate() {
         super.onCreate();
+        ArtistTaste.load(this);
         transitionSeconds=getSharedPreferences("playback",MODE_PRIVATE).getFloat("nw-transition-seconds",.8f);
         volumeLevelingStrength=Math.max(0,Math.min(100,getSharedPreferences("playback",MODE_PRIVATE).getInt("nw-equal-volume",0)));
         bufferChoiceSeconds=getSharedPreferences("playback",MODE_PRIVATE).getInt("nw-stream-buffer-seconds",0);
@@ -603,7 +604,7 @@ public final class PlaybackService extends MediaSessionService {
                 java.util.List<String> ids=new java.util.ArrayList<>(excluded);
                 String query=URLEncoder.encode(String.join(",",ids.subList(
                     Math.max(0,ids.size()-160),ids.size())),"UTF-8");
-                result=client.search("api/wave?exclude="+query+settingsQuery);
+                result=client.search("api/wave?exclude="+query+settingsQuery+"&artists="+URLEncoder.encode(ArtistTaste.selectedArtists(this),"UTF-8"));
             }catch(Exception ignored){}
             finally{client.close();}
             final JSONObject data=result;final String message=failure;
@@ -644,7 +645,7 @@ public final class PlaybackService extends MediaSessionService {
         String saved=getSharedPreferences("native-playback",MODE_PRIVATE).getString(base+"|"+(account.isEmpty()?"device":account),null);if(saved==null)return;
         try{JSONObject state=new JSONObject(saved);state.put("queue",state.getJSONArray("queueTracks")).put("position",(long)(state.optDouble("position")*1000)).put("origin",base).put("account",account.isEmpty()?"device":account);prepare(state.toString());modes(state.optInt("repeat"),state.optBoolean("shuffle"));}catch(Exception ignored){}
     }
-    private String listenedID="",listenedSession="";
+    private String listenedID="",listenedSession="",listenedArtist="";
     private double listenedSeconds;
     private long listenedAt=android.os.SystemClock.elapsedRealtime(),reportedAt;
     private boolean wasAudible,manualTransition;
@@ -652,7 +653,7 @@ public final class PlaybackService extends MediaSessionService {
         if(player==null)return;
         long now=android.os.SystemClock.elapsedRealtime();String id=player.getCurrentMediaItem()==null?"":player.getCurrentMediaItem().mediaId;
         if(wasAudible)listenedSeconds+=Math.max(0,Math.min(5,(now-listenedAt)/1000.0));listenedAt=now;
-        if(!id.equals(listenedID)){reportListening(manualTransition&&listenedSeconds<30);manualTransition=false;listenedID=id;listenedSession=java.util.UUID.randomUUID().toString();listenedSeconds=0;}
+        if(!id.equals(listenedID)){reportListening(manualTransition&&listenedSeconds<30);manualTransition=false;listenedID=id;listenedArtist=player.getCurrentMediaItem()==null?"":String.valueOf(player.getCurrentMediaItem().mediaMetadata.artist);listenedSession=java.util.UUID.randomUUID().toString();listenedSeconds=0;}
         boolean audible=player.isPlaying();if(now-reportedAt>15000||wasAudible&&!audible)reportListening();wasAudible=audible;
     }
     private void reportListening(){reportListening(false);}
@@ -660,6 +661,7 @@ public final class PlaybackService extends MediaSessionService {
         reportedAt=android.os.SystemClock.elapsedRealtime();if(listenedID.isEmpty()||offlineAccount.isEmpty()||offlineAccount.equals("device")||listenedID.startsWith("local_")||listenedSeconds<=0)return;
         if(skipped&&waveActive&&listenedSeconds>=3&&listenedSeconds<30)
             SkipFeedback.record(this,origin,offlineAccount,listenedID);
+        ArtistTaste.learn(this,listenedSession,listenedArtist,listenedSeconds,skipped);
         final String id=listenedID,sid=listenedSession,base=origin;final double seconds=listenedSeconds;
         waveIO.execute(()->{try{new NativeAPI(this,base).request("api/listening","POST",new JSONObject().put("session_id",sid).put("track_id",id).put("seconds",seconds).put("skipped",skipped));}catch(Exception ignored){}});
     }
