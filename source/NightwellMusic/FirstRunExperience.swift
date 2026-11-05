@@ -230,6 +230,11 @@ struct NightwellFirstLaunch: View {
     }
     private func finish() {
         RecommendationOrder.seedTaste(artists: Array(artists), mood: mood)
+        if let origin = URL(string: "https://music.nightwell.fun/") {
+            var settings = WaveSettings.read(origin, "device")
+            settings.mood = mood
+            settings.save(origin, "device")
+        }
         completed()
     }
 }
