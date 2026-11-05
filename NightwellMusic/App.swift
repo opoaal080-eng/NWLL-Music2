@@ -4,7 +4,16 @@ import UniformTypeIdentifiers
 @main struct NightwellMusicApp: App {
     @UIApplicationDelegateAdaptor(DownloadAppDelegate.self) private var appDelegate
     @StateObject private var store = MusicStore()
-    var body: some Scene { WindowGroup { NativeRoot().environmentObject(store).preferredColorScheme(.dark) } }
+    @AppStorage("nw-first-run-completed-v1") private var firstRunCompleted = false
+    var body: some Scene {
+        WindowGroup {
+            Group {
+                if firstRunCompleted { NativeRoot() }
+                else { NightwellFirstLaunch { firstRunCompleted = true } }
+            }
+            .environmentObject(store).preferredColorScheme(.dark)
+        }
+    }
 }
 enum DeepLink {
     static func trackID(from url: URL) -> String? {
