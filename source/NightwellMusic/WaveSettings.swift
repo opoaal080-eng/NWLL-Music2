@@ -21,7 +21,7 @@ struct WaveSettings: Codable, Equatable {
     var dictionary: [String: String] { ["character": character, "mood": mood, "language": language] }
     var query: String { "&character=" + character + "&mood=" + mood + "&language=" + language }
     static func key(_ origin: URL, _ account: String) -> String { "wave-settings|" + origin.absoluteString + "|" + account }
-    static func read(_ origin: URL, _ account: String) -> Self { Self(UserDefaults.standard.dictionary(forKey: key(origin, account)) ?? [:]) }
+    static func read(_ origin: URL, _ account: String) -> Self { Self(UserDefaults.standard.dictionary(forKey: key(origin, account)) ?? UserDefaults.standard.dictionary(forKey: key(origin, "device")) ?? [:]) }
     func save(_ origin: URL, _ account: String) { UserDefaults.standard.set(dictionary, forKey: Self.key(origin, account)) }
 }
 
