@@ -76,7 +76,7 @@ final class RecommendationOrder {
             for (int i = 0; i < pool.size(); i++) {
                 T item = pool.get(i);
                 String performer = key(artist.apply(item));
-                double score = 1.0/(1+rank.get(item)*.12) - (recent.contains(id.apply(item))?2.5:0)
+                double score = 1.0/(1+rank.get(item)*.12) + Math.min(.95,Math.max(-.85,ArtistTaste.weight(performer)*.29)) - (recent.contains(id.apply(item))?2.5:0)
                     - (performer.isEmpty()?0:counts.getOrDefault(performer,0)*.19
                     + (performer.equals(previous)?.85:0));
                 if (score > maximum) { maximum = score; best = i; }
