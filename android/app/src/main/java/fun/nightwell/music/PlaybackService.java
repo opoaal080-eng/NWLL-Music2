@@ -374,7 +374,13 @@ public final class PlaybackService extends MediaSessionService {
         });
         PendingIntent open = PendingIntent.getActivity(this,0,new Intent(this,MainActivity.class),
                 PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-        session = new MediaSession.Builder(this,player).setSessionActivity(open)
+        // Apply the same one-shot Next behavior to notification, headset and car controls.
+        androidx.media3.common.ForwardingPlayer remotePlayer =
+            new androidx.media3.common.ForwardingPlayer(player) {
+                @Override public void seekToNextMediaItem() { requestPreparedNext(); }
+                @Override public void seekToNext() { requestPreparedNext(); }
+            };
+        session = new MediaSession.Builder(this,remotePlayer).setSessionActivity(open)
                 .setBitmapLoader(new androidx.media3.datasource.DataSourceBitmapLoader(
                         artworkIO,source))
                 .setCallback(new MediaSession.Callback() {
