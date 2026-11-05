@@ -252,7 +252,8 @@ private struct AudioQualityDecision: Decodable {
     let clock = PlaybackClock()
     let lyrics = NativeLyrics()
     private var lastSaved = Date.distantPast
-    private var listeningID = "", listeningSession = "", listeningSeconds = 0.0
+    private var listeningID = ""
+    private var listeningArtist = "", listeningSession = "", listeningSeconds = 0.0
     private var lastTick = ProcessInfo.processInfo.systemUptime, lastReport = Date.distantPast
     private var previousWave = false
     private var previousPlaying = false
@@ -559,6 +560,7 @@ private struct AudioQualityDecision: Decodable {
            let id = account?.id {
             SkipFeedback.record(listeningID, origin: origin, account: id)
         }
+        RecommendationOrder.learn(session: listeningSession, artist: listeningArtist, seconds: listeningSeconds, skipped: skipped)
         let body: [String: Any] = ["session_id": listeningSession, "track_id": listeningID, "seconds": listeningSeconds, "skipped": skipped]
         let api = api; Task { let _: OK? = try? await api.request("/api/listening", method: "POST", body: body) }
         lastReport = Date()
@@ -618,7 +620,7 @@ private struct AudioQualityDecision: Decodable {
         let now = ProcessInfo.processInfo.systemUptime, elapsed = min(1, max(0, now - lastTick)); lastTick = now
         if clock.id != listeningID {
             if !clock.id.isEmpty { updateAudioQualityNotice(clock.id) }
-            reportListening(skipped: previousPlaying && listeningSeconds < 30 && listeningPosition + 2 < listeningDuration); listeningID = clock.id; listeningSession = UUID().uuidString; listeningSeconds = 0
+            reportListening(skipped: previousPlaying && listeningSeconds < 30 && listeningPosition + 2 < listeningDuration); listeningID = clock.id; listeningArtist = clock.queue.first(where: { $0.id == clock.id })?.artist ?? ""; listeningSession = UUID().uuidString; listeningSeconds = 0
             if !clock.id.isEmpty {
                 mixRecentIDs.removeAll { $0 == clock.id }
                 mixRecentIDs.append(clock.id)
