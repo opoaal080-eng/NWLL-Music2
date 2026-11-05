@@ -39,6 +39,7 @@ final class NativePlayer {
     private var pendingNextObservation: NSKeyValueObservation?
     private var pendingNextTimeout: DispatchWorkItem?
     private var pendingNextIndex: Int?
+    private var pendingNextPrerollStarted = false
     private var pendingNextGeneration = UUID()
     private var preparedNextItem: AVPlayerItem?
 
@@ -50,6 +51,7 @@ final class NativePlayer {
         pendingNextPlayer?.replaceCurrentItem(with: nil)
         pendingNextPlayer = nil
         pendingNextIndex = nil
+        pendingNextPrerollStarted = false
         preparedNextItem = nil
     }
 
@@ -64,6 +66,7 @@ final class NativePlayer {
             publish(); return
         }
         pendingNextIndex = destination
+        pendingNextPrerollStarted = false
         pendingNextGeneration = UUID()
         let ticket = pendingNextGeneration
         error = ""
@@ -82,7 +85,8 @@ final class NativePlayer {
                     self.cancelPendingNext()
                     self.error = "Не удалось подготовить следующий трек. Текущий продолжает играть."
                     self.publish()
-                } else if item.status == .readyToPlay {
+                } else if item.status == .readyToPlay && !self.pendingNextPrerollStarted {
+                    self.pendingNextPrerollStarted = true
                     // Metadata alone is not enough. Preroll waits until media can be rendered.
                     stage.preroll(atRate: 1) { [weak self] ready in
                         DispatchQueue.main.async { [weak self] in
@@ -117,7 +121,7 @@ final class NativePlayer {
         pendingNextObservation = nil
         pendingNextPlayer = nil
         pendingNextTimeout?.cancel(); pendingNextTimeout = nil
-        pendingNextIndex = nil; pendingNextGeneration = UUID()
+        pendingNextIndex = nil; pendingNextPrerollStarted = false; pendingNextGeneration = UUID()
         preparedNextItem = item
         index = destination
         fadeNextAutomatically = true
@@ -568,6 +572,7 @@ final class NativePlayer {
         refillWave(); publish()
     }
     func pause() {
+        cancelPendingNext()
         endBackgroundHandoff()
         // Snapshot the running clock BEFORE pausing either audio engine.
         // Some output routes report zero render time immediately after pause.
@@ -605,6 +610,7 @@ final class NativePlayer {
     }
     func seek(_ seconds: Double) {
         guard seconds.isFinite else { return }
+        cancelPendingNext()
         fadeInActive = false; fadeNextAutomatically = false; player.volume = baseVolume
         ended = false; requestedPosition = max(0, seconds); lastPosition = requestedPosition
         if enginePlayback.ready {
