@@ -42,6 +42,10 @@ final class ArtistTaste {
             .putString("selected",new JSONArray(originals).toString())
             .putString("mood",mood)
             .apply();
+        WaveSettings wave=WaveSettings.read(context,"https://music.nightwell.fun/","device");
+        for(int i=0;i<WaveSettings.VALUES[1].length;i++)
+            if(WaveSettings.VALUES[1][i].equals(mood)) wave.selected[1]=i;
+        wave.save(context,"https://music.nightwell.fun/","device");
         save(context);
     }
     static synchronized double weight(String artist) {
