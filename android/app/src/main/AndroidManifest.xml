@@ -17,6 +17,7 @@
         <receiver android:name=".DownloadReceiver" android:exported="false">
             <intent-filter><action android:name="android.intent.action.DOWNLOAD_COMPLETE"/></intent-filter>
         </receiver>
+        <activity android:name=".FirstRunActivity" android:exported="false" android:screenOrientation="portrait"/>
         <activity android:name=".MainActivity" android:exported="true"
             android:launchMode="singleTask" android:windowSoftInputMode="adjustResize">
             <intent-filter>
