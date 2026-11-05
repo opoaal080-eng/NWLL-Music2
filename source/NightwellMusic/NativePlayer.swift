@@ -755,7 +755,7 @@ final class NativePlayer {
         excluded = excluded.filter { seen.insert($0).inserted }
         guard let base = URL(string: "api/wave", relativeTo: origin)?.absoluteURL,
               var components = URLComponents(url: base, resolvingAgainstBaseURL: false) else { return }
-        components.queryItems = [URLQueryItem(name: "exclude", value: Array(excluded.suffix(200)).joined(separator: ","))] + WaveSettings.keys.map { URLQueryItem(name: $0, value: waveSettings.dictionary[$0]) }
+        components.queryItems = [URLQueryItem(name: "exclude", value: Array(excluded.suffix(200)).joined(separator: ","))] + WaveSettings.keys.map { URLQueryItem(name: $0, value: waveSettings.dictionary[$0]) } + [URLQueryItem(name: "artists", value: RecommendationOrder.preferredArtists().joined(separator: ","))]
         guard let url = components.url else { return }
         var request = URLRequest(url: url); request.timeoutInterval = 60
         request.allHTTPHeaderFields = HTTPCookie.requestHeaderFields(with: cookies)
