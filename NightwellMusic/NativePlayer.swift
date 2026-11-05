@@ -32,6 +32,99 @@ final class NativePlayer {
     private var nextAsset: AVURLAsset?
     private var nextAssetID: String?
     private var nextAssetWarmup: Task<Void, Never>?
+
+    // A skip is a one-shot request. Keep the audible player untouched while
+    // a silent secondary player buffers and prerolls the requested next item.
+    private var pendingNextPlayer: AVPlayer?
+    private var pendingNextObservation: NSKeyValueObservation?
+    private var pendingNextTimeout: DispatchWorkItem?
+    private var pendingNextIndex: Int?
+    private var pendingNextGeneration = UUID()
+    private var preparedNextItem: AVPlayerItem?
+
+    private func cancelPendingNext() {
+        pendingNextGeneration = UUID()
+        pendingNextTimeout?.cancel(); pendingNextTimeout = nil
+        pendingNextObservation = nil
+        pendingNextPlayer?.pause()
+        pendingNextPlayer?.replaceCurrentItem(with: nil)
+        pendingNextPlayer = nil
+        pendingNextIndex = nil
+        preparedNextItem = nil
+    }
+
+    private func beginPreparedNext(at destination: Int) {
+        guard pendingNextIndex == nil, !waveWaiting, tracks.indices.contains(destination), let origin else { return }
+        let candidate = tracks[destination]
+        let saved = OfflineStore.audio(origin: origin,
+            account: candidate.offlineAccount.isEmpty ? offlineAccount : candidate.offlineAccount, id: candidate.id)
+        guard !candidate.offline || saved != nil,
+              let url = saved ?? URL(string: streamPath(for: candidate), relativeTo: origin)?.absoluteURL else {
+            error = "Следующий трек недоступен. Текущий продолжает играть."
+            publish(); return
+        }
+        pendingNextIndex = destination
+        pendingNextGeneration = UUID()
+        let ticket = pendingNextGeneration
+        error = ""
+        let asset = nextAssetID == candidate.id && nextAsset?.url == url
+            ? nextAsset! : AVURLAsset(url: url, options: [AVURLAssetHTTPCookiesKey: cookies])
+        let item = AVPlayerItem(asset: asset)
+        item.preferredForwardBufferDuration = saved == nil ? max(1.5, streamBufferSeconds) : 0
+        let stage = AVPlayer(playerItem: item)
+        stage.isMuted = true
+        stage.automaticallyWaitsToMinimizeStalling = true
+        pendingNextPlayer = stage
+        pendingNextObservation = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.pendingNextGeneration == ticket else { return }
+                if item.status == .failed {
+                    self.cancelPendingNext()
+                    self.error = "Не удалось подготовить следующий трек. Текущий продолжает играть."
+                    self.publish()
+                } else if item.status == .readyToPlay {
+                    // Metadata alone is not enough. Preroll waits until media can be rendered.
+                    stage.preroll(atRate: 1) { [weak self] ready in
+                        DispatchQueue.main.async { [weak self] in
+                            guard let self, self.pendingNextGeneration == ticket else { return }
+                            if ready { self.commitPreparedNext(item, destination: destination) }
+                            else {
+                                self.cancelPendingNext()
+                                self.error = "Следующий трек не загрузился. Продолжаем текущий."
+                                self.publish()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let deadline = DispatchWorkItem { [weak self] in
+            guard let self, self.pendingNextGeneration == ticket else { return }
+            self.cancelPendingNext()
+            self.error = "Следующий трек загружается слишком долго. Попробуй ещё раз."
+            self.publish()
+        }
+        pendingNextTimeout = deadline
+        DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: deadline)
+        publish()
+    }
+
+    private func commitPreparedNext(_ item: AVPlayerItem, destination: Int) {
+        guard pendingNextIndex == destination else { return }
+        // Detach the warmed-up item before handing it to the real AVPlayer.
+        pendingNextPlayer?.pause()
+        pendingNextPlayer?.replaceCurrentItem(with: nil)
+        pendingNextObservation = nil
+        pendingNextPlayer = nil
+        pendingNextTimeout?.cancel(); pendingNextTimeout = nil
+        pendingNextIndex = nil; pendingNextGeneration = UUID()
+        preparedNextItem = item
+        index = destination
+        fadeNextAutomatically = true
+        load()
+        play()
+    }
+
     private lazy var nowPlayingSession = MPNowPlayingSession(players: [player])
     private let nowPlayingEligibility = NowPlayingEligibilityDelegate()
     private var activatingNowPlaying = false
@@ -210,6 +303,7 @@ final class NativePlayer {
                 duration: (item["duration"] as? NSNumber)?.doubleValue ?? 0, cover: item["cover_url"] as? String, source: item["source"] as? String,
                 sourceURL: item["source_url"] as? String, remote: item["is_remote"] as? Bool ?? false, offline: item["_offline"] as? Bool ?? false, offlineAccount: item["_offline_account"] as? String ?? "", offlineLyrics: item["_offline_lyrics"] as? [String: Any])
         }
+        cancelPendingNext()
         fadeInActive = false; fadeNextAutomatically = false
         guard let selectedIndex = queue.firstIndex(where: { $0.id == selected }) else { return }
         self.offlineAccount = data["account"] as? String ?? ""
@@ -347,7 +441,8 @@ final class NativePlayer {
         let asset = nextAssetID == current.id && nextAsset?.url == url
             ? nextAsset! : AVURLAsset(url: url, options: [AVURLAssetHTTPCookiesKey: cookies])
         nextAsset = nil; nextAssetID = nil
-        let item = AVPlayerItem(asset: asset)
+        let item = preparedNextItem ?? AVPlayerItem(asset: asset)
+        preparedNextItem = nil
         // Give remote streams enough audio ahead to absorb network jitter.
         // Locally downloaded tracks do not need forward network buffering.
         item.preferredForwardBufferDuration = saved == nil ? streamBufferSeconds : 0
@@ -496,6 +591,7 @@ final class NativePlayer {
         }
     }
     func stop() {
+        cancelPendingNext()
         waveActive = false; waveTask?.cancel(); waveTask = nil; waveGeneration = UUID(); waveSeen = []
         nextAssetWarmup?.cancel(); nextAssetWarmup = nil; nextAsset = nil; nextAssetID = nil
         pause(); stallCheck?.cancel(); stallCheck = nil; itemGeneration = UUID(); itemObservation = nil; artworkLoadTask?.cancel()
@@ -586,7 +682,7 @@ final class NativePlayer {
         if fadeInActive && position >= span { fadeInActive = false }
         let hasNext = repeatMode != 0 || waveActive || index + 1 < tracks.count || (shuffle && tracks.count > 1)
         let entry = fadeInActive ? max(0, min(1, position / span)) : 1
-        let exit = known && hasNext ? max(0, min(1, (duration - position) / span)) : 1
+        let exit = known && hasNext && pendingNextIndex == nil ? max(0, min(1, (duration - position) / span)) : 1
         player.volume = leveledVolume * Float(min(entry, exit))
     }
     deinit { if let fadeObserver { player.removeTimeObserver(fadeObserver) } }
@@ -606,14 +702,25 @@ final class NativePlayer {
             return
         }
         previousRestartTrackID = nil; previousRestartAt = -Double.infinity
-        if waveActive && direction > 0 && index + 1 >= tracks.count {
-            recovery.cancel(resetBudget: true); independentMeter.cancel(keepingEnvelope: true); resumeAfterInterruption = false
-            wantsPlay = true; waveWaiting = true; enginePlayback.pause(); player.pause(); refillWave(force: true); publish(); return
+        if direction > 0 {
+            // Ignore every repeated Next while the same request is outstanding.
+            guard pendingNextIndex == nil, !waveWaiting else { return }
+            if waveActive && index + 1 >= tracks.count {
+                waveWaiting = true
+                refillWave(force: true)
+                publish()
+                return
+            }
+            let target: Int
+            if shuffle && tracks.count > 1 {
+                let choices = waveActive ? tracks.indices.filter { $0 > index } : tracks.indices.filter { $0 != index }
+                target = choices.randomElement() ?? index
+            } else { target = (index + 1) % tracks.count }
+            beginPreparedNext(at: target)
+            return
         }
-        if shuffle && direction > 0 && tracks.count > 1 {
-            let choices = waveActive ? tracks.indices.filter { $0 > index } : tracks.indices.filter { $0 != index }
-            index = choices.randomElement() ?? index
-        } else { index = (index + direction + tracks.count) % tracks.count }
+        cancelPendingNext()
+        index = (index + direction + tracks.count) % tracks.count
         load(); play()
     }
     private func restartSmoothly() {
@@ -622,6 +729,7 @@ final class NativePlayer {
         seekCurrentItem(to: 0)
     }
     private func finishTrack() {
+        if pendingNextIndex != nil { return } // The selected next item is already preparing.
         if repeatMode == 2 { restartSmoothly() }
         else if waveActive && index + 1 >= tracks.count {
             fadeNextAutomatically = true
@@ -917,7 +1025,7 @@ final class NativePlayer {
         return ["id": current?.id ?? "", "origin": origin?.absoluteString ?? "",
             "position": position.isFinite ? max(0, position) : 0.0,
             "duration": duration.isFinite ? max(0, duration) : (current?.duration ?? 0),
-            "playing": wantsPlay, "audible": audible, "account": offlineAccount, "ended": ended, "repeat": repeatMode, "shuffle": shuffle,
+            "playing": wantsPlay, "audible": audible, "nextPreparing": pendingNextIndex != nil || waveWaiting, "account": offlineAccount, "ended": ended, "repeat": repeatMode, "shuffle": shuffle,
             "volume": baseVolume, "smoothTransitions": true, "transitionSeconds": transitionSeconds, "queueRevision": queueRevision, "queueIds": includeQueue ? tracks.map { $0.id } : [], "error": error,
             "wave": waveActive, "waveSupported": true,
             "audioOutput": AVAudioSession.sharedInstance().currentRoute.outputs.map { ["type": $0.portType.rawValue, "name": $0.portName] },
@@ -950,7 +1058,7 @@ final class NativePlayer {
     }
     private func publish() {
         let commands = nowPlayingSession.remoteCommandCenter
-        commands.nextTrackCommand.isEnabled = tracks.count > 1
+        commands.nextTrackCommand.isEnabled = tracks.count > 1 && pendingNextIndex == nil && !waveWaiting
         commands.previousTrackCommand.isEnabled = !tracks.isEmpty
         commands.playCommand.isEnabled = current != nil
         commands.pauseCommand.isEnabled = current != nil
