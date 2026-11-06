@@ -13,7 +13,7 @@ public partial class MainWindow {
  public ImageSource? ActiveArtwork{get=>(ImageSource?)GetValue(ActiveArtworkProperty);set=>SetValue(ActiveArtworkProperty,value);}
  bool backgroundOnly;
  void LogoHomeClick(object sender,RoutedEventArgs e){LeaveBackgroundMode();Show("Главная");}
- void LeaveBackgroundMode(){backgroundOnly=false;Header.Visibility=HomeControls.Visibility=HomeHeading.Visibility=PlaybackBadge.Visibility=Visibility.Visible;HeaderRow.Height=new GridLength(58);MouseDoubleClick-=RestoreBackground;}
+ void LeaveBackgroundMode(){backgroundOnly=false;Status.ClearValue(VisibilityProperty);Header.Visibility=HomeControls.Visibility=HomeHeading.Visibility=PlaybackBadge.Visibility=Visibility.Visible;HeaderRow.Height=new GridLength(58);MouseDoubleClick-=RestoreBackground;}
  void UpdatePlaybackChrome(){
   PlayingTrackId=currentID;Ribbon.Playing=audioPlaying;Ribbon.Intensity=userVolume;Ribbon.Focused=PlayerPage.Visibility==Visibility.Visible;
   FullLike.Content=MiniLike.Content=likes.Contains(currentID)?"♥":"♡";

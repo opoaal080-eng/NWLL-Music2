@@ -7,7 +7,7 @@
    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
    <Button x:Name="LogoHome" Click="LogoHomeClick" Style="{StaticResource QuietButton}" HorizontalAlignment="Left" VerticalAlignment="Center" Padding="4,0" Margin="-4,0,0,0" ToolTip="На главную" AutomationProperties.Name="Nightwell Music, на главную">
     <StackPanel Orientation="Horizontal">
-     <Image Source="/logo.png" Width="42" Height="42" Stretch="Uniform" Margin="0,0,12,0" RenderOptions.BitmapScalingMode="HighQuality"/>
+     <Border Width="42" Height="42" Background="#DDDDDD" Margin="0,0,12,0"><Border.OpacityMask><ImageBrush ImageSource="/logo.png" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/></Border.OpacityMask></Border>
      <StackPanel VerticalAlignment="Center"><TextBlock Text="Nightwell" FontSize="21" FontWeight="SemiBold"/><TextBlock Text="M U S I C" Style="{StaticResource Caption}" FontSize="9" Margin="1,2,0,0"/></StackPanel>
     </StackPanel>
    </Button>
