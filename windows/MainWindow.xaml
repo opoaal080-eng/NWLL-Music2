@@ -52,7 +52,7 @@
       <Button x:Name="CollectionActions" Grid.Column="1" Content="&#xE712;" FontFamily="Segoe MDL2 Assets" Style="{StaticResource IconButton}" Click="CollectionClick" VerticalAlignment="Bottom" ToolTip="Действия с коллекцией"/>
      </Grid>
      <StackPanel x:Name="SearchOptions" Grid.Row="1" Margin="0,0,0,16">
-      <TextBox x:Name="SearchBox" TextChanged="SearchChanged" Height="46" ToolTip="Название трека или исполнитель" AutomationProperties.Name="Поиск музыки"/>
+      <TextBox x:Name="SearchBox" Tag="Трек или исполнитель" TextChanged="SearchChanged" Height="46" ToolTip="Название трека или исполнитель" AutomationProperties.Name="Поиск музыки"/>
       <StackPanel Orientation="Horizontal" Margin="0,8,0,0"><Button Content="Исполнители" Click="SearchArtistsClick" Style="{StaticResource QuietButton}" Margin="0,0,8,0"/><Button Content="Плейлисты" Click="SearchPlaylistsClick" Style="{StaticResource QuietButton}" Margin="0"/></StackPanel>
      </StackPanel>
      <ListBox x:Name="Tracks" Grid.Row="2" MouseDoubleClick="TrackDoubleClick" ScrollViewer.CanContentScroll="True" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling">

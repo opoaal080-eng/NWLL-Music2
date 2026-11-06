@@ -91,8 +91,8 @@ public partial class MainWindow {
  async Task TasteSettings(){
   if(account.Length==0){Login();return;}
   var panel=new StackPanel{Margin=new Thickness(24)};panel.Children.Add(Label("Настроить подборку"));
-  panel.Children.Add(Label("Любимые артисты, по одному в строке"));var artists=new TextBox{Text=string.Join("\n",tasteArtists),AcceptsReturn=true,Height=120,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};panel.Children.Add(artists);
-  var search=new TextBox{Margin=new Thickness(0,10,0,4)};panel.Children.Add(search);var results=new WrapPanel();
+  panel.Children.Add(Label("Любимые артисты, по одному в строке"));var artists=new TextBox{Text=string.Join("\n",tasteArtists),AcceptsReturn=true,VerticalContentAlignment=VerticalAlignment.Top,Height=120,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};panel.Children.Add(artists);
+  var search=new TextBox{Tag="Имя исполнителя",Margin=new Thickness(0,10,0,4)};panel.Children.Add(search);var results=new WrapPanel();
   var find=new Button{Content="Найти артистов"};panel.Children.Add(find);panel.Children.Add(results);
   find.Click+=async(_,_)=>{find.IsEnabled=false;try{var response=await api.Request("api/wave-artists/suggestions?q="+Uri.EscapeDataString(search.Text)+"&limit=20");results.Children.Clear();foreach(var entry in response.GetProperty("artists").EnumerateArray()){string name=entry.GetProperty("name").GetString()!;var button=new Button{Content="＋ "+name};button.Click+=(_,_)=>{var names=artists.Text.Split('\n',StringSplitOptions.TrimEntries|StringSplitOptions.RemoveEmptyEntries).ToList();if(!names.Contains(name,StringComparer.OrdinalIgnoreCase))names.Add(name);artists.Text=string.Join("\n",names);button.Content="✓ "+name;};results.Children.Add(button);}}catch(Exception ex){Status.Text=ex.Message;}finally{find.IsEnabled=true;}};
   var selected=new List<ComboBox>();
