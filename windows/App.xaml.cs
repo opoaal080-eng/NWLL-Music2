@@ -8,7 +8,7 @@ public partial class App:Application {
    if(sender is not Window window)return;
    try{
     var handle=new WindowInteropHelper(window).Handle;if(handle==IntPtr.Zero)return;
-    int enabled=1,caption=0x00150F0B,text=0x00F5EDE7;
+    int enabled=1,caption=0x000F0F0F,text=0x00ECECEC;
     if(DwmSetWindowAttribute(handle,20,ref enabled,4)!=0)DwmSetWindowAttribute(handle,19,ref enabled,4);
     DwmSetWindowAttribute(handle,35,ref caption,4);DwmSetWindowAttribute(handle,36,ref text,4);
    }catch(DllNotFoundException){}catch(EntryPointNotFoundException){}

@@ -1,4 +1,4 @@
-#define AppVersion "1.3.1"
+#define AppVersion "1.3.2"
 [Setup]
 AppId=NightwellMusicNative
 AppName=Nightwell Music
@@ -8,7 +8,7 @@ DefaultDirName={localappdata}\Programs\Nightwell Music
 DefaultGroupName=Nightwell Music
 PrivilegesRequired=lowest
 OutputDir=..\setup-output
-OutputBaseFilename=Nightwell-Music-Setup-1.3.1
+OutputBaseFilename=Nightwell-Music-Setup-1.3.2
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
