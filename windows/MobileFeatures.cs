@@ -81,10 +81,13 @@ public partial class MainWindow {
   string text=JsonSerializer.Serialize(new{quality,character,mood,language,hidden=hiddenTracks,autoDownload,syncLyrics});
   _=Task.Run(async()=>{await settingsGate.WaitAsync();try{Directory.CreateDirectory(NativeAPI.Storage);await File.WriteAllTextAsync(Path.Combine(NativeAPI.Storage,"mobile-settings.json"),text);}catch{}finally{settingsGate.Release();}});
  }
- Window Sheet(string title,StackPanel panel,int height=570){
-  var w=new Window{Title="Nightwell · "+title,Width=560,Height=height,Owner=this,WindowStartupLocation=WindowStartupLocation.CenterOwner,Background=new SolidColorBrush(Color.FromRgb(14,16,21)),Foreground=Brushes.White,Content=new ScrollViewer{Content=panel,VerticalScrollBarVisibility=ScrollBarVisibility.Auto}};w.Show();return w;
+ Window Sheet(string title,StackPanel panel,int height=570,bool show=true){
+  panel.Margin=new Thickness(28);
+  var window=new Window{Title="Nightwell · "+title,Width=560,MinWidth=440,Height=Math.Min(height,SystemParameters.WorkArea.Height-40),MaxHeight=SystemParameters.WorkArea.Height-24,Owner=this,ShowInTaskbar=false,WindowStartupLocation=WindowStartupLocation.CenterOwner,Style=(Style)FindResource(typeof(Window)),Content=new ScrollViewer{Content=panel,VerticalScrollBarVisibility=ScrollBarVisibility.Auto,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled}};
+  window.Loaded+=(_,_)=>{if(panel.Children.Count>0&&panel.Children[0] is TextBlock heading){heading.FontSize=24;heading.FontWeight=FontWeights.SemiBold;heading.Margin=new Thickness(0,0,0,8);}};
+  if(show)window.Show();return window;
  }
- static TextBlock Label(string text)=>new(){Text=text,FontSize=17,Margin=new Thickness(0,12,0,8),TextWrapping=TextWrapping.Wrap};
+ static TextBlock Label(string text)=>new(){Text=text,FontSize=14,FontWeight=FontWeights.Medium,Margin=new Thickness(0,16,0,8),TextWrapping=TextWrapping.Wrap};
  async Task TasteSettings(){
   if(account.Length==0){Login();return;}
   var panel=new StackPanel{Margin=new Thickness(24)};panel.Children.Add(Label("Настроить подборку"));
