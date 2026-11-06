@@ -146,7 +146,7 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
   window.Content=new ScrollViewer{Content=panel,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};window.Show();
  }
 
- void MenuClick(object sender,RoutedEventArgs e){var menu=new ContextMenu();foreach(var name in new[]{"Главная","Поиск","Избранное","Плейлисты","Перенести музыку","Сортировка избранного · Premium","Офлайн","Настройки",account.Length==0?"Войти":"Выйти"}){var value=name;var item=new MenuItem{Header=value};item.Click+=async(_,_)=>{if(value=="Сортировка избранного · Premium")await SortFavorites();else if(value=="Перенести музыку")NativeTransfer();else if(value=="Настройки")Settings();else if(value=="Войти")Login();else if(value=="Выйти")await Guard(async()=>{await api.Request("api/logout","POST");api.Clear();player.Stop();queue=[];catalog=[];likes=[];playlists=[];account="";Show("Главная");});else Show(value);};menu.Items.Add(item);}menu.PlacementTarget=(UIElement)sender;menu.IsOpen=true;}
+ void MenuClick(object sender,RoutedEventArgs e){var menu=new ContextMenu();foreach(var name in new[]{"Главная","Поиск","Избранное","Плейлисты","Перенести музыку","Слушать вместе","Сортировка избранного · Premium","Офлайн","Настройки",account.Length==0?"Войти":"Выйти"}){var value=name;var item=new MenuItem{Header=value};item.Click+=async(_,_)=>{if(value=="Сортировка избранного · Premium")await SortFavorites();else if(value=="Перенести музыку")NativeTransfer();else if(value=="Слушать вместе")OpenTogether();else if(value=="Настройки")Settings();else if(value=="Войти")Login();else if(value=="Выйти")await Guard(async()=>{await api.Request("api/logout","POST");api.Clear();player.Stop();queue=[];catalog=[];likes=[];playlists=[];account="";Show("Главная");});else Show(value);};menu.Items.Add(item);}menu.PlacementTarget=(UIElement)sender;menu.IsOpen=true;}
  async void WaveClick(object sender,RoutedEventArgs e)=>await NewWave();
  async Task NewWave(){if(mixing)return;if(account.Length==0){Login();return;}mixing=true;Status.Text="Подбираем…";try{await Guard(async()=>{var exclude=mixRecent.Concat(queue.Take(8).Select(t=>t.id)).Append(currentID).Where(id=>id.Length>0).Distinct().TakeLast(200);string nonce=Guid.NewGuid().ToString("N");var result=await api.Request("api/wave?mix="+nonce+"&exclude="+Uri.EscapeDataString(string.Join(',',exclude)));var next=ParseTracks(result).Where(t=>t.id!=currentID).ToList();if(next.Count==0&&currentID.Length>0)next=ParseTracks(await api.Request("api/wave?mix="+nonce+"&exclude="+currentID)).Where(t=>t.id!=currentID).ToList();if(next.Count==0){Status.Text="Новых треков пока нет. Попробуй чуть позже.";return;}queue=next;index=0;wave=true;PlayCurrent();Status.Text="";});}finally{mixing=false;}}
 
@@ -175,8 +175,8 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
     var volume=(int)Math.Round(100*Math.Clamp(userVolume*gain,0,1));
     if(player.Volume!=volume)player.Volume=volume;
  }
- void ToggleClick(object sender,RoutedEventArgs e){if(Current==null){_=NewWave();return;}if(player.IsPlaying){pausedAtMs=Math.Max(0,player.Time);player.Pause();}else player.Play();}
- void TrackDoubleClick(object sender,MouseButtonEventArgs e){if(Tracks.SelectedItem is Track t){queue=shown.ToList();index=queue.FindIndex(v=>v.id==t.id);wave=false;PlayCurrent();}}
+ void ToggleClick(object sender,RoutedEventArgs e){if(TogetherControl(player.IsPlaying?"pause":"play"))return;if(Current==null){_=NewWave();return;}if(player.IsPlaying){pausedAtMs=Math.Max(0,player.Time);player.Pause();}else player.Play();}
+ void TrackDoubleClick(object sender,MouseButtonEventArgs e){if(Tracks.SelectedItem is Track t){if(TogetherControl("track",t.id))return;queue=shown.ToList();index=queue.FindIndex(v=>v.id==t.id);wave=false;PlayCurrent();}}
  void PlayCurrent(){var t=Current;if(t==null)return;pausedAtMs=0;if(t.LocalPath==null&&account.Length==0){Login();return;}string path=t.LocalPath??proxy.URL("api/stream/"+t.id+"?cache=1&format="+(t.is_remote||t.source=="soundcloud"?"hls":"file"));using var media=new Media(vlc,path,t.LocalPath==null?FromType.FromLocation:FromType.FromPath);player.Play(media);lyricsCancellation?.Cancel();currentLyrics=null;lyricsID="";renderedLyric=int.MinValue;currentID=t.id;mixRecent.Enqueue(t.id);while(mixRecent.Count>120)mixRecent.Dequeue();MiniTitle.Text=FullTitle.Text=t.title;MiniArtist.Text=FullArtist.Text=t.artist;LyricsText.Text="";LyricsPanel.Visibility=Visibility.Collapsed;Cover.Visibility=Visibility.Visible;if(t.cover_url!=null&&Uri.TryCreate(api.Origin,t.cover_url,out var coverURI)&&coverURI.Authority==api.Origin.Authority)_=LoadCover(coverURI,t.id);else Cover.Source=MiniCover.Source=null;Dock.BeginAnimation(OpacityProperty,new System.Windows.Media.Animation.DoubleAnimation(.6,1,TimeSpan.FromSeconds(.7)));}
  async Task LoadCover(Uri uri,string id){try{
  var bytes=await api.HTTP.GetByteArrayAsync(uri);
@@ -189,9 +189,9 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
  });
  if(currentID==id)Cover.Source=MiniCover.Source=image;
 }catch{}}
- void NextClick(object sender,RoutedEventArgs e)=>Advance();
- void PreviousClick(object sender,RoutedEventArgs e){if(Current==null)return;long now=Environment.TickCount64;if(player.Time>3000&&!(previousID==currentID&&now-lastPrevious<3000)){lastPrevious=now;previousID=currentID;player.Time=0;return;}previousID="";index=(index-1+queue.Count)%queue.Count;PlayCurrent();}
- void Advance(){if(queue.Count==0)return;if(repeat==2){PlayCurrent();return;}if(wave&&index+1>=queue.Count){_=Refill();return;}if(shuffle&&queue.Count>1)index=(index+Random.Shared.Next(1,queue.Count))%queue.Count;else if(index+1<queue.Count)index++;else if(repeat==1)index=0;else return;PlayCurrent();}
+ void NextClick(object sender,RoutedEventArgs e){if(TogetherControl("next"))return;Advance();}
+ void PreviousClick(object sender,RoutedEventArgs e){if(TogetherControl("previous"))return;if(Current==null)return;long now=Environment.TickCount64;if(player.Time>3000&&!(previousID==currentID&&now-lastPrevious<3000)){lastPrevious=now;previousID=currentID;player.Time=0;return;}previousID="";index=(index-1+queue.Count)%queue.Count;PlayCurrent();}
+ void Advance(){if(TogetherControl("next"))return;if(queue.Count==0)return;if(repeat==2){PlayCurrent();return;}if(wave&&index+1>=queue.Count){_=Refill();return;}if(shuffle&&queue.Count>1)index=(index+Random.Shared.Next(1,queue.Count))%queue.Count;else if(index+1<queue.Count)index++;else if(repeat==1)index=0;else return;PlayCurrent();}
  async Task Refill(){if(refilling||!wave||account.Length==0)return;refilling=true;await Guard(async()=>{var exclude=string.Join(',',queue.TakeLast(150).Select(t=>t.id));var value=await api.Request("api/wave?exclude="+Uri.EscapeDataString(exclude));var ids=queue.Select(t=>t.id).ToHashSet();var fresh=ParseTracks(value).Where(t=>!ids.Contains(t.id)).ToList();queue.AddRange(fresh);if(!player.IsPlaying&&index+1<queue.Count){index++;PlayCurrent();}});refilling=false;}
  void Tick(){
   if(Current==null)return;
@@ -218,7 +218,7 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
  }
  string Time(double s)=>$"{(int)s/60}:{(int)s%60:00}";
  void SeekStart(object sender,MouseButtonEventArgs e)=>scrubbing=true;
- void SeekEnd(object sender,MouseButtonEventArgs e){player.Time=(long)(FullSeek.Value*1000);scrubbing=false;}
+ void SeekEnd(object sender,MouseButtonEventArgs e){if(TogetherControl("seek",position:(long)(FullSeek.Value*1000))){scrubbing=false;return;}player.Time=(long)(FullSeek.Value*1000);scrubbing=false;}
  void ShuffleClick(object sender,RoutedEventArgs e){shuffle=!shuffle;Status.Text=shuffle?"Перемешивание включено":"Перемешивание выключено";}
  void RepeatClick(object sender,RoutedEventArgs e){repeat=(repeat+1)%3;Status.Text=new[]{"Повтор выключен","Повтор очереди","Повтор трека"}[repeat];}
  void OpenPlayerClick(object sender,MouseButtonEventArgs e){if(Current==null)return;Home.Visibility=Library.Visibility=Dock.Visibility=Visibility.Collapsed;PlayerPage.Visibility=Visibility.Visible;}
