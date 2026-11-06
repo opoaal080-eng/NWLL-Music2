@@ -13,7 +13,7 @@ public partial class MainWindow {
  readonly CancellationTokenSource lifetime=new();
  readonly SemaphoreSlim audioGate=new(1,1);
  static readonly HttpClient artworkHTTP=new(){Timeout=TimeSpan.FromSeconds(12)};
- bool nextRequestBusy,sampleBusy,audioPlaying,nextPreparing,tasteLoaded,autoDownload,syncLyrics=true;
+ bool qualityReady,nextRequestBusy,sampleBusy,audioPlaying,nextPreparing,tasteLoaded,autoDownload,syncLyrics=true;
  long audioTime,audioLength,lastPrefetch;
  string quality="auto",character="balanced",mood="any",language="any";
  List<string> tasteArtists=[];
@@ -26,7 +26,7 @@ public partial class MainWindow {
   catch(OperationCanceledException){}catch(Exception ex){if(!lifetime.IsCancellationRequested)Status.Text=ex.Message;}
  }
  string StreamPath(Track t)=>t.LocalPath??proxy.URL(
-  (quality=="economy"||quality=="high")&&t.source=="soundcloud"?"api/audio-quality/stream/"+Uri.EscapeDataString(t.id)+"?quality="+quality+"&format=hls":
+  qualityReady&&(quality=="economy"||quality=="high")&&(t.source=="soundcloud"||t.is_remote)?"api/audio-quality/stream/"+Uri.EscapeDataString(t.id)+"?quality="+quality+"&format=hls":
   "api/stream/"+Uri.EscapeDataString(t.id)+"?cache=1&format="+(t.is_remote||t.source=="soundcloud"?"hls":"file"));
  async Task SafeNext(){
   if(nextPreparing||queue.Count==0)return;
@@ -70,6 +70,7 @@ public partial class MainWindow {
    hiddenTracks=d.GetProperty("hidden").Deserialize<HashSet<string>>()??[];autoDownload=d.GetProperty("autoDownload").GetBoolean();syncLyrics=d.GetProperty("syncLyrics").GetBoolean();
   }catch{}
   if(account.Length==0)return;
+  try{await api.Request("api/audio-quality/options",cancellation:lifetime.Token);qualityReady=true;}catch{qualityReady=false;}
   try{var state=await api.Request("api/wave-artists/preferences",cancellation:lifetime.Token);tasteArtists=state.GetProperty("artists").Deserialize<List<string>>()??[];tasteLoaded=true;
    if(!state.GetProperty("configured").GetBoolean())await TasteSettings();
   }catch{}
@@ -87,6 +88,9 @@ public partial class MainWindow {
   if(account.Length==0){Login();return;}
   var panel=new StackPanel{Margin=new Thickness(24)};panel.Children.Add(Label("Настроить подборку"));
   panel.Children.Add(Label("Любимые артисты, по одному в строке"));var artists=new TextBox{Text=string.Join("\n",tasteArtists),AcceptsReturn=true,Height=120,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};panel.Children.Add(artists);
+  var search=new TextBox{Margin=new Thickness(0,10,0,4)};panel.Children.Add(search);var results=new WrapPanel();
+  var find=new Button{Content="Найти артистов"};panel.Children.Add(find);panel.Children.Add(results);
+  find.Click+=async(_,_)=>{find.IsEnabled=false;try{var response=await api.Request("api/wave-artists/suggestions?q="+Uri.EscapeDataString(search.Text)+"&limit=20");results.Children.Clear();foreach(var entry in response.GetProperty("artists").EnumerateArray()){string name=entry.GetProperty("name").GetString()!;var button=new Button{Content="＋ "+name};button.Click+=(_,_)=>{var names=artists.Text.Split('\n',StringSplitOptions.TrimEntries|StringSplitOptions.RemoveEmptyEntries).ToList();if(!names.Contains(name,StringComparer.OrdinalIgnoreCase))names.Add(name);artists.Text=string.Join("\n",names);button.Content="✓ "+name;};results.Children.Add(button);}}catch(Exception ex){Status.Text=ex.Message;}finally{find.IsEnabled=true;}};
   var selected=new List<ComboBox>();
   foreach(var group in new[]{new[]{"Характер","balanced","discover","favorites"},new[]{"Настроение","any","energetic","calm","happy","sad"},new[]{"Язык","any","ru","foreign","instrumental"}}){
    panel.Children.Add(Label(group[0]));var labels=group[0]=="Характер"?new[]{"На мой вкус","Открытия","Избранное"}:group[0]=="Настроение"?new[]{"Любое","Бодрое","Спокойное","Весёлое","Грустное"}:new[]{"Любой","Русский","Иностранный","Без слов"};
