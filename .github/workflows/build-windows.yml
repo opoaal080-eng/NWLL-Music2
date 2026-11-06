@@ -2,7 +2,7 @@ name: Build Nightwell Music Windows (Recovered)
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, feature/windows-mobile-parity-20261106]
     paths:
       - 'windows/**'
       - 'scripts/validate-app-sources.py'
@@ -22,6 +22,17 @@ jobs:
           dotnet-version: '8.0.x'
       - name: Publish Windows app
         run: dotnet publish windows/Nightwell.Native.csproj -c Release -r win-x64 --self-contained true -o publish
+      - name: Check window startup
+        shell: pwsh
+        run: |
+          $process = Start-Process -FilePath "publish\Nightwell Music.exe" -ArgumentList "--native-smoke" -PassThru
+          if (!$process.WaitForExit(30000)) { $process.Kill(); throw "Window did not respond within 30 seconds" }
+          if ($process.ExitCode -ne 0) { throw "Startup failed" }
+          if (!(Test-Path "windows-native-smoke.png")) { throw "Window screenshot missing" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Windows-UI-preview
+          path: windows-native-smoke.png
       - name: Build Windows installer (Inno Setup)
         shell: pwsh
         run: |
@@ -32,7 +43,7 @@ jobs:
           if (!(Test-Path $compiler)) { throw "Inno Setup compiler not found" }
           & $compiler "windows\installer.iss"
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup build failed" }
-          if (!(Test-Path "setup-output\Nightwell-Music-Setup-1.2.1.exe")) { throw "Installer not produced" }
+          if (!(Test-Path "setup-output\Nightwell-Music-Setup-1.3.0.exe")) { throw "Installer not produced" }
       - name: Record EXE checksum and commit
         run: python scripts/build-provenance.py --platform windows --directory publish --output publish/build-provenance.json
       - uses: actions/upload-artifact@v4
@@ -42,4 +53,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: Nightwell-Music-Windows-Installer
-          path: setup-output/Nightwell-Music-Setup-1.2.1.exe
+          path: setup-output/Nightwell-Music-Setup-1.3.0.exe
+
