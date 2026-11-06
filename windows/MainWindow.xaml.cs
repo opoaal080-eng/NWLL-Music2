@@ -87,7 +87,7 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
  async Task Guard(Func<Task> action){try{await action();}catch(OperationCanceledException){}catch(Exception e){Status.Text=e.Message;}}
  List<Track> ParseTracks(JsonElement json)=>json.GetProperty("tracks").Deserialize<List<Track>>()??[];
  async Task LoadAccount(){await Guard(async()=>{var me=await api.Request("api/me");api.Csrf=me.GetProperty("csrf").GetString()??"";account=me.GetProperty("user").ValueKind==JsonValueKind.Object?me.GetProperty("user").GetProperty("id").GetString()??"":"";if(account.Length==0){Status.Text="Войди в аккаунт или открой офлайн-файлы";return;}var tasks=await Task.WhenAll(api.Request("api/tracks"),api.Request("api/likes"),api.Request("api/playlists"));catalog=ParseTracks(tasks[0]);likes=tasks[1].GetProperty("ids").Deserialize<HashSet<string>>()??[];playlists=tasks[2].GetProperty("playlists").Deserialize<List<Playlist>>()??[];Status.Text="";if(screen!="Поиск")Show(screen);});}
- void Show(string next){searchCancellation?.Cancel();screen=next;playlist="";Dock.Visibility=Visibility.Visible;Home.Visibility=next=="Главная"?Visibility.Visible:Visibility.Collapsed;Library.Visibility=next=="Главная"?Visibility.Collapsed:Visibility.Visible;PlayerPage.Visibility=Visibility.Collapsed;Heading.Text=next;SearchBox.Visibility=next=="Поиск"?Visibility.Visible:Visibility.Collapsed;CollectionActions.Visibility=next=="Поиск"?Visibility.Collapsed:Visibility.Visible;if(next=="Поиск"){SearchBox.Focus();shown=[];}else if(next=="Избранное"){shown=catalog.Where(t=>likes.Contains(t.id)).ToList();if(premiumSortAllowed&&favoriteOrder=="title")shown=shown.OrderBy(t=>t.title,StringComparer.CurrentCultureIgnoreCase).ToList();else if(premiumSortAllowed&&favoriteOrder=="artist")shown=shown.OrderBy(t=>t.artist,StringComparer.CurrentCultureIgnoreCase).ToList();}else if(next=="Офлайн"){shown=[];_=LoadOfflineTracksAsync();}Tracks.ItemsSource=shown;if(next=="Плейлисты")ShowPlaylists();}
+ void Show(string next){searchCancellation?.Cancel();screen=next;playlist="";Dock.Visibility=Visibility.Visible;Home.Visibility=next=="Главная"?Visibility.Visible:Visibility.Collapsed;Library.Visibility=next=="Главная"?Visibility.Collapsed:Visibility.Visible;PlayerPage.Visibility=Visibility.Collapsed;Heading.Text=next;SearchOptions.Visibility=SearchBox.Visibility=next=="Поиск"?Visibility.Visible:Visibility.Collapsed;CollectionActions.Visibility=next=="Поиск"?Visibility.Collapsed:Visibility.Visible;if(next=="Поиск"){SearchBox.Focus();shown=[];}else if(next=="Избранное"){shown=catalog.Where(t=>likes.Contains(t.id)).ToList();if(premiumSortAllowed&&favoriteOrder=="title")shown=shown.OrderBy(t=>t.title,StringComparer.CurrentCultureIgnoreCase).ToList();else if(premiumSortAllowed&&favoriteOrder=="artist")shown=shown.OrderBy(t=>t.artist,StringComparer.CurrentCultureIgnoreCase).ToList();}else if(next=="Офлайн"){shown=[];_=LoadOfflineTracksAsync();}Tracks.ItemsSource=shown;if(next=="Плейлисты")ShowPlaylists();}
  async Task LoadOfflineTracksAsync(){try{
   var local=await Task.Run(ReadOffline);
   if(screen!="Офлайн")return;
@@ -290,11 +290,11 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
  var done=new Button{Content="Готово",HorizontalAlignment=HorizontalAlignment.Right};
  done.Click+=(_,_)=>w.Close();panel.Children.Add(done);w.ShowDialog();
  }
- void SaveSettings(){try{
-  Directory.CreateDirectory(NativeAPI.Storage);
-  string data=JsonSerializer.Serialize(new{origin,transition,normalization,volume=userVolume});
-  _=Task.Run(()=>{try{File.WriteAllText(Path.Combine(NativeAPI.Storage,"settings.json"),data);}catch{}});
- }catch{}}
+ CancellationTokenSource? settingsDebounce;
+ void SaveSettings(){
+  string data=JsonSerializer.Serialize(new{origin,transition,normalization,volume=userVolume});settingsDebounce?.Cancel();settingsDebounce=new();var token=settingsDebounce.Token;
+  _=Task.Run(async()=>{try{await Task.Delay(300,token);await settingsGate.WaitAsync(token);try{Directory.CreateDirectory(NativeAPI.Storage);string file=Path.Combine(NativeAPI.Storage,"settings.json");await File.WriteAllTextAsync(file+".tmp",data,token);token.ThrowIfCancellationRequested();File.Move(file+".tmp",file,true);}finally{settingsGate.Release();}}catch(OperationCanceledException){}catch{}});
+ }
  void Prompt(string title,string hint,Func<string,Task> run){var panel=new StackPanel{Margin=new Thickness(24)};var value=new TextBox();panel.Children.Add(new TextBlock{Text=hint});panel.Children.Add(value);var button=new Button{Content="Сохранить"};panel.Children.Add(button);var w=new Window{Title=title,Owner=this,Width=420,Height=210,Content=panel};button.Click+=async(_,_)=>{await Guard(()=>run(value.Text));w.Close();};w.ShowDialog();}
 }
 
