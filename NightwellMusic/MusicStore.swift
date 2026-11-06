@@ -1014,6 +1014,7 @@ private struct AudioQualityDecision: Decodable {
         }
         NativePlayer.shared.prepare(["id": selected.id, "queue": localQueue.map(\.dictionary), "account": account?.id ?? "device", "wave": wave, "wave_preferences": WaveSettings.read(origin, account?.id ?? "device").dictionary], origin: origin, cookies: HTTPCookieStorage.shared.cookies(for: origin) ?? [])
         NativePlayer.shared.play()
+        NightwellTogether.shared.selectedTrack(track)
         Task { await publishLiveSync(takeover: true) }
     }
     func applyWaveSettings(_ value: WaveSettings) async throws {
