@@ -13,7 +13,7 @@ public partial class MainWindow {
  readonly CancellationTokenSource lifetime=new();
  readonly SemaphoreSlim audioGate=new(1,1);
  static readonly HttpClient artworkHTTP=new(){Timeout=TimeSpan.FromSeconds(12)};
- bool sampleBusy,audioPlaying,nextPreparing,tasteLoaded,autoDownload,syncLyrics=true;
+ bool nextRequestBusy,sampleBusy,audioPlaying,nextPreparing,tasteLoaded,autoDownload,syncLyrics=true;
  long audioTime,audioLength,lastPrefetch;
  string quality="auto",character="balanced",mood="any",language="any";
  List<string> tasteArtists=[];
@@ -55,7 +55,7 @@ public partial class MainWindow {
    Cover.Source=MiniCover.Source=null;LyricsPanel.Visibility=Visibility.Collapsed;Cover.Visibility=Visibility.Visible;
    if(Uri.TryCreate(api.Origin,track.cover_url??("api/covers/"+track.id),out var uri)&&uri.Scheme=="https")_=LoadCover(uri,track.id);
    await AudioCommand(()=>{previous.Stop();previous.Dispose();candidate.Volume=(int)(userVolume*100);candidate.Mute=false;candidate.Play();});
-   mixRecent.Enqueue(track.id);while(mixRecent.Count>120)mixRecent.Dequeue();Status.Text="";_=Prefetch();
+   RecordTrackStart();mixRecent.Enqueue(track.id);while(mixRecent.Count>120)mixRecent.Dequeue();Status.Text="";_=Prefetch();
   }finally{if(staged!=null){var unused=staged;_=Task.Run(()=>{unused.Stop();unused.Dispose();});}nextPreparing=false;}
  }
  async Task Prefetch(){
@@ -126,6 +126,11 @@ public partial class MainWindow {
    var save=new Button{Content="♡ Сохранить в мои плейлисты"};panel.Children.Add(save);save.Click+=async(_,_)=>await Guard(async()=>{save.IsEnabled=false;try{await api.Request((daily?"api/daily-public-playlists/":"api/community-playlists/")+id+"/save","POST",daily?new{track_ids=entry.GetProperty("tracks").Deserialize<List<Track>>()!.Select(t=>t.id).ToArray()}:null);save.Content="Сохранено";await LoadAccount();}catch{save.IsEnabled=true;throw;}});
   }
  }
+ string listeningID="",listeningSession=Guid.NewGuid().ToString("N");double listenedSeconds;long lastListenTick=Environment.TickCount64,lastListeningReport;
+ void RecordTrackStart(){if(listeningID.Length>0)_=ReportListening(true);listeningID=currentID;listenedSeconds=0;listeningSession=Guid.NewGuid().ToString("N");lastListenTick=Environment.TickCount64;}
+ void UpdateListening(){var now=Environment.TickCount64;if(audioPlaying)listenedSeconds+=Math.Clamp((now-lastListenTick)/1000.0,0,1);lastListenTick=now;if(now-lastListeningReport>30000){lastListeningReport=now;_=ReportListening(false);}}
+ async Task ReportListening(bool skipped){if(account.Length==0||listeningID.Length==0||listenedSeconds<1)return;var body=new{session_id=listeningSession,track_id=listeningID,seconds=listenedSeconds,skipped};try{await api.Request("api/listening","POST",body,lifetime.Token);}catch{}}
+ static bool ValidAudio(string path){try{using var stream=File.OpenRead(path);if(stream.Length<128)return false;Span<byte> header=stackalloc byte[12];if(stream.Read(header)<12)return false;return header[0]==0xff||(header[0]==73&&header[1]==68&&header[2]==51)||System.Text.Encoding.ASCII.GetString(header[4..8])=="ftyp"||System.Text.Encoding.ASCII.GetString(header[..4]) is "OggS" or "fLaC" or "RIFF";}catch{return false;}}
  async Task ContinueHere(){
   var remote=await api.Request("api/playback/state");var id=remote.GetProperty("track_id").GetString();if(string.IsNullOrEmpty(id)){Status.Text="На других устройствах пока ничего не играет";return;}
   var tracks=ParseTracks(await api.Request("api/playback/queue"));int target=tracks.FindIndex(t=>t.id==id);if(target<0)throw new IOException("Трек больше недоступен");
