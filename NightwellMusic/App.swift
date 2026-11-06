@@ -181,7 +181,7 @@ struct NightwellPopup<Content: View>: View {
 
 private enum StableNavigationAction {
     case screen(MusicStore.Screen)
-    case backgroundOnly, statistics, premium, transfer, settings, waveSettings, support, authentication
+    case backgroundOnly, statistics, premium, transfer, settings, waveSettings, support, authentication, together
 }
 
 /// An independently presented, stable scroll view. Playback updates cannot
@@ -245,6 +245,7 @@ private struct StableNavigationSheet: View {
                     entry("Перенести музыку", icon: "square.and.arrow.down", action: .transfer)
                     entry("Настройки", icon: "gearshape", action: .settings)
                     entry("Настройка подборки", icon: "slider.horizontal.3", action: .waveSettings)
+                    entry("Слушать вместе", icon: "person.2.wave.2", action: .together)
                     entry("Обращения и поддержка", icon: "envelope", action: .support)
                     entry(signedIn ? "Выйти" : "Войти", icon: "person", action: .authentication)
                 }
@@ -267,6 +268,8 @@ struct NativeRoot: View {
     @State private var pendingNavigation: StableNavigationAction?
     @State private var waveSettingsPresented = false
     @State private var supportPresented = false
+    @StateObject private var together = NativeTogether()
+    @State private var togetherPresented = false
     @State private var premiumPresented = false
     @State private var transferPresented = false
     @State private var favoriteSort = "recent"
@@ -399,6 +402,7 @@ struct NativeRoot: View {
             PremiumFeatureView(kind: kind).environmentObject(store)
         }
         .sheet(isPresented: $premiumPresented) { PremiumView(api: store.api) }
+        .sheet(isPresented: $togetherPresented) { NativeTogetherView(together: together).environmentObject(store) }
         .overlay { if launching { MonochromeNightwellLaunch().transition(.opacity) } }
         .task { try? await Task.sleep(nanoseconds: reducedMotion ? 150_000_000 : 1_200_000_000); withAnimation(.easeOut(duration: 0.3)) { launching = false } }
         .task { await store.start()
@@ -423,11 +427,13 @@ struct NativeRoot: View {
             if let url = activity.webpageURL { openSharedURL(url) }
         }
         .onChange(of: store.clock.id) { id in
+            together.localTrackChanged(id, store: store)
             if let expected = sharedLinkID, id.lowercased() == expected.lowercased() {
                 sharedLinkID = nil
                 fullPlayer = true
             }
         }
+        .onChange(of: store.clock.playing) { state in together.localPlayingChanged(state, store: store) }
         .fullScreenCover(isPresented: $fullPlayer) { FullPlayer(clock: store.clock) }
         .sheet(item: $selectedArtist) { artist in
             ArtistProfileView(name: artist.name).environmentObject(store)
@@ -451,12 +457,19 @@ struct NativeRoot: View {
         case .settings: settings = true
         case .waveSettings: waveSettingsPresented = true
         case .support: supportPresented = true
+        case .together: togetherPresented = true
         case .authentication:
             if store.account == nil { store.authPresented = true }
             else { Task { await store.logout() } }
         }
     }
     private func openSharedURL(_ url: URL) {
+        if let code = NativeTogether.code(from: url.absoluteString),
+           (url.host == "music.nightwell.fun" || url.scheme == "nightwell") {
+            together.invite = code
+            togetherPresented = true
+            return
+        }
         guard let id = DeepLink.trackID(from: url) else { return }
         sharedLinkID = id
         Task {
