@@ -1,0 +1,23 @@
+name: Test adaptive music recommendations
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/adaptive-wave-v3-20261107]
+    paths:
+      - 'server-updates/adaptive-wave/**'
+      - '.github/workflows/test-adaptive-wave.yml'
+permissions:
+  contents: read
+jobs:
+  recommendations:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ['3.10', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install fastapi httpx pytest
+      - run: python -m pytest server-updates/adaptive-wave/tests -q
