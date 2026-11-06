@@ -24,7 +24,7 @@ public partial class MainWindow {
  async Task PollRoom(string code,CancellationToken token){
   while(!token.IsCancellationRequested&&roomCode==code){try{await Task.Delay(1500,token);var response=await api.Request("api/together/rooms/"+code,cancellation:token);if(roomCode==code)await ApplyRoom(response.GetProperty("room"));}catch(OperationCanceledException){return;}catch{if(roomNote!=null)roomNote.Text="Нет связи с комнатой. Переподключаемся.";}}
  }
- async Task RoomCommand(string action,string? track=null){if(roomCode.Length==0)return;await api.Request("api/together/rooms/"+roomCode+"/command","POST",new{action,track_id=track});await ApplyRoom((await api.Request("api/together/rooms/"+roomCode)).GetProperty("room"));}
+ async Task RoomCommand(string action,string? track=null,double? position=null){if(roomCode.Length==0)return;await api.Request("api/together/rooms/"+roomCode+"/command","POST",new{action,track_id=track,position_ms=position.HasValue?(long?)(position.Value*1000):null});await ApplyRoom((await api.Request("api/together/rooms/"+roomCode)).GetProperty("room"));}
  async Task ApplyRoom(JsonElement room){
   if(roomNote!=null)roomNote.Text="Участников: "+room.GetProperty("members").GetArrayLength()+"\n"+string.Join("\n",room.GetProperty("queue").EnumerateArray().Select(t=>t.GetProperty("title").GetString()));
   if(room.GetProperty("track").ValueKind!=JsonValueKind.Object)return;

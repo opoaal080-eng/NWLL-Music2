@@ -50,7 +50,7 @@ public partial class MainWindow {
    var previous=player;player=candidate;staged=null;index=next;
    player.EndReached+=(_,_)=>Dispatcher.InvokeAsync(()=>Advance());
    player.EncounteredError+=(_,_)=>Dispatcher.InvokeAsync(()=>Status.Text="Не удалось воспроизвести трек");
-   currentID=track.id;pausedAtMs=0;MiniTitle.Text=FullTitle.Text=track.title;MiniArtist.Text=FullArtist.Text=track.artist;
+   currentID=track.id;TakePlaybackHere();pausedAtMs=0;MiniTitle.Text=FullTitle.Text=track.title;MiniArtist.Text=FullArtist.Text=track.artist;
    lyricsCancellation?.Cancel();currentLyrics=null;lyricsID="";renderedLyric=int.MinValue;
    Cover.Source=MiniCover.Source=null;LyricsPanel.Visibility=Visibility.Collapsed;Cover.Visibility=Visibility.Visible;
    if(Uri.TryCreate(api.Origin,track.cover_url??("api/covers/"+track.id),out var uri)&&uri.Scheme=="https")_=LoadCover(uri,track.id);
@@ -65,6 +65,7 @@ public partial class MainWindow {
   try{await api.Request("api/preload","POST",new{ids,current_id=currentID},lifetime.Token);}catch{}
  }
  async Task InitializeMobileFeatures(){
+  StartDeviceSync();
   try{var json=await File.ReadAllTextAsync(Path.Combine(NativeAPI.Storage,"mobile-settings.json"));using var doc=JsonDocument.Parse(json);var d=doc.RootElement;
    quality=d.GetProperty("quality").GetString()??"auto";character=d.GetProperty("character").GetString()??"balanced";mood=d.GetProperty("mood").GetString()??"any";language=d.GetProperty("language").GetString()??"any";
    hiddenTracks=d.GetProperty("hidden").Deserialize<HashSet<string>>()??[];autoDownload=d.GetProperty("autoDownload").GetBoolean();syncLyrics=d.GetProperty("syncLyrics").GetBoolean();
@@ -138,7 +139,7 @@ public partial class MainWindow {
  async Task ContinueHere(){
   var remote=await api.Request("api/playback/state");var id=remote.GetProperty("track_id").GetString();if(string.IsNullOrEmpty(id)){Status.Text="На других устройствах пока ничего не играет";return;}
   var tracks=ParseTracks(await api.Request("api/playback/queue"));int target=tracks.FindIndex(t=>t.id==id);if(target<0)throw new IOException("Трек больше недоступен");
-  await api.Request("api/playback/state","PUT",new{device_id="windows-"+Environment.MachineName,revision=remote.GetProperty("revision").GetInt64(),takeover=true,track_id=id,queue=tracks.Select(t=>t.id).ToArray(),position=remote.GetProperty("position").GetDouble(),playing=remote.GetProperty("playing").GetBoolean(),repeat=remote.GetProperty("repeat").GetInt32(),shuffle=remote.GetProperty("shuffle").GetBoolean(),wave=remote.GetProperty("wave").GetBoolean()});
-  queue=tracks;index=target;pendingSeek=remote.GetProperty("position").GetDouble();restorePaused=!remote.GetProperty("playing").GetBoolean();PlayCurrent();
+  await api.Request("api/playback/state","PUT",new{device_id=deviceID,revision=remote.GetProperty("revision").GetInt64(),takeover=true,track_id=id,queue=tracks.Select(t=>t.id).ToArray(),position=remote.GetProperty("position").GetDouble(),playing=remote.GetProperty("playing").GetBoolean(),repeat=remote.GetProperty("repeat").GetInt32(),shuffle=remote.GetProperty("shuffle").GetBoolean(),wave=remote.GetProperty("wave").GetBoolean()});
+  TakePlaybackHere();queue=tracks;index=target;pendingSeek=remote.GetProperty("position").GetDouble();restorePaused=!remote.GetProperty("playing").GetBoolean();PlayCurrent();
  }
 }
