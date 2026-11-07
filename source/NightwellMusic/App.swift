@@ -491,6 +491,137 @@ struct NativeRoot: View {
     private var compactCollectionTitle: String? {
         guard collectionScrolled else { return nil }
         switch store.screen {
+        case .likes: return "Избранное"
+        case .playlists: return "Плейлисты"
+        default: return nil
+        }
+    }
+
+    private var collectionScrollMarker: some View {
+        GeometryReader { geometry in
+            Color.clear.preference(
+                key: CollectionScrollOffsetKey.self,
+                value: geometry.frame(in: .named("nightwell-library-scroll")).minY
+            )
+        }
+        .frame(height: 0)
+        .accessibilityHidden(true)
+    }
+
+    private func updateCollectionScroll(_ y: CGFloat) {
+        guard store.screen == .likes || store.screen == .playlists else { return }
+        let compact = y < -58
+        if collectionScrolled != compact {
+            withAnimation(reducedMotion ? nil : .easeInOut(duration: 0.18)) {
+                collectionScrolled = compact
+            }
+        }
+    }
+
+    private var header: some View {
+        HStack {
+            Button {
+                withAnimation(reducedMotion ? nil : .easeInOut(duration: 0.22)) {
+                    store.screen = .home
+                }
+            } label: {
+                HStack(spacing: 9) {
+                    Text("N")
+                        .font(.system(size: 29, weight: .black, design: .rounded))
+                        .foregroundStyle(.white)
+                        .frame(width: 42, height: 42)
+                        .background(Color(white: 0.07), in: RoundedRectangle(cornerRadius: 12))
+                        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.white.opacity(0.20), lineWidth: 0.8))
+                    if compactCollectionTitle == nil {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Nightwell").font(.system(size: 25, weight: .bold))
+                            Text("M U S I C").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }.contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(nightwellText)
+            .accessibilityLabel("На главную")
+            Spacer()
+            Button { if store.screen == .search { store.screen = .home } else { store.screen = .search } } label: { Image(systemName: store.screen == .search ? "xmark" : "magnifyingglass").font(.system(size: 19, weight: .medium)).foregroundStyle(.white).frame(width: 44, height: 44).frostedGlass(22, bordered: false, intensity: 0.20) }.accessibilityLabel(store.screen == .search ? "Закрыть поиск" : "Поиск")
+            Button { navigationMenuPresented = true } label: {
+                Group {
+                    if let avatar=store.profileAvatar {
+                        Image(uiImage:avatar).resizable().scaledToFill()
+                    } else {
+                        Image(systemName:"person.crop.circle")
+                            .font(.system(size:19,weight:.medium))
+                    }
+                }
+                    .clipShape(Circle())
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .frostedGlass(22, bordered: false, intensity: 0.20)
+            }
+            .accessibilityLabel("Меню")
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+        .overlay(alignment: .center) {
+            if let title = compactCollectionTitle {
+                Text(title)
+                    .font(.system(size: 17, weight: .semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 108)
+                    .padding(.top, 8)
+                    .frame(maxWidth: .infinity)
+                    .allowsHitTesting(false)
+                    .accessibilityAddTraits(.isHeader)
+            }
+        }
+    }
+    private var favoriteTracks: [Track] {
+        let entries = store.catalog.filter { store.likes.contains($0.id) }
+        guard favoritePremium.allowed else { return entries }
+        if favoriteSort == "title" { return entries.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending } }
+        if favoriteSort == "artist" { return entries.sorted { $0.artist.localizedStandardCompare($1.artist) == .orderedAscending } }
+        return entries
+    }
+    @ViewBuilder private var content: some View {
+        switch store.screen {
+        case .home:
+            NativeHome(configureWave: { waveSettingsPresented = true }, clock: store.clock)
+        case .search:
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Поиск").font(.largeTitle.bold())
+                HStack { Image(systemName: "magnifyingglass"); TextField("Трек или исполнитель", text: $store.query).textInputAutocapitalization(.never).autocorrectionDisabled().onChange(of: store.query) { _ in store.scheduleSearch() }; if !store.query.isEmpty { Button { store.query = "" } label: { Image(systemName: "xmark.circle.fill") } } }.padding(14)
+                    .background { RoundedRectangle(cornerRadius: 18).fill(.ultraThinMaterial).opacity(0.48) }
+                    .overlay(RoundedRectangle(cornerRadius: 18).stroke(.white.opacity(0.28), lineWidth: 1))
+                if !store.searchMessage.isEmpty { Text(store.searchMessage).font(.caption).foregroundStyle(.secondary) }
+                // Prepared off the UI thread. Never rescan the whole catalogue while typing.
+                let combinedArtists = store.searchArtistSuggestions
+                if !combinedArtists.isEmpty {
+                    Text("Исполнители").font(.headline)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 9) {
+                            ForEach(combinedArtists) { artist in
+                                Button { selectedArtist = ArtistSelection(name: artist.name) } label: {
+                                    HStack(spacing: 8) {
+                                        ArtistPortrait(name: artist.name, imageURL: artist.image_url, size: 30)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(artist.name).font(.system(size: 13, weight: .medium))
+                                            if let count = artist.track_count {
+                                                Text("\(count) треков").font(.system(size: 10)).foregroundStyle(.secondary)
+                                            }
+                                        }
+                                    }
+                                    .padding(.horizontal, 10).padding(.vertical, 6)
+                                    .background(.white.opacity(0.09), in: Capsule())
+                                }.buttonStyle(.plain)
+                            }
+                        }
+                    }
+                }
+                TrackList(tracks: store.results)
+            }.padding(.horizontal, 20)
         case .likes:
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
