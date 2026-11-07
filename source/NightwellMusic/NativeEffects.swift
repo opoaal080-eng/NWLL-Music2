@@ -38,7 +38,11 @@ struct NativeLaunch: View {
 struct SharedLyricsPanel: View {
     @ObservedObject var model: NativeLyrics
     @ObservedObject var clock: PlaybackClock
-    var body: some View { LyricsView(lyrics: model.value, position: clock.position) }
+    var body: some View {
+        LyricsView(lyrics: model.value, position: clock.position, seekTo: { seconds in
+            NativePlayer.shared.seek(seconds)
+        })
+    }
 }
 struct HomeLyricLine: View {
     @ObservedObject var model: NativeLyrics
