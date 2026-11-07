@@ -17,7 +17,7 @@
      <StackPanel Orientation="Horizontal"><Path Data="M 8,0 A 8,8 0 1 1 7.99,0 M 14,14 L 20,20" Stroke="#B4B4B4" StrokeThickness="1.8" Width="16" Height="16" Stretch="Uniform" Margin="0,0,9,0"/><TextBlock Text="Поиск" Foreground="{StaticResource SecondaryBrush}"/></StackPanel>
     </Button>
     <Button x:Name="NavigationMenu" Click="MenuClick" Style="{StaticResource IconButton}" ToolTip="Меню">
-     <Grid Width="30" Height="30"><Ellipse Fill="#343434" Stroke="#777777" StrokeThickness="1"/><TextBlock Text="●" FontSize="15" Foreground="#DCDCDC" HorizontalAlignment="Center" VerticalAlignment="Center"/></Grid>
+     <Grid Width="30" Height="30"><Ellipse Fill="#343434" Stroke="#777777" StrokeThickness="1"/><TextBlock Text="&#xE77B;" FontFamily="Segoe MDL2 Assets" FontSize="18" Foreground="#DCDCDC" HorizontalAlignment="Center" VerticalAlignment="Center"/><Image x:Name="NavigationAvatar" Width="29" Height="29" Stretch="UniformToFill"><Image.Clip><EllipseGeometry Center="14.5,14.5" RadiusX="14.5" RadiusY="14.5"/></Image.Clip></Image></Grid>
     </Button>
    </StackPanel>
   </Grid>
