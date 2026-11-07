@@ -226,13 +226,13 @@
    <Setter Property="BorderBrush" Value="#424242"/><Setter Property="HasDropShadow" Value="True"/>
    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ContextMenu">
     <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="14" Padding="6">
-     <ScrollViewer MaxHeight="540" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><ItemsPresenter/></ScrollViewer>
+     <ScrollViewer MaxHeight="310" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><ItemsPresenter/></ScrollViewer>
     </Border>
    </ControlTemplate></Setter.Value></Setter>
   </Style>
   <Style TargetType="MenuItem">
    <Setter Property="Foreground" Value="{StaticResource TextBrush}"/><Setter Property="Background" Value="Transparent"/>
-   <Setter Property="Padding" Value="12,10"/><Setter Property="FontSize" Value="14"/>
+   <Setter Property="Padding" Value="12,7"/><Setter Property="FontSize" Value="13"/>
    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="MenuItem">
     <Grid>
      <Border x:Name="Surface" Background="{TemplateBinding Background}" CornerRadius="8">
@@ -242,7 +242,7 @@
       </Grid>
      </Border>
      <Popup x:Name="PART_Popup" Placement="Right" HorizontalOffset="4" AllowsTransparency="True" IsOpen="{Binding IsSubmenuOpen,RelativeSource={RelativeSource TemplatedParent}}" PopupAnimation="Fade">
-      <Border Background="#1D1D1D" BorderBrush="#424242" BorderThickness="1" CornerRadius="12" Padding="6"><ScrollViewer MaxHeight="530"><ItemsPresenter/></ScrollViewer></Border>
+      <Border Background="#1D1D1D" BorderBrush="#424242" BorderThickness="1" CornerRadius="12" Padding="6"><ScrollViewer MaxHeight="300" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><ItemsPresenter/></ScrollViewer></Border>
      </Popup>
     </Grid>
     <ControlTemplate.Triggers>
