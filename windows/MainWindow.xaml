@@ -69,11 +69,11 @@
         <Image.RenderTransform><ScaleTransform ScaleX="1.18" ScaleY="1.18"/></Image.RenderTransform>
         <Image.Effect><BlurEffect Radius="62" RenderingBias="Performance"/></Image.Effect>
        </Image>
-       <Border Background="#8005070C"/>
+       <Border Background="#5005070C"/>
        <Border>
         <Border.Background>
          <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-          <GradientStop Color="#92090B0F" Offset="0"/><GradientStop Color="#11090B0F" Offset="0.4"/><GradientStop Color="#A7080A0F" Offset="1"/>
+          <GradientStop Color="#51090B0F" Offset="0"/><GradientStop Color="#11090B0F" Offset="0.4"/><GradientStop Color="#78080A0F" Offset="1"/>
          </LinearGradientBrush>
         </Border.Background>
        </Border>
