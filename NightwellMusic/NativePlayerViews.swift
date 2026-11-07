@@ -790,7 +790,7 @@ struct LyricsView: View {
                                 }
                                 .buttonStyle(.plain)
                                 .disabled(!canSeek)
-                                .accessibilityLabel("Перемотать к строке: \\(line.text)")
+                                .accessibilityLabel("Перемотать к строке: \(line.text)")
                                 .id(index)
                             }
                         } else {
