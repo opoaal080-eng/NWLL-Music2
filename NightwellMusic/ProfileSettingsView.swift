@@ -52,7 +52,7 @@ extension MusicStore {
 private extension UIImage {
     func scaledProfileJPEG() -> Data? {
         let limit: CGFloat = 512
-        let factor = min(1,limit/max(size.width,size.height,1))
+        let factor = min(1,limit/max(max(size.width,size.height),1))
         let dimensions = CGSize(width:max(1,size.width*factor),height:max(1,size.height*factor))
         let renderer = UIGraphicsImageRenderer(size:dimensions)
         let image = renderer.image { _ in draw(in: CGRect(origin:.zero,size:dimensions)) }
