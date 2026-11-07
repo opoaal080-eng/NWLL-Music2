@@ -16,7 +16,7 @@
      <StackPanel Orientation="Horizontal"><Path Data="M 8,0 A 8,8 0 1 1 7.99,0 M 14,14 L 20,20" Stroke="#B4B4B4" StrokeThickness="1.8" Width="16" Height="16" Stretch="Uniform" Margin="0,0,9,0"/><TextBlock Text="Поиск" Foreground="{StaticResource SecondaryBrush}"/></StackPanel>
     </Button>
     <Button x:Name="NavigationMenu" Click="MenuClick" Style="{StaticResource IconButton}" ToolTip="Меню">
-     <Path Data="M 0,0 H 18 M 0,6 H 18 M 0,12 H 18" Stroke="#BEBEBE" StrokeThickness="1.6" Width="18" Height="12" Stretch="Uniform"/>
+     <Grid Width="30" Height="30"><Ellipse Fill="#343434" Stroke="#777777" StrokeThickness="1"/><TextBlock Text="●" FontSize="15" Foreground="#DCDCDC" HorizontalAlignment="Center" VerticalAlignment="Center"/></Grid>
     </Button>
    </StackPanel>
   </Grid>
@@ -31,19 +31,21 @@
      <Border x:Name="PlaybackBadge" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="24,28" Background="#801F1F1F" BorderBrush="#404040" BorderThickness="1" CornerRadius="14" Padding="12,8">
       <StackPanel Orientation="Horizontal"><Ellipse x:Name="PlaybackDot" Width="5" Height="5" Fill="#B6B6B6" Opacity="0.4" Margin="0,0,8,0"/><TextBlock x:Name="PlaybackBadgeText" Text="ТВОЙ ПОТОК" FontSize="9" Foreground="#BFBFBF" FontWeight="SemiBold"/></StackPanel>
      </Border>
-     <StackPanel x:Name="HomeHeading" Margin="32,28,32,0">
+     <StackPanel x:Name="HomeHeading" Margin="32,28,32,0" Visibility="Collapsed">
       <TextBlock Text="ПЕРСОНАЛЬНАЯ ПОДБОРКА" Style="{StaticResource Caption}" Foreground="#ABABAB" FontSize="10"/>
       <TextBlock Text="Твой ритм" FontSize="42" FontWeight="SemiBold" Margin="-2,8,0,0"/>
       <TextBlock Text="Музыка, которая подходит тебе." Foreground="{StaticResource SecondaryBrush}" FontSize="14" Margin="0,8,0,0"/>
      </StackPanel>
      <Viewbox Grid.Row="1" Stretch="Uniform" StretchDirection="DownOnly" Margin="0,12,0,24"><StackPanel x:Name="HomeControls" VerticalAlignment="Center" HorizontalAlignment="Center">
+      <TextBlock Text="Твой ритм" FontSize="37" FontWeight="SemiBold" TextAlignment="Center" HorizontalAlignment="Center" Margin="0,0,0,22"/>
       <Button x:Name="HomePlay" Content="&#xE768;" Width="88" Height="88" FontSize="30" Style="{StaticResource PlayButton}" Click="ToggleClick" ToolTip="Воспроизвести или поставить на паузу" AutomationProperties.Name="Воспроизведение подборки"/>
       <Button Content="Новая подборка" Width="200" Height="44" Margin="0,22,0,0" Click="WaveClick" Style="{StaticResource PrimaryButton}"/>
       <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,10,0,0">
        <Button Content="Настроить" Width="112" Style="{StaticResource QuietButton}" Click="TasteClick"/>
        <Border Width="1" Height="16" Background="#3A3A3A" VerticalAlignment="Center" Margin="8,0"/>
-       <Button Content="Только фон" Width="112" Style="{StaticResource QuietButton}" Click="BackgroundClick"/>
+       
       </StackPanel>
+      <Button Content="&#xE8A7;  Продолжить с телефона" FontFamily="Segoe UI" FontSize="14" Width="252" Height="46" Margin="0,18,0,0" Click="ContinueOnDesktopClick" Style="{StaticResource PrimaryButton}" ToolTip="Продолжить прослушивание с телефона"/>
      </StackPanel></Viewbox>
     </Grid>
 
@@ -99,7 +101,7 @@
         <Border Width="360" Height="360" CornerRadius="22" Background="#262626" BorderBrush="#454545" BorderThickness="1">
          <Border.Clip><RectangleGeometry Rect="0,0,360,360" RadiusX="22" RadiusY="22"/></Border.Clip>
          <Grid><TextBlock Text="&#xE8D6;" FontFamily="Segoe MDL2 Assets" FontSize="72" Foreground="#5A5A5A" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-          <Image x:Name="Cover" Stretch="UniformToFill" Width="358" Height="358" MouseLeftButtonUp="CoverLyricsClick" Cursor="Hand" ToolTip="Открыть текст песни"/>
+          <Image x:Name="Cover" Stretch="UniformToFill" Width="358" Height="358" />
          </Grid>
         </Border>
        </Viewbox>
