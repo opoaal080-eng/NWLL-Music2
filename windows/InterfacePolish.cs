@@ -25,6 +25,7 @@ public partial class MainWindow {
   brush.GradientStops.Add(new GradientStop(Color.FromArgb(55,secondary.R,secondary.G,secondary.B),.53));
   brush.GradientStops.Add(new GradientStop(Color.FromArgb(0,11,11,11),1));
   PlayerPage.Background=brush;
+  Home.Background=brush;
  }
  void UpdatePlaybackChrome(){
   PlayingTrackId=currentID;Ribbon.Playing=audioPlaying;Ribbon.Intensity=userVolume;Ribbon.Focused=PlayerPage.Visibility==Visibility.Visible;
