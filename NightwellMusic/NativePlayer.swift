@@ -166,6 +166,29 @@ final class NativePlayer {
     private var ended = false
     private var repeatMode = 0
     private var shuffle = false
+    private var shuffleHistory: [String] = []
+    private func smartShuffleIndex(_ options: [Int]) -> Int {
+        guard !options.isEmpty else { return index }
+        let recentIDs = Array(shuffleHistory.suffix(max(5,min(36,tracks.count/2))))
+        let recentArtists = Set(shuffleHistory.suffix(6).compactMap { id in
+            tracks.first(where: { $0.id == id })?.artist.lowercased()
+        })
+        var best = -Double.infinity
+        var selected = options[0]
+        for candidate in options {
+            let track = tracks[candidate]
+            let lastPlayed = recentIDs.lastIndex(of: track.id)
+            let repeatedPenalty = lastPlayed.map {
+                8.0 * Double($0 + 1) / Double(max(1,recentIDs.count))
+            } ?? 0
+            let sameArtist = current?.artist.lowercased() == track.artist.lowercased()
+            let artistPenalty = sameArtist ? 3.5 :
+                (recentArtists.contains(track.artist.lowercased()) ? 1.8 : 0)
+            let value = Double.random(in:0..<2) - repeatedPenalty - artistPenalty
+            if value > best { best = value; selected = candidate }
+        }
+        return selected
+    }
     private var error = ""
     private var waveSettings = WaveSettings()
     private var waveActive = false
@@ -720,7 +743,7 @@ final class NativePlayer {
             let target: Int
             if shuffle && tracks.count > 1 {
                 let choices = waveActive ? tracks.indices.filter { $0 > index } : tracks.indices.filter { $0 != index }
-                target = choices.randomElement() ?? index
+                target = smartShuffleIndex(choices)
             } else { target = (index + 1) % tracks.count }
             beginPreparedNext(at: target)
             return
@@ -1063,6 +1086,10 @@ final class NativePlayer {
         }
     }
     private func publish() {
+        if let playing = current, shuffleHistory.last != playing.id {
+            shuffleHistory.append(playing.id)
+            if shuffleHistory.count > 120 { shuffleHistory.removeFirst(shuffleHistory.count - 120) }
+        }
         let commands = nowPlayingSession.remoteCommandCenter
         commands.nextTrackCommand.isEnabled = tracks.count > 1 && pendingNextIndex == nil && !waveWaiting
         commands.previousTrackCommand.isEnabled = !tracks.isEmpty
