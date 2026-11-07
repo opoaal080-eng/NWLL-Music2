@@ -126,7 +126,7 @@
         </Border>
        </Viewbox>
        <Border Background="#1A1A1A" CornerRadius="18" BorderBrush="#424242" BorderThickness="1" Visibility="{Binding Visibility,ElementName=LyricsPanel}">
-        <ScrollViewer x:Name="LyricsPanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" Margin="0,44,0,0"><TextBlock x:Name="LyricsText" TextWrapping="Wrap" FontSize="19" Margin="24,8,24,24" LineHeight="32" TextAlignment="Left"/></ScrollViewer>
+        <ScrollViewer x:Name="LyricsPanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" Margin="0,44,0,0"><StackPanel><StackPanel x:Name="SyncedLyricsLines" Visibility="Collapsed" Margin="16,4,16,20"/><TextBlock x:Name="LyricsText" TextWrapping="Wrap" FontSize="19" Margin="24,8,24,24" LineHeight="32" TextAlignment="Left"/></StackPanel></ScrollViewer>
        </Border>
        <Button Content="&#xE711;" FontFamily="Segoe MDL2 Assets" Style="{StaticResource IconButton}" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="8" Click="CloseLyricsClick" Visibility="{Binding Visibility,ElementName=LyricsPanel}" ToolTip="Вернуться к обложке"/>
       </Grid>
