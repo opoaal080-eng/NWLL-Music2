@@ -1562,10 +1562,14 @@ public final class MainActivity extends Activity {
                 if(n==0)toggleFavorite(track);
                 else if(n==1){
                     if(saved){
-                        OfflineStore.operation(this,origin,new JSONObject()
-                            .put("op","remove").put("account",offlineOwner).put("id",id).toString());
-                        status.setText("Загрузка удалена");
-                        if(screen.equals("Офлайн"))showScreen();
+                        try {
+                            String reply=OfflineStore.operation(this,origin,new JSONObject()
+                                .put("op","remove").put("account",offlineOwner).put("id",id).toString());
+                            if(new JSONObject(reply).optBoolean("ok")) {
+                                status.setText("Загрузка удалена");
+                                if(screen.equals("Офлайн"))showScreen();
+                            }else status.setText("Не удалось удалить загрузку");
+                        } catch(Exception ex){status.setText("Не удалось удалить загрузку");}
                     }else download(new JSONArray().put(track));
                 }
                 else if(n==2)share(origin+"track/"+id);
@@ -1690,7 +1694,30 @@ public final class MainActivity extends Activity {
         });
     }
     void share(String url){startActivity(Intent.createChooser(new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,url),"Поделиться"));}
-    void download(JSONArray items){if(items==null)return;if(user.isEmpty()){auth();return;}String account=user;status.setText("Добавляем в фоновую очередь…");task(()->{if(!api.request("api/premium/me").optBoolean("premium"))throw new java.io.IOException("Скачивание доступно с Premium — 150 ₽ за 30 дней.");BackgroundDownloads.enqueue(this,origin,account,items);return new JSONObject();},v->status.setText(BackgroundDownloads.progress(this)));}
+    void download(JSONArray items){
+        if(items==null)return;
+        if(user.isEmpty()){auth();return;}
+        JSONArray allowed=new JSONArray();int blocked=0;
+        for(int i=0;i<items.length();i++){
+            JSONObject t=items.optJSONObject(i);
+            if(t==null)continue;
+            if("audius".equalsIgnoreCase(t.optString("source"))||t.optString("id").startsWith("audius_"))blocked++;
+            else allowed.put(t);
+        }
+        if(allowed.length()==0){
+            status.setText("Треки Audius пока нельзя скачать: сервер запрещает офлайн-экспорт.");
+            return;
+        }
+        if(blocked>0)status.setText("Часть треков Audius недоступна офлайн. Загружаем остальные…");
+        else status.setText("Добавляем в фоновую очередь…");
+        String account=user;
+        task(()->{
+            if(!api.request("api/premium/me").optBoolean("premium"))
+                throw new java.io.IOException("Скачивание доступно с Premium — 150 ₽ за 30 дней.");
+            BackgroundDownloads.enqueue(this,origin,account,allowed);
+            return new JSONObject();
+        },v->status.setText(BackgroundDownloads.progress(this)));
+    }
     interface InputDone{void run(String value);}
     void input(String title,InputDone done){EditText field=new EditText(this);AlertDialog dialog=new AlertDialog.Builder(this).setTitle(title).setView(field).setPositiveButton("Сохранить",(d,n)->done.run(field.getText().toString())).setNegativeButton("Отмена",null).create();styleSheet(dialog);dialog.show();}
     private String lastQualityNoticeKey="";
