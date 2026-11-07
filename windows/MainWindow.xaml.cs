@@ -4,6 +4,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using System.Windows.Media.Animation;
 using System.Text.Json;
 using System.IO;
 using System.Diagnostics;
@@ -16,6 +17,7 @@ public partial class MainWindow:Window {
  readonly DispatcherTimer timer=new(){Interval=TimeSpan.FromMilliseconds(400)};
  int savePending;
  int normalization=0;
+ bool playerAmbientAVisible;
  double userVolume=1.0;
  long pausedAtMs;
  bool volumeSettingReady;
@@ -177,18 +179,66 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
  }
  async void ToggleClick(object sender,RoutedEventArgs e){if(Current==null){await NewWave();return;}if(roomCode.Length>0){await Guard(()=>RoomCommand(audioPlaying?"pause":"play"));return;}TakePlaybackHere();await AudioCommand(()=>{if(player.IsPlaying){pausedAtMs=Math.Max(0,player.Time);player.Pause();}else player.Play();});}
  async void TrackDoubleClick(object sender,MouseButtonEventArgs e){if(Tracks.SelectedItem is Track t){if(roomCode.Length>0){await Guard(()=>RoomCommand("track",t.id));return;}TakePlaybackHere();queue=shown.ToList();index=queue.FindIndex(v=>v.id==t.id);wave=false;PlayCurrent();}}
- void PlayCurrent(){nextCancellation?.Cancel();var t=Current;if(t==null)return;pausedAtMs=0;if(t.LocalPath==null&&account.Length==0){Login();return;}string path=StreamPath(t);_=AudioCommand(()=>{using var media=new Media(vlc,path,t.LocalPath==null?FromType.FromLocation:FromType.FromPath);player.Play(media);});lyricsCancellation?.Cancel();currentLyrics=null;lyricsID="";renderedLyric=int.MinValue;currentID=t.id;ActiveArtwork=null;Ribbon.ResetPalette();PlayingTrackId=t.id;UpdatePlaybackChrome();mixRecent.Enqueue(t.id);while(mixRecent.Count>120)mixRecent.Dequeue();MiniTitle.Text=FullTitle.Text=t.title;MiniArtist.Text=FullArtist.Text=t.artist;LyricsText.Text="";LyricsPanel.Visibility=Visibility.Collapsed;Cover.Visibility=Visibility.Visible;if(Uri.TryCreate(api.Origin,t.cover_url??("api/covers/"+t.id),out var coverURI)&&coverURI.Scheme=="https")_=LoadCover(coverURI,t.id);else Cover.Source=MiniCover.Source=null;RecordTrackStart();Dock.BeginAnimation(OpacityProperty,new System.Windows.Media.Animation.DoubleAnimation(.6,1,TimeSpan.FromSeconds(.7)));}
- async Task LoadCover(Uri uri,string id){try{
- var bytes=await (uri.Authority==api.Origin.Authority?api.HTTP:artworkHTTP).GetByteArrayAsync(uri,lifetime.Token);
- if(bytes.Length>5*1024*1024||currentID!=id)return;
- var image=await Task.Run(()=>{
-  var bitmap=new BitmapImage();
-  bitmap.BeginInit();bitmap.CacheOption=BitmapCacheOption.OnLoad;
-  bitmap.DecodePixelWidth=650;bitmap.StreamSource=new MemoryStream(bytes);
-  bitmap.EndInit();bitmap.Freeze();return bitmap;
- });
- if(currentID==id){Cover.Source=MiniCover.Source=ActiveArtwork=image;var colors=await Task.Run(()=>ArtworkPalette(image));if(currentID==id)Ribbon.SetPalette(colors.Item1,colors.Item2);}
-}catch{}}
+ void PlayCurrent(){nextCancellation?.Cancel();var t=Current;if(t==null)return;pausedAtMs=0;if(t.LocalPath==null&&account.Length==0){Login();return;}string path=StreamPath(t);_=AudioCommand(()=>{using var media=new Media(vlc,path,t.LocalPath==null?FromType.FromLocation:FromType.FromPath);player.Play(media);});lyricsCancellation?.Cancel();currentLyrics=null;lyricsID="";renderedLyric=int.MinValue;currentID=t.id;ActiveArtwork=null;Ribbon.ResetPalette();PlayingTrackId=t.id;UpdatePlaybackChrome();mixRecent.Enqueue(t.id);while(mixRecent.Count>120)mixRecent.Dequeue();MiniTitle.Text=FullTitle.Text=t.title;MiniArtist.Text=FullArtist.Text=t.artist;LyricsText.Text="";LyricsPanel.Visibility=Visibility.Collapsed;Cover.Visibility=Visibility.Visible;if(Uri.TryCreate(api.Origin,t.cover_url??("api/covers/"+t.id),out var coverURI)&&coverURI.Scheme=="https")_=LoadCover(coverURI,t.id);else {Cover.Source=MiniCover.Source=null;SetPlayerAmbient(null);}RecordTrackStart();Dock.BeginAnimation(OpacityProperty,new System.Windows.Media.Animation.DoubleAnimation(.6,1,TimeSpan.FromSeconds(.7)));}
+ // Make an iPhone-like 6x6 artwork colour map, off the UI thread.
+ static BitmapSource ArtworkAmbient(BitmapSource source){
+  const int size=6;
+  var converted=new FormatConvertedBitmap(source,PixelFormats.Bgra32,null,0);
+  int w=converted.PixelWidth,h=converted.PixelHeight,stride=checked(w*4);
+  var pixels=new byte[checked(stride*h)];converted.CopyPixels(pixels,stride,0);
+  var sums=new long[size*size*3];var counts=new int[size*size];
+  for(int y=0;y<h;y++)for(int x=0;x<w;x++){
+   int cell=Math.Min(size-1,y*size/h)*size+Math.Min(size-1,x*size/w);
+   int p=y*stride+x*4;counts[cell]++;
+   sums[cell*3]+=pixels[p];sums[cell*3+1]+=pixels[p+1];sums[cell*3+2]+=pixels[p+2];
+  }
+  var grid=new byte[size*size*4];
+  for(int i=0;i<size*size;i++){
+   int d=i*4,n=Math.Max(1,counts[i]);
+   grid[d]=(byte)(sums[i*3]/n);grid[d+1]=(byte)(sums[i*3+1]/n);grid[d+2]=(byte)(sums[i*3+2]/n);grid[d+3]=255;
+  }
+  var palette=BitmapSource.Create(size,size,96,96,PixelFormats.Bgra32,null,grid,size*4);
+  palette.Freeze();return palette;
+ }
+ void SetPlayerAmbient(BitmapSource? palette){
+  var fade=TimeSpan.FromMilliseconds(850);
+  var ease=new QuadraticEase{EasingMode=EasingMode.EaseInOut};
+  if(palette==null){
+   PlayerAmbientA.BeginAnimation(OpacityProperty,new DoubleAnimation(0,TimeSpan.FromMilliseconds(330)));
+   PlayerAmbientB.BeginAnimation(OpacityProperty,new DoubleAnimation(0,TimeSpan.FromMilliseconds(330)));
+   playerAmbientAVisible=false;
+   return;
+  }
+  bool nextA=!playerAmbientAVisible;
+  var incoming=nextA?PlayerAmbientA:PlayerAmbientB;
+  var outgoing=nextA?PlayerAmbientB:PlayerAmbientA;
+  incoming.BeginAnimation(OpacityProperty,null);
+  incoming.Opacity=0;
+  incoming.Source=palette;
+  incoming.BeginAnimation(OpacityProperty,new DoubleAnimation(0,.92,fade){EasingFunction=ease});
+  outgoing.BeginAnimation(OpacityProperty,new DoubleAnimation(0,fade){EasingFunction=ease});
+  playerAmbientAVisible=nextA;
+ }
+ async Task LoadCover(Uri uri,string id){
+  try{
+   var bytes=await (uri.Authority==api.Origin.Authority?api.HTTP:artworkHTTP).GetByteArrayAsync(uri,lifetime.Token);
+   if(bytes.Length>5*1024*1024||currentID!=id)return;
+   var result=await Task.Run(()=>{
+    using var stream=new MemoryStream(bytes);
+    var bitmap=new BitmapImage();
+    bitmap.BeginInit();bitmap.CacheOption=BitmapCacheOption.OnLoad;
+    bitmap.DecodePixelWidth=650;bitmap.StreamSource=stream;
+    bitmap.EndInit();bitmap.Freeze();
+    return (cover:bitmap,ambient:ArtworkAmbient(bitmap),colors:ArtworkPalette(bitmap));
+   },lifetime.Token);
+   if(currentID!=id||lifetime.IsCancellationRequested)return;
+   Cover.Source=MiniCover.Source=ActiveArtwork=result.cover;
+   Ribbon.SetPalette(result.colors.Item1,result.colors.Item2);
+   SetPlayerAmbient(result.ambient);
+  }catch(OperationCanceledException){}catch{
+   if(currentID==id)SetPlayerAmbient(null);
+  }
+ }
  async void NextClick(object sender,RoutedEventArgs e){if(nextRequestBusy)return;nextRequestBusy=true;try{await Guard(SafeNext);}finally{nextRequestBusy=false;}}
  async void PreviousClick(object sender,RoutedEventArgs e){if(roomCode.Length>0){await Guard(()=>RoomCommand("previous"));return;}if(Current==null)return;long now=Environment.TickCount64;if(audioTime>3000&&!(previousID==currentID&&now-lastPrevious<3000)){lastPrevious=now;previousID=currentID;_=AudioCommand(()=>player.Time=0);return;}previousID="";index=(index-1+queue.Count)%queue.Count;PlayCurrent();}
  void Advance(){if(nextPreparing||queue.Count==0)return;if(repeat==2){PlayCurrent();return;}if(wave&&index+1>=queue.Count){_=Refill();return;}if(shuffle&&queue.Count>1)index=(index+Random.Shared.Next(1,queue.Count))%queue.Count;else if(index+1<queue.Count)index++;else if(repeat==1)index=0;else return;PlayCurrent();}
