@@ -50,35 +50,90 @@
        </Grid></Border></DataTemplate></ListBox.ItemTemplate>
       </ListBox>
      </Grid>
-     <Grid x:Name="PlayerPage" Visibility="Collapsed" Margin="20,12">
-      <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-      <DockPanel LastChildFill="False"><Button Content="⌄" Click="ClosePlayerClick" Width="45"/><TextBlock Text="Сейчас играет" FontSize="19" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="25,0"/><Button Content="⋯" DockPanel.Dock="Right" FontSize="20" Click="CurrentMenuClick"/></DockPanel>
-      <Grid Grid.Row="1" Margin="0,10,0,9">
-      <Border Width="332" Height="332" CornerRadius="23" Background="#2A303A" BorderBrush="#48FFFFFF" BorderThickness="1" ClipToBounds="True" HorizontalAlignment="Center" VerticalAlignment="Center">
-       <Image x:Name="Cover" Stretch="UniformToFill" Width="330" Height="330"/>
-      </Border>
-      <ScrollViewer x:Name="LyricsPanel" Visibility="Collapsed" Width="440" HorizontalAlignment="Center" Background="#F10E131B">
-       <TextBlock x:Name="LyricsText" TextWrapping="Wrap" FontSize="20" Margin="24" LineHeight="32" TextAlignment="Center"/>
-      </ScrollViewer>
-     </Grid>
-      <StackPanel Grid.Row="2" Width="470" HorizontalAlignment="Center" Margin="0,0,0,5">
-       <TextBlock x:Name="FullTitle" TextAlignment="Center" FontSize="22" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-       <TextBlock x:Name="FullArtist" TextAlignment="Center" FontSize="15" Foreground="#B7BEC8" Margin="0,5,0,4"/>
-       <Slider x:Name="FullSeek" Minimum="0" Maximum="1" PreviewMouseLeftButtonDown="SeekStart" PreviewMouseLeftButtonUp="SeekEnd" Margin="0,10,0,0"/>
-       <TextBlock x:Name="FullTime" FontSize="12" Foreground="#B7BEC8" HorizontalAlignment="Center" Margin="0,3,0,2"/>
-       <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-        <Button Content="⇄" FontSize="20" Click="ShuffleClick"/><Button Content="|◁" FontSize="20" Click="PreviousClick"/>
-        <Button x:Name="FullPlay" Content="▶" FontSize="26" Width="72" Height="64" Background="#5A555E6A" Click="ToggleClick"/>
-        <Button Content="▷|" FontSize="20" Click="NextClick"/><Button Content="↻" FontSize="20" Click="RepeatClick"/>
-       </StackPanel>
-       <Button Content="Очередь воспроизведения" Click="QueueClick" Background="#1BFFFFFF" FontSize="12" Margin="0,6,0,0"/>
-      <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,10,0,0">
-       <TextBlock Text="♪" Foreground="#BDC6D1" FontSize="18" VerticalAlignment="Center" Margin="0,0,10,0"/>
-       <Slider x:Name="FullVolumeSlider" Width="180" Minimum="0" Maximum="100" Value="100" ValueChanged="VolumeChanged"
-               AutoToolTipPlacement="TopLeft" AutoToolTipPrecision="0"/>
-       <TextBlock x:Name="FullVolumeValue" Text="100%" Width="40" Foreground="#BDC6D1" FontSize="12" TextAlignment="Right" VerticalAlignment="Center" Margin="8,0,0,0"/>
-      </StackPanel>
-      </StackPanel>
+     <Grid x:Name="PlayerPage" Visibility="Collapsed" ClipToBounds="True">
+      <Grid.Background>
+       <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Color="#171B24" Offset="0"/><GradientStop Color="#090B10" Offset="0.6"/><GradientStop Color="#05070B" Offset="1"/>
+       </LinearGradientBrush>
+      </Grid.Background>
+      <!-- iOS-style backdrop: a 6x6 colour grid sampled from album art, enlarged and blurred.
+           Two layers crossfade when the track changes. -->
+      <Grid ClipToBounds="True" IsHitTestVisible="False">
+       <Image x:Name="AmbientArtworkA" Stretch="Fill" Opacity="0"
+              RenderTransformOrigin="0.5,0.5" RenderOptions.BitmapScalingMode="HighQuality">
+        <Image.RenderTransform><ScaleTransform ScaleX="1.18" ScaleY="1.18"/></Image.RenderTransform>
+        <Image.Effect><BlurEffect Radius="62" RenderingBias="Performance"/></Image.Effect>
+       </Image>
+       <Image x:Name="AmbientArtworkB" Stretch="Fill" Opacity="0"
+              RenderTransformOrigin="0.5,0.5" RenderOptions.BitmapScalingMode="HighQuality">
+        <Image.RenderTransform><ScaleTransform ScaleX="1.18" ScaleY="1.18"/></Image.RenderTransform>
+        <Image.Effect><BlurEffect Radius="62" RenderingBias="Performance"/></Image.Effect>
+       </Image>
+       <Border Background="#8005070C"/>
+       <Border>
+        <Border.Background>
+         <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+          <GradientStop Color="#92090B0F" Offset="0"/><GradientStop Color="#11090B0F" Offset="0.4"/><GradientStop Color="#A7080A0F" Offset="1"/>
+         </LinearGradientBrush>
+        </Border.Background>
+       </Border>
+      </Grid>
+      <Grid Margin="20,12,20,16">
+       <Grid.RowDefinitions>
+        <RowDefinition Height="Auto"/><RowDefinition Height="*" MinHeight="88"/><RowDefinition Height="Auto"/>
+       </Grid.RowDefinitions>
+       <DockPanel LastChildFill="False" Margin="4,0,4,7">
+        <Button Content="⌄" Click="ClosePlayerClick" Width="45"/>
+        <TextBlock Text="Сейчас играет" FontSize="16" FontWeight="SemiBold"
+                   HorizontalAlignment="Center" VerticalAlignment="Center" Margin="17,0"/>
+        <Button Content="⋯" DockPanel.Dock="Right" FontSize="20" Click="CurrentMenuClick"/>
+       </DockPanel>
+       <Grid Grid.Row="1" Margin="0,0,0,12">
+        <Viewbox Stretch="Uniform" StretchDirection="DownOnly"
+                 MaxWidth="380" MaxHeight="360" HorizontalAlignment="Center" VerticalAlignment="Center">
+         <Border Width="344" Height="344" CornerRadius="27" Background="#252B33"
+                 BorderBrush="#45FFFFFF" BorderThickness="1" ClipToBounds="True">
+          <Image x:Name="Cover" Stretch="UniformToFill" Width="342" Height="342"/>
+         </Border>
+        </Viewbox>
+        <ScrollViewer x:Name="LyricsPanel" Visibility="Collapsed" Width="440" HorizontalAlignment="Center"
+                      Background="#DB0C1119" VerticalScrollBarVisibility="Auto">
+         <TextBlock x:Name="LyricsText" TextWrapping="Wrap" FontSize="20" Margin="24"
+                    LineHeight="32" TextAlignment="Center"/>
+        </ScrollViewer>
+       </Grid>
+       <Border Grid.Row="2" MaxWidth="545" HorizontalAlignment="Center"
+               Background="#61111820" BorderBrush="#32FFFFFF" BorderThickness="1"
+               CornerRadius="25" Padding="18,14,18,12">
+        <StackPanel Width="455" HorizontalAlignment="Center">
+         <TextBlock x:Name="FullTitle" TextAlignment="Center" FontSize="22" FontWeight="SemiBold"
+                    TextTrimming="CharacterEllipsis"/>
+         <TextBlock x:Name="FullArtist" TextAlignment="Center" FontSize="15" Foreground="#CDD1D9"
+                    Margin="0,5,0,4"/>
+         <Slider x:Name="FullSeek" Minimum="0" Maximum="1"
+                 PreviewMouseLeftButtonDown="SeekStart" PreviewMouseLeftButtonUp="SeekEnd"
+                 Margin="0,10,0,0"/>
+         <TextBlock x:Name="FullTime" FontSize="12" Foreground="#CCD0D8" HorizontalAlignment="Center" Margin="0,3,0,4"/>
+         <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+          <Button Content="⇄" FontSize="20" Click="ShuffleClick"/>
+          <Button Content="|◁" FontSize="20" Click="PreviousClick"/>
+          <Button x:Name="FullPlay" Content="▶" FontSize="26" Width="72" Height="64"
+                  Background="#5A555E6A" Click="ToggleClick"/>
+          <Button Content="▷|" FontSize="20" Click="NextClick"/>
+          <Button Content="↻" FontSize="20" Click="RepeatClick"/>
+         </StackPanel>
+         <Button Content="Очередь воспроизведения" Click="QueueClick" Background="#1BFFFFFF"
+                 FontSize="12" Margin="0,6,0,0"/>
+         <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,9,0,0">
+          <TextBlock Text="♪" Foreground="#DFE1E6" FontSize="18" VerticalAlignment="Center" Margin="0,0,10,0"/>
+          <Slider x:Name="FullVolumeSlider" Width="180" Minimum="0" Maximum="100" Value="100"
+                  ValueChanged="VolumeChanged" AutoToolTipPlacement="TopLeft" AutoToolTipPrecision="0"/>
+          <TextBlock x:Name="FullVolumeValue" Text="100%" Width="40" Foreground="#D5D6DD" FontSize="12"
+                     TextAlignment="Right" VerticalAlignment="Center" Margin="8,0,0,0"/>
+         </StackPanel>
+        </StackPanel>
+       </Border>
+      </Grid>
      </Grid>
     </Grid>
    </Border>
