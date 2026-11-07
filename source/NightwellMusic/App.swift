@@ -498,9 +498,14 @@ struct NativeRoot: View {
                         .frame(width: 42, height: 42)
                         .background(Color(white: 0.07), in: RoundedRectangle(cornerRadius: 12))
                         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.white.opacity(0.20), lineWidth: 0.8))
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("Nightwell").font(.system(size: 25, weight: .bold))
-                        Text("M U S I C").font(.caption).foregroundStyle(.secondary)
+                    // Keep the clickable logo, but hide the Nightwell/MUSIC wordmark
+                    // when a library section is scrolled. The section name takes its place.
+                    if !(collectionTitleCollapsed && (store.screen == .likes || store.screen == .playlists)) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Nightwell").font(.system(size: 25, weight: .bold))
+                            Text("M U S I C").font(.caption).foregroundStyle(.secondary)
+                        }
+                        .transition(.opacity)
                     }
                 }.contentShape(Rectangle())
             }
@@ -509,7 +514,7 @@ struct NativeRoot: View {
             .accessibilityLabel("На главную")
             if collectionTitleCollapsed && (store.screen == .likes || store.screen == .playlists) {
                 Text(store.screen == .likes ? "Избранное" : "Плейлисты")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.88))
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
@@ -527,7 +532,10 @@ struct NativeRoot: View {
                     .frostedGlass(22, bordered: false, intensity: 0.20)
             }
             .accessibilityLabel("Меню")
-        }.padding(.horizontal, 20).padding(.top, 8)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+        .animation(reducedMotion ? nil : .easeInOut(duration: 0.18), value: collectionTitleCollapsed)
     }
     private func updateCollectionTitle(offset: CGFloat) {
         guard store.screen == .likes || store.screen == .playlists else { return }
