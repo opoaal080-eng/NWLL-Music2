@@ -38,7 +38,7 @@ public partial class MainWindow {
  void SetMode(Button button,bool active){if(button.Tag is bool previous&&previous==active)return;button.Tag=active;button.Background=active?(Brush)FindResource("SelectionBrush"):Brushes.Transparent;button.Foreground=(Brush)FindResource(active?"AccentBrush":"TextBrush");button.BorderBrush=active?(Brush)FindResource("LineBrush"):Brushes.Transparent;}
  void InterfaceKeyDown(object sender,KeyEventArgs e){
   if(Keyboard.FocusedElement is TextBox or PasswordBox or ComboBox)return;
-  if(e.Key==Key.Escape){if(backgroundOnly){LeaveBackgroundMode();Show("Главная");}else if(LyricsPanel.Visibility==Visibility.Visible)CloseLyricsClick(sender,e);else if(PlayerPage.Visibility==Visibility.Visible)Show(screen);else Show("Главная");e.Handled=true;}
+  if(e.Key==Key.Escape){if(backgroundOnly){LeaveBackgroundMode();Show("Главная");}else if(LyricsPanel.Visibility==Visibility.Visible)CloseLyricsClick(sender,e);else if(PlayerPage.Visibility==Visibility.Visible)ReturnFromPlayer();else Show("Главная");e.Handled=true;}
   else if(e.Key==Key.Space&&Keyboard.FocusedElement is not System.Windows.Controls.Primitives.ButtonBase){ToggleClick(sender,e);e.Handled=true;}
  }
  static (Color,Color) ArtworkPalette(BitmapSource source){
