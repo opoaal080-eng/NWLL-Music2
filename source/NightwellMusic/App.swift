@@ -11,8 +11,7 @@ import UniformTypeIdentifiers
                 if firstRunCompleted { NativeRoot() }
                 else { NightwellFirstLaunch { firstRunCompleted = true } }
             }
-            .environmentObject(store)
-            .preferredColorScheme(.dark)
+            .environmentObject(store).preferredColorScheme(.dark)
         }
     }
 }
@@ -241,29 +240,29 @@ private struct StableNavigationSheet: View {
                         .foregroundStyle(status == "Онлайн" ? .green :
                                          status == "Ограничен" ? .orange : .white.opacity(0.65))
                         .padding(.horizontal, 18).padding(.vertical, 8)
-                    ForEach(MusicStore.Screen.allCases, id: \.self) { screen in
-                        entry(screen.rawValue, icon: screen == .home ? "house" :
-                              screen == .search ? "magnifyingglass" :
-                              screen == .likes ? "heart" :
-                              screen == .playlists ? "music.note.list" : "arrow.down.to.line",
-                              action: .screen(screen))
+                    if !signedIn {
+                        entry("Войти", icon: "person.crop.circle", action: .authentication)
+                        entry("Главная", icon: "house", action: .screen(.home))
+                        entry("Настройки", icon: "gearshape", action: .settings)
+                    } else {
+                        entry("Главная", icon: "house", action: .screen(.home))
+                        entry("Избранное", icon: "heart", action: .screen(.likes))
+                        entry("Плейлисты", icon: "music.note.list", action: .screen(.playlists))
+                        entry("Офлайн", icon: "arrow.down.to.line", action: .screen(.offline))
+                        Divider().overlay(.white.opacity(0.16)).padding(.vertical, 6)
+                        entry("Моя статистика", icon: "chart.bar", action: .statistics)
+                        entry("Nightwell Premium", icon: "star", action: .premium)
+                        entry("Настройки", icon: "gearshape", action: .settings)
+                        entry("Обращения и поддержка", icon: "envelope", action: .support)
+                        entry("Выйти", icon: "rectangle.portrait.and.arrow.right", action: .authentication)
                     }
-                    Divider().overlay(.white.opacity(0.16)).padding(.vertical, 8)
-                    entry("Только фон", icon: "sparkles", action: .backgroundOnly)
-                    entry("Моя статистика", icon: "chart.bar", action: .statistics)
-                    entry("Nightwell Premium", icon: "star", action: .premium)
-                    entry("Перенести музыку", icon: "square.and.arrow.down", action: .transfer)
-                    entry("Настройки", icon: "gearshape", action: .settings)
-                    entry("Настройка подборки", icon: "slider.horizontal.3", action: .waveSettings)
-                    entry("Обращения и поддержка", icon: "envelope", action: .support)
-                    entry(signedIn ? "Выйти" : "Войти", icon: "person", action: .authentication)
                 }
                 .padding(.horizontal, 20).padding(.bottom, 24)
             }
         }
         .tint(.white)
         .preferredColorScheme(.dark)
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.height(430), .large])
         .presentationDragIndicator(.visible)
         .presentationBackground(Color(red: 0.055, green: 0.055, blue: 0.065))
     }
@@ -411,6 +410,7 @@ struct NativeRoot: View {
         .sheet(isPresented: $premiumPresented) { PremiumView(api: store.api) }
         .overlay { if launching { MonochromeNightwellLaunch().transition(.opacity) } }
         .task { try? await Task.sleep(nanoseconds: reducedMotion ? 150_000_000 : 1_200_000_000); withAnimation(.easeOut(duration: 0.3)) { launching = false } }
+        .onChange(of: store.account?.id) { _ in Task { await store.refreshProfile() } }
         .task { await store.start()
             #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("--native-smoke-focus") { backgroundOnly = true }
@@ -503,8 +503,15 @@ struct NativeRoot: View {
             Spacer()
             Button { if store.screen == .search { store.screen = .home } else { store.screen = .search } } label: { Image(systemName: store.screen == .search ? "xmark" : "magnifyingglass").font(.system(size: 19, weight: .medium)).foregroundStyle(.white).frame(width: 44, height: 44).frostedGlass(22, bordered: false, intensity: 0.20) }.accessibilityLabel(store.screen == .search ? "Закрыть поиск" : "Поиск")
             Button { navigationMenuPresented = true } label: {
-                Image(systemName: "line.3.horizontal")
-                    .font(.system(size: 19, weight: .medium))
+                Group {
+                    if let avatar=store.profileAvatar {
+                        Image(uiImage:avatar).resizable().scaledToFill()
+                    } else {
+                        Image(systemName:"person.crop.circle")
+                            .font(.system(size:19,weight:.medium))
+                    }
+                }
+                    .clipShape(Circle())
                     .foregroundStyle(.white)
                     .frame(width: 44, height: 44)
                     .frostedGlass(22, bordered: false, intensity: 0.20)
