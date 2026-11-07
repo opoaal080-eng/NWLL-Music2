@@ -535,7 +535,6 @@ struct FullPlayer: View {
                         SharedLyricsPanel(model: store.lyrics, clock: clock)
                             .id(clock.id)
                             .background { GeometryReader { proxy in Color.clear.preference(key: PlayerLyricsFramePreference.self, value: proxy.frame(in: .global)) } }
-                            .onTapGesture { withAnimation(.easeInOut(duration: 0.22)) { showLyrics = false } }
                     } else {
                         Cover(track: clock.current, origin: store.origin, pixelWidth: 1024)
                             .frame(width: min(box.size.width, box.size.height) * 0.9, height: min(box.size.width, box.size.height) * 0.9)
@@ -755,8 +754,10 @@ struct LyricsView: View {
     private var artworkGradient: LinearGradient { LinearGradient(colors: artworkColors, startPoint: .leading, endPoint: .trailing) }
     let lyrics: Lyrics?
     let position: Double
+    var seekTo: ((Double) -> Void)? = nil
     @State private var resumeFollowingAt = Date.distantPast
     @State private var followingPlayback = true
+    @State private var selectedLine: Int?
     var active: Int { (lyrics?.lines ?? []).lastIndex { $0.time <= position } ?? -1 }
     var body: some View {
         ScrollViewReader { reader in
@@ -765,14 +766,32 @@ struct LyricsView: View {
                     if let lyrics {
                         if lyrics.synced == true, let lines = lyrics.lines {
                             ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
-                                Text(line.text)
-                                    .font(.system(size: index == active ? 32 : 26, weight: .bold, design: .rounded))
-                                    .foregroundStyle(index == active ? Color.white : Color.white.opacity(0.42))
-                                    .shadow(color: index == active ? nightwellText.opacity(0.32) : .clear, radius: 8)
-                                    .shadow(color: index == active ? Color.white.opacity(0.10) : .clear, radius: 18)
-                                    .multilineTextAlignment(.center)
-                                    .frame(maxWidth: .infinity)
-                                    .id(index)
+                                let highlighted = index == (selectedLine ?? active)
+                                let canSeek = line.time.isFinite && line.time >= 0 &&
+                                    !line.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                Button {
+                                    guard canSeek else { return }
+                                    selectedLine = index
+                                    followingPlayback = true
+                                    resumeFollowingAt = .distantPast
+                                    seekTo?(line.time)
+                                    withAnimation(.easeInOut(duration: 0.25)) {
+                                        reader.scrollTo(index, anchor: .center)
+                                    }
+                                } label: {
+                                    Text(line.text)
+                                        .font(.system(size: highlighted ? 32 : 26, weight: .bold, design: .rounded))
+                                        .foregroundStyle(highlighted ? Color.white : Color.white.opacity(0.42))
+                                        .shadow(color: highlighted ? nightwellText.opacity(0.32) : .clear, radius: 8)
+                                        .shadow(color: highlighted ? Color.white.opacity(0.10) : .clear, radius: 18)
+                                        .multilineTextAlignment(.center)
+                                        .frame(maxWidth: .infinity, minHeight: 44)
+                                        .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(!canSeek)
+                                .accessibilityLabel("Перемотать к строке: \\(line.text)")
+                                .id(index)
                             }
                         } else {
                             Text(lyrics.plain ?? lyrics.message ?? (lyrics.searching ? "Ищем текст…" : "Текст пока не найден"))
@@ -810,8 +829,14 @@ struct LyricsView: View {
                 withAnimation(.easeInOut(duration: 0.4)) { reader.scrollTo(active, anchor: .center) }
             }
             .onChange(of: active) { next in
+                selectedLine = nil
                 guard next >= 0, followingPlayback else { return }
                 withAnimation(.easeInOut(duration: 0.3)) { reader.scrollTo(next, anchor: .center) }
+            }
+            .onChange(of: lyrics) { _ in
+                selectedLine = nil
+                followingPlayback = true
+                resumeFollowingAt = .distantPast
             }
         }
     }
