@@ -268,6 +268,13 @@ private struct StableNavigationSheet: View {
     }
 }
 
+private struct CollectionScrollOffsetKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
 struct NativeRoot: View {
     @EnvironmentObject var store: MusicStore
     @State private var feature: PremiumFeatureView.Kind?
@@ -279,6 +286,7 @@ struct NativeRoot: View {
     @State private var premiumPresented = false
     @State private var transferPresented = false
     @State private var favoriteSort = "recent"
+    @State private var collectionScrolled = false
     @ObservedObject private var favoritePremium = PremiumFeatureState.shared
     @State private var fullPlayer = false
     @State private var selectedArtist: ArtistSelection?
@@ -427,7 +435,10 @@ struct NativeRoot: View {
         .simultaneousGesture(DragGesture(minimumDistance: 35).onEnded { gesture in
             if gesture.startLocation.x < 24 && gesture.translation.width > 90 && abs(gesture.translation.height) < 60 { store.screen = .home }
         })
-        .onChange(of: store.screen) { _ in if store.screen != .search { store.leaveSearch() } }
+        .onChange(of: store.screen) { _ in
+            collectionScrolled = false
+            if store.screen != .search { store.leaveSearch() }
+        }
         .onOpenURL { openSharedURL($0) }
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
             if let url = activity.webpageURL { openSharedURL(url) }
@@ -477,108 +488,91 @@ struct NativeRoot: View {
             }
         }
     }
-    private var header: some View {
-        HStack {
-            Button {
-                withAnimation(reducedMotion ? nil : .easeInOut(duration: 0.22)) {
-                    store.screen = .home
-                }
-            } label: {
-                HStack(spacing: 9) {
-                    Text("N")
-                        .font(.system(size: 29, weight: .black, design: .rounded))
-                        .foregroundStyle(.white)
-                        .frame(width: 42, height: 42)
-                        .background(Color(white: 0.07), in: RoundedRectangle(cornerRadius: 12))
-                        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.white.opacity(0.20), lineWidth: 0.8))
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("Nightwell").font(.system(size: 25, weight: .bold))
-                        Text("M U S I C").font(.caption).foregroundStyle(.secondary)
-                    }
-                }.contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(nightwellText)
-            .accessibilityLabel("На главную")
-            Spacer()
-            Button { if store.screen == .search { store.screen = .home } else { store.screen = .search } } label: { Image(systemName: store.screen == .search ? "xmark" : "magnifyingglass").font(.system(size: 19, weight: .medium)).foregroundStyle(.white).frame(width: 44, height: 44).frostedGlass(22, bordered: false, intensity: 0.20) }.accessibilityLabel(store.screen == .search ? "Закрыть поиск" : "Поиск")
-            Button { navigationMenuPresented = true } label: {
-                Group {
-                    if let avatar=store.profileAvatar {
-                        Image(uiImage:avatar).resizable().scaledToFill()
-                    } else {
-                        Image(systemName:"person.crop.circle")
-                            .font(.system(size:19,weight:.medium))
-                    }
-                }
-                    .clipShape(Circle())
-                    .foregroundStyle(.white)
-                    .frame(width: 44, height: 44)
-                    .frostedGlass(22, bordered: false, intensity: 0.20)
-            }
-            .accessibilityLabel("Меню")
-        }.padding(.horizontal, 20).padding(.top, 8)
-    }
-    private var favoriteTracks: [Track] {
-        let entries = store.catalog.filter { store.likes.contains($0.id) }
-        guard favoritePremium.allowed else { return entries }
-        if favoriteSort == "title" { return entries.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending } }
-        if favoriteSort == "artist" { return entries.sorted { $0.artist.localizedStandardCompare($1.artist) == .orderedAscending } }
-        return entries
-    }
-    @ViewBuilder private var content: some View {
+    private var compactCollectionTitle: String? {
+        guard collectionScrolled else { return nil }
         switch store.screen {
-        case .home:
-            NativeHome(configureWave: { waveSettingsPresented = true }, clock: store.clock)
-        case .search:
-            VStack(alignment: .leading, spacing: 14) {
-                Text("Поиск").font(.largeTitle.bold())
-                HStack { Image(systemName: "magnifyingglass"); TextField("Трек или исполнитель", text: $store.query).textInputAutocapitalization(.never).autocorrectionDisabled().onChange(of: store.query) { _ in store.scheduleSearch() }; if !store.query.isEmpty { Button { store.query = "" } label: { Image(systemName: "xmark.circle.fill") } } }.padding(14)
-                    .background { RoundedRectangle(cornerRadius: 18).fill(.ultraThinMaterial).opacity(0.48) }
-                    .overlay(RoundedRectangle(cornerRadius: 18).stroke(.white.opacity(0.28), lineWidth: 1))
-                if !store.searchMessage.isEmpty { Text(store.searchMessage).font(.caption).foregroundStyle(.secondary) }
-                // Prepared off the UI thread. Never rescan the whole catalogue while typing.
-                let combinedArtists = store.searchArtistSuggestions
-                if !combinedArtists.isEmpty {
-                    Text("Исполнители").font(.headline)
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 9) {
-                            ForEach(combinedArtists) { artist in
-                                Button { selectedArtist = ArtistSelection(name: artist.name) } label: {
-                                    HStack(spacing: 8) {
-                                        ArtistPortrait(name: artist.name, imageURL: artist.image_url, size: 30)
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text(artist.name).font(.system(size: 13, weight: .medium))
-                                            if let count = artist.track_count {
-                                                Text("\(count) треков").font(.system(size: 10)).foregroundStyle(.secondary)
-                                            }
+        case .likes:
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    collectionScrollMarker
+                    HStack(alignment: .center, spacing: 8) {
+                        collectionHeading("Избранное", tracks: favoriteTracks, kind: "likes")
+                        Spacer(minLength: 0)
+                        Menu {
+                            if favoritePremium.allowed {
+                                Button("Недавние") { favoriteSort = "recent" }
+                                Button("По названию") { favoriteSort = "title" }
+                                Button("По исполнителю") { favoriteSort = "artist" }
+                            } else {
+                                Button("Оформить Premium") { premiumPresented = true }
+                            }
+                        } label: {
+                            Image(systemName: "arrow.up.arrow.down")
+                                .font(.system(size: 16))
+                                .frame(width: 44, height: 44)
+                        }
+                        .accessibilityLabel("Сортировка избранного")
+                    }
+                    TrackList(tracks: favoriteTracks, embedded: true)
+                }
+                .padding(.horizontal, 20)
+            }
+            .coordinateSpace(name: "nightwell-library-scroll")
+            .onPreferenceChange(CollectionScrollOffsetKey.self, perform: updateCollectionScroll)
+            .scrollDismissesKeyboard(.interactively)
+        case .playlists:
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    collectionScrollMarker
+                    HStack {
+                        Text("Плейлисты").font(.largeTitle.bold())
+                        Spacer()
+                        Button { createPlaylist = true } label: {
+                            Image(systemName: "plus").frame(width: 44, height: 44)
+                        }
+                        .accessibilityLabel("Новый плейлист")
+                    }
+                    Button("Умные плейлисты · Premium") { feature = .smart }
+                    DailyPublicPlaylistsView(store: store)
+                    LazyVStack(spacing: 12) {
+                        ForEach(store.playlists) { playlist in
+                            HStack {
+                                Button { selectedPlaylist = playlist } label: {
+                                    Text(playlist.name)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(.vertical, 16)
+                                }
+                                Menu {
+                                    Button("Скачать", systemImage: "arrow.down.to.line") {
+                                        Task {
+                                            do { await store.download(try await store.playlistTracks(playlist.id)) }
+                                            catch { store.error = error.localizedDescription }
                                         }
                                     }
-                                    .padding(.horizontal, 10).padding(.vertical, 6)
-                                    .background(.white.opacity(0.09), in: Capsule())
-                                }.buttonStyle(.plain)
+                                    Button("Поделиться", systemImage: "square.and.arrow.up") {
+                                        Task {
+                                            shareText = await store.share(
+                                                kind: "playlist", playlist: playlist.id, title: playlist.name)
+                                            showShare = shareText != nil
+                                        }
+                                    }
+                                    Button("Удалить", role: .destructive) {
+                                        Task { await store.deletePlaylist(playlist.id) }
+                                    }
+                                } label: {
+                                    Image(systemName: "ellipsis").frame(width: 44, height: 44)
+                                }
                             }
+                            .padding(.horizontal, 18)
+                            .glass()
                         }
                     }
                 }
-                TrackList(tracks: store.results)
-            }.padding(.horizontal, 20)
-        case .likes:
-            VStack(alignment: .leading) { HStack { collectionHeading("Избранное", tracks: favoriteTracks, kind: "likes"); Spacer(); Menu { if favoritePremium.allowed { Button("Недавние") { favoriteSort = "recent" }; Button("По названию") { favoriteSort = "title" }; Button("По исполнителю") { favoriteSort = "artist" } } else { Button("Оформить Premium") { premiumPresented = true } } } label: { Label("Сортировка · Premium", systemImage: "arrow.up.arrow.down").font(.caption) } }; TrackList(tracks: favoriteTracks) }.padding(.horizontal, 20)
-        case .playlists:
-            VStack(alignment: .leading, spacing: 16) {
-                Button("Умные плейлисты · Premium") { feature = .smart }
-                DailyPublicPlaylistsView(store: store)
-                HStack { Text("Плейлисты").font(.largeTitle.bold()); Spacer(); Button { createPlaylist = true } label: { Image(systemName: "plus") } }
-                ScrollView { LazyVStack(spacing: 12) { ForEach(store.playlists) { p in
-                    HStack { Button { selectedPlaylist = p } label: { Text(p.name).frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 16) }; Menu {
-                        Button("Скачать", systemImage: "arrow.down.to.line") { Task { do { await store.download(try await store.playlistTracks(p.id)) } catch { store.error = error.localizedDescription } } }
-                        Button("Поделиться", systemImage: "square.and.arrow.up") { Task { shareText = await store.share(kind: "playlist", playlist: p.id, title: p.name); showShare = shareText != nil } }
-                        Button("Удалить", role: .destructive) { Task { await store.deletePlaylist(p.id) } }
-                    } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }
-                    }.padding(.horizontal, 18).glass()
-                } } }
-            }.padding(.horizontal, 20)
+                .padding(.horizontal, 20)
+            }
+            .coordinateSpace(name: "nightwell-library-scroll")
+            .onPreferenceChange(CollectionScrollOffsetKey.self, perform: updateCollectionScroll)
+            .scrollDismissesKeyboard(.interactively)
         case .offline:
             VStack(alignment: .leading, spacing: 16) {
                 HStack {
@@ -633,14 +627,32 @@ struct TrackList: View {
     @EnvironmentObject var store: MusicStore
     let tracks: [Track]
     var playlist: Playlist? = nil
-    var body: some View {
-        ScrollView {
-            LazyVStack(spacing: 6) {
-                if tracks.isEmpty { Text(store.account == nil && store.screen != .offline ? "Войди в аккаунт или открой офлайн-файлы" : "Здесь пока нет треков").foregroundStyle(.secondary).padding(.top, 30) }
-                ForEach(tracks) { track in NativeTrackRow(track: track, queue: tracks, status: store.clock.status, playlist: playlist) }
+    var embedded = false
+
+    private var rows: some View {
+        LazyVStack(spacing: 6) {
+            if tracks.isEmpty {
+                Text(store.account == nil && store.screen != .offline
+                     ? "Войди в аккаунт или открой офлайн-файлы"
+                     : "Здесь пока нет треков")
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 30)
+            }
+            ForEach(tracks) { track in
+                NativeTrackRow(track: track, queue: tracks, status: store.clock.status, playlist: playlist)
             }
         }
-        .scrollDismissesKeyboard(.interactively)
+    }
+
+    @ViewBuilder var body: some View {
+        Group {
+            if embedded {
+                rows
+            } else {
+                ScrollView { rows }
+                    .scrollDismissesKeyboard(.interactively)
+            }
+        }
         .task(id: tracks.prefix(6).map { $0.id }.joined(separator: "|")) {
             let urls = tracks.prefix(6).compactMap {
                 CoverImagePipeline.coverURL(for: $0, origin: store.origin)
