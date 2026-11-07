@@ -974,9 +974,9 @@ struct NativeSettings: View {
                         Button("Импортировать плейлисты") { transferPresented = true }
                             .disabled(store.account == nil)
                         Text("Переноси музыку из файлов и других сервисов.")
-                            .font(.system(size:12)).foregroundStyle(.white.opacity(.5))
+                            .font(.system(size:12)).foregroundStyle(.white.opacity(0.5))
                     }.padding(16).frame(maxWidth:.infinity,alignment:.leading)
-                        .background(.white.opacity(.035),in:RoundedRectangle(cornerRadius:24))
+                        .background(.white.opacity(0.035),in:RoundedRectangle(cornerRadius:24))
                     .sheet(isPresented:$transferPresented) { NightwellNativeTransfer().environmentObject(store) }
                     VStack(alignment: .leading, spacing: 8) {
                         Button("Темы и ленты · Premium") { feature = .appearance }
