@@ -1002,7 +1002,7 @@ struct ShareSheet: UIViewControllerRepresentable {
 
 
 
-private struct NightwellNativeTransfer: View {
+struct NightwellNativeTransfer: View {
     @EnvironmentObject private var store: MusicStore
     @Environment(\.dismiss) private var dismiss
     @State private var showingFile = false
