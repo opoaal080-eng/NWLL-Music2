@@ -13,7 +13,19 @@ public partial class MainWindow {
  public ImageSource? ActiveArtwork{get=>(ImageSource?)GetValue(ActiveArtworkProperty);set=>SetValue(ActiveArtworkProperty,value);}
  bool backgroundOnly;
  void LogoHomeClick(object sender,RoutedEventArgs e){LeaveBackgroundMode();Show("Главная");}
- void LeaveBackgroundMode(){backgroundOnly=false;Status.ClearValue(VisibilityProperty);Header.Visibility=HomeControls.Visibility=HomeHeading.Visibility=PlaybackBadge.Visibility=Visibility.Visible;HeaderRow.Height=new GridLength(58);MouseDoubleClick-=RestoreBackground;}
+ void LeaveBackgroundMode(){backgroundOnly=false;Status.ClearValue(VisibilityProperty);Header.Visibility=HomeControls.Visibility=PlaybackBadge.Visibility=Visibility.Visible;HomeHeading.Visibility=Visibility.Collapsed;HeaderRow.Height=new GridLength(58);MouseDoubleClick-=RestoreBackground;}
+ void UpdateCoverBackdrop(Color primary,Color secondary){
+  Ribbon.SetPalette(primary,secondary);
+  var brush=new RadialGradientBrush{
+   Center=new Point(.48,.15),
+   GradientOrigin=new Point(.48,.15),
+   RadiusX=.95,RadiusY=1.15
+  };
+  brush.GradientStops.Add(new GradientStop(Color.FromArgb(118,primary.R,primary.G,primary.B),0));
+  brush.GradientStops.Add(new GradientStop(Color.FromArgb(55,secondary.R,secondary.G,secondary.B),.53));
+  brush.GradientStops.Add(new GradientStop(Color.FromArgb(0,11,11,11),1));
+  PlayerPage.Background=brush;
+ }
  void UpdatePlaybackChrome(){
   PlayingTrackId=currentID;Ribbon.Playing=audioPlaying;Ribbon.Intensity=userVolume;Ribbon.Focused=PlayerPage.Visibility==Visibility.Visible;
   FullLike.Content=MiniLike.Content=likes.Contains(currentID)?"♥":"♡";
@@ -32,7 +44,15 @@ public partial class MainWindow {
  static (Color,Color) ArtworkPalette(BitmapSource source){
   try{var tiny=new TransformedBitmap(source,new ScaleTransform(24.0/source.PixelWidth,24.0/source.PixelHeight));var converted=new FormatConvertedBitmap(tiny,PixelFormats.Bgra32,null,0);byte[] pixels=new byte[24*24*4];converted.CopyPixels(pixels,96,0);
    double r=0,g=0,b=0,total=0;for(int i=0;i<pixels.Length;i+=4){if(pixels[i+3]<120)continue;double hi=Math.Max(pixels[i],Math.Max(pixels[i+1],pixels[i+2])),lo=Math.Min(pixels[i],Math.Min(pixels[i+1],pixels[i+2]));if(hi<28||lo>224)continue;double weight=.3+(hi-lo)/255.0;r+=pixels[i+2]*weight;g+=pixels[i+1]*weight;b+=pixels[i]*weight;total+=weight;}
-   if(total>0){byte Bound(double value)=>(byte)Math.Clamp(38+value/total*.53,45,165);byte light=Bound(.2126*r+.7152*g+.0722*b);var a=Color.FromRgb(light,light,light);byte soft=(byte)((light+128)/2);var other=Color.FromRgb(soft,soft,soft);return(a,other);}
+   if(total>0){
+    byte Bound(double value)=>(byte)Math.Clamp(22+value/total*.74,32,188);
+    var primary=Color.FromRgb(Bound(r),Bound(g),Bound(b));
+    var secondary=Color.FromRgb(
+     (byte)Math.Clamp(primary.R*.65+primary.B*.22,28,170),
+     (byte)Math.Clamp(primary.G*.72+primary.R*.16,28,170),
+     (byte)Math.Clamp(primary.B*.74+primary.G*.14,28,170));
+    return(primary,secondary);
+   }
   }catch{}
   return(Color.FromRgb(123,123,123),Color.FromRgb(106,106,106));
  }
