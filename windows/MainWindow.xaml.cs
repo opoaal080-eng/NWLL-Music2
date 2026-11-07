@@ -87,7 +87,41 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
  async Task Guard(Func<Task> action){try{await action();}catch(OperationCanceledException){}catch(Exception e){Status.Text=e.Message;}}
  List<Track> ParseTracks(JsonElement json)=>json.GetProperty("tracks").Deserialize<List<Track>>()??[];
  async Task LoadAccount(){await Guard(async()=>{var me=await api.Request("api/me");api.Csrf=me.GetProperty("csrf").GetString()??"";account=me.GetProperty("user").ValueKind==JsonValueKind.Object?me.GetProperty("user").GetProperty("id").GetString()??"":"";if(account.Length==0){Status.Text="Войди в аккаунт или открой офлайн-файлы";return;}var tasks=await Task.WhenAll(api.Request("api/tracks"),api.Request("api/likes"),api.Request("api/playlists"));catalog=ParseTracks(tasks[0]);likes=tasks[1].GetProperty("ids").Deserialize<HashSet<string>>()??[];playlists=tasks[2].GetProperty("playlists").Deserialize<List<Playlist>>()??[];SidebarPlaylists.ItemsSource=playlists.ToList();Status.Text="";if(screen!="Поиск")Show(screen);});}
- void Show(string next){searchCancellation?.Cancel();screen=next;playlist="";Dock.Visibility=Visibility.Visible;Home.Visibility=next=="Главная"?Visibility.Visible:Visibility.Collapsed;Library.Visibility=next=="Главная"?Visibility.Collapsed:Visibility.Visible;PlayerPage.Visibility=Visibility.Collapsed;Heading.Text=next;Ribbon.Visibility=next=="Главная"?Visibility.Visible:Visibility.Collapsed;Ribbon.Focused=false;LibraryEyebrow.Text=next=="Поиск"?"НАХОДИ НОВОЕ":"ТВОЯ МУЗЫКА";EmptyStateTitle.Text=next=="Поиск"?"Найди свою музыку":next=="Офлайн"?"Музыка всегда с тобой":"Твоя музыка будет здесь";EmptyStateBody.Text=next=="Поиск"?"Введи название трека или имя исполнителя":next=="Офлайн"?"Скачай треки или добавь файлы с компьютера":"Добавляй любимые треки и возвращайся к ним";SearchOptions.Visibility=SearchBox.Visibility=next=="Поиск"?Visibility.Visible:Visibility.Collapsed;CollectionActions.Visibility=next=="Поиск"?Visibility.Collapsed:Visibility.Visible;if(next=="Поиск"){SearchBox.Focus();shown=[];}else if(next=="Избранное"){shown=catalog.Where(t=>likes.Contains(t.id)).ToList();if(premiumSortAllowed&&favoriteOrder=="title")shown=shown.OrderBy(t=>t.title,StringComparer.CurrentCultureIgnoreCase).ToList();else if(premiumSortAllowed&&favoriteOrder=="artist")shown=shown.OrderBy(t=>t.artist,StringComparer.CurrentCultureIgnoreCase).ToList();}else if(next=="Офлайн"){shown=[];_=LoadOfflineTracksAsync();}else if(next=="Плейлисты"){shown=[];}Tracks.ItemsSource=shown;}
+ void Show(string next){
+  searchCancellation?.Cancel();
+  screen=next;
+  playlist="";
+  if(next=="Главная"){
+   librarySidebarOpen=false;
+   LibrarySideColumn.Width=new GridLength(0);
+   LibrarySidebar.Visibility=Visibility.Collapsed;
+   SidebarToggle.Content="Медиатека";
+   Library.Visibility=SidebarPlaylists.Visibility=Visibility.Collapsed;
+   PlayerPage.Visibility=Visibility.Collapsed;
+   Home.Visibility=Dock.Visibility=Ribbon.Visibility=Visibility.Visible;
+   Ribbon.Focused=false;
+   return;
+  }
+  librarySidebarOpen=true;
+  LibrarySideColumn.Width=new GridLength(344);
+  LibrarySidebar.Visibility=Visibility.Visible;
+  SidebarToggle.Content="Скрыть медиатеку";
+  if(PlayerPage.Visibility!=Visibility.Visible){
+   Home.Visibility=Dock.Visibility=Visibility.Visible;
+   Ribbon.Focused=false;
+  }
+  Ribbon.Visibility=Visibility.Visible;
+  Heading.Text=next;
+  Library.Visibility=next=="Плейлисты"?Visibility.Collapsed:Visibility.Visible;
+  SidebarPlaylists.Visibility=next=="Плейлисты"?Visibility.Visible:Visibility.Collapsed;
+  LibraryEyebrow.Text=next=="Поиск"?"НАХОДИ НОВОЕ":"ТВОЯ МУЗЫКА";
+  EmptyStateTitle.Text=next=="Поиск"?"Найди свою музыку":next=="Офлайн"?"Музыка всегда с тобой":"Твоя музыка будет здесь";
+  EmptyStateBody.Text=next=="Поиск"?"Введи название трека или имя исполнителя":next=="Офлайн"?"Скачай треки или добавь файлы с компьютера":"Добавляй любимые треки и возвращайся к ним";
+  SearchOptions.Visibility=SearchBox.Visibility=next=="Поиск"?Visibility.Visible:Visibility.Collapsed;
+  CollectionActions.Visibility=next=="Поиск"?Visibility.Collapsed:Visibility.Visible;
+  if(next=="Поиск"){SearchBox.Focus();shown=[];}else if(next=="Избранное"){shown=catalog.Where(t=>likes.Contains(t.id)).ToList();if(premiumSortAllowed&&favoriteOrder=="title")shown=shown.OrderBy(t=>t.title,StringComparer.CurrentCultureIgnoreCase).ToList();else if(premiumSortAllowed&&favoriteOrder=="artist")shown=shown.OrderBy(t=>t.artist,StringComparer.CurrentCultureIgnoreCase).ToList();}else if(next=="Офлайн"){shown=[];_=LoadOfflineTracksAsync();}else if(next=="Плейлисты"){shown=[];}
+  Tracks.ItemsSource=shown;
+ }
  async Task LoadOfflineTracksAsync(){try{
   var local=await Task.Run(ReadOffline);
   if(screen!="Офлайн")return;
@@ -227,20 +261,13 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
  async void SeekEnd(object sender,MouseButtonEventArgs e){if(roomCode.Length>0){scrubbing=false;await Guard(()=>RoomCommand("seek",position:FullSeek.Value));return;}long position=(long)(FullSeek.Value*1000);_=AudioCommand(()=>player.Time=position);scrubbing=false;}
  void ShuffleClick(object sender,RoutedEventArgs e){shuffle=!shuffle;Status.Text=shuffle?"Перемешивание включено":"Перемешивание выключено";UpdatePlaybackChrome();}
  void RepeatClick(object sender,RoutedEventArgs e){repeat=(repeat+1)%3;Status.Text=new[]{"Повтор выключен","Повтор очереди","Повтор трека"}[repeat];UpdatePlaybackChrome();}
- void OpenPlayerClick(object sender,MouseButtonEventArgs e){if(Current==null)return;Home.Visibility=Library.Visibility=Dock.Visibility=Visibility.Collapsed;PlayerPage.Visibility=Visibility.Visible;Ribbon.Visibility=Visibility.Visible;Ribbon.Focused=true;}
+ void OpenPlayerClick(object sender,MouseButtonEventArgs e){if(Current==null)return;Home.Visibility=Dock.Visibility=Visibility.Collapsed;PlayerPage.Visibility=Visibility.Visible;Ribbon.Visibility=Visibility.Visible;Ribbon.Focused=true;}
  void ClosePlayerClick(object sender,RoutedEventArgs e)=>ReturnFromPlayer();
  void ReturnFromPlayer(){
-  var previousScreen=screen;
-  var previousPlaylist=playlist;
-  var previousName=Heading.Text;
-  var previousTracks=shown;
-  Show(previousScreen);
-  if(previousScreen=="Плейлисты"&&previousPlaylist.Length>0){
-   playlist=previousPlaylist;
-   Heading.Text=previousName;
-   shown=previousTracks;
-   Tracks.ItemsSource=shown;
-  }
+  PlayerPage.Visibility=Visibility.Collapsed;
+  Home.Visibility=Dock.Visibility=Visibility.Visible;
+  Ribbon.Visibility=Visibility.Visible;
+  Ribbon.Focused=false;
  }
  void CurrentMenuClick(object sender,RoutedEventArgs e){if(Current!=null)TrackMenu(Current,(UIElement)sender);}
  void TrackMenuClick(object sender,RoutedEventArgs e){if(sender is Button b&&b.Tag is Track t)TrackMenu(t,b);}
@@ -289,7 +316,7 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
  }
  void BackgroundClick(object sender,RoutedEventArgs e){backgroundOnly=true;Header.Visibility=Dock.Visibility=HomeControls.Visibility=HomeHeading.Visibility=Visibility.Collapsed;PlaybackBadge.Visibility=Status.Visibility=Visibility.Collapsed;HeaderRow.Height=new GridLength(0);MouseDoubleClick-=RestoreBackground;MouseDoubleClick+=RestoreBackground;}
  void RestoreBackground(object sender,MouseButtonEventArgs e){LeaveBackgroundMode();Show("Главная");}
- void ShowPlaylists(){var menu=new ContextMenu();foreach(var p in playlists){var item=new MenuItem{Header=p.name};item.Click+=async(_,_)=>await Guard(async()=>{playlist=p.id;screen=p.name;Heading.Text=p.name;shown=ParseTracks(await api.Request("api/playlists/"+p.id+"/tracks"));Tracks.ItemsSource=shown;});menu.Items.Add(item);}var add=new MenuItem{Header="＋ Создать плейлист"};add.Click+=(_,_)=>Prompt("Новый плейлист","Название",async name=>{await api.Request("api/playlists","POST",new{name});await LoadAccount();});menu.Items.Add(add);menu.PlacementTarget=CollectionActions;menu.IsOpen=true;}
+ void ShowPlaylists()=>Show("Плейлисты");
  void CollectionClick(object sender,RoutedEventArgs e){if(screen=="Плейлисты"&&playlist.Length==0){ShowPlaylists();return;}if(screen=="Избранное"){
  var favoritesMenu=new ContextMenu();
  var sortItem=new MenuItem{Header="Сортировать избранное"};sortItem.Click+=async(_,_)=>await SortFavorites();favoritesMenu.Items.Add(sortItem);
