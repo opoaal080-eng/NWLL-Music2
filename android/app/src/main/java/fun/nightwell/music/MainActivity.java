@@ -236,6 +236,9 @@ public final class MainActivity extends Activity {
     private HomeSparklesView atmosphere;
     private Runnable pendingSearch;
     private PopupWindow navigationPopup;
+    private android.widget.ImageView profileAvatarButton;
+    private android.graphics.Bitmap cachedProfileAvatar;
+    private String cachedProfileUser="", cachedProfileNickname="";
     private static final int PLAYLIST_DOCUMENT = 633;
     private AlertDialog transferDialog;
     private EditText transferInput,transferTitle;
@@ -330,7 +333,7 @@ public final class MainActivity extends Activity {
         TextView brandName=text("Nightwell",27);brandName.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);brandName.setTextColor(0xfff3f3f5);brandName.setIncludeFontPadding(false);brandName.setSingleLine(true);brandName.setAutoSizeTextTypeUniformWithConfiguration(20,27,1,android.util.TypedValue.COMPLEX_UNIT_SP);
         wordmark.addView(brandName,new LinearLayout.LayoutParams(-1,dp(33)));
         TextView brandCaption=text("M U S I C",12);brandCaption.setIncludeFontPadding(false);brandCaption.setSingleLine(true);brandCaption.setTextColor(0xff92959f);LinearLayout.LayoutParams captionParams=new LinearLayout.LayoutParams(-1,-2);captionParams.topMargin=dp(1);wordmark.addView(brandCaption,captionParams);
-        wordmark.setOnClickListener(v->navigate("Главная"));wordmark.setContentDescription("Nightwell Music, на главный экран");head.addView(wordmark,new LinearLayout.LayoutParams(0,-2,1));TextView searchButton=iconButton("⌕",()->navigate("Поиск"));searchButton.setBackground(touchSurface(0x40202228,24));head.addView(searchButton,new LinearLayout.LayoutParams(dp(48),dp(48)));TextView menuButton=iconButton("👤",this::menu);menuButton.setBackground(touchSurface(0x40202228,24));head.addView(menuButton,new LinearLayout.LayoutParams(dp(48),dp(48)));LinearLayout.LayoutParams headerParams=new LinearLayout.LayoutParams(-1,dp(58));headerParams.bottomMargin=dp(12);root.addView(head,headerParams);if(backgroundOnly)head.setVisibility(View.GONE);
+        wordmark.setOnClickListener(v->navigate("Главная"));wordmark.setContentDescription("Nightwell Music, на главный экран");head.addView(wordmark,new LinearLayout.LayoutParams(0,-2,1));TextView searchButton=iconButton("⌕",()->navigate("Поиск"));searchButton.setBackground(touchSurface(0x40202228,24));head.addView(searchButton,new LinearLayout.LayoutParams(dp(48),dp(48)));android.widget.ImageView menuButton=new android.widget.ImageView(this);menuButton.setImageResource(android.R.drawable.ic_menu_myplaces);menuButton.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);menuButton.setPadding(dp(8),dp(8),dp(8),dp(8));menuButton.setBackground(touchSurface(0x40202228,24));menuButton.setOnClickListener(v->menu());menuButton.setContentDescription("Меню профиля");profileAvatarButton=menuButton;head.addView(menuButton,new LinearLayout.LayoutParams(dp(48),dp(48)));refreshProfileAvatar();LinearLayout.LayoutParams headerParams=new LinearLayout.LayoutParams(-1,dp(58));headerParams.bottomMargin=dp(12);root.addView(head,headerParams);if(backgroundOnly)head.setVisibility(View.GONE);
         nightwellBadge = text("", 11);
         nightwellBadge.setContentDescription("Состояние подключения Nightwell");
         setNightwellStatus(nightwellStatus);
@@ -398,6 +401,12 @@ public final class MainActivity extends Activity {
         if(navigationPopup!=null)navigationPopup.dismiss();
         View anchor=head.getChildAt(head.getChildCount()-1);
         LinearLayout entries=column();entries.setPadding(0,dp(6),0,dp(6));
+        if(!user.isEmpty()){
+            TextView profileHeading=text(cachedProfileNickname.isEmpty()?"Мой профиль":cachedProfileNickname,15);
+            profileHeading.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
+            profileHeading.setPadding(dp(14),dp(7),dp(14),dp(10));
+            entries.addView(profileHeading);
+        }
         TextView connectionHeading=text("Подключение",11);connectionHeading.setTextColor(0xffa6a4af);connectionHeading.setPadding(dp(14),dp(4),dp(14),dp(2));entries.addView(connectionHeading);
         TextView connectionState=text(nightwellStatus,15);connectionState.setPadding(dp(14),0,dp(14),dp(6));entries.addView(connectionState);nightwellMenuStatus=connectionState;setNightwellStatus(nightwellStatus);
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(false);scroll.setVerticalScrollBarEnabled(false);scroll.addView(entries);
@@ -472,6 +481,10 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onActivityResult(int request,int result,Intent data){
         super.onActivityResult(request,result,data);
+        if(request==635){
+            if(result==RESULT_OK&&data!=null&&data.getData()!=null)uploadProfileAvatar(data.getData());
+            return;
+        }
         if(request==72){handleAudioImportResult(request,result,data);return;}
         if(request==PLAYLIST_DOCUMENT){handlePlaylistDocument(result,data);return;}
         if(request!=631&&request!=632)return;
@@ -1732,6 +1745,103 @@ public final class MainActivity extends Activity {
                     !trackID.equals(currentID))return;
                 if(!finalNotice.isEmpty())status.setText(finalNotice);
             });
+        });
+    }
+
+    private void editProfileNickname(){
+        if(user.isEmpty()){auth();return;}
+        task(()->api.request("api/profile/me"),profile->{
+            android.widget.EditText field=new android.widget.EditText(this);
+            field.setSingleLine(true);
+            field.setText(profile.optString("nickname",""));
+            field.setHint("Ник, от 2 до 32 символов");
+            new AlertDialog.Builder(this).setTitle("Изменить ник")
+                .setView(field).setNegativeButton("Отмена",null)
+                .setPositiveButton("Сохранить",(d,which)->{
+                    String nickname=field.getText().toString().trim();
+                    if(nickname.length()<2||nickname.length()>32){
+                        status.setText("Ник должен содержать от 2 до 32 символов");return;
+                    }
+                    task(()->{
+                        JSONObject body=new JSONObject();body.put("nickname",nickname);
+                        return api.request("api/profile/me","PUT",body);
+                    },saved->{cachedProfileNickname=saved.optString("nickname",nickname);
+                        status.setText("Ник сохранён");});
+                }).show();
+        });
+    }
+    private void selectProfileAvatar(){
+        if(user.isEmpty()){auth();return;}
+        try{
+            Intent intent=new Intent(Intent.ACTION_GET_CONTENT);
+            intent.setType("image/*");
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            startActivityForResult(Intent.createChooser(intent,"Выбери аватар"),635);
+        }catch(Throwable error){status.setText("Не удалось открыть галерею");}
+    }
+    private void uploadProfileAvatar(Uri uri){
+        if(user.isEmpty())return;
+        task(()->{
+            android.graphics.Bitmap bitmap;
+            try(java.io.InputStream input=getContentResolver().openInputStream(uri)){
+                if(input==null)throw new java.io.IOException("Не удалось открыть фотографию");
+                bitmap=android.graphics.BitmapFactory.decodeStream(input);
+            }
+            if(bitmap==null)throw new java.io.IOException("Неподдерживаемый формат");
+            int width=bitmap.getWidth(),height=bitmap.getHeight();
+            float scale=Math.min(1f,512f/Math.max(width,height));
+            android.graphics.Bitmap image=android.graphics.Bitmap.createScaledBitmap(bitmap,
+                Math.max(1,Math.round(width*scale)),Math.max(1,Math.round(height*scale)),true);
+            java.io.ByteArrayOutputStream output=new java.io.ByteArrayOutputStream();
+            image.compress(android.graphics.Bitmap.CompressFormat.JPEG,76,output);
+            byte[] bytes=output.toByteArray();
+            if(bytes.length>768*1024)throw new java.io.IOException("Уменьши размер фотографии");
+            JSONObject body=new JSONObject();
+            body.put("mime","image/jpeg");
+            body.put("avatar_base64",android.util.Base64.encodeToString(bytes,android.util.Base64.NO_WRAP));
+            return api.request("api/profile/avatar","POST",body);
+        },saved->{cachedProfileUser="";refreshProfileAvatar();status.setText("Аватар обновлён");});
+    }
+    private void refreshProfileAvatar(){
+        if(user.isEmpty()){cachedProfileUser="";cachedProfileNickname="";cachedProfileAvatar=null;return;}
+        if(user.equals(cachedProfileUser)){
+            if(cachedProfileAvatar!=null&&profileAvatarButton!=null){
+                profileAvatarButton.setPadding(0,0,0,0);
+                profileAvatarButton.setImageBitmap(cachedProfileAvatar);
+            }
+            return;
+        }
+        final String requestedUser=user;
+        cachedProfileUser=user;
+        io.execute(()->{
+            try{
+                JSONObject profile=api.request("api/profile/me");
+                String urlPath=profile.optString("avatar_url","");
+                String nickname=profile.optString("nickname","");
+                android.graphics.Bitmap image=null;
+                if(urlPath.startsWith("/api/profile/avatar/")){
+                    String requestOrigin=origin.endsWith("/")?origin.substring(0,origin.length()-1):origin;
+                    java.net.HttpURLConnection c=(java.net.HttpURLConnection)new java.net.URL(requestOrigin+urlPath).openConnection();
+                    c.setConnectTimeout(5000);c.setReadTimeout(5000);
+                    try{
+                        if(c.getResponseCode()==200){
+                            java.io.ByteArrayOutputStream out=new java.io.ByteArrayOutputStream();
+                            try(java.io.InputStream stream=c.getInputStream()){
+                                byte[] buffer=new byte[8192];int len;
+                                while((len=stream.read(buffer))!=-1&&out.size()<=768*1024)out.write(buffer,0,len);
+                            }
+                            if(out.size()<=768*1024)image=android.graphics.BitmapFactory.decodeByteArray(out.toByteArray(),0,out.size());
+                        }
+                    }finally{c.disconnect();}
+                }
+                final android.graphics.Bitmap ready=image;
+                ui.post(()->{if(!requestedUser.equals(user))return;
+                    cachedProfileNickname=nickname;cachedProfileAvatar=ready;
+                    if(profileAvatarButton!=null&&ready!=null){
+                        profileAvatarButton.setPadding(0,0,0,0);profileAvatarButton.setImageBitmap(ready);
+                    }
+                });
+            }catch(Exception ignored){cachedProfileUser="";}
         });
     }
 
