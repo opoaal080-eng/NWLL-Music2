@@ -2,7 +2,7 @@ name: Build Nightwell Music Android (Recovered)
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, feature/windows-mobile-parity-20261106]
     paths:
       - 'android/**'
       - 'scripts/validate-app-sources.py'
