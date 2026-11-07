@@ -456,6 +456,7 @@ public final class PlaybackService extends MediaSessionService {
             JSONArray queue = data.getJSONArray("queue");
             String id = data.getString("id");
             ArrayList<MediaSource> items = new ArrayList<>();
+            java.util.ArrayList<String> selectedArtists=new java.util.ArrayList<>();
             int selected = -1;
             for (int i=0;i<queue.length() && i<1000;i++) {
                 JSONObject track=queue.getJSONObject(i);String trackId=track.getString("id");
@@ -464,6 +465,7 @@ public final class PlaybackService extends MediaSessionService {
                     MediaSource source=mediaSource(mediaItem(track,nextOrigin));
                     if (trackId.equals(id)) selected=items.size();
                     items.add(source);
+                    selectedArtists.add(track.optString("artist","").toLowerCase(java.util.Locale.ROOT));
                 } catch(Exception invalidItem) {
                     // One missing offline file must not invalidate the rest of a playlist.
                     if(trackId.equals(id)) error="Аудиофайл повреждён. Скачай трек повторно.";
@@ -485,6 +487,7 @@ public final class PlaybackService extends MediaSessionService {
             if(!waveActive||!nextWave)waveSeen.clear();
             waveActive=nextWave;waveGeneration++;waveLoading=false;waveRetryAt=0;
             if(waveActive){player.setRepeatMode(Player.REPEAT_MODE_OFF);player.setShuffleModeEnabled(false);}
+            queueArtists=selectedArtists;
             player.setMediaSources(items,selected,Math.max(0,data.optLong("position",0)));
             player.prepare();
         } catch (Exception ex) { error="Не удалось загрузить очередь."; }
@@ -519,7 +522,43 @@ public final class PlaybackService extends MediaSessionService {
         if(volumeLevelingStrength==0){loudnessAverage=0;loudnessGain=1;}
         updateFade();
     }
-    void modes(int repeat, boolean shuffle) { player.setRepeatMode(repeat==1&&!waveActive?Player.REPEAT_MODE_ALL:repeat==2?Player.REPEAT_MODE_ONE:Player.REPEAT_MODE_OFF);player.setShuffleModeEnabled(!waveActive&&shuffle); }
+    private java.util.List<String> queueArtists = new ArrayList<>();
+    private void setSmartShuffleOrder(){
+        int count=player.getMediaItemCount();
+        if(count<2)return;
+        int current=Math.max(0,player.getCurrentMediaItemIndex());
+        java.util.ArrayList<Integer> remaining=new java.util.ArrayList<>();
+        for(int i=0;i<count;i++)if(i!=current)remaining.add(i);
+        int[] order=new int[count];order[0]=current;
+        java.util.ArrayDeque<String> artists=new java.util.ArrayDeque<>();
+        java.util.Random random=new java.util.Random();
+        String last=current<queueArtists.size()?queueArtists.get(current):"";
+        artists.addLast(last);
+        for(int position=1;position<count;position++){
+            int choice=remaining.get(0);
+            double best=Double.NEGATIVE_INFINITY;
+            for(int candidate:remaining){
+                String artist=candidate<queueArtists.size()?queueArtists.get(candidate):"";
+                double score=random.nextDouble()*2;
+                if(!artist.isEmpty()&&artist.equals(last))score-=4;
+                if(!artist.isEmpty()&&artists.contains(artist))score-=1.6;
+                if(score>best){best=score;choice=candidate;}
+            }
+            order[position]=choice;
+            remaining.remove(Integer.valueOf(choice));
+            last=choice<queueArtists.size()?queueArtists.get(choice):"";
+            artists.addLast(last);
+            if(artists.size()>5)artists.removeFirst();
+        }
+        player.setShuffleOrder(new androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder(
+            order,random.nextLong()));
+    }
+    void modes(int repeat, boolean shuffle) {
+        player.setRepeatMode(repeat==1&&!waveActive?Player.REPEAT_MODE_ALL:
+            repeat==2?Player.REPEAT_MODE_ONE:Player.REPEAT_MODE_OFF);
+        if(!waveActive&&shuffle)setSmartShuffleOrder();
+        player.setShuffleModeEnabled(!waveActive&&shuffle);
+    }
     private MediaSource mediaSource(MediaItem item) {
         if(item.localConfiguration!=null && "file".equals(item.localConfiguration.uri.getScheme()))return new DefaultMediaSourceFactory(new androidx.media3.datasource.DefaultDataSource.Factory(this)).createMediaSource(item);
 
