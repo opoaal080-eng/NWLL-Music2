@@ -517,10 +517,19 @@ struct NativeRoot: View {
     }
     private var favoriteTracks: [Track] {
         let entries = store.catalog.filter { store.likes.contains($0.id) }
-        guard favoritePremium.allowed else { return entries }
-        if favoriteSort == "title" { return entries.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending } }
-        if favoriteSort == "artist" { return entries.sorted { $0.artist.localizedStandardCompare($1.artist) == .orderedAscending } }
-        return entries
+        if favoritePremium.allowed && favoriteSort == "title" {
+            return entries.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+        }
+        if favoritePremium.allowed && favoriteSort == "artist" {
+            return entries.sorted { $0.artist.localizedStandardCompare($1.artist) == .orderedAscending }
+        }
+        // The server returns liked IDs in descending insertion order.
+        let order = Dictionary(uniqueKeysWithValues: store.likeOrder.enumerated().map { ($0.element, $0.offset) })
+        return entries.sorted {
+            let lhs = order[$0.id] ?? Int.max, rhs = order[$1.id] ?? Int.max
+            if lhs != rhs { return lhs < rhs }
+            return $0.title.localizedStandardCompare($1.title) == .orderedAscending
+        }
     }
     @ViewBuilder private var content: some View {
         switch store.screen {
@@ -956,7 +965,7 @@ struct PlaylistScreen: View {
                     } else { await store.download(tracks.filter { !store.isDownloaded($0) }) }
                 } } label: {
                     Image(systemName: (!tracks.isEmpty && tracks.allSatisfy({ store.isDownloaded($0) })) ? "trash" : "arrow.down.to.line").frame(width: 42, height: 42).frostedGlass(20, bordered: false, intensity: 0.55)
-                }.accessibilityLabel(tracks.allSatisfy { store.isDownloaded($0) } ? "Удалить загрузку плейлиста" : "Скачать плейлист")
+                }.accessibilityLabel(!tracks.isEmpty && tracks.allSatisfy { store.isDownloaded($0) } ? "Удалить загрузку плейлиста" : "Скачать плейлист")
                 Button(action: close) {
                     Image(systemName: "xmark").frame(width: 42, height: 42).frostedGlass(20, bordered: false, intensity: 0.55)
                 }.accessibilityLabel("Закрыть плейлист")
@@ -966,11 +975,16 @@ struct PlaylistScreen: View {
             if !activeFractions.isEmpty {
                 let fraction = activeFractions.reduce(0, +) / Double(activeFractions.count)
                 VStack(alignment: .leading, spacing: 5) {
-                    Text("Скачивание · \\(Int(fraction * 100))%").font(.caption).foregroundStyle(.secondary)
+                    Text("Скачивание · \(Int(fraction * 100))%").font(.caption).foregroundStyle(.secondary)
                     ProgressView(value: fraction).tint(pumpkin)
                 }
+            } else if !tracks.isEmpty && tracks.allSatisfy({ store.isDownloaded($0) }) {
+                Label("Успешно загружено", systemImage: "checkmark.circle.fill")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else if !store.downloading && store.downloadMessage.contains("ошиб") {
+                Text(store.downloadMessage).font(.caption).foregroundStyle(.secondary)
             }
-            Text("Треки плейлиста · \\(tracks.count)")
+            Text("Треки плейлиста · \(tracks.count)")
                 .font(.caption).foregroundStyle(.secondary)
             TrackList(tracks: tracks, playlist: playlist)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

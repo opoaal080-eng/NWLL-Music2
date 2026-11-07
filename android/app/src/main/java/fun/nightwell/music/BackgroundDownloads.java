@@ -64,6 +64,14 @@ final class BackgroundDownloads {
         }
     });}
     private static void finish(Context c,String key,boolean success){prefs(c).edit().remove(key).commit();SharedPreferences p=c.getSharedPreferences("native-download-result",Context.MODE_PRIVATE);p.edit().putInt(success?"added":"failed",p.getInt(success?"added":"failed",0)+1).apply();}
-    static String progress(Context c){int pending=prefs(c).getAll().size();SharedPreferences p=c.getSharedPreferences("native-download-result",Context.MODE_PRIVATE);int added=p.getInt("added",0),failed=p.getInt("failed",0);return pending>0?"Загрузка в фоне · осталось: "+pending:added+failed>0?"Скачано: "+added+" · ошибок: "+failed:"";}
+    static String progress(Context c){
+        int pending=prefs(c).getAll().size();
+        SharedPreferences p=c.getSharedPreferences("native-download-result",Context.MODE_PRIVATE);
+        int added=p.getInt("added",0),failed=p.getInt("failed",0);
+        if(pending>0)return "Загрузка в фоне · осталось: "+pending;
+        if(added==0&&failed==0)return "";
+        if(failed==0)return "Успешно загружено";
+        return "Загрузка завершена · успешно: "+added+" · ошибок: "+failed;
+    }
     static void completed(Context context,android.content.BroadcastReceiver.PendingResult result){Context c=context.getApplicationContext();reconcile(c);imports.execute(result::finish);}
 }

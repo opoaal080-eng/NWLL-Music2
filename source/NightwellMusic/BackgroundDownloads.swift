@@ -49,9 +49,15 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
         lock.lock(); defer { lock.unlock() }
         if !state.jobs.isEmpty {
             let done = state.added + state.skipped + state.failed
-            return Progress(active: true, message: "Загрузка \(done) / \(state.total)", fractions: fractions)
+            var values = fractions
+            for key in state.jobs.keys where values[key] == nil { values[key] = 0 }
+            return Progress(active: true, message: "Загрузка \(done) / \(state.total)", fractions: values)
         }
-        return Progress(active: false, message: state.total == 0 ? "" : "Скачано: \(state.added) · уже сохранено: \(state.skipped) · ошибок: \(state.failed)", fractions: fractions)
+        let finished: String
+        if state.total == 0 { finished = "" }
+        else if state.failed == 0 { finished = "Успешно загружено" }
+        else { finished = "Загрузка завершена · успешно: \(state.added) · ошибок: \(state.failed)" }
+        return Progress(active: false, message: finished, fractions: [:])
     }
     func handleEvents(_ completion: @escaping () -> Void) {
         lock.lock(); eventCompletion = completion; lock.unlock()
