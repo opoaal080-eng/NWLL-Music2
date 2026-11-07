@@ -4,6 +4,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using System.Windows.Media.Animation;
 using System.Text.Json;
 using System.IO;
 using System.Diagnostics;
@@ -16,6 +17,7 @@ public partial class MainWindow:Window {
  readonly DispatcherTimer timer=new(){Interval=TimeSpan.FromMilliseconds(400)};
  int savePending;
  int normalization=0;
+ bool ambientLayerAVisible;
  double userVolume=1.0;
  long pausedAtMs;
  bool volumeSettingReady;
@@ -183,18 +185,80 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
   var local=LocalAudioPath(t);
   if(local==null&&account.Length==0){Login();return;}
   string path=local??proxy.URL("api/stream/"+t.id+"?cache=1&format="+(t.is_remote||t.source=="soundcloud"?"hls":"file"));
-  using var media=new Media(vlc,path,local==null?FromType.FromLocation:FromType.FromPath);player.Play(media);lyricsCancellation?.Cancel();currentLyrics=null;lyricsID="";renderedLyric=int.MinValue;currentID=t.id;mixRecent.Enqueue(t.id);while(mixRecent.Count>120)mixRecent.Dequeue();MiniTitle.Text=FullTitle.Text=t.title;MiniArtist.Text=FullArtist.Text=t.artist;LyricsText.Text="";LyricsPanel.Visibility=Visibility.Collapsed;Cover.Visibility=Visibility.Visible;if(t.cover_url!=null&&Uri.TryCreate(api.Origin,t.cover_url,out var coverURI)&&coverURI.Authority==api.Origin.Authority)_=LoadCover(coverURI,t.id);else Cover.Source=MiniCover.Source=null;Dock.BeginAnimation(OpacityProperty,new System.Windows.Media.Animation.DoubleAnimation(.6,1,TimeSpan.FromSeconds(.7)));}
- async Task LoadCover(Uri uri,string id){try{
- var bytes=await api.HTTP.GetByteArrayAsync(uri);
- if(bytes.Length>5*1024*1024||currentID!=id)return;
- var image=await Task.Run(()=>{
-  var bitmap=new BitmapImage();
-  bitmap.BeginInit();bitmap.CacheOption=BitmapCacheOption.OnLoad;
-  bitmap.DecodePixelWidth=650;bitmap.StreamSource=new MemoryStream(bytes);
-  bitmap.EndInit();bitmap.Freeze();return bitmap;
- });
- if(currentID==id)Cover.Source=MiniCover.Source=image;
-}catch{}}
+  using var media=new Media(vlc,path,local==null?FromType.FromLocation:FromType.FromPath);player.Play(media);lyricsCancellation?.Cancel();currentLyrics=null;lyricsID="";renderedLyric=int.MinValue;currentID=t.id;mixRecent.Enqueue(t.id);while(mixRecent.Count>120)mixRecent.Dequeue();MiniTitle.Text=FullTitle.Text=t.title;MiniArtist.Text=FullArtist.Text=t.artist;LyricsText.Text="";LyricsPanel.Visibility=Visibility.Collapsed;Cover.Visibility=Visibility.Visible;Cover.Source=MiniCover.Source=null;
+  if(t.cover_url!=null&&Uri.TryCreate(api.Origin,t.cover_url,out var coverURI)&&coverURI.Authority==api.Origin.Authority)
+    _=LoadCover(coverURI,t.id);
+  else SetAmbientPalette(null);
+  Dock.BeginAnimation(OpacityProperty,new DoubleAnimation(.6,1,TimeSpan.FromSeconds(.7)));}
+ // Keep the same aesthetic as iPhone: colour-position-aware 6x6 artwork blur.
+// Extract the grid on a worker thread from the already decoded cover.
+ static BitmapSource MakeAmbientPalette(BitmapSource cover){
+  const int size=6;
+  var converted=new FormatConvertedBitmap(cover,PixelFormats.Bgra32,null,0);
+  int w=converted.PixelWidth,h=converted.PixelHeight,stride=checked(w*4);
+  var pixels=new byte[checked(stride*h)];
+  converted.CopyPixels(pixels,stride,0);
+  var totals=new long[size*size*3];var counts=new int[size*size];
+  for(int y=0;y<h;y++){
+   int gy=Math.Min(size-1,y*size/h),row=y*stride;
+   for(int x=0;x<w;x++){
+    int gx=Math.Min(size-1,x*size/w),cell=gy*size+gx,p=row+x*4;
+    totals[cell*3]+=pixels[p];
+    totals[cell*3+1]+=pixels[p+1];
+    totals[cell*3+2]+=pixels[p+2];
+    counts[cell]++;
+   }
+  }
+  var grid=new byte[size*size*4];
+  for(int cell=0;cell<size*size;cell++){
+   int n=Math.Max(1,counts[cell]),offset=cell*4;
+   grid[offset]=(byte)(totals[cell*3]/n);
+   grid[offset+1]=(byte)(totals[cell*3+1]/n);
+   grid[offset+2]=(byte)(totals[cell*3+2]/n);
+   grid[offset+3]=255;
+  }
+  var result=BitmapSource.Create(size,size,96,96,PixelFormats.Bgra32,null,grid,size*4);
+  result.Freeze();
+  return result;
+ }
+ void SetAmbientPalette(BitmapSource? palette){
+  var duration=TimeSpan.FromMilliseconds(900);
+  var easing=new QuadraticEase{EasingMode=EasingMode.EaseInOut};
+  if(palette==null){
+   AmbientArtworkA.BeginAnimation(OpacityProperty,new DoubleAnimation(0,TimeSpan.FromMilliseconds(330)));
+   AmbientArtworkB.BeginAnimation(OpacityProperty,new DoubleAnimation(0,TimeSpan.FromMilliseconds(330)));
+   ambientLayerAVisible=false;
+   return;
+  }
+  bool nextIsA=!ambientLayerAVisible;
+  var arriving=nextIsA?AmbientArtworkA:AmbientArtworkB;
+  var leaving=nextIsA?AmbientArtworkB:AmbientArtworkA;
+  arriving.BeginAnimation(OpacityProperty,null);
+  arriving.Opacity=0;
+  arriving.Source=palette;
+  arriving.BeginAnimation(OpacityProperty,new DoubleAnimation(0,.92,duration){EasingFunction=easing});
+  leaving.BeginAnimation(OpacityProperty,new DoubleAnimation(0,duration){EasingFunction=easing});
+  ambientLayerAVisible=nextIsA;
+ }
+ async Task LoadCover(Uri uri,string id){
+  try{
+   var bytes=await api.HTTP.GetByteArrayAsync(uri);
+   if(bytes.Length>5*1024*1024||currentID!=id)return;
+   var loaded=await Task.Run(()=>{
+    using var stream=new MemoryStream(bytes);
+    var bitmap=new BitmapImage();
+    bitmap.BeginInit();bitmap.CacheOption=BitmapCacheOption.OnLoad;
+    bitmap.DecodePixelWidth=650;bitmap.StreamSource=stream;
+    bitmap.EndInit();bitmap.Freeze();
+    return (cover:bitmap,palette:MakeAmbientPalette(bitmap));
+   });
+   if(currentID!=id)return;
+   Cover.Source=MiniCover.Source=loaded.cover;
+   SetAmbientPalette(loaded.palette);
+  }catch{
+   if(currentID==id)SetAmbientPalette(null);
+  }
+ }
  void NextClick(object sender,RoutedEventArgs e){if(TogetherControl("next"))return;Advance();}
  void PreviousClick(object sender,RoutedEventArgs e){if(TogetherControl("previous"))return;if(Current==null)return;long now=Environment.TickCount64;if(player.Time>3000&&!(previousID==currentID&&now-lastPrevious<3000)){lastPrevious=now;previousID=currentID;player.Time=0;return;}previousID="";index=(index-1+queue.Count)%queue.Count;PlayCurrent();}
  void Advance(){if(TogetherControl("next"))return;if(queue.Count==0)return;if(repeat==2){PlayCurrent();return;}if(wave&&index+1>=queue.Count){_=Refill();return;}if(shuffle&&queue.Count>1)index=(index+Random.Shared.Next(1,queue.Count))%queue.Count;else if(index+1<queue.Count)index++;else if(repeat==1)index=0;else return;PlayCurrent();}
