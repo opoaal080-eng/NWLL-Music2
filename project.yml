@@ -33,8 +33,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: fun.nightwell.music
-        MARKETING_VERSION: "1.0.3"
-        CURRENT_PROJECT_VERSION: "97"
+        MARKETING_VERSION: "1.1.0"
+        CURRENT_PROJECT_VERSION: "98"
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_KEY_CFBundleDisplayName: Nightwell Music
         INFOPLIST_KEY_UILaunchScreen_Generation: YES

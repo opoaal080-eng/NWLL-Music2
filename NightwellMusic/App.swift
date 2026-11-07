@@ -205,7 +205,7 @@ private struct StableNavigationSheet: View {
                 Image(systemName: "chevron.right").font(.caption).foregroundStyle(.white.opacity(0.35))
             }
             .foregroundStyle(.white)
-            .frame(minHeight: 48)
+            .frame(minHeight: 42)
             .padding(.horizontal, 16)
             .background(.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 18))
         }
@@ -231,23 +231,20 @@ private struct StableNavigationSheet: View {
                         .foregroundStyle(status == "Онлайн" ? .green :
                                          status == "Ограничен" ? .orange : .white.opacity(0.65))
                         .padding(.horizontal, 18).padding(.vertical, 8)
-                    ForEach(MusicStore.Screen.allCases, id: \.self) { screen in
-                        entry(screen.rawValue, icon: screen == .home ? "house" :
-                              screen == .search ? "magnifyingglass" :
-                              screen == .likes ? "heart" :
-                              screen == .playlists ? "music.note.list" : "arrow.down.to.line",
-                              action: .screen(screen))
+                    if !signedIn { entry("Войти", icon: "person", action: .authentication) }
+                    entry("Главная", icon: "house", action: .screen(.home))
+                    if signedIn {
+                        entry("Избранное", icon: "heart", action: .screen(.likes))
+                        entry("Плейлисты", icon: "music.note.list", action: .screen(.playlists))
+                        entry("Офлайн", icon: "arrow.down.to.line", action: .screen(.offline))
+                        entry("Моя статистика", icon: "chart.bar", action: .statistics)
+                        entry("Nightwell Premium", icon: "star", action: .premium)
+                        entry("Слушать вместе", icon: "person.2.wave.2", action: .together)
+                        entry("Обращения и поддержка", icon: "envelope", action: .support)
                     }
-                    Divider().overlay(.white.opacity(0.16)).padding(.vertical, 8)
-                    entry("Только фон", icon: "sparkles", action: .backgroundOnly)
-                    entry("Моя статистика", icon: "chart.bar", action: .statistics)
-                    entry("Nightwell Premium", icon: "star", action: .premium)
-                    entry("Перенести музыку", icon: "square.and.arrow.down", action: .transfer)
                     entry("Настройки", icon: "gearshape", action: .settings)
-                    entry("Настройка подборки", icon: "slider.horizontal.3", action: .waveSettings)
-                    entry("Слушать вместе", icon: "person.2.wave.2", action: .together)
-                    entry("Обращения и поддержка", icon: "envelope", action: .support)
-                    entry(signedIn ? "Выйти" : "Войти", icon: "person", action: .authentication)
+                    if signedIn { entry("Выйти", icon: "rectangle.portrait.and.arrow.right", action: .authentication) }
+
                 }
                 .padding(.horizontal, 20).padding(.bottom, 24)
             }
@@ -515,11 +512,7 @@ struct NativeRoot: View {
             Spacer(minLength: 6)
             Button { if store.screen == .search { store.screen = .home } else { store.screen = .search } } label: { Image(systemName: store.screen == .search ? "xmark" : "magnifyingglass").font(.system(size: 19, weight: .medium)).foregroundStyle(.white).frame(width: 44, height: 44).frostedGlass(22, bordered: false, intensity: 0.20) }.accessibilityLabel(store.screen == .search ? "Закрыть поиск" : "Поиск")
             Button { navigationMenuPresented = true } label: {
-                Image(systemName: "line.3.horizontal")
-                    .font(.system(size: 19, weight: .medium))
-                    .foregroundStyle(.white)
-                    .frame(width: 44, height: 44)
-                    .frostedGlass(22, bordered: false, intensity: 0.20)
+                AccountAvatar()
             }
             .accessibilityLabel("Меню")
         }

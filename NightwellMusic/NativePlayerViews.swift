@@ -963,6 +963,7 @@ struct AuthSheet: View {
 }
 
 struct NativeSettings: View {
+    @State private var transferPresented = false
     @State private var feature: PremiumFeatureView.Kind?
     let close: () -> Void
     @EnvironmentObject var store: MusicStore
@@ -991,6 +992,15 @@ struct NativeSettings: View {
             }.padding(.top, 12)
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 18) {
+                    if store.account != nil {
+                        AccountProfileEditor()
+                        VStack(alignment: .leading, spacing: 12) {
+                            Label("Перенос музыки", systemImage: "square.and.arrow.down").font(.system(size: 18, weight: .semibold))
+                            Text("Добавь плейлисты и избранное из другого сервиса").font(.caption).foregroundStyle(.secondary)
+                            Button("Перенести музыку") { transferPresented = true }
+                        }.padding(16).frame(maxWidth: .infinity, alignment: .leading).background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 26))
+                    }
+
                     VStack(alignment: .leading, spacing: 8) {
                         Button("Темы и ленты · Premium") { feature = .appearance }
                             .sheet(item: $feature) { PremiumFeatureView(kind: $0).environmentObject(store) }
@@ -1053,6 +1063,7 @@ struct NativeSettings: View {
                 }.padding(.vertical, 2)
             }
         }.font(.system(size: 17)).padding(20).tint(Color.white)
+        .sheet(isPresented: $transferPresented) { NightwellNativeTransfer().environmentObject(store) }
 
     }
 }

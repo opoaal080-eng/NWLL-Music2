@@ -208,6 +208,10 @@ public final class MainActivity extends Activity {
     private String supportUploadTicket="";private boolean supportUploadAdmin;
     private PlaybackService playback;
     private boolean bindingRegistered,visible,full,lyricsOpen,downloads,backgroundOnly;
+    private String profileNickname="",profileAvatar="";
+    private android.widget.ImageView profilePicture;
+    private TextView profileInitial;
+    private String avatarPickerOwner="";
     private String user="",screen="Главная",selectedPlaylist="",query="",currentID="",origin;
     private int trackTransitionDirection=1;
     private volatile int generation;
@@ -346,7 +350,7 @@ public final class MainActivity extends Activity {
         TextView brandName=text("Nightwell",27);brandName.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);brandName.setTextColor(0xfff3f3f5);brandName.setIncludeFontPadding(false);brandName.setSingleLine(true);brandName.setAutoSizeTextTypeUniformWithConfiguration(20,27,1,android.util.TypedValue.COMPLEX_UNIT_SP);
         wordmark.addView(brandName,new LinearLayout.LayoutParams(-1,dp(33)));
         TextView brandCaption=text("M U S I C",12);brandCaption.setIncludeFontPadding(false);brandCaption.setSingleLine(true);brandCaption.setTextColor(0xff92959f);LinearLayout.LayoutParams captionParams=new LinearLayout.LayoutParams(-1,-2);captionParams.topMargin=dp(1);wordmark.addView(brandCaption,captionParams);
-        wordmark.setOnClickListener(v->navigate("Главная"));wordmark.setContentDescription("Nightwell Music, на главный экран");head.addView(wordmark,new LinearLayout.LayoutParams(0,-2,1));TextView searchButton=iconButton("⌕",()->navigate("Поиск"));searchButton.setBackground(touchSurface(0x40202228,24));head.addView(searchButton,new LinearLayout.LayoutParams(dp(48),dp(48)));TextView menuButton=iconButton("☰",this::menu);menuButton.setBackground(touchSurface(0x40202228,24));head.addView(menuButton,new LinearLayout.LayoutParams(dp(48),dp(48)));LinearLayout.LayoutParams headerParams=new LinearLayout.LayoutParams(-1,dp(58));headerParams.bottomMargin=dp(12);root.addView(head,headerParams);if(backgroundOnly)head.setVisibility(View.GONE);
+        wordmark.setOnClickListener(v->navigate("Главная"));wordmark.setContentDescription("Nightwell Music, на главный экран");head.addView(wordmark,new LinearLayout.LayoutParams(0,-2,1));TextView searchButton=iconButton("⌕",()->navigate("Поиск"));searchButton.setBackground(touchSurface(0x40202228,24));head.addView(searchButton,new LinearLayout.LayoutParams(dp(48),dp(48)));View menuButton=profileMenuButton();head.addView(menuButton,new LinearLayout.LayoutParams(dp(48),dp(48)));LinearLayout.LayoutParams headerParams=new LinearLayout.LayoutParams(-1,dp(58));headerParams.bottomMargin=dp(12);root.addView(head,headerParams);if(backgroundOnly)head.setVisibility(View.GONE);
         nightwellBadge = text("", 11);
         nightwellBadge.setContentDescription("Состояние подключения Nightwell");
         setNightwellStatus(nightwellStatus);
@@ -418,19 +422,19 @@ public final class MainActivity extends Activity {
         TextView connectionState=text(nightwellStatus,15);connectionState.setPadding(dp(14),0,dp(14),dp(6));entries.addView(connectionState);nightwellMenuStatus=connectionState;setNightwellStatus(nightwellStatus);
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(false);scroll.setVerticalScrollBarEnabled(false);scroll.addView(entries);
         android.graphics.Rect frame=new android.graphics.Rect();anchor.getWindowVisibleDisplayFrame(frame);int[] location=new int[2];anchor.getLocationOnScreen(location);
-        int available=Math.max(dp(96),frame.bottom-location[1]-anchor.getHeight()-dp(12));
+        int available=Math.min(dp(380),Math.max(dp(96),frame.bottom-location[1]-anchor.getHeight()-dp(12)));
         int width=Math.min(dp(278),frame.width()-dp(32));
         PopupWindow popup=new PopupWindow(scroll,width,WindowManager.LayoutParams.WRAP_CONTENT,true);
         navigationPopup=popup;popup.setOnDismissListener(()->{if(navigationPopup==popup)navigationPopup=null;});
-        GradientDrawable glass=new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0xf2322b40,0xf222202b});glass.setCornerRadius(dp(22));glass.setStroke(dp(1),0x30ffffff);
+        GradientDrawable glass=new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0xf2252525,0xf21b1b1b});glass.setCornerRadius(dp(22));glass.setStroke(dp(1),0x30ffffff);
         popup.setBackgroundDrawable(glass);popup.setElevation(dp(24));popup.setOutsideTouchable(true);popup.setInputMethodMode(PopupWindow.INPUT_METHOD_NOT_NEEDED);scroll.setClipToOutline(true);scroll.setBackground(glass);
-        String[] tabs={"Главная","Поиск","Избранное","Плейлисты","Офлайн","Слушать вместе",backgroundOnly?"Показать интерфейс":"Только фон","Моя статистика","Nightwell Premium","Перенести музыку","Настройки","Настройка подборки","Обращения",user.isEmpty()?"Войти":"Выйти"};
-        String[] icons={"home","search","heart","list","download","list","sparkles","stats","star","download","settings","sliders","mail","person"};
+        String[] tabs=user.isEmpty()?new String[]{"Войти","Главная","Настройки"}:new String[]{"Главная","Избранное","Плейлисты","Офлайн","Слушать вместе","Моя статистика","Nightwell Premium","Настройки","Обращения","Выйти"};
+        String[] icons=user.isEmpty()?new String[]{"person","home","settings"}:new String[]{"home","heart","list","download","list","stats","star","settings","mail","person"};
         for(int i=0;i<tabs.length;i++){
             View divider=new View(this);divider.setBackgroundColor(i==0||i==5||i==12?0x44000000:0x20ffffff);entries.addView(divider,new LinearLayout.LayoutParams(-1,dp(i==0||i==5||i==12?4:1)));
             final String tab=tabs[i];boolean selected=tab.equals(screen)||(tab.equals("Плейлисты")&&!selectedPlaylist.isEmpty());
             int color=tab.equals("Выйти")?0xffff6b76:0xfff4f1f7;
-            LinearLayout item=row();item.setPadding(dp(16),0,dp(16),0);item.setMinimumHeight(dp(48));item.setSelected(selected);
+            LinearLayout item=row();item.setPadding(dp(16),0,dp(16),0);item.setMinimumHeight(dp(42));item.setSelected(selected);
             TextView label=text(tab.equals("Обращения")?"Обращения и поддержка":tab,15);label.setTextColor(color);if(selected)label.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
             item.addView(label,new LinearLayout.LayoutParams(0,-2,1));
             if(selected){TextView mark=text("✓",17);mark.setTextColor(0xffeeeeee);item.addView(mark,new LinearLayout.LayoutParams(dp(26),-2));}
@@ -452,7 +456,7 @@ public final class MainActivity extends Activity {
         else if(tab.equals("Обращения"))supportTickets(false);
         else if(tab.equals("Только фон")||tab.equals("Показать интерфейс"))toggleBackgroundOnly();
         else if(tab.equals("Войти"))auth();
-        else if(tab.equals("Выйти")){cancelMix();accountRequest.cancel();task(()->{api.request("api/logout","POST",null);new SessionStore(this).clear();clearLibrarySnapshot();return new JSONObject();},v->{libraryGeneration++;user="";searchCache.clear();playlists=new JSONArray();selectedPlaylist="";sessionReady=true;openPendingTogether();api.updateCSRF("");getSharedPreferences("native-api",MODE_PRIVATE).edit().putString("account","").apply();catalog=new JSONArray();shown=new JSONArray();likes.clear();likeOrder.clear();if(playback!=null)playback.stop();navigate("Главная");});}
+        else if(tab.equals("Выйти")){cancelMix();accountRequest.cancel();task(()->{api.request("api/logout","POST",null);new SessionStore(this).clear();clearLibrarySnapshot();return new JSONObject();},v->{libraryGeneration++;user="";profileNickname=profileAvatar="";refreshProfileButton();searchCache.clear();playlists=new JSONArray();selectedPlaylist="";sessionReady=true;openPendingTogether();api.updateCSRF("");getSharedPreferences("native-api",MODE_PRIVATE).edit().putString("account","").apply();catalog=new JSONArray();shown=new JSONArray();likes.clear();likeOrder.clear();if(playback!=null)playback.stop();navigate("Главная");});}
         else navigate(tab);
     }
 
@@ -489,6 +493,7 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onActivityResult(int request,int result,Intent data){
         super.onActivityResult(request,result,data);
+        if(request==674){handleAvatarResult(result,data);return;}
         if(request==72){handleAudioImportResult(request,result,data);return;}
         if(request==PLAYLIST_DOCUMENT){handlePlaylistDocument(result,data);return;}
         if(request!=631&&request!=632)return;
@@ -798,7 +803,7 @@ public final class MainActivity extends Activity {
                         if(playback!=null)playback.stop();
                     }
                     boolean accountChanged=!nextAccount.equals(user);
-                    user=nextAccount;
+                    user=nextAccount;refreshAccountProfile();
                     if(!nextAccount.equals(getSharedPreferences("native-api",MODE_PRIVATE).getString("account","")))searchCache.clear();
                     if(accountChanged)restoreRecent();
                     getSharedPreferences("native-api",MODE_PRIVATE).edit().putString("account",user).apply();
@@ -1607,7 +1612,8 @@ public final class MainActivity extends Activity {
     void nightwellOptions(String title,String[] options,java.util.function.IntConsumer selected){
         LinearLayout panel=column();panel.setPadding(dp(18),dp(14),dp(18),dp(16));
         TextView heading=text(title,21);heading.setTextColor(0xffeeeeee);heading.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);heading.setPadding(dp(8),dp(4),dp(8),dp(16));panel.addView(heading);
-        AlertDialog dialog=new AlertDialog.Builder(this).setView(panel).create();
+        ScrollView optionScroll=new ScrollView(this);optionScroll.addView(panel);
+        AlertDialog dialog=new AlertDialog.Builder(this).setView(optionScroll).create();
         for(int index=0;index<options.length;index++){
             final int choice=index;
             TextView entry=sheetAction(options[index],()->{dialog.dismiss();selected.accept(choice);});
@@ -1791,6 +1797,40 @@ public final class MainActivity extends Activity {
         });
     }
 
+    View profileMenuButton(){
+        android.widget.FrameLayout frame=new android.widget.FrameLayout(this);frame.setBackground(touchSurface(0xff303030,24));frame.setClipToOutline(true);frame.setContentDescription("Меню профиля");frame.setOnClickListener(v->menu());
+        profileInitial=text("♙",24);profileInitial.setGravity(Gravity.CENTER);frame.addView(profileInitial,new android.widget.FrameLayout.LayoutParams(-1,-1));
+        profilePicture=new android.widget.ImageView(this);profilePicture.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);frame.addView(profilePicture,new android.widget.FrameLayout.LayoutParams(-1,-1));refreshProfileButton();return frame;
+    }
+    void refreshProfileButton(){
+        if(profileInitial==null||profilePicture==null)return;
+        profileInitial.setText(user.isEmpty()?"♙":profileNickname.isEmpty()?"N":new String(Character.toChars(profileNickname.codePointAt(0))).toUpperCase(java.util.Locale.ROOT));
+        artworkCache.load(profilePicture,origin,user.isEmpty()?"":profileAvatar);
+    }
+    void refreshAccountProfile(){
+        final String owner=user;if(owner.isEmpty()){profileNickname=profileAvatar="";refreshProfileButton();return;}
+        io.execute(()->{try{JSONObject profile=api.request("api/profile");ui.post(()->{if(!owner.equals(user))return;profileNickname=profile.optString("nickname");profileAvatar=profile.optString("avatar_url");refreshProfileButton();});}catch(Exception ignored){}});
+    }
+    void editProfileNickname(){
+        final String owner=user;EditText field=new EditText(this);field.setSingleLine(true);field.setText(profileNickname);field.setHint("Никнейм");field.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(40)});
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Никнейм").setView(field).setNegativeButton("Отмена",null).setPositiveButton("Сохранить",null).create();styleSheet(dialog);dialog.show();
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{String name=field.getText().toString().trim();if(name.length()<2){field.setError("От 2 до 40 символов");return;}dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);
+            io.execute(()->{try{JSONObject result=api.request("api/profile","PUT",new JSONObject().put("nickname",name));ui.post(()->{if(owner.equals(user)){profileNickname=result.optString("nickname");refreshProfileButton();}dialog.dismiss();});}catch(Exception ex){ui.post(()->{field.setError(ex.getMessage());dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);});}});
+        });
+    }
+    void chooseProfileAvatar(){avatarPickerOwner=user;Intent pick=new Intent(Intent.ACTION_GET_CONTENT);pick.setType("image/*");pick.addCategory(Intent.CATEGORY_OPENABLE);startActivityForResult(pick,674);}
+    void handleAvatarResult(int result,Intent data){
+        final String owner=avatarPickerOwner;avatarPickerOwner="";if(result!=RESULT_OK||data==null||data.getData()==null||owner.isEmpty()||!owner.equals(user))return;
+        final Uri uri=data.getData();task(()->{
+            byte[] bytes;try(java.io.InputStream input=getContentResolver().openInputStream(uri);java.io.ByteArrayOutputStream output=new java.io.ByteArrayOutputStream()){
+                byte[] chunk=new byte[16384];int n;while((n=input.read(chunk))>0){if(output.size()+n>12*1024*1024)throw new java.io.IOException("Выбери изображение до 12 МБ");output.write(chunk,0,n);}bytes=output.toByteArray();
+            }
+            android.graphics.BitmapFactory.Options options=new android.graphics.BitmapFactory.Options();options.inJustDecodeBounds=true;android.graphics.BitmapFactory.decodeByteArray(bytes,0,bytes.length,options);if(options.outWidth<=0||options.outHeight<=0)throw new java.io.IOException("Не удалось открыть изображение");options.inSampleSize=1;while(Math.max(options.outWidth,options.outHeight)/options.inSampleSize>1024)options.inSampleSize*=2;options.inJustDecodeBounds=false;
+            android.graphics.Bitmap bitmap=android.graphics.BitmapFactory.decodeByteArray(bytes,0,bytes.length,options);if(bitmap==null)throw new java.io.IOException("Не удалось открыть изображение");double scale=Math.min(1,512.0/Math.max(bitmap.getWidth(),bitmap.getHeight()));android.graphics.Bitmap small=android.graphics.Bitmap.createScaledBitmap(bitmap,Math.max(1,(int)(bitmap.getWidth()*scale)),Math.max(1,(int)(bitmap.getHeight()*scale)),true);
+            java.io.ByteArrayOutputStream out=new java.io.ByteArrayOutputStream();small.compress(android.graphics.Bitmap.CompressFormat.JPEG,88,out);if(small!=bitmap)small.recycle();bitmap.recycle();if(!owner.equals(user))throw new java.io.IOException("Аккаунт изменился");return api.request("api/profile/avatar","POST",new JSONObject().put("image",android.util.Base64.encodeToString(out.toByteArray(),android.util.Base64.NO_WRAP)));
+        },v->{if(!owner.equals(user))return;profileAvatar=v.optString("avatar_url");refreshProfileButton();status.setText("Аватарка обновлена");});
+    }
+
     void settings(){
         LinearLayout panel=column();
         panel.setPadding(dp(20),dp(16),dp(20),dp(16));
@@ -1800,6 +1840,14 @@ public final class MainActivity extends Activity {
         TextView subtitle=text("Оформи приложение под себя и настрой поведение плеера.",14);
         subtitle.setTextColor(0xff9fa6b8);
         subtitle.setPadding(0,0,0,dp(10));panel.addView(subtitle);
+        if(!user.isEmpty()){
+            panel.addView(sectionLabel("Профиль"));
+            panel.addView(sheetAction(profileNickname.isEmpty()?"Задать ник":"Изменить ник · "+profileNickname,this::editProfileNickname));
+            panel.addView(sheetAction("Выбрать аватарку",this::chooseProfileAvatar));
+            panel.addView(sheetAction("Удалить аватарку",()->{final String owner=user;task(()->api.request("api/profile/avatar","DELETE",null),v->{if(owner.equals(user)){profileAvatar="";refreshProfileButton();}});}));
+            panel.addView(sectionLabel("Перенос музыки"));
+            panel.addView(sheetAction("Перенести плейлисты и избранное",this::nativeTransfer));
+        }
         panel.addView(sectionLabel("Оформление"));
         panel.addView(sheetAction("Темы и ленты · Premium",()->feature("appearance")));
         panel.addView(sectionLabel("Воспроизведение"));

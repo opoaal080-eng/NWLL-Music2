@@ -10,7 +10,7 @@ public partial class MainWindow {
     if(liveOwner&&Current!=null&&Current.LocalPath==null){
      string owner=remote.GetProperty("device_id").GetString()??"";
      // A competing device's newer ownership pauses this device until an explicit action.
-     if(lastLiveRevision>=0&&owner!=deviceID&&remote.GetProperty("revision").GetInt64()>lastLiveRevision){liveOwner=false;await AudioCommand(()=>player.SetPause(true));Status.Text="Музыка играет на другом устройстве. В меню можно продолжить здесь.";continue;}
+     if(lastLiveRevision>=0&&owner!=deviceID&&remote.GetProperty("revision").GetInt64()>lastLiveRevision){liveOwner=false;await AudioCommand(()=>player.SetPause(true));Status.Text="Музыка играет на другом устройстве. Нажми «Продолжить с телефона» на главной.";continue;}
      var body=new{device_id=deviceID,revision=remote.GetProperty("revision").GetInt64(),takeover=owner!=deviceID,track_id=currentID,queue=queue.Where(t=>t.LocalPath==null).Take(950).Select(t=>t.id).ToArray(),position=Math.Max(0,audioTime/1000.0),playing=audioPlaying,repeat,shuffle,wave};
      var result=await api.Request("api/playback/state","PUT",body,token);lastLiveRevision=result.GetProperty("revision").GetInt64();
     }

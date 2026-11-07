@@ -32,7 +32,7 @@ public partial class MainWindow {
   if(nextPreparing||queue.Count==0)return;
   if(roomCode.Length>0){await RoomCommand("next");return;}
   if(index+1>=queue.Count&&wave)await Refill();
-  int next=repeat==2?index:shuffle&&queue.Count>1?(index+Random.Shared.Next(1,queue.Count))%queue.Count:index+1;
+  int next=index+1;
   if(next>=queue.Count){if(repeat==1)next=0;else return;}
   var track=queue[next];nextPreparing=true;nextCancellation?.Cancel();nextCancellation=CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
   var token=nextCancellation.Token;var expected=currentID;LibVLCSharp.Shared.MediaPlayer? staged=null;
@@ -48,8 +48,7 @@ public partial class MainWindow {
    },token);
    token.ThrowIfCancellationRequested();if(currentID!=expected)return;
    var previous=player;player=candidate;staged=null;index=next;
-   player.EndReached+=(_,_)=>Dispatcher.InvokeAsync(()=>Advance());
-   player.EncounteredError+=(_,_)=>Dispatcher.InvokeAsync(()=>Status.Text="Не удалось воспроизвести трек");
+   AttachPlayerEvents(player);
    currentID=track.id;ActiveArtwork=null;PlayingTrackId=currentID;Ribbon.ResetPalette();UpdatePlaybackChrome();TakePlaybackHere();pausedAtMs=0;MiniTitle.Text=FullTitle.Text=track.title;MiniArtist.Text=FullArtist.Text=track.artist;
    lyricsCancellation?.Cancel();currentLyrics=null;lyricsID="";renderedLyric=int.MinValue;
    Cover.Source=MiniCover.Source=null;LyricsPanel.Visibility=Visibility.Collapsed;Cover.Visibility=Visibility.Visible;
@@ -81,12 +80,7 @@ public partial class MainWindow {
   string text=JsonSerializer.Serialize(new{quality,character,mood,language,hidden=hiddenTracks,autoDownload,syncLyrics});
   _=Task.Run(async()=>{await settingsGate.WaitAsync();try{Directory.CreateDirectory(NativeAPI.Storage);await File.WriteAllTextAsync(Path.Combine(NativeAPI.Storage,"mobile-settings.json"),text);}catch{}finally{settingsGate.Release();}});
  }
- Window Sheet(string title,StackPanel panel,int height=570,bool show=true){
-  panel.Margin=new Thickness(28);
-  var window=new Window{Title="Nightwell · "+title,Width=560,MinWidth=440,Height=Math.Min(height,SystemParameters.WorkArea.Height-40),MaxHeight=SystemParameters.WorkArea.Height-24,Owner=this,ShowInTaskbar=false,WindowStartupLocation=WindowStartupLocation.CenterOwner,Style=(Style)FindResource(typeof(Window)),Content=new ScrollViewer{Content=panel,VerticalScrollBarVisibility=ScrollBarVisibility.Auto,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled}};
-  window.Loaded+=(_,_)=>{if(panel.Children.Count>0&&panel.Children[0] is TextBlock heading){heading.FontSize=24;heading.FontWeight=FontWeights.SemiBold;heading.Margin=new Thickness(0,0,0,8);}};
-  if(show)window.Show();return window;
- }
+ WorkspaceSheet Sheet(string title,StackPanel panel,int height=570,bool show=true){var sheet=new WorkspaceSheet(this,title,panel);if(show)sheet.Show();return sheet;}
  static TextBlock Label(string text)=>new(){Text=text,FontSize=14,FontWeight=FontWeights.Medium,Margin=new Thickness(0,16,0,8),TextWrapping=TextWrapping.Wrap};
  async Task TasteSettings(){
   if(account.Length==0){Login();return;}
@@ -105,7 +99,7 @@ public partial class MainWindow {
    character=((string[])selected[0].Tag)[selected[0].SelectedIndex];mood=((string[])selected[1].Tag)[selected[1].SelectedIndex];language=((string[])selected[2].Tag)[selected[2].SelectedIndex];SaveMobileSettings();window.Close();
   }catch(Exception ex){note.Text=ex.Message;}finally{save.IsEnabled=true;}};await Task.CompletedTask;
  }
- void QualityMenu(UIElement owner){var menu=new ContextMenu();foreach(var option in new[]{("Авто","auto"),("Низкое","economy"),("Среднее","standard"),("Высокое","high")}){var item=new MenuItem{Header=option.Item1};item.Click+=(_,_)=>{quality=option.Item2;SaveMobileSettings();Status.Text="Качество: "+option.Item1+". Применится к следующему треку.";};menu.Items.Add(item);}menu.PlacementTarget=owner;menu.IsOpen=true;}
+ void QualityMenu(UIElement owner){var menu=new ContextMenu();foreach(var option in new[]{("Авто","auto"),("Низкое","economy"),("Среднее","standard"),("Высокое","high")}){var item=new MenuItem{Header=option.Item1};item.Click+=(_,_)=>{quality=option.Item2;SaveMobileSettings();Status.Text="Качество: "+option.Item1+". Применится к следующему треку.";};menu.Items.Add(item);}OpenMenu(menu,owner);}
  async void TasteClick(object sender,RoutedEventArgs e)=>await Guard(TasteSettings);
  void CloseLyricsClick(object sender,RoutedEventArgs e){LyricsPanel.Visibility=Visibility.Collapsed;Cover.Visibility=Visibility.Visible;}
  async void CoverLyricsClick(object sender,System.Windows.Input.MouseButtonEventArgs e){if(Current!=null)await Guard(()=>Lyrics(Current));}
@@ -144,6 +138,6 @@ public partial class MainWindow {
   var remote=await api.Request("api/playback/state");var id=remote.GetProperty("track_id").GetString();if(string.IsNullOrEmpty(id)){Status.Text="На других устройствах пока ничего не играет";return;}
   var tracks=ParseTracks(await api.Request("api/playback/queue"));int target=tracks.FindIndex(t=>t.id==id);if(target<0)throw new IOException("Трек больше недоступен");
   await api.Request("api/playback/state","PUT",new{device_id=deviceID,revision=remote.GetProperty("revision").GetInt64(),takeover=true,track_id=id,queue=tracks.Select(t=>t.id).ToArray(),position=remote.GetProperty("position").GetDouble(),playing=remote.GetProperty("playing").GetBoolean(),repeat=remote.GetProperty("repeat").GetInt32(),shuffle=remote.GetProperty("shuffle").GetBoolean(),wave=remote.GetProperty("wave").GetBoolean()});
-  TakePlaybackHere();queue=tracks;index=target;pendingSeek=remote.GetProperty("position").GetDouble();restorePaused=!remote.GetProperty("playing").GetBoolean();PlayCurrent();
+  TakePlaybackHere();queue=tracks;unshuffled=null;index=target;pendingSeek=remote.GetProperty("position").GetDouble();restorePaused=!remote.GetProperty("playing").GetBoolean();PlayCurrent();
  }
 }

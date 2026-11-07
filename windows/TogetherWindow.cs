@@ -13,7 +13,7 @@ namespace Nightwell.Native;
 public partial class MainWindow {
  string togetherCode="";
  JsonElement? togetherRoom;
- Window? togetherWindow;
+ WorkspaceSheet? togetherWindow;
  StackPanel? togetherPanel;
  TextBlock? togetherNotice;
  TextBox? togetherInput;
@@ -55,10 +55,7 @@ public partial class MainWindow {
   if(account.Length==0){Login();return;}
   if(togetherWindow!=null){togetherWindow.Activate();return;}
   togetherPanel=new StackPanel{Margin=new Thickness(22)};
-  var scroll=new ScrollViewer{Content=togetherPanel,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};
-  togetherWindow=new Window{Title="Nightwell Together",Owner=this,Width=520,Height=650,
-   WindowStartupLocation=WindowStartupLocation.CenterOwner,
-   Background=new SolidColorBrush(Color.FromRgb(22,22,30)),Content=scroll};
+  togetherWindow=Sheet("Слушать вместе",togetherPanel,650,false);
   togetherWindow.Closed+=(_,_)=>{togetherWindow=null;togetherPanel=null;togetherNotice=null;togetherInput=null;};
   RenderTogether();togetherWindow.Show();
  }

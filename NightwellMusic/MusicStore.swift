@@ -89,6 +89,7 @@ private struct AudioQualityDecision: Decodable {
     @Published var playlists: [Playlist] = []
     @Published var likes: Set<String> = []
     @Published var likeOrder: [String] = []
+    @Published var profile = AccountProfile()
     @Published var account: Account?
     @Published var query = ""
     @Published var searchMessage = ""

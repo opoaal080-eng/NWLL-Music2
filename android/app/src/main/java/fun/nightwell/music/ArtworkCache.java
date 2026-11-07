@@ -29,7 +29,7 @@ final class ArtworkCache {
     private int savedCount;
 
     ArtworkCache(Context context) { this.context = context.getApplicationContext(); }
-    private boolean valid(String path) { return path != null && path.startsWith("/api/covers/"); }
+    private boolean valid(String path) { return path != null && (path.startsWith("/api/covers/") || path.startsWith("/api/avatars/")); }
     private String key(String origin, String path) { return origin + path; }
     void load(ImageView target, String origin, String path) {
         target.setImageDrawable(null);
@@ -171,3 +171,4 @@ final class ArtworkCache {
     }
     void close() { io.shutdownNow(); inFlight.clear(); memory.evictAll(); }
 }
+

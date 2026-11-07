@@ -1,0 +1,18 @@
+name: Profile and playlist links
+on:
+  push:
+    branches: [main, feature/workspace-profile-20261108]
+    paths: ['server-updates/profile-workspace/**', '.github/workflows/profile-workspace-tests.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install fastapi httpx pytest pillow
+      - run: pytest -q server-updates/profile-workspace
