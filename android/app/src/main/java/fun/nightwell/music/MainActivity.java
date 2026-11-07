@@ -214,6 +214,7 @@ public final class MainActivity extends Activity {
     private final LatestRequest waveRequest=new LatestRequest(),accountRequest=new LatestRequest();
     private JSONArray catalog=new JSONArray(),shown=new JSONArray(),playlists=new JSONArray(),queue=new JSONArray();
     private final Set<String> likes=new HashSet<>();
+    private final ArrayList<String> likeOrder=new ArrayList<>();
     private final java.util.LinkedHashMap<String,JSONArray> searchCache =
         new java.util.LinkedHashMap<String,JSONArray>(24,0.75f,true) {
             @Override protected boolean removeEldestEntry(java.util.Map.Entry<String,JSONArray> entry) {
@@ -451,7 +452,7 @@ public final class MainActivity extends Activity {
         else if(tab.equals("Обращения"))supportTickets(false);
         else if(tab.equals("Только фон")||tab.equals("Показать интерфейс"))toggleBackgroundOnly();
         else if(tab.equals("Войти"))auth();
-        else if(tab.equals("Выйти")){cancelMix();accountRequest.cancel();task(()->{api.request("api/logout","POST",null);new SessionStore(this).clear();clearLibrarySnapshot();return new JSONObject();},v->{libraryGeneration++;user="";searchCache.clear();playlists=new JSONArray();selectedPlaylist="";sessionReady=true;openPendingTogether();api.updateCSRF("");getSharedPreferences("native-api",MODE_PRIVATE).edit().putString("account","").apply();catalog=new JSONArray();shown=new JSONArray();likes.clear();if(playback!=null)playback.stop();navigate("Главная");});}
+        else if(tab.equals("Выйти")){cancelMix();accountRequest.cancel();task(()->{api.request("api/logout","POST",null);new SessionStore(this).clear();clearLibrarySnapshot();return new JSONObject();},v->{libraryGeneration++;user="";searchCache.clear();playlists=new JSONArray();selectedPlaylist="";sessionReady=true;openPendingTogether();api.updateCSRF("");getSharedPreferences("native-api",MODE_PRIVATE).edit().putString("account","").apply();catalog=new JSONArray();shown=new JSONArray();likes.clear();likeOrder.clear();if(playback!=null)playback.stop();navigate("Главная");});}
         else navigate(tab);
     }
 
@@ -657,8 +658,11 @@ public final class MainActivity extends Activity {
         if(user.isEmpty()){auth();return;}if(track==null)return;
         final String id=track.optString("id");final boolean remove=likes.contains(id);
         task(()->api.request("api/likes/"+id,remove?"DELETE":"POST",null),v->{
-            if(remove)likes.remove(id);else{likes.add(id);if(ribbon!=null)ribbon.flash();}
-            refreshFavoriteButtons();updatePlayback();updateList();
+            if(remove){likes.remove(id);likeOrder.remove(id);}
+            else{likes.add(id);likeOrder.remove(id);likeOrder.add(0,id);if(ribbon!=null)ribbon.flash();}
+            saveLibrarySnapshot();
+            refreshFavoriteButtons();updatePlayback();
+            if(screen.equals("Избранное"))showScreen();else updateList();
             if(!remove&&autoFavoritesEnabled())download(new JSONArray().put(track));
             Toast.makeText(this,remove?"Убрано из избранного":"Добавлено в избранное",Toast.LENGTH_SHORT).show();
         });
@@ -753,7 +757,7 @@ public final class MainActivity extends Activity {
             JSONArray savedPlaylists=snapshot.optJSONArray("playlists");
             if(savedPlaylists!=null)playlists=savedPlaylists;
             JSONArray savedLikes=snapshot.optJSONArray("likes");
-            if(savedLikes!=null){likes.clear();for(int i=0;i<savedLikes.length();i++)likes.add(savedLikes.optString(i));}
+            if(savedLikes!=null){likes.clear();likeOrder.clear();for(int i=0;i<savedLikes.length();i++){String id=savedLikes.optString(i);if(likes.add(id))likeOrder.add(id);}}
         }catch(Exception ignored){}
     }
     private void saveLibrarySnapshot(){
@@ -765,7 +769,7 @@ public final class MainActivity extends Activity {
             for(int i=0;i<Math.min(catalog.length(),1500);i++)tracks.put(catalog.opt(i));
             snapshot.put("tracks",tracks);
             snapshot.put("playlists",playlists);
-            snapshot.put("likes",new JSONArray(likes));
+            snapshot.put("likes",new JSONArray(likeOrder));
             String value=snapshot.toString();
             if(value.length()>750000)return;
             getSharedPreferences("library-snapshot",MODE_PRIVATE).edit().putString("snapshot",value).apply();
@@ -790,7 +794,7 @@ public final class MainActivity extends Activity {
                     String nextAccount=account==null?"":account.optString("id");
                     if(!nextAccount.equals(user)){
                         clearLibrarySnapshot();
-                        libraryGeneration++;catalog=new JSONArray();shown=new JSONArray();playlists=new JSONArray();likes.clear();selectedPlaylist="";
+                        libraryGeneration++;catalog=new JSONArray();shown=new JSONArray();playlists=new JSONArray();likes.clear();likeOrder.clear();selectedPlaylist="";
                         if(playback!=null)playback.stop();
                     }
                     boolean accountChanged=!nextAccount.equals(user);
@@ -818,7 +822,7 @@ public final class MainActivity extends Activity {
                         catalog=new JSONArray();
                         shown=new JSONArray();
                         playlists=new JSONArray();
-                        likes.clear();
+                        likes.clear();likeOrder.clear();
                         selectedPlaylist="";
                         getSharedPreferences("native-api",MODE_PRIVATE).edit().putString("account","").apply();
                         if(playback!=null)playback.stop();
@@ -854,7 +858,7 @@ public final class MainActivity extends Activity {
                 JSONObject value=client.request("api/likes");
                 JSONArray ids=value.optJSONArray("ids");
                 ui.post(()->{if(!isDestroyed()&&client==api&&revision==libraryGeneration&&account.equals(user)&&ids!=null){
-                    likes.clear();for(int i=0;i<ids.length();i++)likes.add(ids.optString(i));saveLibrarySnapshot();checkAutoFavoriteDownloads();
+                    likes.clear();likeOrder.clear();for(int i=0;i<ids.length();i++){String id=ids.optString(i);if(likes.add(id))likeOrder.add(id);}saveLibrarySnapshot();checkAutoFavoriteDownloads();
                     if(!full&&screen.equals("Избранное"))showScreen();
                 }});
             }catch(Exception ignored){}
@@ -1545,16 +1549,25 @@ public final class MainActivity extends Activity {
     }
     void trackMenu(JSONObject track){
         String id=track.optString("id");
+        String offlineOwner=track.optString("_offline_account",user.isEmpty()?"device":user);
+        boolean saved=OfflineStore.audio(this,origin,offlineOwner,id)!=null;
         String[] options={
             likes.contains(id)?"Убрать из избранного":"В избранное",
-            "Скачать", "Поделиться", "Добавить в плейлист",
+            saved?"Удалить загрузку":"Скачать", "Поделиться", "Добавить в плейлист",
             hiddenRecommendations().contains(id)?"Вернуть в рекомендации":"Не рекомендовать",
             isArtistHidden(track)?"Вернуть исполнителя":"Не рекомендовать исполнителя"
         };
         AlertDialog actions=new AlertDialog.Builder(this).setTitle(track.optString("title"))
             .setItems(options,(d,n)->{
                 if(n==0)toggleFavorite(track);
-                else if(n==1)download(new JSONArray().put(track));
+                else if(n==1){
+                    if(saved){
+                        OfflineStore.operation(this,origin,new JSONObject()
+                            .put("op","remove").put("account",offlineOwner).put("id",id).toString());
+                        status.setText("Загрузка удалена");
+                        if(screen.equals("Офлайн"))showScreen();
+                    }else download(new JSONArray().put(track));
+                }
                 else if(n==2)share(origin+"track/"+id);
                 else if(n==4)toggleRecommendationHidden(track);
                 else if(n==5)toggleArtistHidden(track);
@@ -2097,11 +2110,18 @@ public final class MainActivity extends Activity {
         });
     }
     private JSONArray sortedFavorites(JSONArray items){
-        if(!premiumAllowed()||favoriteOrder.equals("recent"))return items;
         ArrayList<JSONObject> result=new ArrayList<>();
         for(int i=0;i<items.length();i++){JSONObject item=items.optJSONObject(i);if(item!=null)result.add(item);}
-        String column=favoriteOrder.equals("title")?"title":"artist";
-        result.sort((a,b)->java.text.Collator.getInstance(new java.util.Locale("ru")).compare(a.optString(column),b.optString(column)));
+        if(!premiumAllowed()||favoriteOrder.equals("recent")){
+            HashMap<String,Integer> rank=new HashMap<>();
+            for(int i=0;i<likeOrder.size();i++)rank.putIfAbsent(likeOrder.get(i),i);
+            result.sort((a,b)->Integer.compare(rank.getOrDefault(a.optString("id"),Integer.MAX_VALUE),
+                rank.getOrDefault(b.optString("id"),Integer.MAX_VALUE)));
+        }else{
+            String column=favoriteOrder.equals("title")?"title":"artist";
+            result.sort((a,b)->java.text.Collator.getInstance(new java.util.Locale("ru"))
+                .compare(a.optString(column),b.optString(column)));
+        }
         JSONArray sorted=new JSONArray();for(JSONObject item:result)sorted.put(item);return sorted;
     }
     void choosePlaylistDocument(){
