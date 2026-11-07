@@ -1,0 +1,29 @@
+name: Test Audius integration
+on:
+  push:
+    branches: ['feature/audius-catalog-20261107']
+    paths: ['server-updates/audius/**', 'server-updates/adaptive-wave/**', '.github/workflows/test-audius.yml']
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ['3.10', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '${{ matrix.python }}'
+      - run: python -m pip install fastapi httpx pytest pytest-asyncio
+      - run: python -m pytest -q server-updates/audius/tests server-updates/adaptive-wave/tests server-updates/playlist-transfer/test_transfer.py
+  live-api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install httpx
+      - name: Verify public search, MP3 range and artwork
+        run: python server-updates/audius/smoke_live.py

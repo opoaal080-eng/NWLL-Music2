@@ -206,6 +206,11 @@ def install(app, core, session, public, scheduler=None, hidden_preferences=None,
             except Exception:
                 import logging
                 logging.getLogger(__name__).warning('Wave discovery could not be scheduled', exc_info=True)
+        # Optional sources share the same catalogue and ranking policy. Never
+        # append unranked provider results or block playback on discovery.
+        extra = getattr(app.state, 'nw_audius_service', None)
+        if extra and character != 'favorites' and seeds:
+            extra.schedule(account, seeds, excluded_ids)
         return payload
 
     @app.get('/api/recommendations/status')
