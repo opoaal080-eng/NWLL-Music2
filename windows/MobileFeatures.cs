@@ -81,9 +81,9 @@ public partial class MainWindow {
   string text=JsonSerializer.Serialize(new{quality,character,mood,language,hidden=hiddenTracks,autoDownload,syncLyrics});
   _=Task.Run(async()=>{await settingsGate.WaitAsync();try{Directory.CreateDirectory(NativeAPI.Storage);await File.WriteAllTextAsync(Path.Combine(NativeAPI.Storage,"mobile-settings.json"),text);}catch{}finally{settingsGate.Release();}});
  }
- Window Sheet(string title,StackPanel panel,int height=570,bool show=true){
+ EmbeddedSheet Sheet(string title,StackPanel panel,int height=570,bool show=true){
   panel.Margin=new Thickness(28);
-  var window=new Window{Title="Nightwell · "+title,Width=560,MinWidth=440,Height=Math.Min(height,SystemParameters.WorkArea.Height-40),MaxHeight=SystemParameters.WorkArea.Height-24,Owner=this,ShowInTaskbar=false,WindowStartupLocation=WindowStartupLocation.CenterOwner,Style=(Style)FindResource(typeof(Window)),Content=new ScrollViewer{Content=panel,VerticalScrollBarVisibility=ScrollBarVisibility.Auto,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled}};
+  var window=new EmbeddedSheet(this){Title="Nightwell · "+title,Width=560,MinWidth=440,Height=Math.Min(height,SystemParameters.WorkArea.Height-40),MaxHeight=SystemParameters.WorkArea.Height-24,Owner=this,ShowInTaskbar=false,WindowStartupLocation=WindowStartupLocation.CenterOwner,Style=(Style)FindResource(typeof(Window)),Content=new ScrollViewer{Content=panel,VerticalScrollBarVisibility=ScrollBarVisibility.Auto,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled}};
   window.Loaded+=(_,_)=>{if(panel.Children.Count>0&&panel.Children[0] is TextBlock heading){heading.FontSize=24;heading.FontWeight=FontWeights.SemiBold;heading.Margin=new Thickness(0,0,0,8);}};
   if(show)window.Show();return window;
  }
