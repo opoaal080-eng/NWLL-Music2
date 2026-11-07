@@ -154,7 +154,7 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
   var mode=new ComboBox{ItemsSource=new[]{"Точный","Умный","Максимальный"},SelectedIndex=1};panel.Children.Add(mode);
   var choose=new Button{Content="Открыть JSON, CSV или TXT",Margin=new Thickness(0,12,0,8),Padding=new Thickness(8)};
   var input=new TextBox{AcceptsReturn=true,VerticalContentAlignment=VerticalAlignment.Top,TextWrapping=TextWrapping.Wrap,VerticalScrollBarVisibility=ScrollBarVisibility.Auto,Height=175};
-  choose.Click+=(_,_)=>{var picker=new OpenFileDialog{Filter="Плейлисты|*.json;*.csv;*.txt|Все файлы|*.*"};if(picker.ShowDialog(window)==true){var data=File.ReadAllBytes(picker.FileName);if(data.Length>1024*1024){MessageBox.Show(window,"Максимальный размер файла 1 МБ");return;}input.Text=System.Text.Encoding.UTF8.GetString(data);}};
+  choose.Click+=(_,_)=>{var picker=new OpenFileDialog{Filter="Плейлисты|*.json;*.csv;*.txt|Все файлы|*.*"};if(picker.ShowDialog(this)==true){var data=File.ReadAllBytes(picker.FileName);if(data.Length>1024*1024){MessageBox.Show(this,"Максимальный размер файла 1 МБ");return;}input.Text=System.Text.Encoding.UTF8.GetString(data);}};
   panel.Children.Add(choose);panel.Children.Add(input);
   var progress=new TextBlock{Foreground=Brushes.White,Margin=new Thickness(0,14,0,12),TextWrapping=TextWrapping.Wrap};panel.Children.Add(progress);
   var start=new Button{Content="Найти треки",Padding=new Thickness(12)};panel.Children.Add(start);string readyKey="";
@@ -339,7 +339,7 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
   }
  }
  void QueueClick(object sender,RoutedEventArgs e)=>QueueWindow();
- Window QueueWindow(bool show=true){
+ EmbeddedSheet QueueWindow(bool show=true){
   var panel=new StackPanel();panel.Children.Add(Label("Очередь воспроизведения"));
   panel.Children.Add(new TextBlock{Text=$"{queue.Count} треков",Foreground=(Brush)FindResource("SecondaryBrush"),Margin=new Thickness(0,0,0,16)});
   var list=new ListBox{ItemsSource=queue,ItemTemplate=Tracks.ItemTemplate,Height=400};
@@ -380,7 +380,7 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
   }catch(Exception ex){note.Text=ex.Message;}finally{login.IsEnabled=register.IsEnabled=resend.IsEnabled=true;}}
   login.Click+=async(_,_)=>await Submit(false);register.Click+=async(_,_)=>await Submit(true);resend.Click+=async(_,_)=>await Submit(false,true);
  }
- Window Settings(bool show=true){
+ EmbeddedSheet Settings(bool show=true){
   var panel=new StackPanel();panel.Children.Add(Label("Настройки"));
   panel.Children.Add(new TextBlock{Text="Воспроизведение и твоя медиатека",Foreground=(Brush)FindResource("SecondaryBrush"),Margin=new Thickness(0,0,0,16)});
   var playback=new StackPanel();
