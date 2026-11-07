@@ -512,17 +512,7 @@ struct NativeRoot: View {
             .buttonStyle(.plain)
             .foregroundStyle(nightwellText)
             .accessibilityLabel("На главную")
-            if collectionTitleCollapsed && (store.screen == .likes || store.screen == .playlists) {
-                Text(store.screen == .likes ? "Избранное" : "Плейлисты")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.88))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.72)
-                    .frame(maxWidth: .infinity)
-                    .accessibilityAddTraits(.isHeader)
-            } else {
-                Spacer(minLength: 6)
-            }
+            Spacer(minLength: 6)
             Button { if store.screen == .search { store.screen = .home } else { store.screen = .search } } label: { Image(systemName: store.screen == .search ? "xmark" : "magnifyingglass").font(.system(size: 19, weight: .medium)).foregroundStyle(.white).frame(width: 44, height: 44).frostedGlass(22, bordered: false, intensity: 0.20) }.accessibilityLabel(store.screen == .search ? "Закрыть поиск" : "Поиск")
             Button { navigationMenuPresented = true } label: {
                 Image(systemName: "line.3.horizontal")
@@ -535,6 +525,21 @@ struct NativeRoot: View {
         }
         .padding(.horizontal, 20)
         .padding(.top, 8)
+        // Centre the collapsed section title relative to the FULL header width,
+        // not the uneven free space between the logo and the right-side controls.
+        .overlay(alignment: .center) {
+            if collectionTitleCollapsed && (store.screen == .likes || store.screen == .playlists) {
+                Text(store.screen == .likes ? "Избранное" : "Плейлисты")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.88))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+                    .frame(maxWidth: 150)
+                    .allowsHitTesting(false)
+                    .accessibilityAddTraits(.isHeader)
+                    .transition(.opacity)
+            }
+        }
         .animation(reducedMotion ? nil : .easeInOut(duration: 0.18), value: collectionTitleCollapsed)
     }
     private func updateCollectionTitle(offset: CGFloat) {
