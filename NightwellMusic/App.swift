@@ -273,6 +273,7 @@ struct NativeRoot: View {
     @State private var premiumPresented = false
     @State private var transferPresented = false
     @State private var favoriteSort = "recent"
+    @State private var collectionTitleCollapsed = false
     @ObservedObject private var favoritePremium = PremiumFeatureState.shared
     @State private var fullPlayer = false
     @State private var selectedArtist: ArtistSelection?
@@ -421,7 +422,10 @@ struct NativeRoot: View {
         .simultaneousGesture(DragGesture(minimumDistance: 35).onEnded { gesture in
             if gesture.startLocation.x < 24 && gesture.translation.width > 90 && abs(gesture.translation.height) < 60 { store.screen = .home }
         })
-        .onChange(of: store.screen) { _ in if store.screen != .search { store.leaveSearch() } }
+        .onChange(of: store.screen) { _ in
+            collectionTitleCollapsed = false
+            if store.screen != .search { store.leaveSearch() }
+        }
         .onOpenURL { openSharedURL($0) }
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
             if let url = activity.webpageURL { openSharedURL(url) }
@@ -503,7 +507,17 @@ struct NativeRoot: View {
             .buttonStyle(.plain)
             .foregroundStyle(nightwellText)
             .accessibilityLabel("На главную")
-            Spacer()
+            if collectionTitleCollapsed && (store.screen == .likes || store.screen == .playlists) {
+                Text(store.screen == .likes ? "Избранное" : "Плейлисты")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.88))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+                    .frame(maxWidth: .infinity)
+                    .accessibilityAddTraits(.isHeader)
+            } else {
+                Spacer(minLength: 6)
+            }
             Button { if store.screen == .search { store.screen = .home } else { store.screen = .search } } label: { Image(systemName: store.screen == .search ? "xmark" : "magnifyingglass").font(.system(size: 19, weight: .medium)).foregroundStyle(.white).frame(width: 44, height: 44).frostedGlass(22, bordered: false, intensity: 0.20) }.accessibilityLabel(store.screen == .search ? "Закрыть поиск" : "Поиск")
             Button { navigationMenuPresented = true } label: {
                 Image(systemName: "line.3.horizontal")
@@ -514,6 +528,12 @@ struct NativeRoot: View {
             }
             .accessibilityLabel("Меню")
         }.padding(.horizontal, 20).padding(.top, 8)
+    }
+    private func updateCollectionTitle(offset: CGFloat) {
+        guard store.screen == .likes || store.screen == .playlists else { return }
+        // Hysteresis prevents the title from flickering at the scroll boundary.
+        if offset < -70 && !collectionTitleCollapsed { collectionTitleCollapsed = true }
+        else if offset > -24 && collectionTitleCollapsed { collectionTitleCollapsed = false }
     }
     private var favoriteTracks: [Track] {
         let entries = store.catalog.filter { store.likes.contains($0.id) }
@@ -569,21 +589,72 @@ struct NativeRoot: View {
                 TrackList(tracks: store.results)
             }.padding(.horizontal, 20)
         case .likes:
-            VStack(alignment: .leading) { HStack { collectionHeading("Избранное", tracks: favoriteTracks, kind: "likes"); Spacer(); Menu { if favoritePremium.allowed { Button("Недавние") { favoriteSort = "recent" }; Button("По названию") { favoriteSort = "title" }; Button("По исполнителю") { favoriteSort = "artist" } } else { Button("Оформить Premium") { premiumPresented = true } } } label: { Label("Сортировка · Premium", systemImage: "arrow.up.arrow.down").font(.caption) } }; TrackList(tracks: favoriteTracks) }.padding(.horizontal, 20)
+            TrackList(tracks: favoriteTracks, scrollHeader: AnyView(
+                HStack(spacing: 8) {
+                    collectionHeading("Избранное", tracks: favoriteTracks, kind: "likes")
+                    Spacer(minLength: 8)
+                    Menu {
+                        if favoritePremium.allowed {
+                            Button("Недавние") { favoriteSort = "recent" }
+                            Button("По названию") { favoriteSort = "title" }
+                            Button("По исполнителю") { favoriteSort = "artist" }
+                        } else {
+                            Button("Оформить Premium") { premiumPresented = true }
+                        }
+                    } label: {
+                        Label("Сортировка · Premium", systemImage: "arrow.up.arrow.down")
+                            .font(.caption)
+                    }
+                }
+                .padding(.top, 8)
+            ), onScroll: { updateCollectionTitle(offset: $0) })
+            .padding(.horizontal, 20)
         case .playlists:
-            VStack(alignment: .leading, spacing: 16) {
-                Button("Умные плейлисты · Premium") { feature = .smart }
-                DailyPublicPlaylistsView(store: store)
-                HStack { Text("Плейлисты").font(.largeTitle.bold()); Spacer(); Button { createPlaylist = true } label: { Image(systemName: "plus") } }
-                ScrollView { LazyVStack(spacing: 12) { ForEach(store.playlists) { p in
-                    HStack { Button { selectedPlaylist = p } label: { Text(p.name).frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 16) }; Menu {
-                        Button("Скачать", systemImage: "arrow.down.to.line") { Task { do { await store.download(try await store.playlistTracks(p.id)) } catch { store.error = error.localizedDescription } } }
-                        Button("Поделиться", systemImage: "square.and.arrow.up") { Task { shareText = await store.share(kind: "playlist", playlist: p.id, title: p.name); showShare = shareText != nil } }
-                        Button("Удалить", role: .destructive) { Task { await store.deletePlaylist(p.id) } }
-                    } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }
-                    }.padding(.horizontal, 18).glass()
-                } } }
-            }.padding(.horizontal, 20)
+            ScrollView {
+                VStack(spacing: 0) {
+                    CollectionScrollAnchor(space: "nightwell-playlists-scroll")
+                    LazyVStack(alignment: .leading, spacing: 16) {
+                        HStack {
+                            Text("Плейлисты").font(.largeTitle.bold())
+                            Spacer()
+                            Button { createPlaylist = true } label: { Image(systemName: "plus") }
+                        }
+                        Button("Умные плейлисты · Premium") { feature = .smart }
+                        // Daily and personal playlists live in one scrollable surface.
+                        DailyPublicPlaylistsView(store: store)
+                        ForEach(store.playlists) { p in
+                            HStack {
+                                Button { selectedPlaylist = p } label: {
+                                    Text(p.name).frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 16)
+                                }
+                                Menu {
+                                    Button("Скачать", systemImage: "arrow.down.to.line") {
+                                        Task {
+                                            do { await store.download(try await store.playlistTracks(p.id)) }
+                                            catch { store.error = error.localizedDescription }
+                                        }
+                                    }
+                                    Button("Поделиться", systemImage: "square.and.arrow.up") {
+                                        Task {
+                                            shareText = await store.share(kind: "playlist", playlist: p.id, title: p.name)
+                                            showShare = shareText != nil
+                                        }
+                                    }
+                                    Button("Удалить", role: .destructive) {
+                                        Task { await store.deletePlaylist(p.id) }
+                                    }
+                                } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }
+                            }
+                            .padding(.horizontal, 18)
+                            .glass()
+                        }
+                    }
+                }
+            }
+            .coordinateSpace(name: "nightwell-playlists-scroll")
+            .onPreferenceChange(CollectionScrollOffsetKey.self) { updateCollectionTitle(offset: $0) }
+            .scrollDismissesKeyboard(.interactively)
+            .padding(.horizontal, 20)
         case .offline:
             VStack(alignment: .leading, spacing: 16) {
                 HStack {
@@ -634,17 +705,49 @@ struct NativeRoot: View {
     }
 }
 
+private struct CollectionScrollOffsetKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
+private struct CollectionScrollAnchor: View {
+    let space: String
+    var body: some View {
+        GeometryReader { proxy in
+            Color.clear.preference(key: CollectionScrollOffsetKey.self,
+                value: proxy.frame(in: .named(space)).minY)
+        }
+        .frame(height: 0)
+    }
+}
+
 struct TrackList: View {
     @EnvironmentObject var store: MusicStore
     let tracks: [Track]
     var playlist: Playlist? = nil
+    var scrollHeader: AnyView? = nil
+    var onScroll: ((CGFloat) -> Void)? = nil
+
     var body: some View {
         ScrollView {
-            LazyVStack(spacing: 6) {
-                if tracks.isEmpty { Text(store.account == nil && store.screen != .offline ? "Войди в аккаунт или открой офлайн-файлы" : "Здесь пока нет треков").foregroundStyle(.secondary).padding(.top, 30) }
-                ForEach(tracks) { track in NativeTrackRow(track: track, queue: tracks, status: store.clock.status, playlist: playlist) }
+            VStack(spacing: 0) {
+                if onScroll != nil { CollectionScrollAnchor(space: "nightwell-tracks-scroll") }
+                LazyVStack(spacing: 6) {
+                    if let scrollHeader { scrollHeader.padding(.bottom, 12) }
+                    if tracks.isEmpty {
+                        Text(store.account == nil && store.screen != .offline ?
+                             "Войди в аккаунт или открой офлайн-файлы" : "Здесь пока нет треков")
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 30)
+                    }
+                    ForEach(tracks) { track in
+                        NativeTrackRow(track: track, queue: tracks, status: store.clock.status, playlist: playlist)
+                    }
+                }
             }
         }
+        .coordinateSpace(name: "nightwell-tracks-scroll")
+        .onPreferenceChange(CollectionScrollOffsetKey.self) { onScroll?($0) }
         .scrollDismissesKeyboard(.interactively)
         .task(id: tracks.prefix(6).map { $0.id }.joined(separator: "|")) {
             let urls = tracks.prefix(6).compactMap {
@@ -709,7 +812,19 @@ struct NativeTrackRow: View {
                 Menu("Добавить в плейлист") { ForEach(store.playlists) { p in Button(p.name) { Task { await store.add(track, playlist: p) } } } }
                 if let playlist { Button("Убрать из плейлиста", role: .destructive) { Task { await store.add(track, playlist: playlist, remove: true) } } }
             } label: { Image(systemName: "ellipsis").frame(width: 34, height: 44) }
-        }.padding(12).background(status.id == track.id ? pumpkin.opacity(0.12) : .white.opacity(0.035), in: RoundedRectangle(cornerRadius: 18))
+        }
+        .padding(12)
+        // A background button covers the entire row, including empty space.
+        // Artist controls and the ellipsis menu remain foreground buttons.
+        .background {
+            Button { store.play(track, in: queue) } label: {
+                RoundedRectangle(cornerRadius: 18)
+                    .fill(status.id == track.id ? pumpkin.opacity(0.12) : .white.opacity(0.035))
+                    .contentShape(RoundedRectangle(cornerRadius: 18))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Воспроизвести \(track.title)")
+        }
         .confirmationDialog("Выбери исполнителя", isPresented: $showArtistChoices, titleVisibility: .visible) {
             ForEach(ArtistNames.split(track.artist), id: \.self) { name in
                 Button(name) { selectedArtist = ArtistSelection(name: name) }

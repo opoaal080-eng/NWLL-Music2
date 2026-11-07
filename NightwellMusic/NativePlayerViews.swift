@@ -542,7 +542,6 @@ struct FullPlayer: View {
                             .clipShape(RoundedRectangle(cornerRadius: 26))
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .contentShape(Rectangle())
-                            .onTapGesture { withAnimation(.easeInOut(duration: 0.22)) { showLyrics = true } }
                             .gesture(DragGesture(minimumDistance: 18).onEnded { value in
                                 let dx = value.translation.width
                                 if abs(dx) > 52 && abs(dx) > abs(value.translation.height) * 1.15 {
