@@ -410,6 +410,7 @@ struct NativeRoot: View {
         .sheet(isPresented: $premiumPresented) { PremiumView(api: store.api) }
         .overlay { if launching { MonochromeNightwellLaunch().transition(.opacity) } }
         .task { try? await Task.sleep(nanoseconds: reducedMotion ? 150_000_000 : 1_200_000_000); withAnimation(.easeOut(duration: 0.3)) { launching = false } }
+        .onChange(of: store.account?.id) { _ in Task { await store.refreshProfile() } }
         .task { await store.start()
             #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("--native-smoke-focus") { backgroundOnly = true }
@@ -502,8 +503,15 @@ struct NativeRoot: View {
             Spacer()
             Button { if store.screen == .search { store.screen = .home } else { store.screen = .search } } label: { Image(systemName: store.screen == .search ? "xmark" : "magnifyingglass").font(.system(size: 19, weight: .medium)).foregroundStyle(.white).frame(width: 44, height: 44).frostedGlass(22, bordered: false, intensity: 0.20) }.accessibilityLabel(store.screen == .search ? "Закрыть поиск" : "Поиск")
             Button { navigationMenuPresented = true } label: {
-                Image(systemName: "person.crop.circle")
-                    .font(.system(size: 19, weight: .medium))
+                Group {
+                    if let avatar=store.profileAvatar {
+                        Image(uiImage:avatar).resizable().scaledToFill()
+                    } else {
+                        Image(systemName:"person.crop.circle")
+                            .font(.system(size:19,weight:.medium))
+                    }
+                }
+                    .clipShape(Circle())
                     .foregroundStyle(.white)
                     .frame(width: 44, height: 44)
                     .frostedGlass(22, bordered: false, intensity: 0.20)
