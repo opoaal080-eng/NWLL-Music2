@@ -509,7 +509,7 @@ struct NativeRoot: View {
             .accessibilityLabel("На главную")
             if collectionTitleCollapsed && (store.screen == .likes || store.screen == .playlists) {
                 Text(store.screen == .likes ? "Избранное" : "Плейлисты")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.88))
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
@@ -531,9 +531,16 @@ struct NativeRoot: View {
     }
     private func updateCollectionTitle(offset: CGFloat) {
         guard store.screen == .likes || store.screen == .playlists else { return }
-        // Hysteresis prevents the title from flickering at the scroll boundary.
-        if offset < -70 && !collectionTitleCollapsed { collectionTitleCollapsed = true }
-        else if offset > -24 && collectionTitleCollapsed { collectionTitleCollapsed = false }
+        // Positive offset means the user scrolled down into the collection.
+        // Collapse before the large heading can become clipped by the scroll viewport.
+        // Separate thresholds avoid flickering while the scroll view is decelerating.
+        let collapse = offset > 24
+        let expand = offset < 4
+        guard (collapse && !collectionTitleCollapsed) ||
+              (expand && collectionTitleCollapsed) else { return }
+        withAnimation(reducedMotion ? nil : .easeOut(duration: 0.18)) {
+            collectionTitleCollapsed = collapse
+        }
     }
     private var favoriteTracks: [Track] {
         let entries = store.catalog.filter { store.likes.contains($0.id) }
@@ -589,71 +596,89 @@ struct NativeRoot: View {
                 TrackList(tracks: store.results)
             }.padding(.horizontal, 20)
         case .likes:
-            TrackList(tracks: favoriteTracks, scrollHeader: AnyView(
-                HStack(spacing: 8) {
-                    collectionHeading("Избранное", tracks: favoriteTracks, kind: "likes")
-                    Spacer(minLength: 8)
-                    Menu {
-                        if favoritePremium.allowed {
-                            Button("Недавние") { favoriteSort = "recent" }
-                            Button("По названию") { favoriteSort = "title" }
-                            Button("По исполнителю") { favoriteSort = "artist" }
-                        } else {
-                            Button("Оформить Premium") { premiumPresented = true }
+            VStack(alignment: .leading, spacing: 10) {
+                if !collectionTitleCollapsed {
+                    VStack(alignment: .leading, spacing: 8) {
+                        collectionHeading("Избранное", tracks: favoriteTracks, kind: "likes")
+                            .padding(.top, 6)
+                        HStack {
+                            Spacer()
+                            Menu {
+                                if favoritePremium.allowed {
+                                    Button("Недавние") { favoriteSort = "recent" }
+                                    Button("По названию") { favoriteSort = "title" }
+                                    Button("По исполнителю") { favoriteSort = "artist" }
+                                } else {
+                                    Button("Оформить Premium") { premiumPresented = true }
+                                }
+                            } label: {
+                                Label("Сортировка · Premium", systemImage: "arrow.up.arrow.down")
+                                    .font(.caption)
+                            }
                         }
-                    } label: {
-                        Label("Сортировка · Premium", systemImage: "arrow.up.arrow.down")
-                            .font(.caption)
                     }
+                    .transition(.opacity.combined(with: .move(edge: .top)))
                 }
-                .padding(.top, 8)
-            ), onScroll: { updateCollectionTitle(offset: $0) })
+                // The large title is outside the scroll view. It can never remain
+                // half-clipped after collapsing and cannot upset scroll offset tracking.
+                TrackList(tracks: favoriteTracks, onScroll: { updateCollectionTitle(offset: $0) })
+            }
             .padding(.horizontal, 20)
         case .playlists:
-            ScrollView {
-                VStack(spacing: 0) {
-                    CollectionScrollAnchor(space: "nightwell-playlists-scroll")
-                    LazyVStack(alignment: .leading, spacing: 16) {
-                        HStack {
-                            Text("Плейлисты").font(.largeTitle.bold())
-                            Spacer()
-                            Button { createPlaylist = true } label: { Image(systemName: "plus") }
-                        }
-                        Button("Умные плейлисты · Premium") { feature = .smart }
-                        // Daily and personal playlists live in one scrollable surface.
-                        DailyPublicPlaylistsView(store: store)
-                        ForEach(store.playlists) { p in
-                            HStack {
-                                Button { selectedPlaylist = p } label: {
-                                    Text(p.name).frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 16)
+            VStack(alignment: .leading, spacing: 12) {
+                if !collectionTitleCollapsed {
+                    HStack {
+                        Text("Плейлисты")
+                            .font(.largeTitle.bold())
+                            .lineLimit(1)
+                        Spacer()
+                        Button { createPlaylist = true } label: { Image(systemName: "plus") }
+                    }
+                    .padding(.top, 6)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+                ScrollView {
+                    VStack(spacing: 0) {
+                        CollectionScrollAnchor(space: "nightwell-playlists-scroll")
+                        LazyVStack(alignment: .leading, spacing: 16) {
+                            Button("Умные плейлисты · Premium") { feature = .smart }
+                            // The daily selections and ordinary playlists share one scroll view.
+                            DailyPublicPlaylistsView(store: store)
+                            ForEach(store.playlists) { p in
+                                HStack {
+                                    Button { selectedPlaylist = p } label: {
+                                        Text(p.name)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .padding(.vertical, 16)
+                                    }
+                                    Menu {
+                                        Button("Скачать", systemImage: "arrow.down.to.line") {
+                                            Task {
+                                                do { await store.download(try await store.playlistTracks(p.id)) }
+                                                catch { store.error = error.localizedDescription }
+                                            }
+                                        }
+                                        Button("Поделиться", systemImage: "square.and.arrow.up") {
+                                            Task {
+                                                shareText = await store.share(kind: "playlist", playlist: p.id, title: p.name)
+                                                showShare = shareText != nil
+                                            }
+                                        }
+                                        Button("Удалить", role: .destructive) {
+                                            Task { await store.deletePlaylist(p.id) }
+                                        }
+                                    } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }
                                 }
-                                Menu {
-                                    Button("Скачать", systemImage: "arrow.down.to.line") {
-                                        Task {
-                                            do { await store.download(try await store.playlistTracks(p.id)) }
-                                            catch { store.error = error.localizedDescription }
-                                        }
-                                    }
-                                    Button("Поделиться", systemImage: "square.and.arrow.up") {
-                                        Task {
-                                            shareText = await store.share(kind: "playlist", playlist: p.id, title: p.name)
-                                            showShare = shareText != nil
-                                        }
-                                    }
-                                    Button("Удалить", role: .destructive) {
-                                        Task { await store.deletePlaylist(p.id) }
-                                    }
-                                } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }
+                                .padding(.horizontal, 18)
+                                .glass()
                             }
-                            .padding(.horizontal, 18)
-                            .glass()
                         }
                     }
                 }
+                .coordinateSpace(name: "nightwell-playlists-scroll")
+                .modifier(CollectionScrollTracking { updateCollectionTitle(offset: $0) })
+                .scrollDismissesKeyboard(.interactively)
             }
-            .coordinateSpace(name: "nightwell-playlists-scroll")
-            .onPreferenceChange(CollectionScrollOffsetKey.self) { updateCollectionTitle(offset: $0) }
-            .scrollDismissesKeyboard(.interactively)
             .padding(.horizontal, 20)
         case .offline:
             VStack(alignment: .leading, spacing: 16) {
@@ -710,6 +735,26 @@ private struct CollectionScrollOffsetKey: PreferenceKey {
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
 
+/// iOS 18+ reads the UIScrollView's actual content offset, including insets.
+/// iOS 17 keeps a nonzero-height geometry marker as a compatibility fallback.
+private struct CollectionScrollTracking: ViewModifier {
+    var onOffset: (CGFloat) -> Void
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.onScrollGeometryChange(for: CGFloat.self, of: { geometry in
+                max(0, geometry.contentOffset.y + geometry.contentInsets.top)
+            }, action: { _, offset in
+                onOffset(offset)
+            })
+        } else {
+            content.onPreferenceChange(CollectionScrollOffsetKey.self) { originY in
+                onOffset(max(0, -originY))
+            }
+        }
+    }
+}
+
 private struct CollectionScrollAnchor: View {
     let space: String
     var body: some View {
@@ -717,7 +762,9 @@ private struct CollectionScrollAnchor: View {
             Color.clear.preference(key: CollectionScrollOffsetKey.self,
                 value: proxy.frame(in: .named(space)).minY)
         }
-        .frame(height: 0)
+        .frame(height: 1)
+        .accessibilityHidden(true)
+        .allowsHitTesting(false)
     }
 }
 
@@ -725,7 +772,6 @@ struct TrackList: View {
     @EnvironmentObject var store: MusicStore
     let tracks: [Track]
     var playlist: Playlist? = nil
-    var scrollHeader: AnyView? = nil
     var onScroll: ((CGFloat) -> Void)? = nil
 
     var body: some View {
@@ -733,7 +779,6 @@ struct TrackList: View {
             VStack(spacing: 0) {
                 if onScroll != nil { CollectionScrollAnchor(space: "nightwell-tracks-scroll") }
                 LazyVStack(spacing: 6) {
-                    if let scrollHeader { scrollHeader.padding(.bottom, 12) }
                     if tracks.isEmpty {
                         Text(store.account == nil && store.screen != .offline ?
                              "Войди в аккаунт или открой офлайн-файлы" : "Здесь пока нет треков")
@@ -747,7 +792,7 @@ struct TrackList: View {
             }
         }
         .coordinateSpace(name: "nightwell-tracks-scroll")
-        .onPreferenceChange(CollectionScrollOffsetKey.self) { onScroll?($0) }
+        .modifier(CollectionScrollTracking { offset in onScroll?(offset) })
         .scrollDismissesKeyboard(.interactively)
         .task(id: tracks.prefix(6).map { $0.id }.joined(separator: "|")) {
             let urls = tracks.prefix(6).compactMap {
