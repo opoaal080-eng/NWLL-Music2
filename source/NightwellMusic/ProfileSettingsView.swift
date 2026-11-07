@@ -88,7 +88,7 @@ struct ProfileSettingsView: View {
             TextField("Ник, от 2 до 32 символов",text:$nickname)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
-                .padding(12).background(.white.opacity(.09),in:RoundedRectangle(cornerRadius:12))
+                .padding(12).background(.white.opacity(0.09),in:RoundedRectangle(cornerRadius:12))
             Button(busy ? "Сохраняем…" : "Сохранить ник") {
                 busy=true
                 Task {
@@ -100,7 +100,7 @@ struct ProfileSettingsView: View {
             if !notice.isEmpty { Text(notice).font(.caption).foregroundStyle(.secondary) }
         }
         .padding(16)
-        .background(.white.opacity(.035),in:RoundedRectangle(cornerRadius:24))
+        .background(.white.opacity(0.035),in:RoundedRectangle(cornerRadius:24))
         .task { await store.refreshProfile();nickname=store.profileNickname }
         .onChange(of:selectedPhoto) { next in
             guard let next else { return }
