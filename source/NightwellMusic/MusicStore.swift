@@ -88,6 +88,7 @@ private struct AudioQualityDecision: Decodable {
     @Published private(set) var damagedOffline: [Track] = []
     @Published var playlists: [Playlist] = []
     @Published var likes: Set<String> = []
+    @Published var likeOrder: [String] = []
     @Published var account: Account?
     @Published var query = ""
     @Published var searchMessage = ""
@@ -321,6 +322,7 @@ private struct AudioQualityDecision: Decodable {
         }
         catalog = cache.tracks
         likes = Set(cache.likes)
+        likeOrder = cache.likes
         playlists = cache.playlists
         lastWave = cache.wave
     }
@@ -331,7 +333,7 @@ private struct AudioQualityDecision: Decodable {
             do { try await Task.sleep(nanoseconds: 250_000_000) } catch { return }
             guard let self, let key = self.sessionCacheKey else { return }
             let snapshot = SessionSnapshot(savedAt: Date(), tracks: Array(self.catalog.prefix(1500)),
-                                           likes: Array(self.likes), playlists: self.playlists,
+                                           likes: self.likeOrder.isEmpty ? Array(self.likes) : self.likeOrder, playlists: self.playlists,
                                            wave: Array(self.lastWave.prefix(90)))
             let data = await Task.detached(priority: .utility) { try? JSONEncoder().encode(snapshot) }.value
             guard !Task.isCancelled, self.sessionCacheKey == key,
@@ -371,7 +373,7 @@ private struct AudioQualityDecision: Decodable {
                 let changedAccount = self.account?.id != identity.user?.id
                 if changedAccount {
                     self.libraryRefresh.cancel()
-                    self.catalog = []; self.likes = []; self.playlists = []; self.lastWave = []; self.results = []
+                    self.catalog = []; self.likes = []; self.likeOrder = []; self.playlists = []; self.lastWave = []; self.results = []
                     self.searchTask?.cancel(); self.artistSearchTask?.cancel(); self.searchGeneration = UUID(); self.searchCache.removeAll(); self.artistResults = []; self.artistSearchCache.removeAll()
                     NativePlayer.shared.stop()
                 }
@@ -497,7 +499,7 @@ private struct AudioQualityDecision: Decodable {
             guard generation == sessionGeneration, !Task.isCancelled else { return }
             if account?.id != identity.user?.id {
                 libraryRefresh.cancel()
-                catalog = []; likes = []; playlists = []; lastWave = []; results = []
+                catalog = []; likes = []; likeOrder = []; playlists = []; lastWave = []; results = []
                 searchTask?.cancel(); artistSearchTask?.cancel(); searchGeneration = UUID(); searchCache.removeAll(); artistResults = []; artistSearchCache.removeAll()
                 NativePlayer.shared.stop()
             }
@@ -711,6 +713,7 @@ private struct AudioQualityDecision: Decodable {
                     let value: LikeResult = try await client.request("/api/likes", timeout: 10)
                     guard current() else { return }
                     self.likes = Set(value.ids)
+                    self.likeOrder = value.ids
                     self.syncFavoriteDownloadsIfEnabled()
                     successes += 1
                     self.connectionStatus = "Онлайн"
@@ -748,7 +751,7 @@ private struct AudioQualityDecision: Decodable {
         connectionCheckGeneration = UUID()
         if account?.id != user.id {
             NativePlayer.shared.stop()
-            catalog = []; likes = []; playlists = []; lastWave = []; results = []
+            catalog = []; likes = []; likeOrder = []; playlists = []; lastWave = []; results = []
             searchTask?.cancel(); artistSearchTask?.cancel(); searchGeneration = UUID(); searchCache = [:]; artistResults = []; artistSearchCache = [:]
         }
         account = user
@@ -813,7 +816,7 @@ private struct AudioQualityDecision: Decodable {
             sessionGeneration = UUID(); starting = false; snapshotSaveTask?.cancel(); libraryRefresh.cancel()
             connectionCheck?.cancel(); connectionCheck = nil; connectionCheckGeneration = UUID(); sessionReady = false
             stopLiveSync()
-            account = nil; restoreAutoFavoritesSetting(); mixRecentIDs = []; cacheAccount(); catalog = []; results = []; likes = []; playlists = []; lastWave = []; query = ""; await api.setCSRF(nil)
+            account = nil; restoreAutoFavoritesSetting(); mixRecentIDs = []; cacheAccount(); catalog = []; results = []; likes = []; likeOrder = []; playlists = []; lastWave = []; query = ""; await api.setCSRF(nil)
         } catch { self.error = error.localizedDescription }
     }
     private func refreshSearchArtists(for text: String, generation: UUID) {
@@ -1112,8 +1115,15 @@ private struct AudioQualityDecision: Decodable {
         defer { likesInFlight.remove(track.id) }
         let owner = account?.id
         let desired = !likes.contains(track.id)
-        if desired { likes.insert(track.id); likeFlash += 1 }
-        else { likes.remove(track.id) }
+        let previousOrder = likeOrder
+        if desired {
+            likes.insert(track.id); likeFlash += 1
+            likeOrder.removeAll { $0 == track.id }
+            likeOrder.insert(track.id, at: 0)
+        } else {
+            likes.remove(track.id)
+            likeOrder.removeAll { $0 == track.id }
+        }
         var failure: Error?
         do {
             // The HTTP operation may succeed even if its body is empty or uses an
@@ -1129,6 +1139,7 @@ private struct AudioQualityDecision: Decodable {
             let response: LikeResult = try await api.request("/api/likes")
             guard account?.id == owner else { return }
             likes = Set(response.ids)
+            likeOrder = response.ids
             saveSessionSnapshot()
             if likes.contains(track.id) == desired {
                 if desired { syncFavoriteDownloadsIfEnabled(newest: track) }
@@ -1139,6 +1150,7 @@ private struct AudioQualityDecision: Decodable {
             guard account?.id == owner else { return }
             // Without confirmation we must not claim the request succeeded.
             if desired { likes.remove(track.id) } else { likes.insert(track.id) }
+            likeOrder = previousOrder
             self.error = "Не удалось проверить избранное. Проверьте подключение и повторите."
         }
     }
@@ -1235,7 +1247,19 @@ private struct AudioQualityDecision: Decodable {
             guard self.account?.id == owner else { return }
             guard state.premium else { error = "Скачивание доступно с Premium — 150 ₽ за 30 дней."; return }
         } catch { self.error = error.localizedDescription; return }
-        BackgroundDownloads.shared.enqueue(list, origin: origin, account: account.id)
+        // The current server explicitly rejects Audius offline export.
+        // Do not queue unsupported jobs or report them as successful.
+        let available = list.filter {
+            $0.source?.lowercased() != "audius" && !$0.id.hasPrefix("audius_")
+        }
+        guard !available.isEmpty else {
+            error = "Эти треки Audius пока нельзя скачать: источник не разрешает офлайн-экспорт."
+            return
+        }
+        if available.count != list.count {
+            error = "Часть треков Audius недоступна для скачивания. Остальные загружаются."
+        }
+        BackgroundDownloads.shared.enqueue(available, origin: origin, account: account.id)
     }
     func repairDamagedDownloads() async {
         guard account != nil else { authPresented = true; return }
@@ -1252,7 +1276,8 @@ private struct AudioQualityDecision: Decodable {
     }
     func isDownloaded(_ track: Track) -> Bool {
         if offline.contains(where: { $0.id == track.id }) { return true }
-        guard track._offline == true else { return false }
+        // A completed background download may precede the asynchronous list refresh.
+        // Verify the real audio file, not only the UI snapshot.
         let owner = track._offline_account ?? account?.id ?? "device"
         return OfflineStore.audio(origin: origin, account: owner, id: track.id) != nil
     }
@@ -1288,7 +1313,7 @@ private struct AudioQualityDecision: Decodable {
     }
     func changeServer(_ value: String) async {
         guard let url = ServerAddress.validated(value) else { error = "Нужен HTTPS-адрес без пути и параметров"; return }
-        NativePlayer.shared.stop(); preloadTask?.cancel(); preloadTask = nil; lastPreloadIDs = []; lastPreloadAt = .distantPast; leaveSearch(); catalog = []; results = []; artistResults = []; playlists = []; likes = []; account = nil; searchCache = [:]; artistSearchCache = [:]
+        NativePlayer.shared.stop(); preloadTask?.cancel(); preloadTask = nil; lastPreloadIDs = []; lastPreloadAt = .distantPast; leaveSearch(); catalog = []; results = []; artistResults = []; playlists = []; likes = []; likeOrder = []; account = nil; searchCache = [:]; artistSearchCache = [:]
         sessionGeneration = UUID(); starting = false; snapshotSaveTask?.cancel(); libraryRefresh.cancel(); connectionCheck?.cancel(); connectionCheck = nil; connectionCheckGeneration = UUID(); sessionReady = false
         stopLiveSync()
         origin = url; api = MusicAPI(origin: url); lastWave = []; restoreAutoFavoritesSetting(); cacheAccount(); await api.setCSRF(nil); UserDefaults.standard.set(url.absoluteString, forKey: "nightwell.server"); await start()
