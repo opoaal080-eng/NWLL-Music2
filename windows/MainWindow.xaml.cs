@@ -250,7 +250,7 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
  async Task Lyrics(Track t){
   Home.Visibility=Library.Visibility=Dock.Visibility=Visibility.Collapsed;PlayerPage.Visibility=LyricsPanel.Visibility=Visibility.Visible;Ribbon.Visibility=Visibility.Visible;Ribbon.Focused=true;Cover.Visibility=Visibility.Collapsed;
   if(lyricsID==t.id&&currentLyrics.HasValue){SyncLyrics();return;}
-  lyricsCancellation?.Cancel();lyricsCancellation=new();var token=lyricsCancellation.Token;lyricsID=t.id;currentLyrics=null;renderedLyric=int.MinValue;LyricsText.Text="Ищем подходящий текст…";
+  lyricsCancellation?.Cancel();lyricsCancellation=new();var token=lyricsCancellation.Token;lyricsID=t.id;currentLyrics=null;renderedLyric=int.MinValue;SyncedLyricsLines.Visibility=Visibility.Collapsed;LyricsText.Visibility=Visibility.Visible;LyricsText.Text="Ищем подходящий текст…";
   string folder=Path.Combine(NativeAPI.Storage,"lyrics");Directory.CreateDirectory(folder);string cache=Path.Combine(folder,t.id+".json");
   try{
    if(File.Exists(cache)&&DateTime.UtcNow-File.GetLastWriteTimeUtc(cache)<TimeSpan.FromDays(30)){var cached=JsonDocument.Parse(await File.ReadAllTextAsync(cache,token)).RootElement.Clone();if(cached.TryGetProperty("status",out var st)&&st.GetString()=="found"){currentLyrics=cached;SyncLyrics();return;}}
@@ -263,7 +263,21 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
    LyricsText.Text="Поиск текста временно недоступен. Открой текст ещё раз чуть позже.";lyricsID="";
   }catch(OperationCanceledException){}catch{if(currentID==t.id){lyricsID="";LyricsText.Text="Не удалось загрузить текст. Повтори позже.";}}
  }
- void SyncLyrics(){if(!currentLyrics.HasValue||lyricsID!=currentID)return;var result=currentLyrics.Value;if(syncLyrics&&result.TryGetProperty("synced",out var synced)&&synced.GetBoolean()&&result.TryGetProperty("lines",out var lines)){double position=audioTime/1000.0;var all=lines.EnumerateArray().ToArray();int activeIndex=Array.FindLastIndex(all,l=>l.GetProperty("time").GetDouble()<=position);if(renderedLyric==activeIndex)return;renderedLyric=activeIndex;var active=activeIndex>=0?all[activeIndex]:default;LyricsText.Text=string.Join("\n\n",lines.EnumerateArray().Select(l=>(active.ValueKind!=JsonValueKind.Undefined&&l.GetProperty("time").GetDouble()==active.GetProperty("time").GetDouble()?"▶  ":"")+l.GetProperty("text").GetString()));}else LyricsText.Text=result.TryGetProperty("plain",out var plain)?plain.GetString():"Текст пока не найден";}
+ void SyncLyrics(){
+  if(!currentLyrics.HasValue||lyricsID!=currentID)return;
+  var result=currentLyrics.Value;
+  if(syncLyrics&&result.TryGetProperty("synced",out var synced)&&synced.GetBoolean()&&result.TryGetProperty("lines",out var lines)){
+   var all=lines.EnumerateArray().ToArray();
+   int activeIndex=Array.FindLastIndex(all,line=>line.GetProperty("time").GetDouble()<=audioTime/1000.0);
+   if(renderedLyric==activeIndex&&displayedLyricsTrack==currentID&&syncedLyricButtons.Count==all.Length)return;
+   renderedLyric=activeIndex;
+   DisplaySyncedLyrics(all,activeIndex);
+  }else{
+   SyncedLyricsLines.Visibility=Visibility.Collapsed;
+   LyricsText.Visibility=Visibility.Visible;
+   LyricsText.Text=result.TryGetProperty("plain",out var plain)?plain.GetString():"Текст пока не найден";
+  }
+ }
  void QueueClick(object sender,RoutedEventArgs e)=>QueueWindow();
  Window QueueWindow(bool show=true){
   var panel=new StackPanel();panel.Children.Add(Label("Очередь воспроизведения"));
