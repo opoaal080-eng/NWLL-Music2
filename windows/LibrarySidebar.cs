@@ -4,10 +4,10 @@ using System.Windows.Controls;
 namespace Nightwell.Native;
 
 public partial class MainWindow {
- bool librarySidebarOpen=true;
+ bool librarySidebarOpen=false;
  void ToggleLibrarySidebarClick(object sender,RoutedEventArgs e){
   librarySidebarOpen=!librarySidebarOpen;
-  LibrarySideColumn.Width=new GridLength(librarySidebarOpen?236:0,GridUnitType.Pixel);
+  LibrarySideColumn.Width=new GridLength(librarySidebarOpen?344:0,GridUnitType.Pixel);
   LibrarySidebar.Visibility=librarySidebarOpen?Visibility.Visible:Visibility.Collapsed;
   SidebarToggle.Content=librarySidebarOpen?"Скрыть медиатеку":"Медиатека";
  }
@@ -27,6 +27,8 @@ public partial class MainWindow {
    Show("Плейлисты");
    playlist=p.id;
    Heading.Text=p.name;
+   SidebarPlaylists.Visibility=Visibility.Collapsed;
+   Library.Visibility=Visibility.Visible;
    Status.Text="Загружаем плейлист…";
    var response=await api.Request("api/playlists/"+Uri.EscapeDataString(p.id)+"/tracks");
    if(screen!="Плейлисты"||playlist!=p.id)return;
