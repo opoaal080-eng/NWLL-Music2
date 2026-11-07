@@ -25,7 +25,7 @@ public sealed class RibbonScene:FrameworkElement {
   IsVisibleChanged+=(_,_)=>Refresh();Unloaded+=(_,_)=>{Detach();if(owner!=null)owner.StateChanged-=OwnerStateChanged;owner=null;};
  }
  public void SetPalette(Color a,Color b){targetFirst=Muted(a);targetSecond=Muted(b);}
- static Color Muted(Color value)=>Color.FromRgb((byte)Math.Clamp(value.R,25,184),(byte)Math.Clamp(value.G,25,184),(byte)Math.Clamp(value.B,25,184));
+ static Color Muted(Color value)=>Color.FromRgb((byte)Math.Clamp((int)value.R,25,184),(byte)Math.Clamp((int)value.G,25,184),(byte)Math.Clamp((int)value.B,25,184));
  public void ResetPalette()=>SetPalette(Color.FromRgb(123,123,123),Color.FromRgb(106,106,106));
  void OwnerStateChanged(object? sender,EventArgs args)=>Refresh();
  void Refresh(){if(IsVisible&&IsLoaded&&owner?.WindowState!=WindowState.Minimized){if(!hooked){last=clock.Elapsed.TotalSeconds;CompositionTarget.Rendering+=Frame;hooked=true;}}else Detach();}
