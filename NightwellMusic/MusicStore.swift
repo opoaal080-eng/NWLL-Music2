@@ -89,6 +89,8 @@ private struct AudioQualityDecision: Decodable {
     @Published var playlists: [Playlist] = []
     @Published var likes: Set<String> = []
     @Published var account: Account?
+    @Published var profileNickname = ""
+    @Published var profileAvatar: UIImage?
     @Published var query = ""
     @Published var searchMessage = ""
     @Published var audioQualityNotice = ""
@@ -815,7 +817,7 @@ private struct AudioQualityDecision: Decodable {
             sessionGeneration = UUID(); starting = false; snapshotSaveTask?.cancel(); libraryRefresh.cancel()
             connectionCheck?.cancel(); connectionCheck = nil; connectionCheckGeneration = UUID(); sessionReady = false
             stopLiveSync()
-            account = nil; restoreAutoFavoritesSetting(); mixRecentIDs = []; cacheAccount(); catalog = []; results = []; likes = []; playlists = []; lastWave = []; query = ""; await api.setCSRF(nil)
+            account = nil; profileNickname = ""; profileAvatar = nil; restoreAutoFavoritesSetting(); mixRecentIDs = []; cacheAccount(); catalog = []; results = []; likes = []; playlists = []; lastWave = []; query = ""; await api.setCSRF(nil)
         } catch { self.error = error.localizedDescription }
     }
     private func refreshSearchArtists(for text: String, generation: UUID) {
