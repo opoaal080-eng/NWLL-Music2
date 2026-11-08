@@ -1679,9 +1679,14 @@ public final class MainActivity extends Activity {
                         +preferences.query()+"&artists="+java.net.URLEncoder.encode(
                             android.text.TextUtils.join(",",artists),"UTF-8")
                         +"&exclude="+java.net.URLEncoder.encode(limitedExclusions(excluded),"UTF-8");
-                    JSONObject response=client.search(url);
-                    fresh=SeededRhythm.rank(
-                        concatTracks(local,response.optJSONArray("tracks")),seeds,hidden,blocked);
+                    try {
+                        JSONObject response=client.search(url);
+                        fresh=SeededRhythm.rank(
+                            concatTracks(local,response.optJSONArray("tracks")),seeds,hidden,blocked);
+                    } catch(Exception offline) {
+                        // Keep usable local recommendations if the provider is slow or offline.
+                        fresh=local;
+                    }
                 }
                 final JSONArray result=fresh;
                 ui.post(()->{
@@ -1764,13 +1769,18 @@ public final class MainActivity extends Activity {
             +"allow=\"accelerometer;autoplay;encrypted-media;gyroscope;picture-in-picture\" "
             +"allowfullscreen referrerpolicy=\"strict-origin-when-cross-origin\" style=\"border:0\"></iframe></body></html>";
         web.loadDataWithBaseURL(origin,html,"text/html","UTF-8",null);
+        android.widget.FrameLayout videoFrame=new android.widget.FrameLayout(this);
+        videoFrame.addView(web,new android.widget.FrameLayout.LayoutParams(-1,dp(260)));
         AlertDialog dialog=new AlertDialog.Builder(this)
-            .setTitle("Клип · "+track.optString("title")).setView(web)
+            .setTitle("Клип · "+track.optString("title")).setView(videoFrame)
             .setNegativeButton("Закрыть",null).create();
-        dialog.setOnDismissListener(d->{web.loadUrl("about:blank");web.destroy();});
+        dialog.setOnDismissListener(d->{
+            web.stopLoading();
+            web.loadUrl("about:blank");
+            web.destroy();
+        });
         styleSheet(dialog);
         dialog.show();
-        web.getLayoutParams().height=dp(270);
     }
     void fullPlayerMenu(JSONObject track){
         prefetchClip(track);
