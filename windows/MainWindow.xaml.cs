@@ -244,7 +244,28 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
     if(player.Volume!=volume)player.Volume=volume;
  }
  async void ToggleClick(object sender,RoutedEventArgs e){if(Current==null){await NewWave();return;}if(roomCode.Length>0){await Guard(()=>RoomCommand(audioPlaying?"pause":"play"));return;}TakePlaybackHere();await AudioCommand(()=>{if(player.IsPlaying){pausedAtMs=Math.Max(0,player.Time);player.Pause();}else player.Play();});}
- async void TrackDoubleClick(object sender,MouseButtonEventArgs e){if(Tracks.SelectedItem is Track t){if(roomCode.Length>0){await Guard(()=>RoomCommand("track",t.id));return;}TakePlaybackHere();queue=shown.ToList();index=queue.FindIndex(v=>v.id==t.id);wave=false;PlayCurrent();}}
+ async void TrackRowClick(object sender,MouseButtonEventArgs e){
+  if(e.ChangedButton!=MouseButton.Left)return;
+  // Preview catches clicks on artwork, artist, text and blank space, but
+  // never turns an ellipsis/menu/scrollbar action into playback.
+  DependencyObject? node=e.OriginalSource as DependencyObject;
+  ListBoxItem? item=null;
+  for(int depth=0;node!=null&&depth<32;depth++){
+   if(node is System.Windows.Controls.Primitives.ButtonBase ||
+      node is System.Windows.Controls.Primitives.ScrollBar ||
+      node is System.Windows.Controls.Primitives.Thumb)return;
+   if(node is ListBoxItem row){item=row;break;}
+   node=node is Visual || node is System.Windows.Media.Media3D.Visual3D
+      ?VisualTreeHelper.GetParent(node):LogicalTreeHelper.GetParent(node);
+  }
+  if(item?.DataContext is not Track t)return;
+  Tracks.SelectedItem=t;
+  if(roomCode.Length>0){await Guard(()=>RoomCommand("track",t.id));return;}
+  TakePlaybackHere();
+  queue=shown.ToList();index=queue.FindIndex(v=>v.id==t.id);
+  if(index<0)return;
+  wave=false;PlayCurrent();
+ }
  void PlayCurrent(){nextCancellation?.Cancel();var t=Current;if(t==null)return;pausedAtMs=0;if(t.LocalPath==null&&account.Length==0){Login();return;}string path=StreamPath(t);_=AudioCommand(()=>{using var media=new Media(vlc,path,t.LocalPath==null?FromType.FromLocation:FromType.FromPath);player.Play(media);});lyricsCancellation?.Cancel();currentLyrics=null;lyricsID="";renderedLyric=int.MinValue;currentID=t.id;ActiveArtwork=null;Ribbon.ResetPalette();PlayerPage.Background=Brushes.Transparent;PlayingTrackId=t.id;UpdatePlaybackChrome();mixRecent.Enqueue(t.id);while(mixRecent.Count>120)mixRecent.Dequeue();MiniTitle.Text=FullTitle.Text=t.title;MiniArtist.Text=FullArtist.Text=t.artist;LyricsText.Text="";LyricsPanel.Visibility=Visibility.Collapsed;Cover.Visibility=Visibility.Visible;if(Uri.TryCreate(api.Origin,t.cover_url??("api/covers/"+t.id),out var coverURI)&&coverURI.Scheme=="https")_=LoadCover(coverURI,t.id);else Cover.Source=MiniCover.Source=null;RecordTrackStart();Dock.BeginAnimation(OpacityProperty,new System.Windows.Media.Animation.DoubleAnimation(.6,1,TimeSpan.FromSeconds(.7)));}
  async Task LoadCover(Uri uri,string id){try{
  var bytes=await (uri.Authority==api.Origin.Authority?api.HTTP:artworkHTTP).GetByteArrayAsync(uri,lifetime.Token);
