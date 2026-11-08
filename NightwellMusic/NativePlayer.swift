@@ -223,8 +223,8 @@ final class NativePlayer {
     private var wantsPlay = false
     private var ended = false
     private var repeatMode = 0
-    private var shuffle = false
-    private var shuffleStyle = 0 // 0: off, 1: ordinary random, 2: smart
+    private var shuffle = UserDefaults.standard.integer(forKey: "nw-shuffle-mode") != 0
+    private var shuffleStyle = max(0, min(2, UserDefaults.standard.integer(forKey: "nw-shuffle-mode"))) // off, random, smart
     private var shuffleHistory: [String] = []
     private func shuffledIndex(_ options: [Int]) -> Int {
         guard !options.isEmpty else { return index }
