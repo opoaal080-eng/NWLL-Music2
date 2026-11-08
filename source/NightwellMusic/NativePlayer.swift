@@ -33,96 +33,97 @@ final class NativePlayer {
     private var nextAssetID: String?
     private var nextAssetWarmup: Task<Void, Never>?
 
-    // A skip is a one-shot request. Keep the audible player untouched while
-    // a silent secondary player buffers and prerolls the requested next item.
-    private var pendingNextPlayer: AVPlayer?
-    private var pendingNextObservation: NSKeyValueObservation?
+    // Only one AVPlayer owns decoding. Preparing the next AVURLAsset
+    // asynchronously leaves the current song audible without creating a
+    // second native decoder (the old pre-rolling player could crash at handoff).
+    private var pendingNextTask: Task<Void, Never>?
     private var pendingNextTimeout: DispatchWorkItem?
     private var pendingNextIndex: Int?
-    private var pendingNextPrerollStarted = false
     private var pendingNextGeneration = UUID()
-    private var preparedNextItem: AVPlayerItem?
 
     private func cancelPendingNext() {
         pendingNextGeneration = UUID()
+        pendingNextTask?.cancel(); pendingNextTask = nil
         pendingNextTimeout?.cancel(); pendingNextTimeout = nil
-        pendingNextObservation = nil
-        pendingNextPlayer?.pause()
-        pendingNextPlayer?.replaceCurrentItem(with: nil)
-        pendingNextPlayer = nil
         pendingNextIndex = nil
-        pendingNextPrerollStarted = false
-        preparedNextItem = nil
     }
 
     private func beginPreparedNext(at destination: Int) {
-        guard pendingNextIndex == nil, !waveWaiting, tracks.indices.contains(destination), let origin else { return }
-        let candidate = tracks[destination]
+        guard pendingNextIndex == nil, !waveWaiting,
+              tracks.indices.contains(destination), let origin else { return }
+        let track = tracks[destination]
         let saved = OfflineStore.audio(origin: origin,
-            account: candidate.offlineAccount.isEmpty ? offlineAccount : candidate.offlineAccount, id: candidate.id)
-        guard !candidate.offline || saved != nil,
-              let url = saved ?? URL(string: streamPath(for: candidate), relativeTo: origin)?.absoluteURL else {
+            account: track.offlineAccount.isEmpty ? offlineAccount : track.offlineAccount,
+            id: track.id)
+        guard !track.offline || saved != nil,
+              let url = saved ?? URL(string: streamPath(for: track),
+                relativeTo: origin)?.absoluteURL else {
             error = "Следующий трек недоступен. Текущий продолжает играть."
             publish(); return
         }
         pendingNextIndex = destination
-        pendingNextPrerollStarted = false
         pendingNextGeneration = UUID()
         let ticket = pendingNextGeneration
-        error = ""
-        let asset = nextAssetID == candidate.id && nextAsset?.url == url
+        let asset = nextAssetID == track.id && nextAsset?.url == url
             ? nextAsset! : AVURLAsset(url: url, options: [AVURLAssetHTTPCookiesKey: cookies])
-        let item = AVPlayerItem(asset: asset)
-        item.preferredForwardBufferDuration = saved == nil ? max(1.5, streamBufferSeconds) : 0
-        let stage = AVPlayer(playerItem: item)
-        stage.isMuted = true
-        stage.automaticallyWaitsToMinimizeStalling = true
-        pendingNextPlayer = stage
-        pendingNextObservation = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
-            DispatchQueue.main.async { [weak self] in
-                guard let self, self.pendingNextGeneration == ticket else { return }
-                if item.status == .failed {
-                    self.cancelPendingNext()
-                    self.error = "Не удалось подготовить следующий трек. Текущий продолжает играть."
-                    self.publish()
-                } else if item.status == .readyToPlay && !self.pendingNextPrerollStarted {
-                    self.pendingNextPrerollStarted = true
-                    // Metadata alone is not enough. Preroll waits until media can be rendered.
-                    stage.preroll(atRate: 1) { [weak self] ready in
-                        DispatchQueue.main.async { [weak self] in
-                            guard let self, self.pendingNextGeneration == ticket else { return }
-                            if ready { self.commitPreparedNext(item, destination: destination) }
-                            else {
-                                self.cancelPendingNext()
-                                self.error = "Следующий трек не загрузился. Продолжаем текущий."
-                                self.publish()
-                            }
-                        }
-                    }
+        error = ""
+        beginBackgroundHandoff()
+        pendingNextTask = Task { @MainActor [weak self] in
+            do {
+                let playable = try await asset.load(.isPlayable)
+                guard let self, !Task.isCancelled,
+                      self.pendingNextGeneration == ticket,
+                      self.pendingNextIndex == destination else { return }
+                if playable {
+                    self.commitPreparedNext(asset, destination: destination, ticket: ticket)
+                } else {
+                    self.handleNextFailure(ticket: ticket, reason: "Следующий трек недоступен.")
                 }
+            } catch {
+                guard let self, !Task.isCancelled else { return }
+                self.handleNextFailure(ticket: ticket, reason: "Следующий трек не загрузился.")
             }
         }
         let deadline = DispatchWorkItem { [weak self] in
-            guard let self, self.pendingNextGeneration == ticket else { return }
-            self.cancelPendingNext()
-            self.error = "Следующий трек загружается слишком долго. Попробуй ещё раз."
-            self.publish()
+            self?.handleNextFailure(ticket: ticket,
+                reason: "Следующий трек загружается слишком долго.")
         }
         pendingNextTimeout = deadline
-        DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: deadline)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 20, execute: deadline)
         publish()
     }
 
-    private func commitPreparedNext(_ item: AVPlayerItem, destination: Int) {
-        guard pendingNextIndex == destination else { return }
-        // Detach the warmed-up item before handing it to the real AVPlayer.
-        pendingNextPlayer?.pause()
-        pendingNextPlayer?.replaceCurrentItem(with: nil)
-        pendingNextObservation = nil
-        pendingNextPlayer = nil
-        pendingNextTimeout?.cancel(); pendingNextTimeout = nil
-        pendingNextIndex = nil; pendingNextPrerollStarted = false; pendingNextGeneration = UUID()
-        preparedNextItem = item
+    private func handleNextFailure(ticket: UUID, reason: String) {
+        guard pendingNextGeneration == ticket else { return }
+        let destination = pendingNextIndex
+        let length = player.currentItem?.duration.seconds ?? .nan
+        let reachedEnd = ended || (length.isFinite && length > 0 &&
+            playbackPosition >= length - 0.25)
+        cancelPendingNext()
+        if reachedEnd, let destination {
+            // Current stream has ended: keep playback alive even when
+            // async asset preparation timed out.
+            switchDirectly(to: destination)
+        } else {
+            endBackgroundHandoff()
+            error = reason + " Текущий трек продолжает играть."
+            publish()
+        }
+    }
+
+    private func commitPreparedNext(_ asset: AVURLAsset,
+                                    destination: Int, ticket: UUID) {
+        guard pendingNextGeneration == ticket,
+              pendingNextIndex == destination,
+              tracks.indices.contains(destination) else { return }
+        cancelPendingNext()
+        nextAsset = asset
+        nextAssetID = tracks[destination].id
+        switchDirectly(to: destination)
+    }
+
+    private func switchDirectly(to destination: Int) {
+        guard tracks.indices.contains(destination) else { return }
         index = destination
         fadeNextAutomatically = true
         load()
@@ -468,8 +469,7 @@ final class NativePlayer {
         let asset = nextAssetID == current.id && nextAsset?.url == url
             ? nextAsset! : AVURLAsset(url: url, options: [AVURLAssetHTTPCookiesKey: cookies])
         nextAsset = nil; nextAssetID = nil
-        let item = preparedNextItem ?? AVPlayerItem(asset: asset)
-        preparedNextItem = nil
+        let item = AVPlayerItem(asset: asset)
         // Give remote streams enough audio ahead to absorb network jitter.
         // Locally downloaded tracks do not need forward network buffering.
         item.preferredForwardBufferDuration = saved == nil ? streamBufferSeconds : 0
@@ -745,7 +745,10 @@ final class NativePlayer {
                 let choices = waveActive ? tracks.indices.filter { $0 > index } : tracks.indices.filter { $0 != index }
                 target = smartShuffleIndex(choices)
             } else { target = (index + 1) % tracks.count }
-            beginPreparedNext(at: target)
+            // When the previous song has already ended, start the next
+            // item directly instead of creating a second loading pipeline.
+            if ended { switchDirectly(to: target) }
+            else { beginPreparedNext(at: target) }
             return
         }
         cancelPendingNext()
@@ -758,14 +761,33 @@ final class NativePlayer {
         seekCurrentItem(to: 0)
     }
     private func finishTrack() {
-        if pendingNextIndex != nil { return } // The selected next item is already preparing.
-        if repeatMode == 2 { restartSmoothly() }
-        else if waveActive && index + 1 >= tracks.count {
-            fadeNextAutomatically = true
-            waveWaiting = true; enginePlayback.pause(); player.pause(); refillWave(force: true); publish()
+        // A second callback from AVPlayer or the EQ engine must not start
+        // another transition while the first is already in progress.
+        guard wantsPlay, !ended, !tracks.isEmpty else { return }
+        ended = true
+        if pendingNextIndex != nil {
+            // A manual Next may already be preparing. Its completion
+            // remains responsible for the single handoff.
+            return
         }
-        else if shuffle || index + 1 < tracks.count || repeatMode == 1 { fadeNextAutomatically = true; step(1) }
-        else { ended = true; pause() }
+        if repeatMode == 2 {
+            restartSmoothly()
+        } else if waveActive && index + 1 >= tracks.count {
+            waveWaiting = true
+            enginePlayback.pause(); player.pause()
+            refillWave(force: true)
+            publish()
+        } else if shuffle || index + 1 < tracks.count || repeatMode == 1 {
+            let next: Int
+            if shuffle && tracks.count > 1 {
+                next = smartShuffleIndex(tracks.indices.filter { $0 != index })
+            } else { next = (index + 1) % tracks.count }
+            // Audio has finished; the former stream cannot continue playing.
+            // Switch immediately on the primary AVPlayer, no second player.
+            switchDirectly(to: next)
+        } else {
+            pause()
+        }
     }
     private func refillWave(force: Bool = false) {
         guard waveActive, wantsPlay, waveTask == nil, let origin, current != nil,
@@ -820,7 +842,10 @@ final class NativePlayer {
                 let ordered = RecommendationOrder.arrange(fresh, recent: Set(recent), hidden: hidden, hiddenArtists: hiddenArtists,
                     current: self.current?.id ?? "", identity: { $0.id }, title: { $0.title }, artist: { $0.artist })
                 self.tracks.append(contentsOf: ordered); self.queueRevision += 1
-                if self.waveWaiting && self.wantsPlay { self.waveWaiting = false; self.step(1) }
+                if self.waveWaiting && self.wantsPlay {
+                    self.waveWaiting = false
+                    self.switchDirectly(to: min(self.index + 1, self.tracks.count - 1))
+                }
                 self.publish()
             }
         }
