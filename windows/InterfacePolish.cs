@@ -33,7 +33,9 @@ public partial class MainWindow {
   FullLike.ToolTip=MiniLike.ToolTip=likes.Contains(currentID)?"Убрать из избранного":"В избранное";
   PlaybackBadgeText.Text=Current==null?"ТВОЙ ПОТОК":audioPlaying?"СЕЙЧАС ИГРАЕТ":"НА ПАУЗЕ";
   PlaybackDot.Opacity=audioPlaying?1:.4;
-  SetMode(ShuffleButton,shuffle);SetMode(RepeatButton,repeat>0);RepeatOne.Visibility=repeat==2?Visibility.Visible:Visibility.Collapsed;
+  SetMode(ShuffleButton,shuffle);ShuffleButton.Content=shuffleMode==2?"⇄ ✦":"⇄";
+  ShuffleButton.ToolTip=new[]{"Перемешивание выключено","Обычное перемешивание","Умное перемешивание"}[shuffleMode];
+  SetMode(RepeatButton,repeat>0);RepeatOne.Visibility=repeat==2?Visibility.Visible:Visibility.Collapsed;
   RepeatButton.ToolTip=new[]{"Повтор выключен","Повтор очереди","Повтор трека"}[repeat];
  }
  void SetMode(Button button,bool active){if(button.Tag is bool previous&&previous==active)return;button.Tag=active;button.Background=active?(Brush)FindResource("SelectionBrush"):Brushes.Transparent;button.Foreground=(Brush)FindResource(active?"AccentBrush":"TextBrush");button.BorderBrush=active?(Brush)FindResource("LineBrush"):Brushes.Transparent;}

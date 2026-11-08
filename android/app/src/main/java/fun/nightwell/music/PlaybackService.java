@@ -212,6 +212,7 @@ public final class PlaybackService extends MediaSessionService {
     private int streamRetryCount = 0;
     private Runnable pendingStreamRetry;
     private boolean waveActive, waveLoading;
+    int shuffleMode = 0; // 0 off, 1 random, 2 smart
     private WaveSettings waveSettings=new WaveSettings(new JSONObject());
     private int waveGeneration;
     private final LatestRequest waveRequest = new LatestRequest();
@@ -262,6 +263,7 @@ public final class PlaybackService extends MediaSessionService {
         ArtistTaste.load(this);
         transitionSeconds=getSharedPreferences("playback",MODE_PRIVATE).getFloat("nw-transition-seconds",.8f);
         volumeLevelingStrength=Math.max(0,Math.min(100,getSharedPreferences("playback",MODE_PRIVATE).getInt("nw-equal-volume",0)));
+        shuffleMode=Math.max(0,Math.min(2,getSharedPreferences("playback",MODE_PRIVATE).getInt("nw-shuffle-mode",0)));
         bufferChoiceSeconds=getSharedPreferences("playback",MODE_PRIVATE).getInt("nw-stream-buffer-seconds",0);
         if(bufferChoiceSeconds!=0 && bufferChoiceSeconds!=4 && bufferChoiceSeconds!=8 && bufferChoiceSeconds!=12) bufferChoiceSeconds=0;
         DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory().setUserAgent("NightwellMusic/0.5").setConnectTimeoutMs(10000).setReadTimeoutMs(20000);
@@ -554,10 +556,21 @@ public final class PlaybackService extends MediaSessionService {
             order,random.nextLong()));
     }
     void modes(int repeat, boolean shuffle) {
+        // Legacy call from cross-device sync and restored playback.
+        setShuffleMode(shuffle ? Math.max(1,shuffleMode) : 0);
+        setRepeat(repeat);
+    }
+    void setRepeat(int repeat) {
         player.setRepeatMode(repeat==1&&!waveActive?Player.REPEAT_MODE_ALL:
             repeat==2?Player.REPEAT_MODE_ONE:Player.REPEAT_MODE_OFF);
-        if(!waveActive&&shuffle)setSmartShuffleOrder();
-        player.setShuffleModeEnabled(!waveActive&&shuffle);
+    }
+    void setShuffleMode(int mode) {
+        shuffleMode=Math.max(0,Math.min(2,mode));
+        getSharedPreferences("playback",MODE_PRIVATE).edit().putInt("nw-shuffle-mode",shuffleMode).apply();
+        if(!waveActive&&shuffleMode==2)setSmartShuffleOrder();
+        else if(!waveActive&&shuffleMode==1)player.setShuffleOrder(
+            new androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder(player.getMediaItemCount()));
+        player.setShuffleModeEnabled(!waveActive&&shuffleMode!=0);
     }
     private MediaSource mediaSource(MediaItem item) {
         if(item.localConfiguration!=null && "file".equals(item.localConfiguration.uri.getScheme()))return new DefaultMediaSourceFactory(new androidx.media3.datasource.DefaultDataSource.Factory(this)).createMediaSource(item);
@@ -688,7 +701,7 @@ public final class PlaybackService extends MediaSessionService {
     void restorePlayback(String base,String account){
         if(player==null||player.getMediaItemCount()>0)return;
         String saved=getSharedPreferences("native-playback",MODE_PRIVATE).getString(base+"|"+(account.isEmpty()?"device":account),null);if(saved==null)return;
-        try{JSONObject state=new JSONObject(saved);state.put("queue",state.getJSONArray("queueTracks")).put("position",(long)(state.optDouble("position")*1000)).put("origin",base).put("account",account.isEmpty()?"device":account);prepare(state.toString());modes(state.optInt("repeat"),state.optBoolean("shuffle"));}catch(Exception ignored){}
+        try{JSONObject state=new JSONObject(saved);state.put("queue",state.getJSONArray("queueTracks")).put("position",(long)(state.optDouble("position")*1000)).put("origin",base).put("account",account.isEmpty()?"device":account);prepare(state.toString());setRepeat(state.optInt("repeat"));setShuffleMode(state.optInt("shuffleMode",state.optBoolean("shuffle")?1:0));}catch(Exception ignored){}
     }
     private String listenedID="",listenedSession="",listenedArtist="";
     private double listenedSeconds;
@@ -734,7 +747,7 @@ public final class PlaybackService extends MediaSessionService {
             state.put("playing",player.getPlayWhenReady() && player.getPlaybackState()!=Player.STATE_ENDED);
             state.put("nextPreparing",nextPreparing || pendingWaveNext);
             state.put("ended",player.getPlaybackState()==Player.STATE_ENDED);
-            state.put("repeat",player.getRepeatMode()==Player.REPEAT_MODE_ALL?1:player.getRepeatMode()==Player.REPEAT_MODE_ONE?2:0);state.put("shuffle",player.getShuffleModeEnabled());
+            state.put("repeat",player.getRepeatMode()==Player.REPEAT_MODE_ALL?1:player.getRepeatMode()==Player.REPEAT_MODE_ONE?2:0);state.put("shuffle",player.getShuffleModeEnabled());state.put("shuffleMode",shuffleMode);
             state.put("error",error);state.put("volume",baseVolume);state.put("smoothTransitions",true);state.put("transitionSeconds",transitionSeconds);
             state.put("wave_preferences",waveSettings.json());state.put("wave",waveActive);state.put("waveSupported",true);
             JSONArray fullQueue=new JSONArray();

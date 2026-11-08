@@ -224,7 +224,12 @@ final class NativePlayer {
     private var ended = false
     private var repeatMode = 0
     private var shuffle = false
+    private var shuffleStyle = 0 // 0: off, 1: ordinary random, 2: smart
     private var shuffleHistory: [String] = []
+    private func shuffledIndex(_ options: [Int]) -> Int {
+        guard !options.isEmpty else { return index }
+        return shuffleStyle == 2 ? smartShuffleIndex(options) : (options.randomElement() ?? options[0])
+    }
     private func smartShuffleIndex(_ options: [Int]) -> Int {
         guard !options.isEmpty else { return index }
         let recentIDs = Array(shuffleHistory.suffix(max(5,min(36,tracks.count/2))))
@@ -833,7 +838,21 @@ final class NativePlayer {
     }
     deinit { if let fadeObserver { player.removeTimeObserver(fadeObserver) } }
 
-    func modes(repeatMode: Int, shuffle: Bool) { self.repeatMode = max(0, min(2, repeatMode)); self.shuffle = shuffle; publish() }
+    func modes(repeatMode: Int, shuffle: Bool) {
+        self.repeatMode = max(0, min(2, repeatMode))
+        // Preserve smart mode when playback is restored from an older
+        // boolean-only state or handed off from a different device.
+        let saved = UserDefaults.standard.integer(forKey: "nw-shuffle-mode")
+        shuffleStyle = shuffle ? max(1, min(2, saved)) : 0
+        self.shuffle = shuffleStyle != 0
+        publish()
+    }
+    func setShuffleMode(_ mode: Int) {
+        shuffleStyle = max(0, min(2, mode))
+        shuffle = shuffleStyle != 0
+        UserDefaults.standard.set(shuffleStyle, forKey: "nw-shuffle-mode")
+        publish()
+    }
     private var previousRestartTrackID: String?
     private var previousRestartAt: TimeInterval = -Double.infinity
     func step(_ direction: Int) {
@@ -862,7 +881,7 @@ final class NativePlayer {
             let target: Int
             if shuffle && tracks.count > 1 {
                 let choices = waveActive ? tracks.indices.filter { $0 > index } : tracks.indices.filter { $0 != index }
-                target = smartShuffleIndex(choices)
+                target = shuffledIndex(choices)
             } else { target = (index + 1) % tracks.count }
             // When the previous song has already ended, start the next
             // item directly instead of creating a second loading pipeline.
@@ -899,7 +918,7 @@ final class NativePlayer {
         } else if shuffle || index + 1 < tracks.count || repeatMode == 1 {
             let next: Int
             if shuffle && tracks.count > 1 {
-                next = smartShuffleIndex(tracks.indices.filter { $0 != index })
+                next = shuffledIndex(tracks.indices.filter { $0 != index })
             } else { next = (index + 1) % tracks.count }
             // Audio has finished; the former stream cannot continue playing.
             // Switch immediately on the primary AVPlayer, no second player.
@@ -1199,7 +1218,7 @@ final class NativePlayer {
         return ["id": current?.id ?? "", "origin": origin?.absoluteString ?? "",
             "position": position.isFinite ? max(0, position) : 0.0,
             "duration": duration.isFinite ? max(0, duration) : (current?.duration ?? 0),
-            "playing": wantsPlay, "audible": audible, "nextPreparing": pendingNextIndex != nil || waveWaiting, "account": offlineAccount, "ended": ended, "repeat": repeatMode, "shuffle": shuffle,
+            "playing": wantsPlay, "audible": audible, "nextPreparing": pendingNextIndex != nil || waveWaiting, "account": offlineAccount, "ended": ended, "repeat": repeatMode, "shuffle": shuffle, "shuffleMode": shuffleStyle,
             "volume": baseVolume, "smoothTransitions": true, "transitionSeconds": transitionSeconds, "queueRevision": queueRevision, "queueIds": includeQueue ? tracks.map { $0.id } : [], "error": error,
             "wave": waveActive, "waveSupported": true,
             "audioOutput": AVAudioSession.sharedInstance().currentRoute.outputs.map { ["type": $0.portType.rawValue, "name": $0.portName] },

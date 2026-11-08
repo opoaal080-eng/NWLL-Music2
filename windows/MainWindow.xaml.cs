@@ -21,11 +21,11 @@ public partial class MainWindow:Window {
  bool volumeSettingReady;
  CancellationTokenSource? searchCancellation;List<Track> catalog=[],shown=[],queue=[];List<Playlist> playlists=[];HashSet<string> likes=[];
  string favoriteOrder="recent";bool premiumSortAllowed=false;
- string account="",screen="Главная",playlist="",currentID="";int index,repeat;bool wave,refilling,downloading,scrubbing,shuffle,mixing;readonly Queue<string> mixRecent=new();double transition=.8;long lastPrevious;string previousID="";
+ string account="",screen="Главная",playlist="",currentID="";int index,repeat,shuffleMode;bool wave,refilling,downloading,scrubbing,shuffle,mixing;readonly Queue<string> mixRecent=new();double transition=.8;long lastPrevious;string previousID="";
  CancellationTokenSource? lyricsCancellation;JsonElement? currentLyrics;string lyricsID="";int renderedLyric=int.MinValue;long savedAt;double? pendingSeek;bool restorePaused;
- sealed record PlaybackState(string Origin,string Account,List<Track> Queue,string ID,double Position,int Repeat,bool Shuffle,bool Wave);
+ sealed record PlaybackState(string Origin,string Account,List<Track> Queue,string ID,double Position,int Repeat,bool Shuffle,bool Wave,int ShuffleMode=0);
  string ResumeFile=>Path.Combine(NativeAPI.Storage,"resume.json");
- PlaybackState? CapturePlayback()=>Current==null?null:new PlaybackState(origin,account,queue.ToList(),currentID,Math.Max(0,audioTime/1000.0),repeat,shuffle,wave);
+ PlaybackState? CapturePlayback()=>Current==null?null:new PlaybackState(origin,account,queue.ToList(),currentID,Math.Max(0,audioTime/1000.0),repeat,shuffle,wave,shuffleMode);
  void WritePlayback(PlaybackState state){try{
    var directory=Path.GetDirectoryName(ResumeFile)!;
    Directory.CreateDirectory(directory);
@@ -54,7 +54,7 @@ public partial class MainWindow:Window {
     queue=state.Queue.Where(t=>state.Account==account&&account.Length>0||restored.local.ContainsKey(t.id))
        .Select(t=>restored.local.GetValueOrDefault(t.id,t)).ToList();
     index=queue.FindIndex(t=>t.id==state.ID);if(index<0){queue=[];return;}
-    repeat=state.Repeat;shuffle=state.Shuffle;wave=state.Wave;
+    repeat=state.Repeat;shuffle=state.Shuffle;shuffleMode=state.ShuffleMode>0?Math.Min(2,state.ShuffleMode):(shuffle?1:0);wave=state.Wave;
     pendingSeek=state.Position;restorePaused=true;PlayCurrent();
   }catch{}
 }
@@ -280,7 +280,7 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
 }catch{}}
  async void NextClick(object sender,RoutedEventArgs e){if(nextRequestBusy)return;nextRequestBusy=true;try{await Guard(SafeNext);}finally{nextRequestBusy=false;}}
  async void PreviousClick(object sender,RoutedEventArgs e){if(roomCode.Length>0){await Guard(()=>RoomCommand("previous"));return;}if(Current==null)return;long now=Environment.TickCount64;if(audioTime>3000&&!(previousID==currentID&&now-lastPrevious<3000)){lastPrevious=now;previousID=currentID;_=AudioCommand(()=>player.Time=0);return;}previousID="";index=(index-1+queue.Count)%queue.Count;PlayCurrent();}
- void Advance(){if(nextPreparing||queue.Count==0)return;if(repeat==2){PlayCurrent();return;}if(wave&&index+1>=queue.Count){_=Refill();return;}if(shuffle&&queue.Count>1)index=ChooseSmartShuffleIndex();else if(index+1<queue.Count)index++;else if(repeat==1)index=0;else return;PlayCurrent();}
+ void Advance(){if(nextPreparing||queue.Count==0)return;if(repeat==2){PlayCurrent();return;}if(wave&&index+1>=queue.Count){_=Refill();return;}if(shuffle&&queue.Count>1)index=ChooseShuffleIndex();else if(index+1<queue.Count)index++;else if(repeat==1)index=0;else return;PlayCurrent();}
  async Task Refill(){if(refilling||!wave||account.Length==0)return;refilling=true;await Guard(async()=>{var exclude=string.Join(',',queue.TakeLast(150).Select(t=>t.id));var value=await api.Request(WaveRoute+"?"+WaveQuery.TrimStart('&')+"&exclude="+Uri.EscapeDataString(exclude));var ids=queue.Select(t=>t.id).ToHashSet();var fresh=ParseTracks(value).Where(t=>!ids.Contains(t.id)).ToList();queue.AddRange(fresh);if(!audioPlaying&&!nextPreparing&&index+1<queue.Count){index++;PlayCurrent();}});refilling=false;}
  async void Tick(){
   if(Current==null||sampleBusy)return; sampleBusy=true;
@@ -313,7 +313,11 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
  string Time(double s)=>$"{(int)s/60}:{(int)s%60:00}";
  void SeekStart(object sender,MouseButtonEventArgs e)=>scrubbing=true;
  async void SeekEnd(object sender,MouseButtonEventArgs e){if(roomCode.Length>0){scrubbing=false;await Guard(()=>RoomCommand("seek",position:FullSeek.Value));return;}long position=(long)(FullSeek.Value*1000);_=AudioCommand(()=>player.Time=position);scrubbing=false;}
- void ShuffleClick(object sender,RoutedEventArgs e){shuffle=!shuffle;Status.Text=shuffle?"Перемешивание включено":"Перемешивание выключено";UpdatePlaybackChrome();}
+ void ShuffleClick(object sender,RoutedEventArgs e){
+  shuffleMode=(shuffleMode+1)%3;shuffle=shuffleMode!=0;
+  Status.Text=new[]{"Перемешивание выключено","Обычное перемешивание","Умное перемешивание"}[shuffleMode];
+  UpdatePlaybackChrome();QueueSavePlayback();
+ }
  void RepeatClick(object sender,RoutedEventArgs e){repeat=(repeat+1)%3;Status.Text=new[]{"Повтор выключен","Повтор очереди","Повтор трека"}[repeat];UpdatePlaybackChrome();}
  void OpenPlayerClick(object sender,MouseButtonEventArgs e){if(Current==null)return;Home.Visibility=Dock.Visibility=Visibility.Collapsed;PlayerPage.Visibility=Visibility.Visible;Ribbon.Visibility=Visibility.Visible;Ribbon.Focused=true;}
  void ClosePlayerClick(object sender,RoutedEventArgs e)=>ReturnFromPlayer();

@@ -225,7 +225,7 @@ public final class MainActivity extends Activity {
     private TextView status,miniTitle,miniArtist,miniPlay,miniPrev,miniNext,miniLike;
     private android.widget.ImageView miniCover;private android.graphics.drawable.ClipDrawable miniProgress;
     private ArtworkCache artworkCache;
-    private TextView fullTime,homePlay,fullPlay,fullLike,fullDislike,fullAudioOutput;
+    private TextView fullTime,homePlay,fullPlay,fullLike,fullDislike,fullAudioOutput,fullShuffle;
     private SeekBar seek;
     private EditText search;
     private LinearLayout artistStrip;
@@ -1401,11 +1401,26 @@ public final class MainActivity extends Activity {
         LinearLayout transport=column();transport.setPadding(dp(12),dp(12),dp(12),dp(6));transport.setBackground(new NativeSurfaceDrawable(transport,26));content.addView(transport);
         seek=new SeekBar(this);seek.setMinimumHeight(dp(44));seek.setProgressTintList(android.content.res.ColorStateList.valueOf(0xffeeeeee));seek.setThumbTintList(android.content.res.ColorStateList.valueOf(0xfff1f1f1));seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar b,int p,boolean user){}public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){cancelMix();if(playback!=null)playback.seek(b.getProgress());}});transport.addView(seek);fullTime=text("",12);fullTime.setPadding(dp(8),0,dp(8),dp(12));fullTime.setTextColor(0xffc8c8c8);transport.addView(fullTime);
         LinearLayout controls=row();controls.setGravity(Gravity.CENTER);
-        TextView shuffleButton=iconButton("⇄",()->{if(playback!=null){playback.modes(playback.player.getRepeatMode(),!playback.player.getShuffleModeEnabled());}});
+        TextView shuffleButton=iconButton("⇄",()->{
+            if(playback==null)return;
+            int next=(playback.shuffleMode+1)%3;
+            playback.setShuffleMode(next);
+            if(fullShuffle!=null){
+                fullShuffle.setText(next==2?"⇄✦":"⇄");
+                fullShuffle.setTextColor(next==0?0xff999ba6:0xffeeeeee);
+                fullShuffle.setContentDescription(new String[]{"Перемешивание выключено","Обычное перемешивание","Умное перемешивание"}[next]);
+            }
+        });
+        fullShuffle=shuffleButton;
+        int activeShuffle=playback==null?0:playback.shuffleMode;
+        shuffleButton.setText(activeShuffle==2?"⇄✦":"⇄");
+        shuffleButton.setTextColor(activeShuffle==0?0xff999ba6:0xffeeeeee);
+        shuffleButton.setContentDescription(new String[]{"Перемешивание выключено","Обычное перемешивание","Умное перемешивание"}[activeShuffle]);
         TextView backward=iconButton("|‹",this::previous);
         fullPlay=iconButton(playback!=null&&playback.player.getPlayWhenReady()?"Ⅱ":"▶",this::toggle);
         TextView forward=iconButton("›|",this::nextTrack);
-        TextView repeatButton=iconButton("↻",()->{if(playback!=null)playback.modes((playback.player.getRepeatMode()+1)%3,playback.player.getShuffleModeEnabled());});
+        TextView repeatButton=iconButton("↻",()->{if(playback!=null)playback.setRepeat((playback.player.getRepeatMode()==androidx.media3.common.Player.REPEAT_MODE_ONE?0:
+            playback.player.getRepeatMode()==androidx.media3.common.Player.REPEAT_MODE_ALL?2:1));});
         for(TextView button:new TextView[]{shuffleButton,backward,forward,repeatButton}){
             button.setBackground(null);button.setPadding(0,0,0,0);button.setTextSize(25);
         }

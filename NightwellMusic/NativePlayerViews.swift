@@ -508,7 +508,7 @@ struct FullPlayer: View {
     @State private var seeking = false
     @State private var scrub = 0.0
     @State private var repeatMode = 0
-    @State private var shuffle = false
+    @State private var shuffleMode = 0
     var body: some View {
         playerFinal
     }
@@ -570,7 +570,8 @@ struct FullPlayer: View {
         .onAppear {
             refreshNativeMenu()
             let modes = NativePlayer.shared.snapshot(includeQueue: false)
-            repeatMode = modes["repeat"] as? Int ?? 0; shuffle = modes["shuffle"] as? Bool ?? false
+            repeatMode = modes["repeat"] as? Int ?? 0
+            shuffleMode = modes["shuffleMode"] as? Int ?? ((modes["shuffle"] as? Bool ?? false) ? 1 : 0)
             if store.lyrics.value == nil || store.lyrics.value?.status == "error" || store.lyrics.value?.status == "unavailable" {
                 store.lyrics.select(clock.current, api: store.api, origin: store.origin, online: store.account != nil)
             }
@@ -746,11 +747,18 @@ struct FullPlayer: View {
                         HStack { Text(formatTime(seeking ? scrub : clock.position)); Spacer(); Text("−" + formatTime(max(0, clock.duration - (seeking ? scrub : clock.position)))) }.font(.caption).foregroundStyle(.secondary).monospacedDigit()
                     }
                     HStack {
-                        Button { shuffle.toggle(); NativePlayer.shared.modes(repeatMode: repeatMode, shuffle: shuffle) } label: { Image(systemName: "shuffle").foregroundStyle(shuffle ? Color.white : .secondary) }; Spacer()
+                        Button {
+                            shuffleMode = (shuffleMode + 1) % 3
+                            NativePlayer.shared.setShuffleMode(shuffleMode)
+                        } label: {
+                            Image(systemName: shuffleMode == 2 ? "shuffle.circle.fill" : "shuffle")
+                                .foregroundStyle(shuffleMode == 0 ? Color.secondary : Color.white)
+                        }
+                        .accessibilityLabel(["Перемешивание выключено", "Обычное перемешивание", "Умное перемешивание"][shuffleMode]); Spacer()
                         Button { NativePlayer.shared.step(-1) } label: { Image(systemName: "backward.end") }; Spacer()
                         Button { clock.toggle() } label: { Image(systemName: clock.playing ? "pause" : "play.fill").font(.system(size: 25)).frame(width: 68, height: 68).frostedGlass(34, bordered: false, intensity: 0.20) }; Spacer()
                         Button { NativePlayer.shared.step(1) } label: { Image(systemName: "forward.end") }; Spacer()
-                        Button { repeatMode = (repeatMode + 1) % 3; NativePlayer.shared.modes(repeatMode: repeatMode, shuffle: shuffle) } label: { Image(systemName: repeatMode == 2 ? "repeat.1" : "repeat").foregroundStyle(repeatMode > 0 ? Color.white : .secondary) }
+                        Button { repeatMode = (repeatMode + 1) % 3; NativePlayer.shared.modes(repeatMode: repeatMode, shuffle: shuffleMode != 0) } label: { Image(systemName: repeatMode == 2 ? "repeat.1" : "repeat").foregroundStyle(repeatMode > 0 ? Color.white : .secondary) }
                     }.font(.system(size: 20))
                 }
     }

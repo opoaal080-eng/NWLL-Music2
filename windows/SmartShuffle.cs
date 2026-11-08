@@ -3,6 +3,12 @@ namespace Nightwell.Native;
 public partial class MainWindow {
  // A compact smart shuffle: avoid repeated tracks, spread artists out,
  // and give the remaining candidates randomness without restarting a sequence.
+ int ChooseShuffleIndex(){
+  if(queue.Count<2)return index;
+  return shuffleMode==2?ChooseSmartShuffleIndex():
+   Enumerable.Range(0,queue.Count).Where(i=>i!=index)
+    .OrderBy(_=>Random.Shared.Next()).FirstOrDefault(index);
+ }
  int ChooseSmartShuffleIndex(){
   if(queue.Count<2)return index;
   var history=mixRecent.ToArray();
