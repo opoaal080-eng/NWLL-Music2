@@ -83,77 +83,6 @@ struct RibbonScene: View {
     }
 }
 
-// Three free-floating, flowing light ribbons. There is no circle, disk or
-// geometric outline beneath them. Motion is phase-continuous across pause.
-struct NightwellBeatHalo: View {
-    @EnvironmentObject private var palette: NightwellArtworkPalette
-    @Environment(\.scenePhase) private var scene
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @AppStorage("nw-ambient-animate-when-paused") private var animatePaused = true
-    @AppStorage("nw-ambient-audio-sensitivity") private var sensitivity = 2.5
-    let playing: Bool
-    @State private var frozenTime = Date().timeIntervalSinceReferenceDate
-
-    var body: some View {
-        TimelineView(.animation(minimumInterval: playing ? 1.0 / 30.0 : 1.0 / 15.0,
-                                paused: scene != .active || reduceMotion || (!playing && !animatePaused))) { tick in
-            Canvas(opaque: false, rendersAsynchronously: true) { context, size in
-                guard size.width > 1, size.height > 1 else { return }
-                let now = reduceMotion || (!playing && !animatePaused)
-                    ? frozenTime : tick.date.timeIntervalSinceReferenceDate
-                let colors = palette.at(ProcessInfo.processInfo.systemUptime)
-                let samples = playing ? NativePlayer.shared.auraLevels() : []
-                let valid = samples.filter { $0.isFinite }.map { min(1, max(0, $0)) }
-                let level = valid.reduce(0, +) / Double(max(1, valid.count))
-                let gain = sensitivity.isFinite ? min(4, max(0.5, sensitivity)) : 2.5
-                let strength = playing ? min(1, pow(level, 0.40) * gain * 0.68) : 0
-                let center = CGPoint(x: size.width / 2, y: size.height / 2)
-                let radius = Double(min(size.width, size.height)) * 0.34
-                // The same clock is used while playing and paused. No jump on resume.
-                let phase = now.truncatingRemainder(dividingBy: 100_000) * 0.23
-                let start = CGPoint(x: center.x - radius, y: center.y - radius)
-                let finish = CGPoint(x: center.x + radius, y: center.y + radius)
-
-                for ribbon in 0..<3 {
-                    let offset = Double(ribbon) * 2.0 * .pi / 3.0
-                    var path = Path()
-                    for step in 0...180 {
-                        let angle = Double(step) * 2.0 * .pi / 180.0
-                        let wave = 0.060 * sin(3.0 * angle + phase + offset)
-                            + 0.035 * cos(5.0 * angle - phase * 0.61 + offset * 1.4)
-                        // Very small audio-controlled displacement avoids strobing.
-                        let audioRipple = 2.8 * strength * sin(angle * 7.0 + offset + phase * 0.42)
-                        let distance = radius * (1.0 + wave) + audioRipple
-                        let point = CGPoint(x: center.x + cos(angle) * distance,
-                                            y: center.y + sin(angle) * distance)
-                        if step == 0 { path.move(to: point) } else { path.addLine(to: point) }
-                    }
-                    path.closeSubpath()
-                    let first = ribbon == 1 ? colors.secondary.color : colors.primary.color
-                    let second = ribbon == 1 ? colors.primary.color : colors.secondary.color
-                    context.stroke(path, with: .color(first.opacity(0.10)),
-                                   style: StrokeStyle(lineWidth: 15, lineCap: .round, lineJoin: .round))
-                    context.stroke(path, with: .linearGradient(
-                        Gradient(colors: [first.opacity(0.38), second.opacity(0.82),
-                                          first.opacity(0.65)]),
-                        startPoint: start, endPoint: finish),
-                        style: StrokeStyle(lineWidth: 3.3, lineCap: .round, lineJoin: .round))
-                    context.stroke(path, with: .color(.white.opacity(0.19)),
-                                   style: StrokeStyle(lineWidth: 0.8, lineCap: .round, lineJoin: .round))
-                }
-            }
-        }
-        .onChange(of: playing) { value in
-            if !value { frozenTime = Date().timeIntervalSinceReferenceDate }
-        }
-        .onChange(of: animatePaused) { value in
-            if !value { frozenTime = Date().timeIntervalSinceReferenceDate }
-        }
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-    }
-}
-
 // Quiet decorative stars are independent of the audio engine and playback state.
 private struct HomeSparkles: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -218,16 +147,12 @@ struct NativeHome: View {
                             .font(.system(size: 31, weight: .light))
                             .foregroundStyle(Color.white)
                             .frame(width: 88, height: 88)
+                            .nightwellLiquidGlass(44)
                             .contentShape(Circle())
-                            .shadow(color: Color.white.opacity(0.18), radius: 12)
                     }
                     .accessibilityLabel(clock.playing ? "Пауза" : "Воспроизвести")
                     .buttonStyle(.plain)
-                    .background {
-                        NightwellBeatHalo(playing: clock.playing)
-                            .frame(width: 230, height: 230)
-                            .allowsHitTesting(false)
-                    }
+
 
                     HStack(spacing: 10) {
                         Button { if Date() >= suppressMixTapUntil { Task { await store.wave() } } } label: {
