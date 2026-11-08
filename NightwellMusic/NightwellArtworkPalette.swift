@@ -43,8 +43,9 @@ final class NightwellArtworkPalette: ObservableObject {
     init() {
         let stored = UserDefaults.standard.data(forKey: Self.cacheKey)
             .flatMap { try? JSONDecoder().decode(NightwellArtworkColors.self, from: $0) }
-        colors = stored ?? .fallback
-        previous = colors
+        let initial = stored ?? .fallback
+        colors = initial
+        previous = initial
     }
 
     func at(_ time: TimeInterval) -> NightwellArtworkColors {
