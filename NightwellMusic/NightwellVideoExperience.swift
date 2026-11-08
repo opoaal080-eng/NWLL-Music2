@@ -58,7 +58,7 @@ enum NightwellCanvasStore {
     }
 }
 
-private final class NightwellLoopVideoView: UIView {
+final class NightwellLoopVideoView: UIView {
     private var videoLayer: AVPlayerLayer { layer as! AVPlayerLayer }
     override class var layerClass: AnyClass { AVPlayerLayer.self }
     private let queue = AVQueuePlayer()
