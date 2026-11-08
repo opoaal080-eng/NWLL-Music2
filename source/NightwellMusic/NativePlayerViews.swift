@@ -511,135 +511,8 @@ struct FullPlayer: View {
     @State private var shuffle = false
     var body: some View {
         ZStack {
-            // Neutral home-style backdrop instead of the seasonal Halloween illustration.
-            Color.black.ignoresSafeArea()
-            if !showLyrics {
-                ArtworkColorBackground(
-                    url: clock.current?.cover_url.flatMap {
-                        URL(string: $0, relativeTo: store.origin)
-                    }
-                )
-                .ignoresSafeArea()
-                .allowsHitTesting(false)
-
-                // The square artwork now fills the full device height. Its
-                // top and bottom extend 38pt beyond the visible screen,
-                // rather than ending inside the controls' layout region.
-                GeometryReader { screen in
-                    let coverSide = max(screen.size.width, screen.size.height + 76)
-                    NightwellAnimatedCover(
-                        track: clock.current,
-                        origin: store.origin,
-                        side: coverSide
-                    )
-                    .position(x: screen.size.width / 2, y: screen.size.height / 2)
-                    .frame(width: screen.size.width, height: screen.size.height)
-                    .clipped()
-                    .overlay {
-                        LinearGradient(stops: [
-                            .init(color: .black.opacity(0.16), location: 0),
-                            .init(color: .clear, location: 0.27),
-                            .init(color: .clear, location: 0.53),
-                            .init(color: .black.opacity(0.20), location: 0.72),
-                            .init(color: .black.opacity(0.77), location: 1)
-                        ], startPoint: .top, endPoint: .bottom)
-                    }
-                }
-                .ignoresSafeArea()
-                .allowsHitTesting(false)
-            } else {
-                LinearGradient(colors: [Color(white: 0.085), Color(white: 0.025), .black],
-                               startPoint: .topLeading, endPoint: .bottomTrailing)
-                    .ignoresSafeArea()
-                    .allowsHitTesting(false)
-            }
-            if showLyrics { HomeSparkles().ignoresSafeArea() }
-            VStack(spacing: 14) {
-                HStack { Button { dismiss() } label: { Image(systemName: "chevron.down").frame(width: 44, height: 44).nightwellLiquidGlass(24) }; Spacer(); NightwellAudioOutputControl(); Spacer(); tools }
-                GeometryReader { box in
-                    if showLyrics {
-                        SharedLyricsPanel(model: store.lyrics, clock: clock)
-                            .id(clock.id)
-                            .background { GeometryReader { proxy in Color.clear.preference(key: PlayerLyricsFramePreference.self, value: proxy.frame(in: .global)) } }
-
-                    } else {
-                        // Artwork is drawn behind the whole player. Keep
-                        // swipe-to-change-track gestures in the former area.
-                        Color.clear
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .contentShape(Rectangle())
-                            .gesture(DragGesture(minimumDistance: 18).onEnded { value in
-                                let dx = value.translation.width
-                                if abs(dx) > 52 && abs(dx) > abs(value.translation.height) * 1.15 {
-                                    NativePlayer.shared.step(dx < 0 ? 1 : -1)
-                                }
-                            })
-                    }
-                }
-                HStack(spacing: 10) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(clock.current?.title ?? "Выбери трек").font(.system(size: 20, weight: .bold)).lineLimit(2)
-                        Button {
-                            let artists = ArtistNames.split(clock.current?.artist ?? "")
-                            if artists.count > 1 { showArtistChoices = true }
-                            else if let name = artists.first { selectedArtist = ArtistSelection(name: name) }
-                        } label: {
-                            HStack(spacing: 5) {
-                                Text(clock.current?.artist ?? "").lineLimit(1)
-                                Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold))
-                            }
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.76))
-                            .padding(.horizontal, 10).padding(.vertical, 5)
-                            .background(.white.opacity(0.08), in: Capsule())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Открыть исполнителя")
-                        .disabled(!ArtistAttribution.isKnown(clock.current?.artist ?? ""))
-                        if !store.audioQualityNotice.isEmpty {
-                            Text(store.audioQualityNotice)
-                                .font(.system(size: 10))
-                                .foregroundStyle(.yellow.opacity(0.85))
-                                .lineLimit(2)
-                        }
-                    }
-                    Spacer(minLength: 4)
-                    if let track = clock.current {
-                        Button { store.toggleRecommendationHidden(track) } label: {
-                            Image(systemName: store.isRecommendationHidden(track) ? "hand.thumbsdown.fill" : "hand.thumbsdown")
-                                .font(.system(size: 19))
-                                .foregroundStyle(store.isRecommendationHidden(track) ? Color.white : Color.white.opacity(0.65))
-                                .frame(width: 44, height: 44).nightwellLiquidGlass(22)
-                        }
-                        .accessibilityLabel(store.isRecommendationHidden(track) ? "Вернуть в рекомендации" : "Не рекомендовать")
-                        Button { Task { await store.like(track) } } label: {
-                            Image(systemName: store.likes.contains(track.id) ? "heart.fill" : "heart")
-                                .font(.system(size: 20)).foregroundStyle(Color.white)
-                                .frame(width: 44, height: 44).nightwellLiquidGlass(22)
-                        }
-                        .accessibilityLabel(store.likes.contains(track.id) ? "Убрать из избранного" : "В избранное")
-                    }
-                }
-                VStack(spacing: 16) {
-                    VStack(spacing: 8) {
-                        GlassSlider(value: Binding(get: { seeking ? scrub : min(clock.position, clock.duration) }, set: { scrub = $0 }), range: 0...clock.duration, accessibilityStep: 5, label: "Позиция трека", valueText: formatTime(seeking ? scrub : clock.position)) { editing in if editing { scrub = clock.position; seeking = true } else { NativePlayer.shared.seek(scrub); seeking = false } }
-                        HStack { Text(formatTime(seeking ? scrub : clock.position)); Spacer(); Text("−" + formatTime(max(0, clock.duration - (seeking ? scrub : clock.position)))) }.font(.caption).foregroundStyle(.secondary).monospacedDigit()
-                    }
-                    HStack {
-                        Button { shuffle.toggle(); NativePlayer.shared.modes(repeatMode: repeatMode, shuffle: shuffle) } label: { Image(systemName: "shuffle").foregroundStyle(shuffle ? Color.white : .secondary) }; Spacer()
-                        Button { NativePlayer.shared.step(-1) } label: { Image(systemName: "backward.end") }; Spacer()
-                        Button { clock.toggle() } label: { Image(systemName: clock.playing ? "pause" : "play.fill").font(.system(size: 25)).frame(width: 68, height: 68).frostedGlass(34, bordered: false, intensity: 0.20) }; Spacer()
-                        Button { NativePlayer.shared.step(1) } label: { Image(systemName: "forward.end") }; Spacer()
-                        Button { repeatMode = (repeatMode + 1) % 3; NativePlayer.shared.modes(repeatMode: repeatMode, shuffle: shuffle) } label: { Image(systemName: repeatMode == 2 ? "repeat.1" : "repeat").foregroundStyle(repeatMode > 0 ? Color.white : .secondary) }
-                    }.font(.system(size: 20))
-                }
-                HStack {
-                    Button { withAnimation { showLyrics.toggle() } } label: { Image(systemName: "text.bubble").frame(maxWidth: .infinity, minHeight: 50) }.accessibilityLabel("Текст песни")
-                    Button { showQueue = true } label: { Image(systemName: "list.bullet").frame(maxWidth: .infinity, minHeight: 50) }.accessibilityLabel("Очередь")
-                    Button { feature = .sound } label: { Image(systemName: "slider.vertical.3").frame(maxWidth: .infinity, minHeight: 50) }.accessibilityLabel("Эквалайзер")
-                }.font(.system(size: 20)).nightwellLiquidGlass(32)
-                if !clock.failure.isEmpty { Text(clock.failure).font(.caption).foregroundStyle(Color.white) }
-            }.padding(.horizontal, 26).padding(.top, 12).padding(.bottom, 4)
+            playerBackdrop
+            playerControls
         }.tint(Color.white)
         .environment(\.lyricsPalette, artworkTextColors)
         .onPreferenceChange(ArtworkPaletteKey.self) { colors in
@@ -706,6 +579,167 @@ struct FullPlayer: View {
                 .presentationDragIndicator(.visible)
                 .presentationBackground(.clear)
         }
+    }
+    @ViewBuilder private var playerBackdrop: some View {
+            // Neutral home-style backdrop instead of the seasonal Halloween illustration.
+            Color.black.ignoresSafeArea()
+            if !showLyrics {
+                ArtworkColorBackground(
+                    url: clock.current?.cover_url.flatMap {
+                        URL(string: $0, relativeTo: store.origin)
+                    }
+                )
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+
+                // The square artwork now fills the full device height. Its
+                // top and bottom extend 38pt beyond the visible screen,
+                // rather than ending inside the controls' layout region.
+                GeometryReader { screen in
+                    let coverSide = max(screen.size.width, screen.size.height + 76)
+                    NightwellAnimatedCover(
+                        track: clock.current,
+                        origin: store.origin,
+                        side: coverSide
+                    )
+                    .position(x: screen.size.width / 2, y: screen.size.height / 2)
+                    .frame(width: screen.size.width, height: screen.size.height)
+                    .clipped()
+                    .overlay {
+                        LinearGradient(stops: [
+                            .init(color: .black.opacity(0.16), location: 0),
+                            .init(color: .clear, location: 0.27),
+                            .init(color: .clear, location: 0.53),
+                            .init(color: .black.opacity(0.20), location: 0.72),
+                            .init(color: .black.opacity(0.77), location: 1)
+                        ], startPoint: .top, endPoint: .bottom)
+                    }
+                }
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+            } else {
+                LinearGradient(colors: [Color(white: 0.085), Color(white: 0.025), .black],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+            }
+            if showLyrics { HomeSparkles().ignoresSafeArea() }
+    }
+
+    private var playerControls: some View {
+        VStack(spacing: 14) {
+            playerHeader
+            artworkInteraction
+            playerTrackDetails
+            playerTransport
+            playerQuickActions
+            playerError
+        }
+        .padding(.horizontal, 26)
+        .padding(.top, 12)
+        .padding(.bottom, 4)
+    }
+
+    @ViewBuilder private var playerHeader: some View {
+                HStack { Button { dismiss() } label: { Image(systemName: "chevron.down").frame(width: 44, height: 44).nightwellLiquidGlass(24) }; Spacer(); NightwellAudioOutputControl(); Spacer(); tools }
+    }
+
+    @ViewBuilder private var artworkInteraction: some View {
+                GeometryReader { box in
+                    if showLyrics {
+                        SharedLyricsPanel(model: store.lyrics, clock: clock)
+                            .id(clock.id)
+                            .background { GeometryReader { proxy in Color.clear.preference(key: PlayerLyricsFramePreference.self, value: proxy.frame(in: .global)) } }
+
+                    } else {
+                        // Artwork is drawn behind the whole player. Keep
+                        // swipe-to-change-track gestures in the former area.
+                        Color.clear
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .contentShape(Rectangle())
+                            .gesture(DragGesture(minimumDistance: 18).onEnded { value in
+                                let dx = value.translation.width
+                                if abs(dx) > 52 && abs(dx) > abs(value.translation.height) * 1.15 {
+                                    NativePlayer.shared.step(dx < 0 ? 1 : -1)
+                                }
+                            })
+                    }
+                }
+    }
+
+    @ViewBuilder private var playerTrackDetails: some View {
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(clock.current?.title ?? "Выбери трек").font(.system(size: 20, weight: .bold)).lineLimit(2)
+                        Button {
+                            let artists = ArtistNames.split(clock.current?.artist ?? "")
+                            if artists.count > 1 { showArtistChoices = true }
+                            else if let name = artists.first { selectedArtist = ArtistSelection(name: name) }
+                        } label: {
+                            HStack(spacing: 5) {
+                                Text(clock.current?.artist ?? "").lineLimit(1)
+                                Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold))
+                            }
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.76))
+                            .padding(.horizontal, 10).padding(.vertical, 5)
+                            .background(.white.opacity(0.08), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Открыть исполнителя")
+                        .disabled(!ArtistAttribution.isKnown(clock.current?.artist ?? ""))
+                        if !store.audioQualityNotice.isEmpty {
+                            Text(store.audioQualityNotice)
+                                .font(.system(size: 10))
+                                .foregroundStyle(.yellow.opacity(0.85))
+                                .lineLimit(2)
+                        }
+                    }
+                    Spacer(minLength: 4)
+                    if let track = clock.current {
+                        Button { store.toggleRecommendationHidden(track) } label: {
+                            Image(systemName: store.isRecommendationHidden(track) ? "hand.thumbsdown.fill" : "hand.thumbsdown")
+                                .font(.system(size: 19))
+                                .foregroundStyle(store.isRecommendationHidden(track) ? Color.white : Color.white.opacity(0.65))
+                                .frame(width: 44, height: 44).nightwellLiquidGlass(22)
+                        }
+                        .accessibilityLabel(store.isRecommendationHidden(track) ? "Вернуть в рекомендации" : "Не рекомендовать")
+                        Button { Task { await store.like(track) } } label: {
+                            Image(systemName: store.likes.contains(track.id) ? "heart.fill" : "heart")
+                                .font(.system(size: 20)).foregroundStyle(Color.white)
+                                .frame(width: 44, height: 44).nightwellLiquidGlass(22)
+                        }
+                        .accessibilityLabel(store.likes.contains(track.id) ? "Убрать из избранного" : "В избранное")
+                    }
+                }
+    }
+
+    @ViewBuilder private var playerTransport: some View {
+                VStack(spacing: 16) {
+                    VStack(spacing: 8) {
+                        GlassSlider(value: Binding(get: { seeking ? scrub : min(clock.position, clock.duration) }, set: { scrub = $0 }), range: 0...clock.duration, accessibilityStep: 5, label: "Позиция трека", valueText: formatTime(seeking ? scrub : clock.position)) { editing in if editing { scrub = clock.position; seeking = true } else { NativePlayer.shared.seek(scrub); seeking = false } }
+                        HStack { Text(formatTime(seeking ? scrub : clock.position)); Spacer(); Text("−" + formatTime(max(0, clock.duration - (seeking ? scrub : clock.position)))) }.font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                    }
+                    HStack {
+                        Button { shuffle.toggle(); NativePlayer.shared.modes(repeatMode: repeatMode, shuffle: shuffle) } label: { Image(systemName: "shuffle").foregroundStyle(shuffle ? Color.white : .secondary) }; Spacer()
+                        Button { NativePlayer.shared.step(-1) } label: { Image(systemName: "backward.end") }; Spacer()
+                        Button { clock.toggle() } label: { Image(systemName: clock.playing ? "pause" : "play.fill").font(.system(size: 25)).frame(width: 68, height: 68).frostedGlass(34, bordered: false, intensity: 0.20) }; Spacer()
+                        Button { NativePlayer.shared.step(1) } label: { Image(systemName: "forward.end") }; Spacer()
+                        Button { repeatMode = (repeatMode + 1) % 3; NativePlayer.shared.modes(repeatMode: repeatMode, shuffle: shuffle) } label: { Image(systemName: repeatMode == 2 ? "repeat.1" : "repeat").foregroundStyle(repeatMode > 0 ? Color.white : .secondary) }
+                    }.font(.system(size: 20))
+                }
+    }
+
+    @ViewBuilder private var playerQuickActions: some View {
+                HStack {
+                    Button { withAnimation { showLyrics.toggle() } } label: { Image(systemName: "text.bubble").frame(maxWidth: .infinity, minHeight: 50) }.accessibilityLabel("Текст песни")
+                    Button { showQueue = true } label: { Image(systemName: "list.bullet").frame(maxWidth: .infinity, minHeight: 50) }.accessibilityLabel("Очередь")
+                    Button { feature = .sound } label: { Image(systemName: "slider.vertical.3").frame(maxWidth: .infinity, minHeight: 50) }.accessibilityLabel("Эквалайзер")
+                }.font(.system(size: 20)).nightwellLiquidGlass(32)
+    }
+
+    @ViewBuilder private var playerError: some View {
+                if !clock.failure.isEmpty { Text(clock.failure).font(.caption).foregroundStyle(Color.white) }
     }
     private func refreshNativeMenu() {
         let selected = clock.current
