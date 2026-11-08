@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import PhotosUI
+import CryptoKit
 
 struct NightwellProfile: Decodable {
     let user_id: String
@@ -10,52 +11,122 @@ struct NightwellProfile: Decodable {
 
 @MainActor
 extension MusicStore {
+    // Scoped per server and account. Private cache makes the avatar visible
+    // immediately at launch, before any profile API request finishes.
+    private func profileCacheScope(userID: String, server: URL) -> String {
+        let digest = SHA256.hash(data: Data((server.absoluteString + "|" + userID).utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func profileCachePath(userID: String, server: URL) -> URL {
+        let folder = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("nightwell-profile-images", isDirectory: true)
+        return folder.appendingPathComponent(profileCacheScope(userID: userID, server: server) + ".jpg")
+    }
+
+    private func cachedNicknameKey(userID: String, server: URL) -> String {
+        "nightwell-profile-nick-" + profileCacheScope(userID: userID, server: server)
+    }
+
+    func restoreCachedProfile() {
+        guard let userID = account?.id else {
+            profileNickname = ""
+            profileAvatar = nil
+            return
+        }
+        profileNickname = UserDefaults.standard.string(
+            forKey: cachedNicknameKey(userID: userID, server: origin)) ?? ""
+        let url = profileCachePath(userID: userID, server: origin)
+        if let data = try? Data(contentsOf: url),
+           data.count <= 768 * 1024, let image = UIImage(data: data) {
+            profileAvatar = image
+        } else {
+            profileAvatar = nil
+        }
+    }
+
+    private func cacheAvatar(_ data: Data, userID: String, server: URL) {
+        guard !data.isEmpty, data.count <= 768 * 1024 else { return }
+        let url = profileCachePath(userID: userID, server: server)
+        try? FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? data.write(to: url, options: .atomic)
+    }
+
     func refreshProfile() async {
-        guard account != nil else { profileNickname = ""; profileAvatar = nil; return }
+        guard let userID = account?.id else {
+            profileNickname = ""
+            profileAvatar = nil
+            return
+        }
+        let server = origin
         do {
             let details: NightwellProfile = try await api.request("/api/profile/me")
+            guard account?.id == userID, origin == server else { return }
             profileNickname = details.nickname
-            if let path = details.avatar_url,
-               let url = URL(string: path, relativeTo: origin)?.absoluteURL,
-               url.scheme == "https", url.host == origin.host {
-                // Avatar URLs are public and previously had a five-minute cache TTL.
-                // Always revalidate after changing a photo, even against older servers.
-                var request = URLRequest(url: url)
-                request.cachePolicy = .reloadIgnoringLocalCacheData
-                request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
-                let (data,response) = try await URLSession.shared.data(for: request)
-                if let r = response as? HTTPURLResponse, r.statusCode == 200,
-                   data.count <= 768*1024, let image=UIImage(data:data) {
-                    profileAvatar = image
-                }
-            } else { profileAvatar = nil }
+            UserDefaults.standard.set(details.nickname,
+                forKey: cachedNicknameKey(userID: userID, server: server))
+            guard let path = details.avatar_url, !path.isEmpty,
+                  let url = URL(string: path, relativeTo: server)?.absoluteURL,
+                  url.scheme == "https", url.host == server.host else {
+                profileAvatar = nil
+                try? FileManager.default.removeItem(
+                    at: profileCachePath(userID: userID, server: server))
+                return
+            }
+
+            // A stable avatar URL was previously cached by the proxy. Revalidate
+            // explicitly, while retaining the cached photo if the network fails.
+            var request = URLRequest(url: url)
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard account?.id == userID, origin == server else { return }
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200,
+                  !data.isEmpty, data.count <= 768 * 1024,
+                  let image = UIImage(data: data) else { return }
+            profileAvatar = image
+            cacheAvatar(data, userID: userID, server: server)
         } catch {
-            // Profile routes are an optional extension to older installations.
+            // Offline startup: show the last cached avatar until the next refresh.
         }
     }
 
     func saveProfileNickname(_ nickname: String) async throws {
-        guard account != nil else { throw NSError(domain:"Nightwell",code:401) }
+        guard let userID = account?.id else {
+            throw NSError(domain: "Nightwell", code: 401)
+        }
+        let server = origin
         let response: NightwellProfile = try await api.request(
-            "/api/profile/me", method:"PUT", body:["nickname":nickname])
+            "/api/profile/me", method: "PUT", body: ["nickname": nickname])
+        guard account?.id == userID, origin == server else { return }
         profileNickname = response.nickname
+        UserDefaults.standard.set(response.nickname,
+            forKey: cachedNicknameKey(userID: userID, server: server))
     }
 
     func saveProfileAvatar(_ data: Data) async throws {
-        guard account != nil else { throw NSError(domain:"Nightwell",code:401) }
-        let compressed = UIImage(data:data)?.scaledProfileJPEG()
-        guard let compressed, compressed.count <= 768*1024 else {
-            throw NSError(domain:"Nightwell",code:413,userInfo:[NSLocalizedDescriptionKey:"Фото слишком большое"])
+        guard let userID = account?.id else {
+            throw NSError(domain: "Nightwell", code: 401)
         }
-        let owner = account?.id
+        let server = origin
+        let compressed = UIImage(data: data)?.scaledProfileJPEG()
+        guard let compressed, compressed.count <= 768 * 1024 else {
+            throw NSError(domain: "Nightwell", code: 413,
+                          userInfo: [NSLocalizedDescriptionKey: "Фото слишком большое"])
+        }
         let _: NightwellProfile = try await api.request(
-            "/api/profile/avatar", method:"POST",
-            body:["mime":"image/jpeg","avatar_base64":compressed.base64EncodedString()])
-        guard owner == account?.id else { return }
-        // Update immediately from the pixels we just uploaded, even if an old
-        // reverse proxy temporarily serves a stale image for the same URL.
+            "/api/profile/avatar", method: "POST",
+            body: ["mime": "image/jpeg",
+                   "avatar_base64": compressed.base64EncodedString()])
+        guard account?.id == userID, origin == server else { return }
+
+        // Update immediately and persist locally. A subsequent fetch cannot
+        // restore the old photo while a reverse proxy catches up.
         profileAvatar = UIImage(data: compressed)
+        cacheAvatar(compressed, userID: userID, server: server)
         await refreshProfile()
+        guard account?.id == userID, origin == server else { return }
         profileAvatar = UIImage(data: compressed)
     }
 }
