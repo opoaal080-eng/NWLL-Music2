@@ -89,7 +89,7 @@ final class NightwellLoopVideoView: UIView {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unavailable") }
 
-    func configure(url: URL, active: Bool) {
+    func configure(url: URL, position: Double, playing: Bool, active: Bool) {
         if loadedURL != url {
             queue.pause()
             looper = nil
@@ -97,7 +97,28 @@ final class NightwellLoopVideoView: UIView {
             loadedURL = url
             looper = AVPlayerLooper(player: queue, templateItem: AVPlayerItem(url: url))
         }
-        active ? queue.play() : queue.pause()
+        // The locally supplied clip is a muted visual layer. Its timeline
+        // follows the Nightwell audio stream, which remains the sole sound
+        // source. Seeking is limited to actual drift, not every UI tick.
+        queue.isMuted = true
+        if let item = queue.currentItem, item.status == .readyToPlay {
+            let duration = item.duration.seconds
+            if duration.isFinite, duration > 0.1, position.isFinite {
+                let target = max(0, position).truncatingRemainder(dividingBy: duration)
+                let now = queue.currentTime().seconds
+                if now.isFinite {
+                    let delta = abs(target - now)
+                    let cyclicDrift = min(delta, max(0, duration - delta))
+                    let tolerance = playing && active ? 0.85 : 0.20
+                    if cyclicDrift > tolerance {
+                        queue.seek(to: CMTime(seconds: target, preferredTimescale: 600),
+                                   toleranceBefore: .zero, toleranceAfter: .zero)
+                    }
+                }
+            }
+        }
+        if playing && active { queue.play() }
+        else { queue.pause() }
     }
     func stop() {
         queue.pause()
@@ -109,14 +130,16 @@ final class NightwellLoopVideoView: UIView {
 
 struct NightwellCanvasVideo: UIViewRepresentable {
     let url: URL
+    let position: Double
+    let playing: Bool
     let active: Bool
     func makeUIView(context: Context) -> NightwellLoopVideoView {
         let view = NightwellLoopVideoView(frame: .zero)
-        view.configure(url: url, active: active)
+        view.configure(url: url, position: position, playing: playing, active: active)
         return view
     }
     func updateUIView(_ view: NightwellLoopVideoView, context: Context) {
-        view.configure(url: url, active: active)
+        view.configure(url: url, position: position, playing: playing, active: active)
     }
     static func dismantleUIView(_ view: NightwellLoopVideoView, coordinator: ()) {
         view.stop()
@@ -129,6 +152,8 @@ struct NightwellCanvasBackground: View {
     let track: Track?
     let origin: URL
     let revision: Int
+    let position: Double
+    let playing: Bool
     @AppStorage("nw-animated-album-artwork") private var animated = true
     @Environment(\.scenePhase) private var scene
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -138,7 +163,8 @@ struct NightwellCanvasBackground: View {
         GeometryReader { geo in
             ZStack {
                 if let id = track?.id, let video = NightwellCanvasStore.video(for: id) {
-                    NightwellCanvasVideo(url: video, active: scene == .active && !reduceMotion)
+                    NightwellCanvasVideo(url: video, position: position, playing: playing,
+                                         active: scene == .active && !reduceMotion)
                         .frame(width: geo.size.width, height: geo.size.height)
                         .clipped()
                 } else {

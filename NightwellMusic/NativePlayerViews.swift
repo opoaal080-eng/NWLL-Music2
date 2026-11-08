@@ -516,7 +516,9 @@ struct FullPlayer: View {
                 if canvasMode {
                     NightwellCanvasBackground(track: clock.current,
                                               origin: store.origin,
-                                              revision: canvasRevision)
+                                              revision: canvasRevision,
+                                              position: clock.position,
+                                              playing: clock.playing)
                         .ignoresSafeArea()
                 } else {
                     ArtworkColorBackground(url: clock.current?.cover_url.flatMap { URL(string: $0, relativeTo: store.origin) })
