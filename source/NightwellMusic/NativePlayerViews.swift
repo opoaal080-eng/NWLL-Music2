@@ -617,33 +617,9 @@ struct FullPlayer: View {
                 if !clock.failure.isEmpty { Text(clock.failure).font(.caption).foregroundStyle(Color.white) }
             }.padding(.horizontal, 26).padding(.top, 12).padding(.bottom, 4)
         }.tint(Color.white)
-        .environment(\.lyricsPalette, artworkTextColors)
-        .onPreferenceChange(ArtworkPaletteKey.self) { colors in
-            artworkTextColors = colors.isEmpty ? [.white, .white] : colors
-        }
-        .onPreferenceChange(PlayerLyricsFramePreference.self) { lyricsFrame = $0 }
-        .simultaneousGesture(DragGesture(minimumDistance: 24, coordinateSpace: .global).onEnded { value in
-            // Keep scrubbing, horizontal track changes and lyric scrolling independent.
-            // When lyrics are visible all vertical gestures belong to
-            // the lyrics view. Only the explicit chevron can close the player.
-            guard !showLyrics, !seeking, !showQueue else { return }
-            let dx = value.translation.width
-            let dy = value.translation.height
-            guard dy > 95, dy > abs(dx) * 1.45 else { return }
-            // A swipe beginning in synchronized lyrics belongs to the lyrics scroller.
-            if showLyrics && lyricsFrame.contains(value.startLocation) { return }
-            withAnimation(.easeOut(duration: 0.24)) { dismiss() }
-        })
-        .onAppear {
-            let modes = NativePlayer.shared.snapshot(includeQueue: false)
-            repeatMode = modes["repeat"] as? Int ?? 0; shuffle = modes["shuffle"] as? Bool ?? false
-            if store.lyrics.value == nil || store.lyrics.value?.status == "error" || store.lyrics.value?.status == "unavailable" {
-                store.lyrics.select(clock.current, api: store.api, origin: store.origin, online: store.account != nil)
-            }
-        }
-        .sheet(item: $feature) { PremiumFeatureView(kind: $0).environmentObject(store) }
-        .sheet(item: $playerActionSnapshot) { snapshot in
-            NightwellPlayerActionsSheet(
+        .overlay {
+            if let snapshot = playerActionSnapshot {
+            NightwellPlayerActionsOverlay(
                 snapshot: snapshot,
                 onClose: { playerActionSnapshot = nil },
                 onEqualizer: {
@@ -678,7 +654,34 @@ struct FullPlayer: View {
                     Task { await store.checkAudioQualitySupport() }
                 }
             )
+                    .id(snapshot.id)
+            }
         }
+        .environment(\.lyricsPalette, artworkTextColors)
+        .onPreferenceChange(ArtworkPaletteKey.self) { colors in
+            artworkTextColors = colors.isEmpty ? [.white, .white] : colors
+        }
+        .onPreferenceChange(PlayerLyricsFramePreference.self) { lyricsFrame = $0 }
+        .simultaneousGesture(DragGesture(minimumDistance: 24, coordinateSpace: .global).onEnded { value in
+            // Keep scrubbing, horizontal track changes and lyric scrolling independent.
+            // When lyrics are visible all vertical gestures belong to
+            // the lyrics view. Only the explicit chevron can close the player.
+            guard !showLyrics, !seeking, !showQueue, playerActionSnapshot == nil else { return }
+            let dx = value.translation.width
+            let dy = value.translation.height
+            guard dy > 95, dy > abs(dx) * 1.45 else { return }
+            // A swipe beginning in synchronized lyrics belongs to the lyrics scroller.
+            if showLyrics && lyricsFrame.contains(value.startLocation) { return }
+            withAnimation(.easeOut(duration: 0.24)) { dismiss() }
+        })
+        .onAppear {
+            let modes = NativePlayer.shared.snapshot(includeQueue: false)
+            repeatMode = modes["repeat"] as? Int ?? 0; shuffle = modes["shuffle"] as? Bool ?? false
+            if store.lyrics.value == nil || store.lyrics.value?.status == "error" || store.lyrics.value?.status == "unavailable" {
+                store.lyrics.select(clock.current, api: store.api, origin: store.origin, online: store.account != nil)
+            }
+        }
+        .sheet(item: $feature) { PremiumFeatureView(kind: $0).environmentObject(store) }
         .sheet(item: $presentedClip) { clip in
             NightwellClipScreen(clipURL: clip.url, title: clip.trackTitle, origin: store.origin)
         }
@@ -715,14 +718,18 @@ struct FullPlayer: View {
         Button {
             // Build one immutable snapshot when tapping, never subscribe the
             // presented sheet to the rapidly updating playback clock.
-            playerActionSnapshot = NightwellPlayerActionSnapshot(
-                track: clock.current,
-                clipURL: availableClipURL,
-                playlists: store.playlists,
-                recommendationHidden: clock.current.map { store.isRecommendationHidden($0) } ?? false,
-                shareBaseURL: store.origin,
-                lyricsVisible: showLyrics
-            )
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                playerActionSnapshot = NightwellPlayerActionSnapshot(
+                    track: clock.current,
+                    clipURL: availableClipURL,
+                    playlists: store.playlists,
+                    recommendationHidden: clock.current.map { store.isRecommendationHidden($0) } ?? false,
+                    shareBaseURL: store.origin,
+                    lyricsVisible: showLyrics
+                )
+            }
         } label: {
             Image(systemName: "ellipsis")
                 .frame(width: 44, height: 44)
