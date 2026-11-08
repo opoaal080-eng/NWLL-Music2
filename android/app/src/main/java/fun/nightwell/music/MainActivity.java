@@ -19,6 +19,7 @@ public final class MainActivity extends Activity {
     private final Handler ui=new Handler(Looper.getMainLooper());
     private final ExecutorService io=Executors.newFixedThreadPool(3);
     private final ExecutorService prefetch=Executors.newSingleThreadExecutor();
+    private final ExecutorService playlistIndexer=Executors.newSingleThreadExecutor();
     private TextView liveHandoff;
     private TextView nightwellBadge, nightwellMenuStatus;
     private String nightwellStatus = "Проверка…";
@@ -298,7 +299,7 @@ public final class MainActivity extends Activity {
 
     @Override protected void onResume(){super.onResume();if(redirectedToFirstRun)return;restoreRecent();visible=true;ui.removeCallbacks(nightwellProbe);ui.post(nightwellProbe);if(!smokeMode&&sessionReady&&SystemClock.elapsedRealtime()-lastResumeRefresh>30000)load();if(premiumRefresh!=null)premiumRefresh.run();BackgroundDownloads.reconcile(this);if(ribbon!=null)ribbon.running(!smokeMode&&!full&&screen.equals("Главная"));ui.removeCallbacks(tick);if(!smokeMode)ui.post(tick);}
     @Override protected void onPause(){super.onPause();if(redirectedToFirstRun)return;ui.removeCallbacks(nightwellProbe);ui.removeCallbacks(connectionRecovery);if(navigationPopup!=null)navigationPopup.dismiss();if(playback!=null)playback.persistPlayback(true);visible=false;if(ribbon!=null)ribbon.running(false);ui.removeCallbacks(tick);}
-    @Override protected void onDestroy(){if(redirectedToFirstRun){super.onDestroy();return;}ui.removeCallbacks(nightwellProbe);generation++;cancelMix();accountRequest.cancel();if(api!=null)api.close();ui.removeCallbacksAndMessages(null);if(artworkCache!=null)artworkCache.close();io.shutdownNow();prefetch.shutdownNow();if(playback!=null)playback.player.removeListener(playbackIntentObserver);if(bindingRegistered){unbindService(connection);bindingRegistered=false;}super.onDestroy();}
+    @Override protected void onDestroy(){if(redirectedToFirstRun){super.onDestroy();return;}ui.removeCallbacks(nightwellProbe);generation++;cancelMix();accountRequest.cancel();if(api!=null)api.close();ui.removeCallbacksAndMessages(null);if(artworkCache!=null)artworkCache.close();io.shutdownNow();prefetch.shutdownNow();playlistIndexer.shutdownNow();if(playback!=null)playback.player.removeListener(playbackIntentObserver);if(bindingRegistered){unbindService(connection);bindingRegistered=false;}super.onDestroy();}
     int dp(float n){return (int)(n*getResources().getDisplayMetrics().density+.5f);}
     LinearLayout column(){LinearLayout v=new LinearLayout(this);v.setOrientation(LinearLayout.VERTICAL);return v;}
     LinearLayout row(){LinearLayout v=new LinearLayout(this);v.setGravity(Gravity.CENTER_VERTICAL);return v;}
@@ -864,7 +865,7 @@ public final class MainActivity extends Activity {
                 JSONObject value=client.request("api/playlists");
                 JSONArray items=value.optJSONArray("playlists");
                 ui.post(()->{if(!isDestroyed()&&client==api&&revision==libraryGeneration&&account.equals(user)&&items!=null){
-                    playlists=items;saveLibrarySnapshot();if(!full&&screen.equals("Плейлисты"))showScreen();
+                    playlists=items;saveLibrarySnapshot();warmPlaylistSearchIndex(items,account,revision);if(!full&&screen.equals("Плейлисты"))showScreen();
                 }});
             }catch(Exception ignored){}
         });
@@ -873,6 +874,47 @@ public final class MainActivity extends Activity {
     String friendly(Exception error){if(error instanceof java.net.UnknownHostException||error instanceof java.net.ConnectException||error instanceof java.net.SocketTimeoutException)return "Нет соединения. Офлайн-файлы доступны в меню.";String message=error.getMessage();return message!=null&&!message.startsWith("Unable")&&message.length()<180?message:"Не удалось выполнить действие. Повтори попытку.";}
     interface Work{JSONObject run()throws Exception;} interface Done{void run(JSONObject value);}
     void task(Work work,Done done){io.execute(()->{try{JSONObject value=work.run();ui.post(()->{if(!isDestroyed())done.run(value);});}catch(Exception ex){ui.post(()->{if(!isDestroyed())status.setText(friendly(ex));});}});}
+    // Fill a small playlist index one by one in a separate executor.
+    // Search and all playback requests continue independently.
+    private void warmPlaylistSearchIndex(JSONArray list,String owner,long revision){
+        final String server=origin;
+        playlistIndexer.execute(()->{
+            NativeAPI client=new NativeAPI(this,server);
+            try{
+                for(int i=0;i<Math.min(24,list.length());i++){
+                    if(Thread.currentThread().isInterrupted()||isDestroyed()||
+                       revision!=libraryGeneration||!owner.equals(user)||!server.equals(origin))return;
+                    JSONObject p=list.optJSONObject(i);
+                    if(p==null)continue;
+                    String id=p.optString("id");
+                    if(id.isEmpty())continue;
+                    String key="playlist|"+server+"|"+owner+"|"+id;
+                    android.content.SharedPreferences prefs=getSharedPreferences("playlist-snapshots",MODE_PRIVATE);
+                    if(prefs.contains(key))continue;
+                    try{
+                        JSONObject payload=client.request("api/playlists/"+
+                            java.net.URLEncoder.encode(id,"UTF-8")+"/tracks");
+                        JSONArray songs=payload.optJSONArray("tracks");
+                        if(songs==null||songs.toString().length()>=750000)continue;
+                        prefs.edit().putString(key,songs.toString()).apply();
+                        ui.post(()->{
+                            if(isDestroyed()||!owner.equals(user)||!screen.equals("Поиск")
+                               ||query.trim().length()<2)return;
+                            String text=query.trim();
+                            JSONArray owned=cachedOwnedTracks();
+                            JSONArray local=matchingOwnTracks(text,owned);
+                            shown=rankOwnedSearch(concatTracks(local,shown),text,owned);
+                            updateList();
+                        });
+                    }catch(Exception ignored){}
+                    try{Thread.sleep(450);}catch(InterruptedException interrupted){
+                        Thread.currentThread().interrupt();return;
+                    }
+                }
+            }finally{client.close();}
+        });
+    }
+
     private static JSONArray concatTracks(JSONArray... sources){
         JSONArray combined=new JSONArray();
         for(JSONArray list:sources)if(list!=null)
