@@ -873,6 +873,7 @@ struct PlaybackQueue: View {
                                 .frame(maxWidth: .infinity)
                                 .padding(.bottom, 6)
                             }
+                        if !depthQueue {
                         LazyVStack(spacing: 8) {
                             if clock.queue.isEmpty {
                                 Text("Выбери трек — здесь появится твоя музыка")
@@ -908,10 +909,17 @@ struct PlaybackQueue: View {
                                 }.id(index)
                             }
                         }
+                        }
+                        if depthQueue && currentIndex + 1 >= clock.queue.count {
+                            Text("Следующих треков пока нет")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .padding(.vertical, 30)
+                        }
                         }.padding(12)
                     }
                     .nightwellLiquidGlass(28)
-                    .onAppear { if currentIndex >= 0 { reader.scrollTo(currentIndex, anchor: .top) } }
+                    .onAppear { if !depthQueue && currentIndex >= 0 { reader.scrollTo(currentIndex, anchor: .top) } }
                 }
             }.padding(.horizontal, 20).padding(.top, 28).padding(.bottom, 18)
         }.tint(Color.white).foregroundStyle(nightwellText)
