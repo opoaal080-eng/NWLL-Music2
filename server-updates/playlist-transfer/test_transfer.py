@@ -52,10 +52,22 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
             if value['state']=='error':self.fail(value['message'])
             await asyncio.sleep(.01)
         self.fail('job did not finish')
+    async def test_heavy_legacy_server_search_is_disabled(self):
+        result=await self.client.post('/api/imports',json={'provider':'yandex','name':'Old','text':'Artist - Song'})
+        self.assertEqual(result.status_code,426)
+
+    async def test_invalid_matched_track_is_rejected(self):
+        bad={'provider':'yandex','name':'Test','items':[{'title':'Song','artist':'Artist','track_id':'../../internal'}]}
+        result=await self.client.post('/api/imports/client',json=bad)
+        self.assertEqual(result.status_code,422)
+
     async def test_analyze_commit_idempotency_and_owner(self):
-        result=await self.client.post('/api/imports',json={'provider':'yandex','name':'Test','text':'Artist - Song','mode':'wide'})
+        result=await self.client.post('/api/imports/client',json={'provider':'yandex','name':'Test','mode':'wide','items':[
+            {'artist':'Artist','title':'Song','track_id':'track1','found_title':'Song','found_artist':'Artist'},
+            {'artist':'Missing','title':'Lost song','track_id':None,'reason':'Не найден в каталоге'}]})
         self.assertEqual(result.status_code,200);key=result.json()['id']
         job=await self.wait_state(key,'ready');self.assertEqual(job['matched'],1);self.assertEqual(self.created,[])
+        self.assertEqual(len([item for item in job['items'] if not item['track_id']]),1)
         self.assertEqual((await self.client.get('/api/imports/'+key,headers={'x-user':'other'})).status_code,404)
         self.assertEqual((await self.client.post('/api/imports/'+key+'/commit',headers={'x-csrf-token':'wrong'})).status_code,403)
         await asyncio.gather(self.client.post('/api/imports/'+key+'/commit'),self.client.post('/api/imports/'+key+'/commit'))

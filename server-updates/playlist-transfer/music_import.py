@@ -236,6 +236,76 @@ def install(app,identity,csrf,path):
             if not jobs.cancelled(key,user):
                 data.update(state='error',message=str(error) if isinstance(error,SourceError) else 'Не удалось завершить перенос. Проверьте подключение и повторите.')
                 jobs.put(key,user,data)
+    def validate_client_items(body):
+        if not isinstance(body,dict) or set(body)-{'provider','name','mode','items'}:
+            raise HTTPException(422,'Неверные поля запроса переноса')
+        provider=body.get('provider')
+        if not isinstance(provider,str) or provider not in PROVIDERS:
+            raise HTTPException(422,'Неизвестный источник переноса')
+        name=body.get('name')
+        if not isinstance(name,str) or not (1<=len(name.strip())<=80):
+            raise HTTPException(422,'Название плейлиста должно быть от 1 до 80 символов')
+        mode=body.get('mode','balanced')
+        if mode not in ('safe','balanced','wide'):
+            raise HTTPException(422,'Неизвестный режим поиска')
+        rows=body.get('items')
+        if not isinstance(rows,list) or not (1<=len(rows)<=1000):
+            raise HTTPException(422,'За один перенос можно обработать от 1 до 1000 треков')
+        validated=[]
+        seen=set()
+        for item in rows:
+            if not isinstance(item,dict) or set(item)-{'title','artist','duration','track_id','found_title','found_artist','reason'}:
+                raise HTTPException(422,'Неизвестные поля трека')
+            title=item.get('title')
+            artist=item.get('artist')
+            if (not isinstance(title,str) or not isinstance(artist,str) or
+                not (1<=len(title.strip())<=300) or not (1<=len(artist.strip())<=300)):
+                raise HTTPException(422,'У каждого трека должны быть название и исполнитель')
+            identifier=(norm(title),norm(artist))
+            if identifier in seen: continue
+            seen.add(identifier)
+            tid=item.get('track_id')
+            if tid is not None and (not isinstance(tid,str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,100}',tid)):
+                raise HTTPException(422,'Некорректный идентификатор трека')
+            row={'title':title.strip(),'artist':artist.strip(),'track_id':tid,
+                 'reason':str(item.get('reason') or ('Не найден в каталоге' if tid is None else ''))[:180]}
+            duration=item.get('duration')
+            if duration is not None:
+                if not isinstance(duration,(int,float)) or isinstance(duration,bool) or not 0<float(duration)<86400:
+                    raise HTTPException(422,'Некорректная длительность')
+                row['duration']=float(duration)
+            if tid:
+                for attr in ('found_title','found_artist'):
+                    text=item.get(attr,'')
+                    if not isinstance(text,str) or len(text)>300:
+                        raise HTTPException(422,'Некорректное совпадение трека')
+                    row[attr]=text
+            validated.append(row)
+        return name.strip(),provider,mode,validated
+
+    @app.post('/api/imports/client')
+    async def create_client_matched(request:Request):
+        # No server-side matching, catalog iteration, external searches or CPU
+        # threads. The user device sends only resolved IDs and a missing report.
+        user=who(request,True)
+        parts=[];total=0
+        async for chunk in request.stream():
+            total+=len(chunk)
+            if total>2_000_000: raise HTTPException(413,'Слишком большой список переноса')
+            parts.append(chunk)
+        try:
+            payload=json.loads(b''.join(parts))
+        except (ValueError,UnicodeDecodeError):
+            raise HTTPException(422,'Неверный JSON переноса')
+        name,provider,mode,items=validate_client_items(payload)
+        data=jobs.create(user,provider)
+        matched=sum(bool(item['track_id']) for item in items)
+        data.update(name=name,mode=mode,state='ready',total=len(items),progress=len(items),
+                    matched=matched,items=items,
+                    message='Найдено '+str(matched)+' из '+str(len(items))+'. Проверьте результат перед сохранением.')
+        jobs.put(data['id'],user,data)
+        return view(data)
+
     async def save(key,user,request):
         data=jobs.get(key,user)
         try:
@@ -252,7 +322,12 @@ def install(app,identity,csrf,path):
                     if not tid or tid in done:continue
                     if jobs.cancelled(key,user):return
                     await host(api,'POST','/api/playlists/'+data['playlist_id']+'/tracks/'+tid,json={})
-                    done.add(tid);data['saved_ids']=list(done);data['saved']=len(done);data['message']='Добавлено '+str(len(done))+' треков';jobs.put(key,user,data)
+                    done.add(tid);data['saved_ids']=list(done);data['saved']=len(done)
+                    data['message']='Добавлено '+str(len(done))+' треков'
+                    # Keep playlist writes under a sustainable rate; this is
+                    # persistence only, never music search on the server.
+                    if len(done)%5==0: jobs.put(key,user,data)
+                    await asyncio.sleep(0.10)
                 data.update(state='done',message='Готово. В плейлисте '+str(data['saved'])+' треков. Не найдено: '+str(data['total']-data['matched'])+'.')
                 jobs.put(key,user,data)
         except asyncio.CancelledError:raise
@@ -270,20 +345,10 @@ def install(app,identity,csrf,path):
         return {'jobs':[view(jobs.get(key,user),True) for key in keys]}
     @app.post('/api/imports')
     async def create(request:Request):
-        user=who(request,True)
-        parts=[];size=0
-        async for chunk in request.stream():
-            size+=len(chunk)
-            if size>MAX_BYTES*6+12000:raise HTTPException(413,'Список должен быть не больше 1 МБ')
-            parts.append(chunk)
-        raw=b''.join(parts)
-        try:body=json.loads(raw)
-        except (ValueError,UnicodeDecodeError):raise HTTPException(422,'Неверный формат списка')
-        if not isinstance(body,dict) or set(body)-{'provider','name','url','text','mode'} or not isinstance(body.get('provider'),str) or body.get('provider') not in PROVIDERS:raise HTTPException(422,'Проверьте источник переноса')
-        if body.get('mode','balanced') not in ('safe','balanced','wide'):raise HTTPException(422,'Неизвестный режим поиска')
-        if not isinstance(body.get('text',''),str) or not isinstance(body.get('url',''),str):raise HTTPException(422,'Нужна ссылка или текстовый список')
-        if len(body.get('text','').encode('utf-8'))>MAX_BYTES:raise HTTPException(413,'Список должен быть не больше 1 МБ')
-        data=jobs.create(user,body['provider']);jobs.launch(read_and_match(data['id'],user,body,request));return data
+        who(request,True)
+        # An older client must not put the server back into a 1000-item
+        # multi-query matching loop, potentially starving audio playback.
+        raise HTTPException(426,'Обновите Nightwell Music. Поиск при переносе теперь выполняется на устройстве.')
     @app.get('/api/imports/{key}')
     def status(key:str,request:Request):return view(jobs.get(key,who(request)))
     @app.post('/api/imports/{key}/cancel')
