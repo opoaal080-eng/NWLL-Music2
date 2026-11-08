@@ -82,9 +82,18 @@ final class NativeEQPlayback {
         engine.connect(limiter, to: engine.mainMixerNode, format: format)
     }
     func seek(_ seconds: Double, playing: Bool) throws {
-        guard let file else { return }
+        guard let file, file.length > 0 else { return }
         let rate = file.processingFormat.sampleRate
-        let frame = min(file.length - 1, max(0, AVAudioFramePosition(max(0, seconds) * rate)))
+        guard rate.isFinite, rate > 0 else { throw URLError(.cannotDecodeContentData) }
+        // Clamp before converting Double to AVAudioFramePosition. At the very
+        // end of playback, an invalid/infinite duration can otherwise trigger
+        // a Swift integer-conversion trap and terminate the entire process.
+        let requested = seconds.isFinite ? max(0, seconds) : 0
+        let rawFrame = min(Double(file.length - 1), min(Double(Int64.max / 2), requested * rate))
+        guard rawFrame.isFinite && rawFrame >= 0 else {
+            throw URLError(.cannotDecodeContentData)
+        }
+        let frame = AVAudioFramePosition(rawFrame)
         scheduled = UUID()
         let expected = scheduled
         node.stop()
