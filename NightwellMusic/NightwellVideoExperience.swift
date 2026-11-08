@@ -7,7 +7,7 @@ import UniformTypeIdentifiers
 /// uploaded, downloaded from YouTube, or transcoded on the Nightwell server.
 enum NightwellCanvasStore {
     private static let maxBytes = 60 * 1024 * 1024
-    private static func destination(for trackID: String) throws -> URL {
+    private static func destination(for trackID: String, ext: String = "mp4") throws -> URL {
         guard trackID.range(of: #"^[A-Za-z0-9_-]{1,100}$"#,
                             options: .regularExpression) != nil else {
             throw CocoaError(.fileReadInvalidFileName)
@@ -16,13 +16,15 @@ enum NightwellCanvasStore {
                                            in: .userDomainMask)[0]
             .appendingPathComponent("NightwellCanvas", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent(trackID + ".mp4")
+        return dir.appendingPathComponent(trackID + "." + ext)
     }
 
     static func video(for trackID: String) -> URL? {
-        guard let path = try? destination(for: trackID),
-              FileManager.default.fileExists(atPath: path.path) else { return nil }
-        return path
+        for ext in ["mp4", "mov", "m4v"] {
+            if let path = try? destination(for: trackID, ext: ext),
+               FileManager.default.fileExists(atPath: path.path) { return path }
+        }
+        return nil
     }
 
     static func save(_ imported: URL, trackID: String) throws {
@@ -35,7 +37,12 @@ enum NightwellCanvasStore {
                 NSLocalizedDescriptionKey: "Выбери MP4 или MOV не больше 60 МБ."
             ])
         }
-        let output = try destination(for: trackID)
+        let ext = imported.pathExtension.lowercased()
+        guard ["mp4", "mov", "m4v"].contains(ext) else {
+            throw NSError(domain: "NightwellCanvas", code: 415,
+                userInfo: [NSLocalizedDescriptionKey: "Поддерживаются MP4, MOV и M4V."])
+        }
+        let output = try destination(for: trackID, ext: ext)
         let temporary = output.deletingLastPathComponent()
             .appendingPathComponent(UUID().uuidString + ".tmp")
         do {
@@ -45,6 +52,11 @@ enum NightwellCanvasStore {
             } else {
                 try FileManager.default.moveItem(at: temporary, to: output)
             }
+            for otherExt in ["mp4", "mov", "m4v"] where otherExt != ext {
+                if let old = try? destination(for: trackID, ext: otherExt) {
+                    try? FileManager.default.removeItem(at: old)
+                }
+            }
         } catch {
             try? FileManager.default.removeItem(at: temporary)
             throw error
@@ -52,8 +64,10 @@ enum NightwellCanvasStore {
     }
 
     static func delete(trackID: String) {
-        if let path = try? destination(for: trackID) {
-            try? FileManager.default.removeItem(at: path)
+        for ext in ["mp4", "mov", "m4v"] {
+            if let path = try? destination(for: trackID, ext: ext) {
+                try? FileManager.default.removeItem(at: path)
+            }
         }
     }
 }
