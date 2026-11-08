@@ -40,6 +40,47 @@ final class NativePlayer {
     private var pendingNextTimeout: DispatchWorkItem?
     private var pendingNextIndex: Int?
     private var pendingNextGeneration = UUID()
+    // Failed candidates stay excluded until audio from a working track starts.
+    private var unavailableIDs = Set<String>()
+    private let maxConsecutiveUnavailable = 12
+
+    private func nextAvailableIndex(after failed: Int) -> Int? {
+        guard unavailableIDs.count < maxConsecutiveUnavailable else { return nil }
+        let choices = tracks.indices.filter {
+            $0 != index && !unavailableIDs.contains(tracks[$0].id)
+                && (!waveActive || $0 > failed)
+        }
+        guard !choices.isEmpty else { return nil }
+        if shuffle { return smartShuffleIndex(choices) }
+        if let forward = choices.first(where: { $0 > failed }) { return forward }
+        return !waveActive && repeatMode != 0 ? choices.first : nil
+    }
+
+    // When Next is pressed, keep the previous stream audible until a good
+    // candidate can be prepared. An already-failed current stream is skipped
+    // directly. Never retry an unavailable candidate in the same chain.
+    @discardableResult
+    private func skipUnavailable(at failed: Int, whileCurrentPlays: Bool) -> Bool {
+        guard tracks.indices.contains(failed) else { return false }
+        unavailableIDs.insert(tracks[failed].id)
+        if let target = nextAvailableIndex(after: failed) {
+            if whileCurrentPlays { beginPreparedNext(at: target) }
+            else { switchDirectly(to: target) }
+            return true
+        }
+        if waveActive && wantsPlay &&
+           unavailableIDs.count < maxConsecutiveUnavailable && !waveWaiting {
+            waveWaiting = true
+            refillWave(force: true)
+            if waveTask != nil {
+                if !whileCurrentPlays { player.pause() }
+                publish()
+                return true
+            }
+            waveWaiting = false
+        }
+        return false
+    }
 
     private func cancelPendingNext() {
         pendingNextGeneration = UUID()
@@ -58,8 +99,10 @@ final class NativePlayer {
         guard !track.offline || saved != nil,
               let url = saved ?? URL(string: streamPath(for: track),
                 relativeTo: origin)?.absoluteURL else {
-            error = "Следующий трек недоступен. Текущий продолжает играть."
-            publish(); return
+            pendingNextIndex = destination
+            pendingNextGeneration = UUID()
+            handleNextFailure(ticket: pendingNextGeneration, reason: "Следующий трек недоступен.")
+            return
         }
         pendingNextIndex = destination
         pendingNextGeneration = UUID()
@@ -100,15 +143,15 @@ final class NativePlayer {
         let reachedEnd = ended || (length.isFinite && length > 0 &&
             playbackPosition >= length - 0.25)
         cancelPendingNext()
-        if reachedEnd, let destination {
-            // Current stream has ended: keep playback alive even when
-            // async asset preparation timed out.
-            switchDirectly(to: destination)
-        } else {
-            endBackgroundHandoff()
-            error = reason + " Текущий трек продолжает играть."
-            publish()
+        if let destination, skipUnavailable(at: destination, whileCurrentPlays: !reachedEnd) {
+            return
         }
+        endBackgroundHandoff()
+        if reachedEnd { wantsPlay = false; player.pause() }
+        error = reason + (reachedEnd
+            ? " Доступных следующих треков пока нет."
+            : " Текущий трек продолжает играть.")
+        publish()
     }
 
     private func commitPreparedNext(_ asset: AVURLAsset,
@@ -125,6 +168,20 @@ final class NativePlayer {
     private func switchDirectly(to destination: Int) {
         guard tracks.indices.contains(destination) else { return }
         index = destination
+        // Deleted local downloads cannot recover via network retries.
+        if let origin, tracks[destination].offline,
+           OfflineStore.audio(origin: origin,
+               account: tracks[destination].offlineAccount.isEmpty
+                   ? offlineAccount : tracks[destination].offlineAccount,
+               id: tracks[destination].id) == nil {
+            if skipUnavailable(at: destination, whileCurrentPlays: false) { return }
+            wantsPlay = false
+            player.pause()
+            error = "Офлайн-файл недоступен. Других доступных треков нет."
+            endBackgroundHandoff()
+            publish()
+            return
+        }
         fadeNextAutomatically = true
         load()
         play()
@@ -205,6 +262,22 @@ final class NativePlayer {
     private var failureObserver: NSObjectProtocol?
     private var stallObserver: NSObjectProtocol?
     private var stallCheck: DispatchWorkItem?
+    private var startupTimeout: DispatchWorkItem?
+    private var attemptedTrackID = ""
+    private var attemptedTrackLoads = 0
+
+    // AVPlayer can remain in an unknown or waiting state without reporting
+    // .failed. Give it a chance to start, then use the usual recovery/skip path.
+    private func monitorStartup(generation: UUID) {
+        startupTimeout?.cancel()
+        let check = DispatchWorkItem { [weak self] in
+            guard let self, self.itemGeneration == generation, self.wantsPlay,
+                  self.audibleAfterSeconds == nil || !self.audible else { return }
+            self.playbackFailed(URLError(.timedOut), generation: generation)
+        }
+        startupTimeout = check
+        DispatchQueue.main.asyncAfter(deadline: .now() + 20, execute: check)
+    }
     private var backgroundHandoffTask: UIBackgroundTaskIdentifier = .invalid
     private let recovery = PlaybackRecovery()
     private var lastPosition = 0.0
@@ -246,7 +319,14 @@ final class NativePlayer {
         playbackStatusObservation = player.observe(\.timeControlStatus, options: [.new]) { [weak self] player, _ in
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                if player.timeControlStatus == .playing { self.endBackgroundHandoff() }
+                if player.timeControlStatus == .playing {
+                    self.endBackgroundHandoff()
+                    if !self.waitingForReady {
+                        // A playable next item resets the bounded failure chain.
+                        self.unavailableIDs.removeAll()
+                        self.attemptedTrackLoads = 0
+                    }
+                }
             }
         }
         do { try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, policy: .longFormAudio) }
@@ -260,6 +340,7 @@ final class NativePlayer {
                 }
                 if self.wantsPlay && self.audible && self.audibleAfterSeconds == nil && self.startupUptime > 0 {
                     self.audibleAfterSeconds = max(0, ProcessInfo.processInfo.systemUptime - self.startupUptime)
+                    self.startupTimeout?.cancel(); self.startupTimeout = nil
                 }
             }
             self?.updateLoudnessLeveling()
@@ -332,6 +413,9 @@ final class NativePlayer {
                 sourceURL: item["source_url"] as? String, remote: item["is_remote"] as? Bool ?? false, offline: item["_offline"] as? Bool ?? false, offlineAccount: item["_offline_account"] as? String ?? "", offlineLyrics: item["_offline_lyrics"] as? [String: Any])
         }
         cancelPendingNext()
+        unavailableIDs.removeAll()
+        attemptedTrackID = ""; attemptedTrackLoads = 0
+        startupTimeout?.cancel(); startupTimeout = nil
         fadeInActive = false; fadeNextAutomatically = false
         guard let selectedIndex = queue.firstIndex(where: { $0.id == selected }) else { return }
         self.offlineAccount = data["account"] as? String ?? ""
@@ -434,6 +518,7 @@ final class NativePlayer {
     }
 
     private func load(position: Double = 0, recovering: Bool = false) {
+        startupTimeout?.cancel(); startupTimeout = nil
         nextAssetWarmup?.cancel(); nextAssetWarmup = nil
         startupUptime = ProcessInfo.processInfo.systemUptime
         readyAfterSeconds = nil; audibleAfterSeconds = nil
@@ -443,6 +528,11 @@ final class NativePlayer {
         stallCheck?.cancel(); stallCheck = nil
         itemGeneration = UUID(); let generation = itemGeneration
         guard let current, let origin else { return }
+        if attemptedTrackID != current.id {
+            attemptedTrackID = current.id
+            attemptedTrackLoads = 0
+        }
+        attemptedTrackLoads += 1
         let saved = OfflineStore.audio(origin: origin, account: current.offlineAccount.isEmpty ? offlineAccount : current.offlineAccount, id: current.id)
         if current.offline && saved == nil {
             itemObservation = nil
@@ -537,11 +627,14 @@ final class NativePlayer {
                 self.stallCheck = check
                 DispatchQueue.main.asyncAfter(deadline: .now() + 6, execute: check)
             }
+        if wantsPlay { monitorStartup(generation: generation) }
         prepareEqualizerPlayback(); fetchArtwork(current, generation: generation); publish()
     }
 
     private func playbackFailed(_ failure: Error?, generation: UUID) {
         guard generation == itemGeneration, !enginePlayback.ready else { return }
+        let failedDuringStartup = waitingForReady || audibleAfterSeconds == nil
+        startupTimeout?.cancel(); startupTimeout = nil
         if !waitingForReady {
             let position = playbackPosition
             if position.isFinite { lastPosition = max(0, position) }
@@ -549,16 +642,19 @@ final class NativePlayer {
         requestedPosition = lastPosition; waitingForReady = false
         player.pause()
         if wantsPlay, current?.offline != true, PlaybackRecovery.isTransient(failure),
+           (!failedDuringStartup || attemptedTrackLoads < 2),
            recovery.schedule({ [weak self] in
                guard let self, self.wantsPlay, self.itemGeneration == generation else { return }
                self.load(position: self.requestedPosition, recovering: true)
            }) {
             error = "Восстанавливаем подключение…"
         } else {
-            recovery.cancel(); wantsPlay = false
+            recovery.cancel()
+            if wantsPlay && skipUnavailable(at: index, whileCurrentPlays: false) { return }
+            wantsPlay = false
             error = current?.offline == true
-                ? "Скачанный аудиофайл не воспроизводится. Открой «Офлайн» и загрузи его повторно."
-                : "Трек недоступен. Проверь подключение и нажми Play."
+                ? "Скачанный аудиофайл не воспроизводится. Доступных следующих треков нет."
+                : "Трек недоступен. Других доступных треков в очереди нет."
         }
         if !wantsPlay { endBackgroundHandoff() }
         publish()
@@ -597,11 +693,13 @@ final class NativePlayer {
         // Queue AVPlayer playback before a zero-position stream is ready.
         // Waiting for status KVO can strand the app after a background transition.
         if !waitingForReady || requestedPosition <= 0 { player.play() }
+        if waitingForReady { monitorStartup(generation: itemGeneration) }
         refreshIndependentMeter()
         refillWave(); publish()
     }
     func pause() {
         cancelPendingNext()
+        startupTimeout?.cancel(); startupTimeout = nil
         endBackgroundHandoff()
         // Snapshot the running clock BEFORE pausing either audio engine.
         // Some output routes report zero render time immediately after pause.
@@ -626,6 +724,9 @@ final class NativePlayer {
     }
     func stop() {
         cancelPendingNext()
+        startupTimeout?.cancel(); startupTimeout = nil
+        unavailableIDs.removeAll()
+        attemptedTrackID = ""; attemptedTrackLoads = 0
         waveActive = false; waveTask?.cancel(); waveTask = nil; waveGeneration = UUID(); waveSeen = []
         nextAssetWarmup?.cancel(); nextAssetWarmup = nil; nextAsset = nil; nextAssetID = nil
         pause(); stallCheck?.cancel(); stallCheck = nil; itemGeneration = UUID(); itemObservation = nil; artworkLoadTask?.cancel()
@@ -728,6 +829,8 @@ final class NativePlayer {
     func step(_ direction: Int) {
         guard !tracks.isEmpty, tracks.indices.contains(index) else { return }
         let now = ProcessInfo.processInfo.systemUptime
+        // User-requested navigation allows a fresh availability pass.
+        if pendingNextIndex == nil { unavailableIDs.removeAll() }
         let repeated = previousRestartTrackID == tracks[index].id && now - previousRestartAt < 3
         let position = playbackPosition
         if direction < 0 && !repeated && position.isFinite && position > 3 {
