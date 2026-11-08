@@ -855,6 +855,23 @@ final class NativePlayer {
         moveUpcomingTrack(from: source, to: index + 1)
     }
 
+    // Manual selection from the artwork deck keeps the existing queue intact.
+    // The previous song keeps playing until the chosen stream is prepared.
+    func playQueueTrackNow(at source: Int) {
+        guard tracks.indices.contains(source) else { return }
+        if source == index {
+            if !wantsPlay { play() }
+            return
+        }
+        cancelPendingNext()
+        unavailableIDs.removeAll()
+        if wantsPlay && !ended {
+            beginPreparedNext(at: source)
+        } else {
+            switchDirectly(to: source)
+        }
+    }
+
     func modes(repeatMode: Int, shuffle: Bool) {
         self.repeatMode = max(0, min(2, repeatMode))
         // Preserve smart mode when playback is restored from an older
