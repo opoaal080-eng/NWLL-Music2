@@ -354,11 +354,35 @@ public final class MainActivity extends Activity {
     void showDepthQueue(){
         int playing=playback==null?-1:playback.player.getCurrentMediaItemIndex();
         android.widget.ScrollView scroll=new android.widget.ScrollView(this);
-        LinearLayout panel=column();panel.setPadding(dp(16),dp(8),dp(16),dp(16));
-        scroll.addView(panel);
-        TextView intro=text("Нажми на обложку, чтобы слушать сейчас. Удерживай, чтобы поставить следующей.",12);
-        intro.setTextColor(0xffaeb2c1);intro.setPadding(0,0,0,dp(12));
-        panel.addView(intro);
+        LinearLayout outer=column();
+        outer.setPadding(dp(14),dp(12),dp(14),dp(12));
+        scroll.addView(outer);
+
+        TextView eyebrow=text("Т В О Я   М У З Ы К А",10);
+        eyebrow.setTextColor(0xffbfc0c8);
+        eyebrow.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
+        outer.addView(eyebrow);
+        LinearLayout heading=row();heading.setGravity(Gravity.CENTER_VERTICAL);
+        TextView headingTitle=text("Очередь",28);
+        headingTitle.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
+        heading.addView(headingTitle,new LinearLayout.LayoutParams(0,dp(70),1));
+        TextView count=text(String.valueOf(queue.length()),16);
+        count.setGravity(Gravity.CENTER);
+        count.setBackground(touchSurface(0x993a3a3f,32));
+        heading.addView(count,new LinearLayout.LayoutParams(dp(58),dp(52)));
+        LinearLayout.LayoutParams headingParams=new LinearLayout.LayoutParams(-1,-2);
+        headingParams.bottomMargin=dp(16);
+        outer.addView(heading,headingParams);
+
+        LinearLayout panel=column();
+        panel.setGravity(Gravity.CENTER_HORIZONTAL);
+        panel.setPadding(dp(14),dp(24),dp(14),dp(24));
+        GradientDrawable panelSurface=new GradientDrawable(
+            GradientDrawable.Orientation.TL_BR,new int[]{0xff303034,0xff1d1d21});
+        panelSurface.setCornerRadius(dp(30));
+        panelSurface.setStroke(dp(1),0x38ffffff);
+        panel.setBackground(panelSurface);
+        outer.addView(panel,new LinearLayout.LayoutParams(-1,-2));
         final AlertDialog[] holder={null};
         final int totalUpcoming=Math.max(0,queue.length()-playing-1);
         // The cursor moves by ONE song per swipe, not by groups of three.
@@ -367,7 +391,7 @@ public final class MainActivity extends Activity {
         final int pageStart=playing+1+depthQueuePage;
         if(totalUpcoming>0){
             android.widget.FrameLayout deck=new android.widget.FrameLayout(this);
-            panel.addView(deck,new LinearLayout.LayoutParams(-1,dp(212)));
+            panel.addView(deck,new LinearLayout.LayoutParams(-1,dp(338)));
             int available=Math.min(3,Math.max(0,queue.length()-pageStart));
             for(int rank=available-1;rank>=0;rank--){
                 final int from=pageStart+rank;
@@ -375,28 +399,45 @@ public final class MainActivity extends Activity {
                 if(track==null)continue;
                 android.widget.FrameLayout card=new android.widget.FrameLayout(this);
                 GradientDrawable plate=new GradientDrawable();
-                plate.setColor(0xff202027);plate.setCornerRadius(dp(20));
+                plate.setColor(0xff131317);plate.setCornerRadius(dp(21));
+                plate.setStroke(dp(1),0x4effffff);
                 card.setBackground(plate);card.setClipToOutline(true);
-                card.setElevation(dp(4+available-rank));
+                card.setElevation(dp(7+available-rank));
                 android.widget.ImageView cover=new android.widget.ImageView(this);
                 cover.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
-                card.addView(cover,new android.widget.FrameLayout.LayoutParams(-1,-1));
-                if(artworkCache!=null)artworkCache.load(cover,origin,track.optString("cover_url"));
-                TextView info=text(track.optString("title")+" · "+track.optString("artist"),13);
-                info.setTextColor(0xffffffff);
-                info.setMaxLines(2);info.setGravity(Gravity.CENTER_VERTICAL);
-                info.setPadding(dp(12),dp(5),dp(12),dp(5));
-                info.setBackground(touchSurface(0xee13131a,14));
-                android.widget.FrameLayout.LayoutParams labelParams=
-                    new android.widget.FrameLayout.LayoutParams(-1,dp(54),Gravity.BOTTOM);
-                card.addView(info,labelParams);
+                android.widget.FrameLayout.LayoutParams artworkParams=
+                    new android.widget.FrameLayout.LayoutParams(-1,dp(220),Gravity.TOP);
+                card.addView(cover,artworkParams);
+                String coverPath=track.optString("cover_url");
+                if(coverPath.isEmpty())coverPath="api/covers/"+track.optString("id");
+                if(artworkCache!=null)artworkCache.load(cover,origin,coverPath);
+
+                LinearLayout infoPanel=column();
+                infoPanel.setGravity(Gravity.CENTER_VERTICAL);
+                infoPanel.setPadding(dp(14),dp(5),dp(14),dp(5));
+                GradientDrawable textSurface=new GradientDrawable(
+                    GradientDrawable.Orientation.TOP_BOTTOM,
+                    new int[]{0xff1b1a1f,0xff0b0b0f});
+                infoPanel.setBackground(textSurface);
+                TextView title=text(track.optString("title"),16);
+                title.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
+                title.setMaxLines(1);
+                title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                TextView artist=text(track.optString("artist"),12);
+                artist.setTextColor(0xffa8a8b1);
+                artist.setMaxLines(1);
+                artist.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                infoPanel.addView(title);
+                infoPanel.addView(artist);
+                card.addView(infoPanel,new android.widget.FrameLayout.LayoutParams(-1,dp(74),Gravity.BOTTOM));
+
                 android.widget.FrameLayout.LayoutParams layout=
-                    new android.widget.FrameLayout.LayoutParams(dp(218),dp(184),Gravity.CENTER);
+                    new android.widget.FrameLayout.LayoutParams(dp(246),dp(294),Gravity.CENTER);
                 deck.addView(card,layout);
-                card.setTranslationX(dp(rank*15));
-                card.setTranslationY(dp(rank*9));
-                card.setScaleX(1-rank*.065f);card.setScaleY(1-rank*.065f);
-                card.setRotationY(rank*-4f);
+                card.setTranslationX(dp(rank*14));
+                card.setTranslationY(dp(rank*12));
+                card.setScaleX(1-rank*.048f);card.setScaleY(1-rank*.048f);
+                card.setRotation(rank*1.3f);
                 card.setOnClickListener(v->{
                     if(holder[0]!=null)holder[0].dismiss();
                     play(track,queue,false);
@@ -459,7 +500,7 @@ public final class MainActivity extends Activity {
             });
             previous.setEnabled(depthQueuePage>0);
             pager.addView(previous,new LinearLayout.LayoutParams(dp(52),dp(48)));
-            TextView counter=text((depthQueuePage+1)+" из "+totalUpcoming,12);
+            TextView counter=text((depthQueuePage+1)+" из "+totalUpcoming,14);
             counter.setGravity(Gravity.CENTER);counter.setTextColor(0xffbfc1ca);
             pager.addView(counter,new LinearLayout.LayoutParams(0,dp(48),1));
             TextView nextPage=action("›",()->{
@@ -476,10 +517,14 @@ public final class MainActivity extends Activity {
             empty.setGravity(Gravity.CENTER);empty.setPadding(0,dp(18),0,dp(18));
             panel.addView(empty);
         }
-        TextView guide=text("Тап: играть сейчас · удержание: следующая · свайп: листать очередь",12);
-        guide.setTextColor(0xffaeb2c1);guide.setGravity(Gravity.CENTER);
-        panel.addView(guide);
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Очередь")
+        TextView guide=text("Тап: играть сейчас · удержание: следующая
+Свайп: листать всю очередь",11);
+        guide.setTextColor(0xffaeb2c1);
+        guide.setGravity(Gravity.CENTER);
+        guide.setMaxLines(3);
+        guide.setPadding(dp(4),dp(14),dp(4),dp(4));
+        panel.addView(guide,new LinearLayout.LayoutParams(-1,-2));
+        AlertDialog dialog=new AlertDialog.Builder(this)
             .setView(scroll).setNegativeButton("Закрыть",null).create();
         holder[0]=dialog;styleSheet(dialog);dialog.show();
     }
