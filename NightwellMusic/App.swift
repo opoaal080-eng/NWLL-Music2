@@ -379,7 +379,7 @@ struct NativeRoot: View {
                             .background(.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 18))
                         }
                         .padding(.horizontal, 20)
-                        .transition(.asymmetric(insertion: .move(edge: .top).combined(with: .opacity), removal: .opacity))
+                        .transition(.move(edge: .top).combined(with: .opacity))
                     }
                     content
                     MiniPlayer(clock: store.clock, open: { fullPlayer = true })
@@ -574,20 +574,6 @@ struct NativeRoot: View {
 
     private var header: some View {
         HStack(spacing: 7) {
-            if store.hasRemotePlayback && compactCollectionTitle != nil {
-                Button {
-                    Task { await store.continuePlaybackHere() }
-                } label: {
-                    Image(systemName: "iphone.and.arrow.forward")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(.white)
-                        .frame(width: 40, height: 42)
-                        .frostedGlass(20, bordered: false, intensity: 0.20)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Продолжить музыку с другого устройства")
-                .accessibilityHint("Перенести воспроизведение на этот iPhone")
-            }
             Button {
                 withAnimation(reducedMotion ? nil : .easeInOut(duration: 0.22)) {
                     store.screen = .home
@@ -614,7 +600,7 @@ struct NativeRoot: View {
             Spacer()
             Button { if store.screen == .search { store.screen = .home } else { store.screen = .search } } label: { Image(systemName: store.screen == .search ? "xmark" : "magnifyingglass").font(.system(size: 19, weight: .medium)).foregroundStyle(.white).frame(width: 44, height: 44).frostedGlass(22, bordered: false, intensity: 0.20) }.accessibilityLabel(store.screen == .search ? "Закрыть поиск" : "Поиск")
             // On Home the full resume banner becomes a small action next to Search
-            // after eight seconds; scrolling collections keep their icon before N.
+            // after eight seconds; scrolling collections hide the banner so the title stays clear.
             if store.hasRemotePlayback && store.screen == .home && remoteHomeCollapsed {
                 Button {
                     Task { await store.continuePlaybackHere() }
