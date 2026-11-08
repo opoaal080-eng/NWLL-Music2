@@ -544,7 +544,7 @@ struct FullPlayer: View {
                         NightwellAnimatedCover(
                             track: clock.current,
                             origin: store.origin,
-                            side: min(box.size.width, box.size.height) * 0.82
+                            side: min(box.size.width + 40, box.size.height * 0.97)
                         )
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .contentShape(Rectangle())

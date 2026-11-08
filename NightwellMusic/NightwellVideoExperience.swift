@@ -30,8 +30,8 @@ struct NightwellAnimatedCover: View {
             .mask {
                 RoundedRectangle(cornerRadius: 24, style: .continuous)
                     .fill(.white)
-                    .padding(19)
-                    .blur(radius: 23)
+                    .padding(8)
+                    .blur(radius: 18)
             }
             .id(track?.id)
             .onAppear { drifting = true }
