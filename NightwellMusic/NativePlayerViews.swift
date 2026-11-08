@@ -10,7 +10,9 @@ struct SeasonBackground: View {
             .ignoresSafeArea().allowsHitTesting(false)
     }
 }
-// The backdrop stays allocated through pause, playback, and buffering.
+// Keep the gradient mounted throughout startup, buffering, pause and resume.
+// Never multiply absolute time by audio energy or the play state: that causes
+// huge phase jumps whenever the audio meter or the transport state changes.
 struct RibbonScene: View {
     @EnvironmentObject private var palette: NightwellArtworkPalette
     let playing: Bool
@@ -30,8 +32,8 @@ struct RibbonScene: View {
                     ? frozenTime : tick.date.timeIntervalSinceReferenceDate
                 let colors = palette.at(ProcessInfo.processInfo.systemUptime)
                 let values = playing ? NativePlayer.shared.auraLevels() : []
-                let level = values.filter { $0.isFinite }.map { min(1, max(0, $0)) }
-                    .reduce(0, +) / Double(max(1, values.count))
+                let valid = values.filter { $0.isFinite }.map { min(1, max(0, $0)) }
+                let level = valid.reduce(0, +) / Double(max(1, valid.count))
                 let gain = sensitivity.isFinite ? min(4, max(0.5, sensitivity)) : 2.5
                 let energy = playing ? min(1, pow(level, 0.43) * gain * 0.65) : 0.0
                 draw(context: context, size: size, colors: colors, time: t, energy: energy)
@@ -51,31 +53,38 @@ struct RibbonScene: View {
                       colors: NightwellArtworkColors, time: Double, energy: Double) {
         let w = Double(size.width), h = Double(size.height), scale = max(w, h)
         let primary = colors.primary.color, secondary = colors.secondary.color
-        // Always fill; pausing must never expose an empty or uncoloured canvas.
+
+        // The dark base is always painted, including the first frame and silence.
         context.fill(Path(CGRect(origin: .zero, size: size)), with: .linearGradient(
             Gradient(colors: [.init(red: 0.047, green: 0.037, blue: 0.055),
                               .init(red: 0.018, green: 0.020, blue: 0.030)]),
             startPoint: .zero, endPoint: CGPoint(x: w, y: h)))
-        let phase = time * (playing ? 0.18 + energy * 0.12 : 0.07)
-        for i in 0..<4 {
-            let k = Double(i)
-            let x = w * (0.18 + 0.19 * k + 0.14 * sin(phase + k * 1.8))
-            let y = h * (0.20 + 0.19 * k + 0.14 * cos(phase * 0.82 + k))
+
+        // Fixed angular velocity prevents audio spikes from teleporting the blobs.
+        // Energy only influences their opacity a little, never their time/position.
+        let phase = time.truncatingRemainder(dividingBy: 100_000) * 0.085
+        for index in 0..<4 {
+            let k = Double(index)
+            let x = w * (0.23 + 0.17 * k + 0.115 * sin(phase + k * 1.8))
+            let y = h * (0.22 + 0.17 * k + 0.115 * cos(phase * 0.76 + k))
             let center = CGPoint(x: x, y: y)
-            let radius = scale * (i == 0 ? 0.72 : 0.60)
-            let c = i.isMultiple(of: 2) ? primary : secondary
-            let opacity = (playing ? 0.37 + energy * 0.13 : 0.34)
+            let radius = scale * (index == 0 ? 0.72 : 0.61)
+            let tint = index.isMultiple(of: 2) ? primary : secondary
+            // Small modulation keeps audio responsiveness without visible flashing.
+            let opacity = 0.30 + energy * 0.035
             context.fill(Path(ellipseIn: CGRect(x: x - radius, y: y - radius,
                                                  width: radius * 2, height: radius * 2)),
                          with: .radialGradient(
-                            Gradient(colors: [c.opacity(opacity), c.opacity(opacity * 0.42),
-                                              c.opacity(opacity * 0.12), .clear]),
+                            Gradient(colors: [tint.opacity(opacity),
+                                              tint.opacity(opacity * 0.42),
+                                              tint.opacity(opacity * 0.11), .clear]),
                             center: center, startRadius: 0, endRadius: radius))
         }
     }
 }
 
-// Radial equalizer behind the Home button, derived from the same decoded audio.
+// Three free-floating, flowing light ribbons. There is no circle, disk or
+// geometric outline beneath them. Motion is phase-continuous across pause.
 struct NightwellBeatHalo: View {
     @EnvironmentObject private var palette: NightwellArtworkPalette
     @Environment(\.scenePhase) private var scene
@@ -89,41 +98,49 @@ struct NightwellBeatHalo: View {
         TimelineView(.animation(minimumInterval: playing ? 1.0 / 30.0 : 1.0 / 15.0,
                                 paused: scene != .active || reduceMotion || (!playing && !animatePaused))) { tick in
             Canvas(opaque: false, rendersAsynchronously: true) { context, size in
+                guard size.width > 1, size.height > 1 else { return }
                 let now = reduceMotion || (!playing && !animatePaused)
                     ? frozenTime : tick.date.timeIntervalSinceReferenceDate
                 let colors = palette.at(ProcessInfo.processInfo.systemUptime)
                 let samples = playing ? NativePlayer.shared.auraLevels() : []
-                let level = samples.filter { $0.isFinite }.map { max(0, min(1, $0)) }
-                    .reduce(0, +) / Double(max(1, samples.count))
-                let strength = playing
-                    ? min(1, pow(level, 0.39) * min(4, max(0.5, sensitivity)) * 0.7)
-                    : (animatePaused ? 0.12 : 0)
-                let mid = CGPoint(x: size.width / 2, y: size.height / 2)
-                let r = Double(min(size.width, size.height)) * 0.30
-                let glow = r * 1.55
-                context.fill(Path(ellipseIn: CGRect(x: mid.x - glow, y: mid.y - glow,
-                                                    width: glow * 2, height: glow * 2)),
-                             with: .radialGradient(
-                                Gradient(colors: [colors.primary.color.opacity(0.17 + strength * 0.11),
-                                                  colors.secondary.color.opacity(0.05), .clear]),
-                                center: mid, startRadius: r * 0.6, endRadius: glow))
-                let phase = now * (playing ? 0.24 : 0.045)
-                for i in 0..<72 {
-                    let angle = Double(i) * .pi / 36 - .pi / 2
-                    let pulse = 0.5 + 0.5 * sin(phase * 5 + angle * 4)
-                    let length = 5 + strength * (10 + pulse * 20)
-                    let inner = r + 2
-                    let outer = min(r * 1.52, inner + length)
-                    var bar = Path()
-                    bar.move(to: CGPoint(x: mid.x + cos(angle) * inner, y: mid.y + sin(angle) * inner))
-                    bar.addLine(to: CGPoint(x: mid.x + cos(angle) * outer, y: mid.y + sin(angle) * outer))
-                    let tint = i.isMultiple(of: 3) ? colors.secondary.color : colors.primary.color
-                    context.stroke(bar, with: .color(tint.opacity(0.52 + strength * 0.38)),
-                                   style: StrokeStyle(lineWidth: 2.1, lineCap: .round))
+                let valid = samples.filter { $0.isFinite }.map { min(1, max(0, $0)) }
+                let level = valid.reduce(0, +) / Double(max(1, valid.count))
+                let gain = sensitivity.isFinite ? min(4, max(0.5, sensitivity)) : 2.5
+                let strength = playing ? min(1, pow(level, 0.40) * gain * 0.68) : 0
+                let center = CGPoint(x: size.width / 2, y: size.height / 2)
+                let radius = Double(min(size.width, size.height)) * 0.34
+                // The same clock is used while playing and paused. No jump on resume.
+                let phase = now.truncatingRemainder(dividingBy: 100_000) * 0.23
+                let start = CGPoint(x: center.x - radius, y: center.y - radius)
+                let finish = CGPoint(x: center.x + radius, y: center.y + radius)
+
+                for ribbon in 0..<3 {
+                    let offset = Double(ribbon) * 2.0 * .pi / 3.0
+                    var path = Path()
+                    for step in 0...180 {
+                        let angle = Double(step) * 2.0 * .pi / 180.0
+                        let wave = 0.060 * sin(3.0 * angle + phase + offset)
+                            + 0.035 * cos(5.0 * angle - phase * 0.61 + offset * 1.4)
+                        // Very small audio-controlled displacement avoids strobing.
+                        let audioRipple = 2.8 * strength * sin(angle * 7.0 + offset + phase * 0.42)
+                        let distance = radius * (1.0 + wave) + audioRipple
+                        let point = CGPoint(x: center.x + cos(angle) * distance,
+                                            y: center.y + sin(angle) * distance)
+                        if step == 0 { path.move(to: point) } else { path.addLine(to: point) }
+                    }
+                    path.closeSubpath()
+                    let first = ribbon == 1 ? colors.secondary.color : colors.primary.color
+                    let second = ribbon == 1 ? colors.primary.color : colors.secondary.color
+                    context.stroke(path, with: .color(first.opacity(0.10)),
+                                   style: StrokeStyle(lineWidth: 15, lineCap: .round, lineJoin: .round))
+                    context.stroke(path, with: .linearGradient(
+                        Gradient(colors: [first.opacity(0.38), second.opacity(0.82),
+                                          first.opacity(0.65)]),
+                        startPoint: start, endPoint: finish),
+                        style: StrokeStyle(lineWidth: 3.3, lineCap: .round, lineJoin: .round))
+                    context.stroke(path, with: .color(.white.opacity(0.19)),
+                                   style: StrokeStyle(lineWidth: 0.8, lineCap: .round, lineJoin: .round))
                 }
-                context.stroke(Path(ellipseIn: CGRect(x: mid.x - r, y: mid.y - r,
-                                                      width: r * 2, height: r * 2)),
-                               with: .color(colors.primary.color.opacity(0.55)), lineWidth: 1)
             }
         }
         .onChange(of: playing) { value in
@@ -201,8 +218,8 @@ struct NativeHome: View {
                             .font(.system(size: 31, weight: .light))
                             .foregroundStyle(Color.white)
                             .frame(width: 88, height: 88)
-                            .nightwellLiquidGlass(44)
-                            .shadow(color: Color.white.opacity(0.28), radius: 24)
+                            .contentShape(Circle())
+                            .shadow(color: Color.white.opacity(0.18), radius: 12)
                     }
                     .accessibilityLabel(clock.playing ? "Пауза" : "Воспроизвести")
                     .buttonStyle(.plain)
