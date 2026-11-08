@@ -615,10 +615,22 @@ struct NativeRoot: View {
     }
     private var favoriteTracks: [Track] {
         let entries = store.catalog.filter { store.likes.contains($0.id) }
-        guard favoritePremium.allowed else { return entries }
-        if favoriteSort == "title" { return entries.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending } }
-        if favoriteSort == "artist" { return entries.sorted { $0.artist.localizedStandardCompare($1.artist) == .orderedAscending } }
-        return entries
+        if favoriteSort == "title" && favoritePremium.allowed {
+            return entries.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+        }
+        if favoriteSort == "artist" && favoritePremium.allowed {
+            return entries.sorted { $0.artist.localizedStandardCompare($1.artist) == .orderedAscending }
+        }
+        // The catalogue order is unrelated to the time a song was liked.
+        // The saved per-account favorite order is newest first.
+        let ranks = Dictionary(uniqueKeysWithValues:
+            store.favoriteOrder.enumerated().map { ($0.element, $0.offset) })
+        return entries.sorted { left, right in
+            let a = ranks[left.id] ?? Int.max
+            let b = ranks[right.id] ?? Int.max
+            if a != b { return a < b }
+            return left.title.localizedStandardCompare(right.title) == .orderedAscending
+        }
     }
     @ViewBuilder private var content: some View {
         switch store.screen {
@@ -836,32 +848,48 @@ struct NativeTrackRow: View {
     @State private var selectedArtist: ArtistSelection?
     @State private var showArtistChoices = false
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 0) {
+            // One large hit target so tapping the thumbnail, title, artist,
+            // playback indicator, or empty area starts the song.
             Button { store.play(track, in: queue) } label: {
-                Cover(track: track, origin: store.origin)
-                    .frame(width: 46, height: 46)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-            }.buttonStyle(.plain)
-            VStack(alignment: .leading, spacing: 5) {
-                Button { store.play(track, in: queue) } label: {
-                    Text(track.title).font(.subheadline.weight(.semibold))
-                        .lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
-                }.buttonStyle(.plain)
-                Button {
-                    let artists = ArtistNames.split(track.artist)
-                    if artists.count > 1 { showArtistChoices = true }
-                    else if let name = artists.first { selectedArtist = ArtistSelection(name: name) }
-                } label: {
-                    Text(track.artist).font(.caption).foregroundStyle(.secondary)
-                        .lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: 12) {
+                    Cover(track: track, origin: store.origin)
+                        .frame(width: 46, height: 46)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(track.title).font(.subheadline.weight(.semibold))
+                            .lineLimit(2)
+                        Text(track.artist).font(.caption).foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    if status.id == track.id {
+                        PlayingIndicator(playing: status.playing)
+                            .frame(width: 20, height: 20)
+                    }
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Открыть исполнителя")
-                .disabled(!ArtistAttribution.isKnown(track.artist))
+                .frame(maxWidth: .infinity, minHeight: 54, alignment: .leading)
+                .padding(.leading, 12)
+                .padding(.vertical, 9)
+                .contentShape(Rectangle())
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            if status.id == track.id { PlayingIndicator(playing: status.playing).frame(width: 20, height: 20) }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Воспроизвести " + track.title)
             Menu {
+                if ArtistAttribution.isKnown(track.artist) {
+                    let names = ArtistNames.split(track.artist)
+                    if names.count == 1, let name = names.first {
+                        Button("Открыть исполнителя", systemImage: "person.crop.circle") {
+                            selectedArtist = ArtistSelection(name: name)
+                        }
+                    } else if names.count > 1 {
+                        Menu("Исполнители") {
+                            ForEach(names, id: \.self) { name in
+                                Button(name) { selectedArtist = ArtistSelection(name: name) }
+                            }
+                        }
+                    }
+                }
                 Button(store.likes.contains(track.id) ? "Убрать из избранного" : "В избранное", systemImage: store.likes.contains(track.id) ? "heart.fill" : "heart") { Task { await store.like(track) } }
                 if store.isDownloaded(track) {
                     Button("Удалить загрузку", systemImage: "trash", role: .destructive) { Task { await store.removeDownload(track) } }
@@ -881,8 +909,16 @@ struct NativeTrackRow: View {
                 }
                 Menu("Добавить в плейлист") { ForEach(store.playlists) { p in Button(p.name) { Task { await store.add(track, playlist: p) } } } }
                 if let playlist { Button("Убрать из плейлиста", role: .destructive) { Task { await store.add(track, playlist: playlist, remove: true) } } }
-            } label: { Image(systemName: "ellipsis").frame(width: 34, height: 44) }
-        }.padding(12).background(status.id == track.id ? pumpkin.opacity(0.12) : .white.opacity(0.035), in: RoundedRectangle(cornerRadius: 18))
+            } label: {
+                Image(systemName: "ellipsis")
+                    .frame(width: 44, height: 70)
+                    .contentShape(Rectangle())
+            }
+            .padding(.trailing, 5)
+            .accessibilityLabel("Действия с треком " + track.title)
+        }
+        .background(status.id == track.id ? pumpkin.opacity(0.12) : .white.opacity(0.035),
+                    in: RoundedRectangle(cornerRadius: 18))
         .confirmationDialog("Выбери исполнителя", isPresented: $showArtistChoices, titleVisibility: .visible) {
             ForEach(ArtistNames.split(track.artist), id: \.self) { name in
                 Button(name) { selectedArtist = ArtistSelection(name: name) }
