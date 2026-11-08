@@ -88,6 +88,7 @@ private struct AudioQualityDecision: Decodable {
     @Published private(set) var damagedOffline: [Track] = []
     @Published var playlists: [Playlist] = []
     @Published var likes: Set<String> = []
+    @Published private(set) var favoriteOrder: [String] = []
     @Published var account: Account?
     @Published var profileNickname = ""
     @Published var profileAvatar: UIImage?
@@ -300,6 +301,40 @@ private struct AudioQualityDecision: Decodable {
         objectWillChange.send()
         UserDefaults.standard.set(Array(ids.suffix(300)), forKey: key)
     }
+    private var favoriteOrderKey: String? {
+        guard let id = account?.id else { return nil }
+        return "nw-favorites-order-v1|" + origin.absoluteString + "|" + id
+    }
+
+    private func saveFavoriteOrder() {
+        guard let key = favoriteOrderKey else { return }
+        UserDefaults.standard.set(favoriteOrder, forKey: key)
+    }
+
+    // Keep the user's explicit add chronology across app restarts.
+    // Older servers return only IDs rather than liked_at timestamps, so
+    // unobserved favorites fall back to the API's original ID sequence.
+    private func reconcileFavoriteOrder(_ serverIDs: [String], newestID: String? = nil) {
+        let valid = Set(serverIDs)
+        let saved = favoriteOrderKey.flatMap {
+            UserDefaults.standard.stringArray(forKey: $0)
+        } ?? []
+        var seen = Set<String>()
+        let previous = (saved + favoriteOrder).filter {
+            valid.contains($0) && seen.insert($0).inserted
+        }
+        let unseen = serverIDs.reversed().filter {
+            valid.contains($0) && seen.insert($0).inserted
+        }
+        var result = unseen + previous
+        if let newestID, valid.contains(newestID) {
+            result.removeAll { $0 == newestID }
+            result.insert(newestID, at: 0)
+        }
+        favoriteOrder = result
+        saveFavoriteOrder()
+    }
+
     private struct SessionSnapshot: Codable {
         let savedAt: Date
         let tracks: [Track]
@@ -324,6 +359,7 @@ private struct AudioQualityDecision: Decodable {
         }
         catalog = cache.tracks
         likes = Set(cache.likes)
+        reconcileFavoriteOrder(cache.likes)
         playlists = cache.playlists
         lastWave = cache.wave
     }
@@ -334,7 +370,8 @@ private struct AudioQualityDecision: Decodable {
             do { try await Task.sleep(nanoseconds: 250_000_000) } catch { return }
             guard let self, let key = self.sessionCacheKey else { return }
             let snapshot = SessionSnapshot(savedAt: Date(), tracks: Array(self.catalog.prefix(1500)),
-                                           likes: Array(self.likes), playlists: self.playlists,
+                                           likes: self.favoriteOrder.isEmpty ? Array(self.likes) : self.favoriteOrder,
+                                           playlists: self.playlists,
                                            wave: Array(self.lastWave.prefix(90)))
             let data = await Task.detached(priority: .utility) { try? JSONEncoder().encode(snapshot) }.value
             guard !Task.isCancelled, self.sessionCacheKey == key,
@@ -500,7 +537,7 @@ private struct AudioQualityDecision: Decodable {
             guard generation == sessionGeneration, !Task.isCancelled else { return }
             if account?.id != identity.user?.id {
                 libraryRefresh.cancel()
-                catalog = []; likes = []; playlists = []; lastWave = []; results = []
+                catalog = []; likes = []; favoriteOrder = []; playlists = []; lastWave = []; results = []
                 searchTask?.cancel(); artistSearchTask?.cancel(); searchGeneration = UUID(); searchCache.removeAll(); artistResults = []; artistSearchCache.removeAll()
                 NativePlayer.shared.stop()
             }
@@ -715,6 +752,7 @@ private struct AudioQualityDecision: Decodable {
                     let value: LikeResult = try await client.request("/api/likes", timeout: 10)
                     guard current() else { return }
                     self.likes = Set(value.ids)
+                    self.reconcileFavoriteOrder(value.ids)
                     self.syncFavoriteDownloadsIfEnabled()
                     successes += 1
                     self.connectionStatus = "Онлайн"
@@ -752,7 +790,7 @@ private struct AudioQualityDecision: Decodable {
         connectionCheckGeneration = UUID()
         if account?.id != user.id {
             NativePlayer.shared.stop()
-            catalog = []; likes = []; playlists = []; lastWave = []; results = []
+            catalog = []; likes = []; favoriteOrder = []; playlists = []; lastWave = []; results = []
             searchTask?.cancel(); artistSearchTask?.cancel(); searchGeneration = UUID(); searchCache = [:]; artistResults = []; artistSearchCache = [:]
         }
         account = user
@@ -817,7 +855,7 @@ private struct AudioQualityDecision: Decodable {
             sessionGeneration = UUID(); starting = false; snapshotSaveTask?.cancel(); libraryRefresh.cancel()
             connectionCheck?.cancel(); connectionCheck = nil; connectionCheckGeneration = UUID(); sessionReady = false
             stopLiveSync()
-            account = nil; profileNickname = ""; profileAvatar = nil; restoreAutoFavoritesSetting(); mixRecentIDs = []; cacheAccount(); catalog = []; results = []; likes = []; playlists = []; lastWave = []; query = ""; await api.setCSRF(nil)
+            account = nil; profileNickname = ""; profileAvatar = nil; restoreAutoFavoritesSetting(); mixRecentIDs = []; cacheAccount(); catalog = []; results = []; likes = []; favoriteOrder = []; playlists = []; lastWave = []; query = ""; await api.setCSRF(nil)
         } catch { self.error = error.localizedDescription }
     }
     private func refreshSearchArtists(for text: String, generation: UUID) {
@@ -1116,8 +1154,17 @@ private struct AudioQualityDecision: Decodable {
         defer { likesInFlight.remove(track.id) }
         let owner = account?.id
         let desired = !likes.contains(track.id)
-        if desired { likes.insert(track.id); likeFlash += 1 }
-        else { likes.remove(track.id) }
+        let beforeOrder = favoriteOrder
+        if desired {
+            likes.insert(track.id)
+            favoriteOrder.removeAll { $0 == track.id }
+            favoriteOrder.insert(track.id, at: 0)
+            likeFlash += 1
+        } else {
+            likes.remove(track.id)
+            favoriteOrder.removeAll { $0 == track.id }
+        }
+        saveFavoriteOrder()
         var failure: Error?
         do {
             // The HTTP operation may succeed even if its body is empty or uses an
@@ -1133,6 +1180,8 @@ private struct AudioQualityDecision: Decodable {
             let response: LikeResult = try await api.request("/api/likes")
             guard account?.id == owner else { return }
             likes = Set(response.ids)
+            reconcileFavoriteOrder(response.ids,
+                                   newestID: desired && likes.contains(track.id) ? track.id : nil)
             saveSessionSnapshot()
             if likes.contains(track.id) == desired {
                 if desired { syncFavoriteDownloadsIfEnabled(newest: track) }
@@ -1143,6 +1192,8 @@ private struct AudioQualityDecision: Decodable {
             guard account?.id == owner else { return }
             // Without confirmation we must not claim the request succeeded.
             if desired { likes.remove(track.id) } else { likes.insert(track.id) }
+            favoriteOrder = beforeOrder
+            saveFavoriteOrder()
             self.error = "Не удалось проверить избранное. Проверьте подключение и повторите."
         }
     }
