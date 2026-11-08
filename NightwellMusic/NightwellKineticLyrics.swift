@@ -23,31 +23,31 @@ struct NightwellKineticLyricLine: View {
         return min(words.count - 1, Int(progress * Double(words.count)))
     }
 
+    // Every glyph retains identical font metrics regardless of the active word.
+    // Only paint properties are updated, so line wrapping never jumps in sync.
     private var lineText: Text {
-        guard enabled, active, highlightedWord >= 0 else {
-            return Text(text).foregroundColor(active ? .white : .white.opacity(0.40))
-        }
-        return words.enumerated().reduce(Text("")) { result, entry in
+        words.enumerated().reduce(Text("")) { result, entry in
             let word = entry.element + (entry.offset == words.count - 1 ? "" : " ")
-            let hasPassed = entry.offset <= highlightedWord
-            let isCurrent = entry.offset == highlightedWord
+            let hasPassed = active && enabled && entry.offset <= highlightedWord
+            let opacity = active
+                ? (enabled ? (hasPassed ? 1.0 : 0.55) : 1.0)
+                : 0.40
             return result + Text(word)
-                .foregroundColor(hasPassed ? .white : .white.opacity(0.43))
-                .font(.system(size: isCurrent ? (chorus ? 35 : 33) : 30,
-                              weight: isCurrent ? .heavy : .bold, design: .rounded))
+                .foregroundColor(.white.opacity(opacity))
         }
     }
 
     var body: some View {
         lineText
-            .font(.system(size: active ? 31 : 26, weight: .bold, design: .rounded))
+            .font(.system(size: 28, weight: .bold, design: .rounded))
             .multilineTextAlignment(.center)
             .lineSpacing(4)
-            .scaleEffect(enabled && active ? (chorus ? 1.045 : 1.025) : 1)
-            .shadow(color: enabled && active ? .white.opacity(chorus ? 0.36 : 0.22) : .clear,
-                    radius: enabled && active ? (chorus ? 16 : 10) : 0)
-            .animation(.easeInOut(duration: 0.30), value: active)
-            .animation(.easeInOut(duration: 0.22), value: highlightedWord)
+            .shadow(
+                color: active && enabled ? .white.opacity(chorus ? 0.29 : 0.19) : .clear,
+                radius: active && enabled ? (chorus ? 12 : 8) : 0
+            )
+            .animation(.easeInOut(duration: 0.2), value: active)
+            .animation(.easeInOut(duration: 0.18), value: highlightedWord)
             .accessibilityLabel(text)
     }
 }
