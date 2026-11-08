@@ -517,8 +517,7 @@ public final class MainActivity extends Activity {
             empty.setGravity(Gravity.CENTER);empty.setPadding(0,dp(18),0,dp(18));
             panel.addView(empty);
         }
-        TextView guide=text("Тап: играть сейчас · удержание: следующая
-Свайп: листать всю очередь",11);
+        TextView guide=text("Тап: играть сейчас · удержание: следующая\nСвайп: листать всю очередь",11);
         guide.setTextColor(0xffaeb2c1);
         guide.setGravity(Gravity.CENTER);
         guide.setMaxLines(3);
