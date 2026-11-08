@@ -10,121 +10,130 @@ struct SeasonBackground: View {
             .ignoresSafeArea().allowsHitTesting(false)
     }
 }
-// Ambient Flow keeps the existing scene interface and audio source.
+// The backdrop stays allocated through pause, playback, and buffering.
 struct RibbonScene: View {
-    @ObservedObject private var premium = PremiumFeatureState.shared
+    @EnvironmentObject private var palette: NightwellArtworkPalette
     let playing: Bool
     let flash: Int
     @Environment(\.scenePhase) private var scene
-    @Environment(\.accessibilityReduceMotion) private var reduced
-    @AppStorage("nw-ambient-animate-when-paused") private var animateWhilePaused = true
-    @AppStorage("nw-ambient-audio-sensitivity") private var audioSensitivity = 2.5
-    @State private var bands = [Double](repeating: 0, count: 4)
-    @State private var flowTime = 0.0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage("nw-ambient-animate-when-paused") private var animatePaused = true
+    @AppStorage("nw-ambient-audio-sensitivity") private var sensitivity = 2.5
+    @State private var frozenTime = Date().timeIntervalSinceReferenceDate
 
     var body: some View {
-        Canvas(opaque: false, rendersAsynchronously: true) { context, size in
-            draw(context: context, size: size)
-        }
-        .task(id: scene == .active && !reduced ? (playing ? 1 : (animateWhilePaused ? 2 : 0)) : 0) { @MainActor in
-            guard scene == .active, !reduced, (playing || animateWhilePaused) else { return }
-            var adaptive = [Double](repeating: 0.07, count: 4)
-            var previous = ProcessInfo.processInfo.systemUptime
-            while !Task.isCancelled {
-                let now = ProcessInfo.processInfo.systemUptime
-                let dt = min(0.12, max(0.001, now - previous))
-                previous = now
-                let preferences = premium.preferences
-                let input = playing ? NativePlayer.shared.auraLevels() : []
-                let enabled = premium.allowed
-                    ? [preferences.aura_voice, preferences.aura_low, preferences.aura_mid, preferences.aura_high]
-                    : [true, true, true, true]
-                let rawIntensity = premium.allowed ? preferences.ribbon_intensity : 1.0
-                let intensity = rawIntensity.isFinite ? min(3, max(0, rawIntensity)) : 1.0
-                let rawSpeed = premium.allowed ? preferences.ribbon_speed : 1.0
-                let speed = rawSpeed.isFinite ? min(3, max(0.2, rawSpeed)) : 1.0
-                let sensitivity = audioSensitivity.isFinite
-                    ? min(4, max(0.5, audioSensitivity)) : 2.5
-                var next = bands
-                for index in 0..<4 {
-                    let raw = index < input.count && input[index].isFinite
-                        ? min(1.0, max(0.0, input[index])) : 0.0
-                    // A compression curve reveals very small sound variations,
-                    // without fabricating an audible signal during silence.
-                    let detected = raw > 0.00002 ? pow(raw, 0.55) : 0.0
-                    adaptive[index] += (detected - adaptive[index]) *
-                        (1 - exp(-dt / 0.34))
-                    let normalized = detected / max(0.018, adaptive[index] * 1.35)
-                    let target = playing && enabled[index]
-                        ? min(1.0, normalized * sensitivity * intensity * 0.33) : 0.0
-                    let reaction = target > bands[index] ? 0.045 : 0.28
-                    next[index] += (target - next[index]) *
-                        (1 - exp(-dt / reaction))
-                    if !enabled[index] || intensity == 0 { next[index] = 0 }
-                }
-                let energy = next.reduce(0, +) / 4
-                var transaction = Transaction()
-                transaction.disablesAnimations = true
-                withTransaction(transaction) {
-                    bands = next
-                    flowTime += dt * speed * (playing ? 0.21 + energy * 0.54 : 0.07)
-                }
-                // Paused mode saves power but still has smooth flowing colors.
-                do { try await Task.sleep(nanoseconds: playing ? 33_000_000 : 83_000_000) }
-                catch { return }
+        TimelineView(.animation(minimumInterval: playing ? 1.0 / 24.0 : 1.0 / 15.0,
+                                paused: scene != .active || reduceMotion || (!playing && !animatePaused))) { tick in
+            Canvas(opaque: false, rendersAsynchronously: true) { context, size in
+                guard size.width > 1, size.height > 1 else { return }
+                let t = reduceMotion || (!playing && !animatePaused)
+                    ? frozenTime : tick.date.timeIntervalSinceReferenceDate
+                let colors = palette.at(ProcessInfo.processInfo.systemUptime)
+                let values = playing ? NativePlayer.shared.auraLevels() : []
+                let level = values.filter { $0.isFinite }.map { min(1, max(0, $0)) }
+                    .reduce(0, +) / Double(max(1, values.count))
+                let gain = sensitivity.isFinite ? min(4, max(0.5, sensitivity)) : 2.5
+                let energy = playing ? min(1, pow(level, 0.43) * gain * 0.65) : 0.0
+                draw(context: context, size: size, colors: colors, time: t, energy: energy)
             }
+        }
+        .onChange(of: playing) { value in
+            if !value { frozenTime = Date().timeIntervalSinceReferenceDate }
+        }
+        .onChange(of: animatePaused) { value in
+            if !value { frozenTime = Date().timeIntervalSinceReferenceDate }
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
 
-    private func draw(context: GraphicsContext, size: CGSize) {
-        guard scene == .active, size.width > 1, size.height > 1 else { return }
-        guard playing || animateWhilePaused else { return }
-        let width = Double(size.width)
-        let height = Double(size.height)
-        let scale = max(width, height)
-        let energy = bands.reduce(0, +) / 4
-        let phase = reduced ? 0 : flowTime
+    private func draw(context: GraphicsContext, size: CGSize,
+                      colors: NightwellArtworkColors, time: Double, energy: Double) {
+        let w = Double(size.width), h = Double(size.height), scale = max(w, h)
+        let primary = colors.primary.color, secondary = colors.secondary.color
+        // Always fill; pausing must never expose an empty or uncoloured canvas.
+        context.fill(Path(CGRect(origin: .zero, size: size)), with: .linearGradient(
+            Gradient(colors: [.init(red: 0.047, green: 0.037, blue: 0.055),
+                              .init(red: 0.018, green: 0.020, blue: 0.030)]),
+            startPoint: .zero, endPoint: CGPoint(x: w, y: h)))
+        let phase = time * (playing ? 0.18 + energy * 0.12 : 0.07)
+        for i in 0..<4 {
+            let k = Double(i)
+            let x = w * (0.18 + 0.19 * k + 0.14 * sin(phase + k * 1.8))
+            let y = h * (0.20 + 0.19 * k + 0.14 * cos(phase * 0.82 + k))
+            let center = CGPoint(x: x, y: y)
+            let radius = scale * (i == 0 ? 0.72 : 0.60)
+            let c = i.isMultiple(of: 2) ? primary : secondary
+            let opacity = (playing ? 0.37 + energy * 0.13 : 0.34)
+            context.fill(Path(ellipseIn: CGRect(x: x - radius, y: y - radius,
+                                                 width: radius * 2, height: radius * 2)),
+                         with: .radialGradient(
+                            Gradient(colors: [c.opacity(opacity), c.opacity(opacity * 0.42),
+                                              c.opacity(opacity * 0.12), .clear]),
+                            center: center, startRadius: 0, endRadius: radius))
+        }
+    }
+}
 
-        let shades = [
-            Color(red: 0.50, green: 0.34, blue: 0.85),
-            Color(red: 0.26, green: 0.53, blue: 0.81),
-            Color(red: 0.59, green: 0.39, blue: 0.72),
-            Color(red: 0.31, green: 0.63, blue: 0.72)
-        ]
-        // Wide feathered glows overlap continuously; no distinct color ribbons.
-        for index in 0..<4 {
-            let level = playing ? bands[index] : 0.21
-            guard level > 0.003 else { continue }
-            let seed = Double(index)
-            let t = phase * (0.49 + seed * 0.07) + seed * 1.6
-            let center = CGPoint(
-                x: width * (0.15 + seed * 0.22 + sin(t) * 0.095),
-                y: height * (0.19 + seed * 0.19 + cos(t * 0.72) * 0.09)
-            )
-            let radius = scale * (0.67 + level * 0.13)
-            let bounds = CGRect(x: center.x - radius, y: center.y - radius,
-                                width: radius * 2, height: radius * 2)
-            let opacity = playing ? 0.040 + level * 0.23 : 0.11
-            context.fill(Path(ellipseIn: bounds), with: .radialGradient(
-                Gradient(colors: [
-                    shades[index].opacity(opacity),
-                    shades[index].opacity(opacity * 0.42),
-                    .clear
-                ]), center: center, startRadius: 0, endRadius: radius))
+// Radial equalizer behind the Home button, derived from the same decoded audio.
+struct NightwellBeatHalo: View {
+    @EnvironmentObject private var palette: NightwellArtworkPalette
+    @Environment(\.scenePhase) private var scene
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage("nw-ambient-animate-when-paused") private var animatePaused = true
+    @AppStorage("nw-ambient-audio-sensitivity") private var sensitivity = 2.5
+    let playing: Bool
+    @State private var frozenTime = Date().timeIntervalSinceReferenceDate
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: playing ? 1.0 / 30.0 : 1.0 / 15.0,
+                                paused: scene != .active || reduceMotion || (!playing && !animatePaused))) { tick in
+            Canvas(opaque: false, rendersAsynchronously: true) { context, size in
+                let now = reduceMotion || (!playing && !animatePaused)
+                    ? frozenTime : tick.date.timeIntervalSinceReferenceDate
+                let colors = palette.at(ProcessInfo.processInfo.systemUptime)
+                let samples = playing ? NativePlayer.shared.auraLevels() : []
+                let level = samples.filter { $0.isFinite }.map { max(0, min(1, $0)) }
+                    .reduce(0, +) / Double(max(1, samples.count))
+                let strength = playing
+                    ? min(1, pow(level, 0.39) * min(4, max(0.5, sensitivity)) * 0.7)
+                    : (animatePaused ? 0.12 : 0)
+                let mid = CGPoint(x: size.width / 2, y: size.height / 2)
+                let r = Double(min(size.width, size.height)) * 0.30
+                let glow = r * 1.55
+                context.fill(Path(ellipseIn: CGRect(x: mid.x - glow, y: mid.y - glow,
+                                                    width: glow * 2, height: glow * 2)),
+                             with: .radialGradient(
+                                Gradient(colors: [colors.primary.color.opacity(0.17 + strength * 0.11),
+                                                  colors.secondary.color.opacity(0.05), .clear]),
+                                center: mid, startRadius: r * 0.6, endRadius: glow))
+                let phase = now * (playing ? 0.24 : 0.045)
+                for i in 0..<72 {
+                    let angle = Double(i) * .pi / 36 - .pi / 2
+                    let pulse = 0.5 + 0.5 * sin(phase * 5 + angle * 4)
+                    let length = 5 + strength * (10 + pulse * 20)
+                    let inner = r + 2
+                    let outer = min(r * 1.52, inner + length)
+                    var bar = Path()
+                    bar.move(to: CGPoint(x: mid.x + cos(angle) * inner, y: mid.y + sin(angle) * inner))
+                    bar.addLine(to: CGPoint(x: mid.x + cos(angle) * outer, y: mid.y + sin(angle) * outer))
+                    let tint = i.isMultiple(of: 3) ? colors.secondary.color : colors.primary.color
+                    context.stroke(bar, with: .color(tint.opacity(0.52 + strength * 0.38)),
+                                   style: StrokeStyle(lineWidth: 2.1, lineCap: .round))
+                }
+                context.stroke(Path(ellipseIn: CGRect(x: mid.x - r, y: mid.y - r,
+                                                      width: r * 2, height: r * 2)),
+                               with: .color(colors.primary.color.opacity(0.55)), lineWidth: 1)
+            }
         }
-        if playing && energy > 0.01 {
-            let center = CGPoint(
-                x: width * (0.5 + sin(phase * 0.36) * 0.26),
-                y: height * (0.45 + cos(phase * 0.46) * 0.10))
-            let radius = scale * 0.65
-            context.fill(Path(ellipseIn: CGRect(
-                x: center.x-radius, y: center.y-radius,
-                width: 2*radius, height: 2*radius)), with: .radialGradient(
-                Gradient(colors: [.white.opacity(energy * 0.045), .clear]),
-                center: center, startRadius: 0, endRadius: radius))
+        .onChange(of: playing) { value in
+            if !value { frozenTime = Date().timeIntervalSinceReferenceDate }
         }
+        .onChange(of: animatePaused) { value in
+            if !value { frozenTime = Date().timeIntervalSinceReferenceDate }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 
@@ -197,6 +206,11 @@ struct NativeHome: View {
                     }
                     .accessibilityLabel(clock.playing ? "Пауза" : "Воспроизвести")
                     .buttonStyle(.plain)
+                    .background {
+                        NightwellBeatHalo(playing: clock.playing)
+                            .frame(width: 230, height: 230)
+                            .allowsHitTesting(false)
+                    }
 
                     HStack(spacing: 10) {
                         Button { if Date() >= suppressMixTapUntil { Task { await store.wave() } } } label: {
