@@ -842,87 +842,146 @@ struct PlaybackQueue: View {
     @AppStorage("nw-depth-queue") private var depthQueue = false
 
     private var currentIndex: Int { clock.queue.firstIndex { $0.id == clock.id } ?? -1 }
+
     var body: some View {
         ZStack {
-            LinearGradient(colors: [Color(white: 0.10), Color(white: 0.035), .black],
-                           startPoint: .topLeading, endPoint: .bottomTrailing)
-                .ignoresSafeArea()
-            Color.black.opacity(0.16).ignoresSafeArea()
-            VStack(spacing: 20) {
-                HStack(alignment: .center) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("ТВОЯ МУЗЫКА").font(.system(size: 9, weight: .semibold)).tracking(3).foregroundStyle(Color.white)
-                        Text("Очередь").font(.system(size: 23, weight: .bold))
+            LinearGradient(
+                colors: [Color(white: 0.065), .black, Color(white: 0.025)],
+                startPoint: .topLeading, endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
+
+            VStack(spacing: 22) {
+                HStack(alignment: .center, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("ТВОЯ МУЗЫКА")
+                            .font(.system(size: 10, weight: .semibold))
+                            .tracking(3.2)
+                            .foregroundStyle(Color.white.opacity(0.78))
+                        Text("Очередь")
+                            .font(.system(size: 32, weight: .bold))
+                            .tracking(-0.7)
+                            .foregroundStyle(.white)
                     }
-                    Spacer()
-                    Text("\(clock.queue.count)").font(.subheadline.monospacedDigit())
-                        .padding(10).nightwellLiquidGlass(20)
+                    Spacer(minLength: 8)
+                    Text("\(clock.queue.count)")
+                        .font(.system(size: 17, weight: .medium))
+                        .monospacedDigit()
+                        .frame(width: 54, height: 54)
+                        .background(.ultraThinMaterial, in: Circle())
+                        .overlay(Circle().strokeBorder(.white.opacity(0.16)))
+                        .accessibilityLabel("В очереди \(clock.queue.count) треков")
                     Button { dismiss() } label: {
-                        Image(systemName: "xmark").frame(width: 42, height: 42).nightwellLiquidGlass(24)
-                    }.accessibilityLabel("Закрыть очередь")
-                }
-                ScrollViewReader { reader in
-                    ScrollView {
-                        VStack(spacing: 12) {
-                            if depthQueue && currentIndex + 1 < clock.queue.count {
-                                NightwellQueueDeck(
-                                    queue: clock.queue,
-                                    currentIndex: currentIndex,
-                                    origin: store.origin
-                                )
-                                .frame(maxWidth: .infinity)
-                                .padding(.bottom, 6)
-                            }
-                        if !depthQueue {
-                        LazyVStack(spacing: 8) {
-                            if clock.queue.isEmpty {
-                                Text("Выбери трек — здесь появится твоя музыка")
-                                    .foregroundStyle(.secondary).padding(.vertical, 40)
-                            }
-                            ForEach(Array(clock.queue.enumerated()), id: \.offset) { index, track in
-                                VStack(alignment: .leading, spacing: 8) {
-                                    if index == currentIndex {
-                                        Text("СЕЙЧАС ИГРАЕТ").font(.system(size: 9, weight: .semibold))
-                                            .tracking(2).foregroundStyle(Color.white).padding(.horizontal, 12)
-                                    } else if index == currentIndex + 1 {
-                                        Text("ДАЛЬШЕ").font(.system(size: 9, weight: .semibold))
-                                            .tracking(2).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.top, 8)
-                                    }
-                                    HStack(spacing: 8) {
-                                        NativeTrackRow(track: track, queue: clock.queue, status: clock.status, playlist: nil)
-                                        if index > currentIndex + 1 && currentIndex >= 0 {
-                                            Button {
-                                                NativePlayer.shared.playNextFromQueue(at: index)
-                                            } label: {
-                                                Image(systemName: "text.line.first.and.arrowtriangle.forward")
-                                                    .frame(width: 42, height: 42)
-                                                    .nightwellLiquidGlass(18)
-                                            }
-                                            .accessibilityLabel("Играть следующим")
-                                        }
-                                    }
-                                    .onLongPressGesture {
-                                        if index > currentIndex + 1 {
-                                            NativePlayer.shared.playNextFromQueue(at: index)
-                                        }
-                                    }
-                                }.id(index)
-                            }
-                        }
-                        }
-                        if depthQueue && currentIndex + 1 >= clock.queue.count {
-                            Text("Следующих треков пока нет")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                                .padding(.vertical, 30)
-                        }
-                        }.padding(12)
+                        Image(systemName: "xmark")
+                            .font(.system(size: 18, weight: .medium))
+                            .frame(width: 54, height: 54)
+                            .background(.ultraThinMaterial, in: Circle())
+                            .overlay(Circle().strokeBorder(.white.opacity(0.16)))
                     }
-                    .nightwellLiquidGlass(28)
-                    .onAppear { if !depthQueue && currentIndex >= 0 { reader.scrollTo(currentIndex, anchor: .top) } }
+                    .accessibilityLabel("Закрыть очередь")
                 }
-            }.padding(.horizontal, 20).padding(.top, 28).padding(.bottom, 18)
-        }.tint(Color.white).foregroundStyle(nightwellText)
+
+                ScrollViewReader { reader in
+                    ScrollView(showsIndicators: false) {
+                        VStack(spacing: 10) {
+                            if depthQueue {
+                                if currentIndex + 1 < clock.queue.count {
+                                    NightwellQueueDeck(
+                                        queue: clock.queue,
+                                        currentIndex: currentIndex,
+                                        origin: store.origin
+                                    )
+                                    .padding(.top, 20)
+                                    .padding(.bottom, 24)
+                                } else {
+                                    Text("Следующих треков пока нет")
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 42)
+                                }
+                            } else {
+                                LazyVStack(spacing: 8) {
+                                    if clock.queue.isEmpty {
+                                        Text("Выбери трек, и здесь появится твоя музыка")
+                                            .foregroundStyle(.secondary)
+                                            .padding(.vertical, 40)
+                                    }
+                                    ForEach(Array(clock.queue.enumerated()), id: \.offset) { index, track in
+                                        VStack(alignment: .leading, spacing: 8) {
+                                            if index == currentIndex {
+                                                Text("СЕЙЧАС ИГРАЕТ")
+                                                    .font(.system(size: 9, weight: .semibold))
+                                                    .tracking(2)
+                                                    .foregroundStyle(.white)
+                                                    .padding(.horizontal, 12)
+                                            } else if index == currentIndex + 1 {
+                                                Text("ДАЛЬШЕ")
+                                                    .font(.system(size: 9, weight: .semibold))
+                                                    .tracking(2)
+                                                    .foregroundStyle(.secondary)
+                                                    .padding(.horizontal, 12)
+                                                    .padding(.top, 8)
+                                            }
+                                            HStack(spacing: 8) {
+                                                NativeTrackRow(
+                                                    track: track, queue: clock.queue,
+                                                    status: clock.status, playlist: nil
+                                                )
+                                                if index > currentIndex + 1 && currentIndex >= 0 {
+                                                    Button {
+                                                        NativePlayer.shared.playNextFromQueue(at: index)
+                                                    } label: {
+                                                        Image(systemName: "text.line.first.and.arrowtriangle.forward")
+                                                            .frame(width: 42, height: 42)
+                                                            .nightwellLiquidGlass(18)
+                                                    }
+                                                    .accessibilityLabel("Играть следующим")
+                                                }
+                                            }
+                                            .onLongPressGesture {
+                                                if index > currentIndex + 1 {
+                                                    NativePlayer.shared.playNextFromQueue(at: index)
+                                                }
+                                            }
+                                        }
+                                        .id(index)
+                                    }
+                                }
+                                .padding(.top, 12)
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 18)
+                    }
+                    .background(
+                        RoundedRectangle(cornerRadius: 32, style: .continuous)
+                            .fill(
+                                LinearGradient(
+                                    colors: [Color(white: 0.165), Color(white: 0.12)],
+                                    startPoint: .topLeading, endPoint: .bottomTrailing
+                                )
+                            )
+                    )
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 32, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.15), lineWidth: 1)
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
+                    .onAppear {
+                        if !depthQueue && currentIndex >= 0 {
+                            reader.scrollTo(currentIndex, anchor: .top)
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 30)
+            .padding(.bottom, 18)
+        }
+        .tint(.white)
+        .foregroundStyle(nightwellText)
     }
 }
 
