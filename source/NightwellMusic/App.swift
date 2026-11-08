@@ -1301,6 +1301,12 @@ struct NightwellNativeTransfer: View {
     @State private var observingJobID: String?
     private let activeStates: Set<String> = ["reading", "matching", "saving"]
     struct ImportJob: Decodable {
+        struct MatchedItem: Decodable {
+            let title: String
+            let artist: String
+            let track_id: String?
+            let reason: String?
+        }
         let id: String
         let state: String
         let total: Int
@@ -1309,13 +1315,15 @@ struct NightwellNativeTransfer: View {
         let saved: Int
         let message: String?
         let name: String?
+        let items: [MatchedItem]?
     }
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     Text("Перенести музыку").font(.largeTitle.bold())
-                    Text("Разбор списка, удаление дублей и расчёт времени выполняются на устройстве. Поиск продолжится на сервере даже после закрытия приложения.").foregroundStyle(.secondary)
+                    Text("Поиск и сопоставление треков выполняются на устройстве. Сервер только сохраняет готовый плейлист. Ненайденные треки можно посмотреть и экспортировать.")
+                        .foregroundStyle(.secondary)
                     TextField("Название плейлиста", text: $name).focused($nameFieldFocused).submitLabel(.done).onSubmit { nameFieldFocused = false }.padding(14).nightwellLiquidGlass(18)
                     Picker("Режим поиска", selection: $mode) {
                         Text("Точный").tag("safe")
@@ -1347,6 +1355,27 @@ struct NightwellNativeTransfer: View {
                             Text(job.total > 0 ? "Обработано \(Int(Double(job.progress) / Double(job.total) * 100))% списка" : "Подготовка поиска")
                                 .font(.caption).foregroundStyle(.secondary)
                             if !etaText.isEmpty { Text(etaText).font(.caption).foregroundStyle(.secondary) }
+                            let missing = (job.items ?? []).filter { $0.track_id == nil }
+                            if !missing.isEmpty {
+                                DisclosureGroup("Не найдено: \(missing.count)") {
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        ForEach(Array(missing.enumerated()), id: \.offset) { _, entry in
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text(entry.artist + " — " + entry.title)
+                                                    .font(.subheadline)
+                                                if let reason = entry.reason, !reason.isEmpty {
+                                                    Text(reason).font(.caption2).foregroundStyle(.secondary)
+                                                }
+                                            }
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                        }
+                                        ShareLink(item: missing.map { $0.artist + " — " + $0.title }.joined(separator: "\n")) {
+                                            Label("Поделиться списком ненайденных", systemImage: "square.and.arrow.up")
+                                        }
+                                        .font(.subheadline.weight(.medium))
+                                    }.padding(.top, 8)
+                                }.tint(.white)
+                            }
                             if (job.state == "ready" || job.state == "error") && job.matched > 0 {
                                 Button(saving ? "Добавляем…" : "Добавить") { Task { await commit() } }.buttonStyle(.borderedProminent).tint(Color(white: 0.24)).foregroundStyle(.white).disabled(saving)
                             }
@@ -1462,9 +1491,24 @@ struct NightwellNativeTransfer: View {
         busy = true; defer { busy = false }
         do {
             let raw = contents
-            let prepared = try await Task.detached(priority: .userInitiated) { try TransferPreparation.prepare(raw) }.value
+            var catalog = store.catalog
+            if catalog.isEmpty {
+                await store.refresh()
+                catalog = store.catalog
+            }
+            guard !catalog.isEmpty else {
+                throw APIError(message: "Каталог ещё не загружен. Проверь подключение и повтори перенос.")
+            }
+            let selectedMode = mode
+            let matching = try await Task.detached(priority: .userInitiated) { () throws -> [[String: Any]] in
+                let prepared = try TransferPreparation.prepare(raw)
+                let localIndex = try JSONEncoder().encode(catalog)
+                return try DeviceTransferMatcher.match(
+                    prepared: prepared, catalogJSON: localIndex, mode: selectedMode)
+            }.value
             etaStage = ""
-            let result: ImportJob = try await store.api.request("api/imports", method: "POST", body: ["provider":"yandex","name":name,"url":"","text":prepared,"mode":mode])
+            let result: ImportJob = try await store.api.request("api/imports/client", method: "POST",
+                body: ["provider":"yandex","name":name,"items":matching,"mode":mode])
             job = result; errorText = ""; await refreshHistory(); await poll(result.id)
         } catch {
             errorText = error.localizedDescription

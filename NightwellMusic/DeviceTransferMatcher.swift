@@ -13,12 +13,12 @@ enum DeviceTransferMatcher {
         let variants: [(String, String)]
     }
 
-    private static let versionWords: Set<String> = [
+    private static let versionWords: Set<String> = Set([
         "remix", "ремикс", "live", "concert", "концерт",
         "acoustic", "акустика", "instrumental", "караоке", "karaoke",
         "sped", "slowed", "cover", "кавер", "remaster", "remastered",
         "extended", "reverb", "edit"
-    ]
+    ].map { key($0) })
     private static let letters: [Character: String] = {
         let russian = Array("абвгдежзийклмнопрстуфхцчшщыэюя")
         let latin = ["a","b","v","g","d","e","zh","z","i","y","k","l",

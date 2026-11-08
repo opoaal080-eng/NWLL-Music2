@@ -56,6 +56,10 @@ jobs:
         run: |
           swiftc NightwellMusic/TransferPreparation.swift scripts/test-transfer-preparation.swift -o /tmp/test-transfer-preparation
           /tmp/test-transfer-preparation
+      - name: Test on-device transfer matching
+        run: |
+          swiftc NightwellMusic/TransferPreparation.swift NightwellMusic/DeviceTransferMatcher.swift scripts/test-device-transfer-match.swift -o /tmp/test-device-transfer-match
+          /tmp/test-device-transfer-match
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Select latest installed Xcode
