@@ -60,7 +60,7 @@ final class NightwellArtworkPalette: ObservableObject {
         guard track.id != requestedTrackID else { return }
         requestedTrackID = track.id
         guard let url = CoverImagePipeline.coverURL(for: track, origin: origin) else { return }
-        guard let artwork = await CoverImagePipeline.shared.image(for: url, maxPixel: 128),
+        guard let artwork = await CoverImagePipeline.shared.image(for: url, maxPixel: 192),
               !Task.isCancelled, requestedTrackID == track.id else { return }
         let palette = Self.extract(from: artwork) ?? .fallback
         guard !Task.isCancelled, requestedTrackID == track.id else { return }
@@ -73,12 +73,13 @@ final class NightwellArtworkPalette: ObservableObject {
         }
     }
 
-    // Read a 32x32 thumbnail, not the full-resolution artwork.
+    // A 72x72 thumbnail keeps subtle cover hues without decoding full-size art.
+    // Group similar hues instead of choosing the single brightest pixel or logo.
     private static func extract(from image: UIImage) -> NightwellArtworkColors? {
         guard let cgImage = image.cgImage else { return nil }
-        let side = 32
+        let side = 72
         var pixels = [UInt8](repeating: 0, count: side * side * 4)
-        let valid: Bool = pixels.withUnsafeMutableBytes { bytes in
+        let valid = pixels.withUnsafeMutableBytes { bytes -> Bool in
             guard let context = CGContext(
                 data: bytes.baseAddress, width: side, height: side,
                 bitsPerComponent: 8, bytesPerRow: side * 4,
@@ -86,64 +87,124 @@ final class NightwellArtworkPalette: ObservableObject {
                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue |
                             CGBitmapInfo.byteOrder32Big.rawValue
             ) else { return false }
-            context.interpolationQuality = .medium
+            context.interpolationQuality = .high
             context.draw(cgImage, in: CGRect(x: 0, y: 0, width: side, height: side))
             return true
         }
         guard valid else { return nil }
 
         struct Bucket {
-            var score = 0.0
-            var red = 0.0
-            var green = 0.0
-            var blue = 0.0
+            var weight = 0.0
+            var r = 0.0
+            var g = 0.0
+            var b = 0.0
+
+            mutating func add(r: Double, g: Double, b: Double, weight: Double) {
+                self.weight += weight
+                self.r += r * weight
+                self.g += g * weight
+                self.b += b * weight
+            }
+            mutating func merge(_ other: Bucket, multiplier: Double) {
+                weight += other.weight * multiplier
+                r += other.r * multiplier
+                g += other.g * multiplier
+                b += other.b * multiplier
+            }
+            var average: NightwellRGB {
+                let total = max(weight, 0.00001)
+                return .init(r: r / total, g: g / total, b: b / total)
+            }
         }
-        var bins = [Bucket](repeating: Bucket(), count: 24)
-        for i in 0..<(side * side) {
-            let k = i * 4
-            let a = Double(pixels[k + 3]) / 255.0
-            guard a > 0.7 else { continue }
-            let r = Double(pixels[k]) / 255.0
-            let g = Double(pixels[k + 1]) / 255.0
-            let b = Double(pixels[k + 2]) / 255.0
-            let top = max(r, max(g, b)), low = min(r, min(g, b))
-            let delta = top - low
-            guard top > 0.15, top < 0.98, delta > 0.10 else { continue }
-            let saturation = delta / max(top, 0.001)
-            guard saturation > 0.18 else { continue }
+
+        let bucketCount = 48
+        var bins = [Bucket](repeating: Bucket(), count: bucketCount)
+        var neutral = Bucket()
+
+        for pixel in 0..<(side * side) {
+            let k = pixel * 4
+            let alpha = Double(pixels[k + 3]) / 255
+            guard alpha > 0.70 else { continue }
+            let r = Double(pixels[k]) / 255
+            let g = Double(pixels[k + 1]) / 255
+            let b = Double(pixels[k + 2]) / 255
+            let high = max(r, max(g, b))
+            let low = min(r, min(g, b))
+            let chroma = high - low
+            let saturation = high > 0 ? chroma / high : 0
+
+            let dx = (Double(pixel % side) + 0.5) / Double(side) - 0.5
+            let dy = (Double(pixel / side) + 0.5) / Double(side) - 0.5
+            let centrality = 1.12 - 0.16 * min(1, hypot(dx, dy) / 0.7072)
+            // Fallback for monochrome, dark and pastel covers must use their
+            // actual RGB values, not an unrelated default purple palette.
+            neutral.add(r: r, g: g, b: b, weight: centrality * (high > 0.06 && high < 0.96 ? 1 : 0.3))
+
+            // Exclude logos, white type and black borders from colourful clusters.
+            guard saturation > 0.13, high > 0.11, high < 0.96, chroma > 0.045 else { continue }
             var hue: Double
-            if top == r { hue = (g - b) / delta }
-            else if top == g { hue = 2 + (b - r) / delta }
-            else { hue = 4 + (r - g) / delta }
+            if high == r { hue = (g - b) / chroma }
+            else if high == g { hue = (b - r) / chroma + 2 }
+            else { hue = (r - g) / chroma + 4 }
             hue = (hue / 6).truncatingRemainder(dividingBy: 1)
             if hue < 0 { hue += 1 }
-            let index = min(23, max(0, Int(hue * 24)))
-            let weight = (0.35 + saturation * 1.7) * (0.55 + top * 0.45)
-            bins[index].score += weight
-            bins[index].red += r * weight
-            bins[index].green += g * weight
-            bins[index].blue += b * weight
+            let index = min(bucketCount - 1, Int(hue * Double(bucketCount)))
+
+            // Favour large coherent colour regions over tiny saturated highlights.
+            // The original hue and RGB proportions are preserved.
+            let brightnessBalance = 0.68 + 0.32 * (1 - abs(high - 0.58))
+            let weight = centrality * (0.72 + 0.55 * saturation) * brightnessBalance
+            bins[index].add(r: r, g: g, b: b, weight: weight)
         }
-        let ranked = bins.indices.sorted { bins[$0].score > bins[$1].score }
-        guard let first = ranked.first, bins[first].score > 0 else { return nil }
-        func color(_ i: Int) -> NightwellRGB {
-            let bin = bins[i], norm = max(0.0001, bin.score)
-            let red = bin.red / norm, green = bin.green / norm, blue = bin.blue / norm
-            // Keep artwork hue but give low-saturation covers some visible depth.
-            let peak = max(red, max(green, blue))
-            let boost = min(1.18, 0.92 / max(0.3, peak))
-            return .init(r: min(1, red * boost), g: min(1, green * boost), b: min(1, blue * boost))
+        guard neutral.weight > 0 else { return nil }
+
+        func usableColor(_ value: NightwellRGB) -> NightwellRGB {
+            let peak = max(value.r, max(value.g, value.b))
+            if peak < 0.0001 { return .init(r: 0.16, g: 0.16, b: 0.16) }
+            // Adjust only brightness uniformly. No fabricated shift in hue.
+            let target = min(0.86, max(0.25, peak))
+            let factor = target / peak
+            return .init(r: min(1, value.r * factor),
+                         g: min(1, value.g * factor),
+                         b: min(1, value.b * factor))
         }
-        let second = ranked.first {
-            let distance = min(abs($0 - first), 24 - abs($0 - first))
-            return distance >= 2 && bins[$0].score >= bins[first].score * 0.055
-        } ?? first
-        let primary = color(first)
-        let secondary = second == first
-            ? NightwellRGB(r: min(1, primary.r * 0.64 + 0.14),
-                           g: min(1, primary.g * 0.69 + 0.11),
-                           b: min(1, primary.b * 0.77 + 0.11))
-            : color(second)
-        return NightwellArtworkColors(primary: primary, secondary: secondary)
+
+        func combined(_ index: Int) -> Bucket {
+            var result = Bucket()
+            for shift in -1...1 {
+                let neighbor = (index + shift + bucketCount) % bucketCount
+                result.merge(bins[neighbor], multiplier: shift == 0 ? 1 : 0.82)
+            }
+            return result
+        }
+        let clusters = (0..<bucketCount)
+            .map { (index: $0, value: combined($0)) }
+            .sorted { $0.value.weight > $1.value.weight }
+
+        guard let best = clusters.first, best.value.weight > 0 else {
+            let primary = usableColor(neutral.average)
+            return .init(primary: primary,
+                         secondary: .init(r: primary.r * 0.68,
+                                          g: primary.g * 0.68,
+                                          b: primary.b * 0.68))
+        }
+
+        let primary = usableColor(best.value.average)
+        let alternate = clusters.first { candidate in
+            let distance = min(abs(candidate.index - best.index),
+                               bucketCount - abs(candidate.index - best.index))
+            return distance >= 5 && candidate.value.weight >= best.value.weight * 0.16
+        }
+        let secondary: NightwellRGB
+        if let alternate {
+            secondary = usableColor(alternate.value.average)
+        } else {
+            // Single-colour artwork should remain single-hue rather than
+            // generating an unrelated blue or purple second colour.
+            secondary = .init(r: primary.r * 0.66,
+                              g: primary.g * 0.66,
+                              b: primary.b * 0.66)
+        }
+        return .init(primary: primary, secondary: secondary)
     }
 }
