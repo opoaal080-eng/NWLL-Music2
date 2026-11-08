@@ -30,8 +30,13 @@ import Network
         if preview { return }
         #endif
         let value = NativePlayer.shared.snapshot(includeQueue: false)
-        position = value["position"] as? Double ?? 0
-        duration = max(1, value["duration"] as? Double ?? 1)
+        // Streaming manifests occasionally expose NaN or infinite lengths.
+        // Never pass those into a SwiftUI ClosedRange or an audio frame seek.
+        let rawDuration = value["duration"] as? Double ?? 1
+        duration = rawDuration.isFinite && rawDuration > 0
+            ? max(1, min(rawDuration, 604800)) : 1
+        let rawPosition = value["position"] as? Double ?? 0
+        position = rawPosition.isFinite ? min(duration, max(0, rawPosition)) : 0
         let next = value["playing"] as? Bool ?? false
         if playing != next { playing = next; status.playing = next }
         let nextID = value["id"] as? String ?? ""
