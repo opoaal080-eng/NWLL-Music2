@@ -58,16 +58,25 @@ struct NightwellQueueDeck: View {
     let currentIndex: Int
     let origin: URL
 
-    @State private var page = 0
+    @State private var position = 0
     @State private var notice: String?
     @State private var highlightedID: String?
     @State private var noticeRevision = 0
 
     private var firstUpcoming: Int { max(0, currentIndex + 1) }
     private var totalUpcoming: Int { max(0, queue.count - firstUpcoming) }
-    private var pageCount: Int { max(1, (totalUpcoming + 2) / 3) }
-    private var safePage: Int { min(page, pageCount - 1) }
-    private var pageStart: Int { firstUpcoming + safePage * 3 }
+    // A swipe advances one cover; every song in the queue remains reachable.
+    private var safePosition: Int { min(max(0, position), max(0, totalUpcoming - 1)) }
+    private var pageStart: Int { firstUpcoming + safePosition }
+
+    private func browse(_ direction: Int) {
+        let target = min(max(0, safePosition + direction), max(0, totalUpcoming - 1))
+        guard target != safePosition else { return }
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+            position = target
+        }
+        UISelectionFeedbackGenerator().selectionChanged()
+    }
     private var upcoming: [(offset: Int, element: Track)] {
         Array(queue.enumerated().dropFirst(pageStart).prefix(3))
     }
@@ -104,7 +113,7 @@ struct NightwellQueueDeck: View {
             return
         }
         NativePlayer.shared.playNextFromQueue(at: index)
-        page = 0
+        position = 0
         feedback("Следующий в очереди ✓", for: track.id)
     }
 
@@ -158,16 +167,9 @@ struct NightwellQueueDeck: View {
                     )
                     .simultaneousGesture(
                         DragGesture(minimumDistance: 24).onEnded { value in
-                            guard rank == 0, upcoming.count > 1 else { return }
-                            if value.translation.width < -55 {
-                                NativePlayer.shared.moveUpcomingTrack(from: item.offset + 1,
-                                                                     to: item.offset)
-                                feedback("Порядок обновлён", for: track.id)
-                            } else if value.translation.width > 55 {
-                                NativePlayer.shared.moveUpcomingTrack(from: item.offset,
-                                                                     to: item.offset + 1)
-                                feedback("Порядок обновлён", for: track.id)
-                            }
+                            guard rank == 0, abs(value.translation.width) > 48,
+                                  abs(value.translation.width) > abs(value.translation.height) else { return }
+                            browse(value.translation.width < 0 ? 1 : -1)
                         }
                     )
                     .accessibilityLabel("\(track.title), \(track.artist)")
@@ -176,23 +178,19 @@ struct NightwellQueueDeck: View {
             }
             .frame(height: 235)
 
-            if totalUpcoming > 3 {
+            if totalUpcoming > 1 {
                 HStack(spacing: 16) {
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.2)) { page = max(0, safePage - 1) }
-                    } label: {
+                    Button { browse(-1) } label: {
                         Image(systemName: "chevron.left").frame(width: 44, height: 36)
                     }
-                    .disabled(safePage == 0)
-                    Text("\(safePage * 3 + 1)–\(min(totalUpcoming, (safePage + 1) * 3)) из \(totalUpcoming)")
+                    .disabled(safePosition == 0)
+                    Text("\(safePosition + 1) из \(totalUpcoming)")
                         .font(.system(size: 11, weight: .medium))
                         .monospacedDigit()
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.2)) { page = min(pageCount - 1, safePage + 1) }
-                    } label: {
+                    Button { browse(1) } label: {
                         Image(systemName: "chevron.right").frame(width: 44, height: 36)
                     }
-                    .disabled(safePage >= pageCount - 1)
+                    .disabled(safePosition >= totalUpcoming - 1)
                 }
                 .foregroundStyle(.white)
             }
@@ -204,12 +202,13 @@ struct NightwellQueueDeck: View {
                     .background(.ultraThinMaterial, in: Capsule())
                     .transition(.scale(scale: 0.9).combined(with: .opacity))
             } else {
-                Text("Тап: играть сейчас · удержание: следующая · свайп: порядок")
+                Text("Тап: играть сейчас · удержание: следующая · свайп: листать очередь")
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
             }
         }
         .accessibilityElement(children: .contain)
+        .onChange(of: currentIndex) { _ in position = 0 }
     }
 }
