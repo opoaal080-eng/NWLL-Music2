@@ -711,6 +711,8 @@ struct NativeRoot: View {
                         }
                     }
                 }
+                // Owned results are ranked first in the same list, without
+                // blocking input while remote providers are still searching.
                 TrackList(tracks: store.results)
             }.padding(.horizontal, 20)
         case .likes:
@@ -767,6 +769,10 @@ struct NativeRoot: View {
                                         .padding(.vertical, 16)
                                 }
                                 Menu {
+                                    Button("Твой ритм по плейлисту", systemImage: "waveform.path") {
+                                        selectedPlaylist = nil
+                                        Task { await store.rhythm(around: playlist) }
+                                    }
                                     Button("Скачать", systemImage: "arrow.down.to.line") {
                                         Task {
                                             do { await store.download(try await store.playlistTracks(playlist.id)) }
@@ -1227,6 +1233,18 @@ struct PlaylistScreen: View {
                 } } label: {
                     Image(systemName: (!tracks.isEmpty && tracks.allSatisfy({ store.isDownloaded($0) })) ? "trash" : "arrow.down.to.line").frame(width: 42, height: 42).frostedGlass(20, bordered: false, intensity: 0.55)
                 }.accessibilityLabel(tracks.allSatisfy { store.isDownloaded($0) } ? "Удалить загрузку плейлиста" : "Скачать плейлист")
+                Menu {
+                    Button("Твой ритм по плейлисту", systemImage: "waveform.path") {
+                        let currentPlaylist = playlist
+                        close()
+                        Task { await store.rhythm(around: currentPlaylist) }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .frame(width: 42, height: 42)
+                        .frostedGlass(20, bordered: false, intensity: 0.55)
+                }
+                .accessibilityLabel("Действия с плейлистом")
                 Button(action: close) {
                     Image(systemName: "xmark").frame(width: 42, height: 42).frostedGlass(20, bordered: false, intensity: 0.55)
                 }.accessibilityLabel("Закрыть плейлист")

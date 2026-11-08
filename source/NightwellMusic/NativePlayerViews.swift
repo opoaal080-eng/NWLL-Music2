@@ -650,6 +650,10 @@ struct FullPlayer: View {
                     playerActionSnapshot = nil
                     feature = .sound
                 },
+                onSeededRhythm: { track in
+                    playerActionSnapshot = nil
+                    Task { await store.rhythm(around: track) }
+                },
                 onLyrics: {
                     playerActionSnapshot = nil
                     withAnimation { showLyrics.toggle() }

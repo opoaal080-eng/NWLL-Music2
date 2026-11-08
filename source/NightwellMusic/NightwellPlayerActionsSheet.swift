@@ -16,6 +16,7 @@ struct NightwellPlayerActionsOverlay: View {
     let snapshot: NightwellPlayerActionSnapshot
     let onClose: () -> Void
     let onEqualizer: () -> Void
+    let onSeededRhythm: (Track) -> Void
     let onLyrics: () -> Void
     let onClip: (URL, Track) -> Void
     let onHide: (Track) -> Void
@@ -95,6 +96,9 @@ struct NightwellPlayerActionsOverlay: View {
                                             icon: "livephoto")
                             }
                             if let track = snapshot.track {
+                                Button { onSeededRhythm(track) } label: {
+                                    actionLabel("Твой ритм по треку", icon: "waveform.path")
+                                }
                                 if let clip = snapshot.clipURL {
                                     Button { onClip(clip, track) } label: {
                                         actionLabel("Клип", icon: "play.rectangle")

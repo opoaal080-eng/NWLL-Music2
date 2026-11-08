@@ -250,6 +250,7 @@ final class NativePlayer {
     private var error = ""
     private var waveSettings = WaveSettings()
     private var waveActive = false
+    private var waveSeedArtists: [String] = []
     private var waveSeen: [String] = []
     private var waveTask: URLSessionDataTask?
     private var waveGeneration = UUID()
@@ -435,7 +436,9 @@ final class NativePlayer {
         if !waveActive || !nextWave || previousOrigin != origin { waveSeen = [] }
         waveTask?.cancel(); waveTask = nil; waveGeneration = UUID()
         waveSettings = WaveSettings(data["wave_preferences"] as? [String: Any] ?? [:])
-        waveActive = nextWave; waveWaiting = false; waveRetryAt = .distantPast
+        waveActive = nextWave
+        waveSeedArtists = Array((data["wave_seed_artists"] as? [String] ?? []).prefix(5))
+        waveWaiting = false; waveRetryAt = .distantPast
         tracks = queue; queueRevision += 1; index = selectedIndex; wantsPlay = false
         load(position: max(0, ((data["position"] as? NSNumber)?.doubleValue ?? 0) / 1000))
     }
@@ -733,7 +736,8 @@ final class NativePlayer {
         startupTimeout?.cancel(); startupTimeout = nil
         unavailableIDs.removeAll()
         attemptedTrackID = ""; attemptedTrackLoads = 0
-        waveActive = false; waveTask?.cancel(); waveTask = nil; waveGeneration = UUID(); waveSeen = []
+        waveActive = false; waveSeedArtists = []
+        waveTask?.cancel(); waveTask = nil; waveGeneration = UUID(); waveSeen = []
         nextAssetWarmup?.cancel(); nextAssetWarmup = nil; nextAsset = nil; nextAssetID = nil
         pause(); stallCheck?.cancel(); stallCheck = nil; itemGeneration = UUID(); itemObservation = nil; artworkLoadTask?.cancel()
         if let endObserver { NotificationCenter.default.removeObserver(endObserver); self.endObserver = nil }
@@ -921,7 +925,8 @@ final class NativePlayer {
         excluded = excluded.filter { seen.insert($0).inserted }
         guard let base = URL(string: "api/wave", relativeTo: origin)?.absoluteURL,
               var components = URLComponents(url: base, resolvingAgainstBaseURL: false) else { return }
-        components.queryItems = [URLQueryItem(name: "exclude", value: Array(excluded.suffix(200)).joined(separator: ","))] + WaveSettings.keys.map { URLQueryItem(name: $0, value: waveSettings.dictionary[$0]) } + [URLQueryItem(name: "artists", value: RecommendationOrder.preferredArtists().joined(separator: ","))]
+        components.queryItems = [URLQueryItem(name: "exclude", value: Array(excluded.suffix(200)).joined(separator: ","))] + WaveSettings.keys.map { URLQueryItem(name: $0, value: waveSettings.dictionary[$0]) } + [URLQueryItem(name: "artists", value: (waveSeedArtists.isEmpty
+            ? RecommendationOrder.preferredArtists() : waveSeedArtists).joined(separator: ","))]
         guard let url = components.url else { return }
         var request = URLRequest(url: url); request.timeoutInterval = 60
         request.allHTTPHeaderFields = HTTPCookie.requestHeaderFields(with: cookies)

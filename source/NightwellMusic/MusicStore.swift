@@ -121,6 +121,10 @@ private struct AudioQualityDecision: Decodable {
     private var artistSearchCache: [String: [ArtistDirectoryItem]] = [:]
     private var searchGeneration = UUID()
     private var searchCache: [String: [Track]] = [:]
+    private var indexedPlaylistTracks: [Track] = []
+    private var indexedPlaylistIDs: Set<String> = []
+    private var librarySearchIndexScope = ""
+    private var librarySearchIndexTask: Task<Void, Never>?
     @Published private(set) var hasRemotePlayback = false
     private var remotePlaybackState: LivePlaybackState?
     private lazy var liveDeviceID: String = {
@@ -862,6 +866,7 @@ private struct AudioQualityDecision: Decodable {
                     let value: PlaylistResult = try await client.request("/api/playlists", timeout: 10)
                     guard current() else { return }
                     self.playlists = value.playlists
+                    self.ensureLibrarySearchIndex()
                     successes += 1
                     self.connectionStatus = "Онлайн"
                     self.saveSessionSnapshot()
@@ -987,6 +992,37 @@ private struct AudioQualityDecision: Decodable {
             }
         }
     }
+    private func ensureLibrarySearchIndex() {
+        let keys = playlists.prefix(45).compactMap { playlistCacheKey($0.id) }
+        let scope = (account?.id ?? "guest") + "|" + origin.absoluteString + "|" + keys.joined(separator: "|")
+        guard librarySearchIndexScope != scope else { return }
+        librarySearchIndexScope = scope
+        librarySearchIndexTask?.cancel()
+        indexedPlaylistTracks = []
+        indexedPlaylistIDs = []
+        librarySearchIndexTask = Task(priority: .utility) {
+            let loaded = await Task.detached(priority: .utility) { () -> [Track] in
+                var seen = Set<String>(), result: [Track] = []
+                for key in keys {
+                    if Task.isCancelled { break }
+                    guard let data = UserDefaults.standard.data(forKey: key),
+                          let tracks = try? JSONDecoder().decode([Track].self, from: data)
+                    else { continue }
+                    for track in tracks.prefix(2000) {
+                        if seen.insert(track.id).inserted { result.append(track) }
+                    }
+                }
+                return result
+            }.value
+            guard !Task.isCancelled, librarySearchIndexScope == scope else { return }
+            indexedPlaylistIDs = Set(loaded.map(\.id))
+            indexedPlaylistTracks = loaded
+            if screen == .search && query.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2 {
+                search()
+            }
+        }
+    }
+
     func scheduleSearch() {
         // A separate debounce means typing never scans the catalogue or forces
         // 100+ image rows to refresh for each individual keyboard event.
@@ -1008,6 +1044,7 @@ private struct AudioQualityDecision: Decodable {
         }
     }
     func search() {
+        ensureLibrarySearchIndex()
         searchTask?.cancel(); artistSearchTask?.cancel(); searchArtistSuggestionTask?.cancel()
         searchGeneration = UUID()
         let generation = searchGeneration, text = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1022,7 +1059,9 @@ private struct AudioQualityDecision: Decodable {
             return
         }
         let cacheKey = text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-        results = searchCache[cacheKey] ?? []
+        let priorityIDs = likes.union(indexedPlaylistIDs)
+        results = NightwellLibrarySearchOrder.ordered(
+            searchCache[cacheKey] ?? [], query: text, priorityIDs: priorityIDs)
         artistResults = artistSearchCache[cacheKey] ?? []
         refreshSearchArtists(for: text, generation: generation)
         searchMessage = results.isEmpty ? "Ищем треки…" : ""
@@ -1048,7 +1087,9 @@ private struct AudioQualityDecision: Decodable {
             do {
                 try await Task.sleep(nanoseconds: 30_000_000)
                 try Task.checkCancellation()
-                let local = catalog, key = cacheKey
+                let local = catalog + indexedPlaylistTracks
+                    + favoriteTrackDetails.filter { likes.contains($0.id) }
+                let owned = priorityIDs, key = cacheKey
                 let terms = text.split(whereSeparator: { $0.isWhitespace }).map { RecommendationOrder.key(String($0)) }.filter { !$0.isEmpty }
                 let found = await Task.detached(priority: .userInitiated) {
                     var matches: [Track] = []
@@ -1062,11 +1103,13 @@ private struct AudioQualityDecision: Decodable {
                             if matches.count >= 180 { break }
                         }
                     }
-                    return Array(RecommendationOrder.rankSearch(matches, query: text,
-                               title: { $0.title }, artist: { $0.artist }).prefix(140))
+                    return NightwellLibrarySearchOrder.ordered(
+                        matches, query: text, priorityIDs: owned)
                 }.value
                 guard generation == searchGeneration, !Task.isCancelled else { return }
-                results = searchCache[cacheKey] ?? found
+                results = NightwellLibrarySearchOrder.ordered(
+                    found + (searchCache[cacheKey] ?? []),
+                    query: text, priorityIDs: owned)
                 refreshSearchArtists(for: text, generation: generation)
                 searchMessage = "Ищем полные версии…"
                 let encoded = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed.subtracting(CharacterSet(charactersIn: "&+=?#"))) ?? ""
@@ -1079,8 +1122,10 @@ private struct AudioQualityDecision: Decodable {
                               title: { $0.title }, artist: { $0.artist }).prefix(140))
                     }.value
                     guard generation == searchGeneration, !Task.isCancelled else { return }
-                    let visible = RecommendationOrder.presentedSearchResults(
+                    let serverVisible = RecommendationOrder.presentedSearchResults(
                         current: results, incoming: ranked, pending: response.search_pending == true)
+                    let visible = NightwellLibrarySearchOrder.ordered(
+                        found + serverVisible, query: text, priorityIDs: owned)
                     if results != visible {
                         results = visible
                         refreshSearchArtists(for: text, generation: generation)
@@ -1088,7 +1133,7 @@ private struct AudioQualityDecision: Decodable {
                     searchMessage = response.search_message ?? ""
                     if response.search_pending != true {
                         if searchCache.count >= 20 { searchCache.removeAll(keepingCapacity: true) }
-                        searchCache[cacheKey] = ranked; return
+                        searchCache[cacheKey] = visible; return
                     }
                     try await Task.sleep(nanoseconds: UInt64(max(1.5, min(10, response.search_retry_after ?? 2)) * 1_000_000_000))
                 }
@@ -1132,7 +1177,8 @@ private struct AudioQualityDecision: Decodable {
         play(track, in: [track])
     }
     private var pendingSharedTrackID: String?
-    func play(_ track: Track, in queue: [Track], wave: Bool = false) {
+    func play(_ track: Track, in queue: [Track], wave: Bool = false,
+              seedArtists: [String] = []) {
         // Reuse the downloaded audio for tracks listed in favorites or playlists.
         let downloaded = Dictionary(offline.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let selected = downloaded[track.id] ?? track
@@ -1159,10 +1205,84 @@ private struct AudioQualityDecision: Decodable {
         if damagedSelected {
             error = "Офлайн-копия недоступна. Воспроизводим через интернет. Загрузи трек повторно."
         }
-        NativePlayer.shared.prepare(["id": selected.id, "queue": localQueue.map(\.dictionary), "account": account?.id ?? "device", "wave": wave, "wave_preferences": WaveSettings.read(origin, account?.id ?? "device").dictionary], origin: origin, cookies: HTTPCookieStorage.shared.cookies(for: origin) ?? [])
+        NativePlayer.shared.prepare(["id": selected.id, "queue": localQueue.map(\.dictionary), "account": account?.id ?? "device", "wave": wave, "wave_seed_artists": seedArtists, "wave_preferences": WaveSettings.read(origin, account?.id ?? "device").dictionary], origin: origin, cookies: HTTPCookieStorage.shared.cookies(for: origin) ?? [])
         NativePlayer.shared.play()
         Task { await publishLiveSync(takeover: true) }
     }
+    func rhythm(around track: Track) async {
+        await playSeededRhythm(seeds: [track], startWithSeed: track)
+    }
+
+    func rhythm(around playlist: Playlist) async {
+        guard account != nil else { authPresented = true; return }
+        do {
+            let songs = try await playlistTracks(playlist.id)
+            guard !songs.isEmpty else {
+                error = "В плейлисте нет треков для подбора похожей музыки."
+                return
+            }
+            await playSeededRhythm(seeds: songs, startWithSeed: nil)
+        } catch {
+            error = "Не получилось прочитать плейлист: " + error.localizedDescription
+        }
+    }
+
+    private func playSeededRhythm(seeds: [Track], startWithSeed: Track?) async {
+        guard account != nil else { authPresented = true; return }
+        guard !loading else { return }
+        guard !seeds.isEmpty else { return }
+        loading = true
+        defer { loading = false }
+        let owner = account?.id
+        let blocked = blockedArtists
+        let hidden = hiddenRecommendationIDs
+        let songs = catalog + results + offline + favoriteTrackDetails
+            + indexedPlaylistTracks + lastWave + clock.queue
+        let preferenceArtists = NightwellSeededRhythm.artists(seeds)
+        let seedCopy = Array(seeds.prefix(400))
+        func rank(_ pool: [Track]) async -> [Track] {
+            await Task.detached(priority: .userInitiated) {
+                NightwellSeededRhythm.ranked(
+                    candidates: pool, seeds: seedCopy,
+                    hidden: hidden, blockedArtists: blocked)
+            }.value
+        }
+        var picked = await rank(songs)
+        if picked.count < 25 {
+            // One existing recommendation request only: avoid searching the
+            // provider independently for every song in a large playlist.
+            var query = URLComponents()
+            query.path = "/api/wave"
+            let settings = WaveSettings.read(origin, owner ?? "device")
+            let skip = Array(Set(seedCopy.prefix(100).map(\.id) + picked.prefix(70).map(\.id)))
+            query.queryItems = [
+                URLQueryItem(name: "exclude", value: skip.joined(separator: ",")),
+                URLQueryItem(name: "artists", value: preferenceArtists.joined(separator: ","))
+            ] + WaveSettings.keys.map { URLQueryItem(name: $0, value: settings.dictionary[$0]) }
+            if let path = query.string {
+                do {
+                    let response: TrackResult = try await api.request(path, timeout: 15)
+                    picked = await rank(songs + response.tracks)
+                } catch {
+                    // Usable on-device results still work without a connection.
+                }
+            }
+        }
+        guard !Task.isCancelled, account?.id == owner else { return }
+        if let seed = startWithSeed {
+            let others = picked.filter { $0.id != seed.id }
+            guard !others.isEmpty else {
+                error = "Не удалось подобрать похожие треки. Попробуй другую песню."
+                return
+            }
+            play(seed, in: [seed] + others, wave: true, seedArtists: preferenceArtists)
+        } else if let first = picked.first {
+            play(first, in: picked, wave: true, seedArtists: preferenceArtists)
+        } else {
+            error = "Для этого плейлиста не нашлось похожих треков в доступном каталоге."
+        }
+    }
+
     func applyWaveSettings(_ value: WaveSettings) async throws {
         guard let id = account?.id else { authPresented = true; throw APIError(message: "Войди в аккаунт") }
         guard !loading else { throw APIError(message: "Дождись завершения текущей подборки") }
@@ -1331,6 +1451,8 @@ private struct AudioQualityDecision: Decodable {
               let data = try? JSONEncoder().encode(tracks),
               data.count < 3_500_000 else { return }
         UserDefaults.standard.set(data, forKey: key)
+        librarySearchIndexScope = ""
+        if screen == .search { ensureLibrarySearchIndex() }
     }
 
     func playlistTracks(_ id: String) async throws -> [Track] {
@@ -1350,6 +1472,7 @@ private struct AudioQualityDecision: Decodable {
         do {
             let created: Playlist = try await api.request("/api/playlists", method: "POST", body: ["name": name])
             playlists.append(created)
+            librarySearchIndexScope = ""
             saveSessionSnapshot()
             await refresh()
         } catch { self.error = error.localizedDescription }
@@ -1358,6 +1481,7 @@ private struct AudioQualityDecision: Decodable {
         do {
             let _: OK = try await api.request("/api/playlists/" + id, method: "DELETE")
             playlists.removeAll { $0.id == id }
+            librarySearchIndexScope = ""
             if let key = playlistCacheKey(id) { UserDefaults.standard.removeObject(forKey: key) }
             saveSessionSnapshot()
             await refresh()
