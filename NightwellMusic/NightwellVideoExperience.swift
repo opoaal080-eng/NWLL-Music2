@@ -25,8 +25,9 @@ struct NightwellAnimatedCover: View {
                        ? .easeInOut(duration: 9).repeatForever(autoreverses: true)
                        : .none, value: drifting)
             .frame(width: side, height: side)
-            // Fill the display width. Blur away top/bottom edges strongly
-            // while keeping the centre sharp and the image unzoomed.
+            // The image is taller than the display and cropped at the
+            // screen boundary. Its original top/bottom lie just offscreen,
+            // with only a soft vertical fade visible on the device.
             .mask {
                 LinearGradient(stops: [
                     .init(color: .clear, location: 0),
@@ -40,7 +41,6 @@ struct NightwellAnimatedCover: View {
                     .init(color: .white.opacity(0.10), location: 0.94),
                     .init(color: .clear, location: 1)
                 ], startPoint: .top, endPoint: .bottom)
-                .blur(radius: 16)
             }
             .id(track?.id)
             .onAppear { drifting = true }

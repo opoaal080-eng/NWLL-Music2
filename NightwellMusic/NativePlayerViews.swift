@@ -521,6 +521,32 @@ struct FullPlayer: View {
                 )
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
+
+                // The square artwork now fills the full device height. Its
+                // top and bottom extend 38pt beyond the visible screen,
+                // rather than ending inside the controls' layout region.
+                GeometryReader { screen in
+                    let coverSide = max(screen.size.width, screen.size.height + 76)
+                    NightwellAnimatedCover(
+                        track: clock.current,
+                        origin: store.origin,
+                        side: coverSide
+                    )
+                    .position(x: screen.size.width / 2, y: screen.size.height / 2)
+                    .frame(width: screen.size.width, height: screen.size.height)
+                    .clipped()
+                    .overlay {
+                        LinearGradient(stops: [
+                            .init(color: .black.opacity(0.16), location: 0),
+                            .init(color: .clear, location: 0.27),
+                            .init(color: .clear, location: 0.53),
+                            .init(color: .black.opacity(0.20), location: 0.72),
+                            .init(color: .black.opacity(0.77), location: 1)
+                        ], startPoint: .top, endPoint: .bottom)
+                    }
+                }
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
             } else {
                 LinearGradient(colors: [Color(white: 0.085), Color(white: 0.025), .black],
                                startPoint: .topLeading, endPoint: .bottomTrailing)
@@ -537,13 +563,11 @@ struct FullPlayer: View {
                             .background { GeometryReader { proxy in Color.clear.preference(key: PlayerLyricsFramePreference.self, value: proxy.frame(in: .global)) } }
 
                     } else {
-                        NightwellAnimatedCover(
-                            track: clock.current,
-                            origin: store.origin,
-                            side: box.size.width + 52
-                        )
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .contentShape(Rectangle())
+                        // Artwork is drawn behind the whole player. Keep
+                        // swipe-to-change-track gestures in the former area.
+                        Color.clear
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .contentShape(Rectangle())
                             .gesture(DragGesture(minimumDistance: 18).onEnded { value in
                                 let dx = value.translation.width
                                 if abs(dx) > 52 && abs(dx) > abs(value.translation.height) * 1.15 {
