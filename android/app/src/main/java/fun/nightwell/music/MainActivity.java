@@ -230,7 +230,9 @@ public final class MainActivity extends Activity {
     private SeekBar seek;
     private EditText search;
     private LinearLayout artistStrip;
-    private TextView lyricsText;private android.widget.ScrollView lyricsScroll;private JSONArray lyricLines;private int activeLyric=-2;private String lyricsTrack="";
+    private TextView lyricsText;private android.widget.ScrollView lyricsScroll;private JSONArray lyricLines;
+    private int activeLyric=-2,activeLyricWord=-2;
+    private String lyricsTrack="";
     private ListView list;
     private TrackAdapter adapter;
     private RibbonView ribbon;
@@ -317,7 +319,136 @@ public final class MainActivity extends Activity {
     TextView action(String label,Runnable run){TextView v=NativeIconButton.isIcon(label)?new NativeIconButton(this):text(label,16);v.setText(label);v.setTextColor(0xfff3f3f5);v.setTextSize(NativeIconButton.isIcon(label)?20:16);if(NativeIconButton.isIcon(label))v.setContentDescription(iconLabel(label));v.setGravity(Gravity.CENTER);v.setPadding(dp(14),dp(12),dp(14),dp(12));v.setMinHeight(dp(50));v.setOnClickListener(x->run.run());return v;}
     TextView iconButton(String label,Runnable run){TextView v=action(label,run);v.setPadding(0,0,0,0);v.setTextSize(20);v.setTextColor(0xfff1f1f6);v.setBackground(touchSurface(0xa61f232c,24));return v;}
     void toggleBackgroundOnly(){backgroundOnly=!backgroundOnly;build();}
-    void showQueue(){AlertDialog d=new AlertDialog.Builder(this).setTitle("Очередь воспроизведения").setItems(trackNames(queue),(dialog,index)->play(queue.optJSONObject(index),queue,false)).setNegativeButton("Закрыть",null).create();styleSheet(d);d.show();}
+    void showQueue(){
+        boolean depth=getSharedPreferences("appearance",MODE_PRIVATE)
+            .getBoolean("nw-depth-queue",false);
+        if(!depth){
+            AlertDialog d=new AlertDialog.Builder(this)
+                .setTitle("Очередь воспроизведения")
+                .setItems(trackNames(queue),(dialog,index)->play(queue.optJSONObject(index),queue,false))
+                .setNegativeButton("Закрыть",null).create();
+            styleSheet(d);d.show();return;
+        }
+        showDepthQueue();
+    }
+    void reorderUpcoming(int from,int to){
+        if(playback==null)return;
+        playback.moveUpcomingTrack(from,to);
+        try{queue=new JSONObject(playback.snapshot(true)).optJSONArray("queueTracks");}
+        catch(Exception ignored){}
+        if(queue==null)queue=new JSONArray();
+        updatePlayback();
+    }
+    void showDepthQueue(){
+        int playing=playback==null?-1:playback.player.getCurrentMediaItemIndex();
+        android.widget.ScrollView scroll=new android.widget.ScrollView(this);
+        LinearLayout panel=column();panel.setPadding(dp(16),dp(8),dp(16),dp(16));
+        scroll.addView(panel);
+        TextView intro=text("Свайп по первой обложке меняет порядок, удержание ставит песню следующей.",12);
+        intro.setTextColor(0xffaeb2c1);intro.setPadding(0,0,0,dp(12));
+        panel.addView(intro);
+        final AlertDialog[] holder={null};
+        if(queue.length()>playing+1){
+            android.widget.FrameLayout deck=new android.widget.FrameLayout(this);
+            panel.addView(deck,new LinearLayout.LayoutParams(-1,dp(212)));
+            int available=Math.min(3,Math.max(0,queue.length()-playing-1));
+            for(int rank=available-1;rank>=0;rank--){
+                final int from=playing+1+rank;
+                JSONObject track=queue.optJSONObject(from);
+                if(track==null)continue;
+                android.widget.FrameLayout card=new android.widget.FrameLayout(this);
+                GradientDrawable plate=new GradientDrawable();
+                plate.setColor(0xff202027);plate.setCornerRadius(dp(20));
+                card.setBackground(plate);card.setClipToOutline(true);
+                card.setElevation(dp(4+available-rank));
+                android.widget.ImageView cover=new android.widget.ImageView(this);
+                cover.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+                card.addView(cover,new android.widget.FrameLayout.LayoutParams(-1,-1));
+                if(artworkCache!=null)artworkCache.load(cover,origin,track.optString("cover_url"));
+                TextView info=text(track.optString("title")+" · "+track.optString("artist"),13);
+                info.setTextColor(0xffffffff);
+                info.setMaxLines(2);info.setGravity(Gravity.CENTER_VERTICAL);
+                info.setPadding(dp(12),dp(5),dp(12),dp(5));
+                info.setBackground(touchSurface(0xee13131a,14));
+                android.widget.FrameLayout.LayoutParams labelParams=
+                    new android.widget.FrameLayout.LayoutParams(-1,dp(54),Gravity.BOTTOM);
+                card.addView(info,labelParams);
+                android.widget.FrameLayout.LayoutParams layout=
+                    new android.widget.FrameLayout.LayoutParams(dp(218),dp(184),Gravity.CENTER);
+                deck.addView(card,layout);
+                card.setTranslationX(dp(rank*15));
+                card.setTranslationY(dp(rank*9));
+                card.setScaleX(1-rank*.065f);card.setScaleY(1-rank*.065f);
+                card.setRotationY(rank*-4f);
+                card.setOnClickListener(v->{
+                    if(holder[0]!=null)holder[0].dismiss();
+                    play(track,queue,false);
+                });
+                card.setOnLongClickListener(v->{
+                    reorderUpcoming(from,playing+1);
+                    if(holder[0]!=null)holder[0].dismiss();
+                    ui.post(this::showQueue);
+                    return true;
+                });
+                if(rank==0){
+                    final float[] start={0f};
+                    card.setOnTouchListener((v,event)->{
+                        if(event.getActionMasked()==android.view.MotionEvent.ACTION_DOWN){
+                            start[0]=event.getX();return true;
+                        }
+                        if(event.getActionMasked()==android.view.MotionEvent.ACTION_UP){
+                            float delta=event.getX()-start[0];
+                            if(Math.abs(delta)>dp(52)&&queue.length()>playing+2){
+                                int destination=delta<0?playing+2:playing+2;
+                                reorderUpcoming(playing+1,destination);
+                                if(holder[0]!=null)holder[0].dismiss();
+                                ui.post(this::showQueue);
+                            }else v.performClick();
+                            return true;
+                        }
+                        return false;
+                    });
+                }
+            }
+        }
+        TextView heading=sectionLabel("СЛЕДУЮЩИЕ ТРЕКИ");
+        panel.addView(heading);
+        for(int i=0;i<queue.length();i++){
+            final int from=i;
+            JSONObject track=queue.optJSONObject(i);
+            if(track==null)continue;
+            LinearLayout row=row();row.setGravity(Gravity.CENTER_VERTICAL);
+            TextView title=sheetAction((i==playing?"▶  ":"")+track.optString("title")+
+                " · "+track.optString("artist"),()->{
+                    if(holder[0]!=null)holder[0].dismiss();
+                    play(track,queue,false);
+                });
+            row.addView(title,new LinearLayout.LayoutParams(0,-2,1));
+            if(i>playing+1&&playing>=0){
+                TextView next=action("↑",()->{
+                    reorderUpcoming(from,playing+1);
+                    if(holder[0]!=null)holder[0].dismiss();
+                    ui.post(this::showQueue);
+                });
+                next.setContentDescription("Играть следующим");
+                row.addView(next,new LinearLayout.LayoutParams(dp(44),dp(48)));
+            }
+            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);
+            lp.bottomMargin=dp(5);panel.addView(row,lp);
+            row.setOnLongClickListener(v->{
+                if(from>playing+1){
+                    reorderUpcoming(from,playing+1);
+                    if(holder[0]!=null)holder[0].dismiss();
+                    ui.post(this::showQueue);
+                    return true;
+                }
+                return false;
+            });
+        }
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Очередь")
+            .setView(scroll).setNegativeButton("Закрыть",null).create();
+        holder[0]=dialog;styleSheet(dialog);dialog.show();
+    }
     void build(){
         if(ribbon!=null)ribbon.running(false);full=false;lyricsOpen=false;seek=null;fullTime=null;fullPlay=null;fullLike=null;fullDislike=null;fullAudioOutput=null;
         // Render scenery and aura across the window, outside the padded controls.
@@ -1597,7 +1728,7 @@ public final class MainActivity extends Activity {
     private String lyricsPollID="";private int lyricsRound;
     void acceptLyrics(String id,JSONObject value){
         if(!currentID.equals(id)||isDestroyed())return;activeLyrics=value;
-        if(lyricsText!=null&&lyricsTrack.equals(id)){lyricLines=value.optBoolean("synced")?value.optJSONArray("lines"):null;activeLyric=-2;if(lyricLines==null)lyricsText.setText(value.optString("plain",value.optString("message",lyricsPending(value)?"Ищем подходящий текст…":"Текст пока не найден")));syncLyrics(playback==null?0:playback.player.getCurrentPosition()/1000.0);}
+        if(lyricsText!=null&&lyricsTrack.equals(id)){lyricLines=value.optBoolean("synced")?value.optJSONArray("lines"):null;activeLyric=-2;activeLyricWord=-2;if(lyricLines==null)lyricsText.setText(value.optString("plain",value.optString("message",lyricsPending(value)?"Ищем подходящий текст…":"Текст пока не найден")));syncLyrics(playback==null?0:playback.player.getCurrentPosition()/1000.0);}
         if(!lyricsPollID.equals(id)){lyricsPollID=id;lyricsRound=0;}
         if(lyricsPending(value)&&lyricsRound++<20){int round=lyricsRound;ui.postDelayed(()->{if(!currentID.equals(id)||round!=lyricsRound)return;task(()->cachedLyrics(id),next->acceptLyrics(id,next));},Math.max(2000,Math.min(60000,value.optLong("retry_after",3)*1000)));}
     }
@@ -1628,7 +1759,7 @@ public final class MainActivity extends Activity {
         }
     }
     void showLyrics(JSONObject track){String id=track.optString("id");status.setText("Ищем текст…");task(()->cachedLyrics(id),v->{
-        if(!currentID.equals(id))return;acceptLyrics(id,v);lyricLines=v.optBoolean("synced")?v.optJSONArray("lines"):null;lyricsTrack=id;activeLyric=-2;
+        if(!currentID.equals(id))return;acceptLyrics(id,v);lyricLines=v.optBoolean("synced")?v.optJSONArray("lines"):null;lyricsTrack=id;activeLyric=-2;activeLyricWord=-2;
         lyricsScroll=new android.widget.ScrollView(this);lyricsText=text("",26);lyricsText.setGravity(Gravity.CENTER);lyricsText.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);lyricsText.setPadding(dp(22),dp(28),dp(22),dp(28));lyricsText.setLineSpacing(dp(16),1);lyricsScroll.addView(lyricsText);
         if(lyricLines==null||lyricLines.length()==0)lyricsText.setText(v.optString("plain",v.optString("message",lyricsPending(v)?"Ищем подходящий текст…":"Текст пока не найден")));
         AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Текст песни · "+v.optString("source")).setView(lyricsScroll).setPositiveButton("Закрыть",null).create();dialog.setOnDismissListener(d->{lyricsText=null;lyricsScroll=null;lyricLines=null;});styleSheet(dialog);dialog.show();status.setText("");syncLyrics(playback==null?0:playback.player.getCurrentPosition()/1000.0);
@@ -1640,8 +1771,25 @@ public final class MainActivity extends Activity {
             JSONObject entry=lyricLines.optJSONObject(i);
             if(entry!=null&&entry.optDouble("time")<=position)current=i;
         }
-        if(current==activeLyric)return;
-        activeLyric=current;
+        boolean kinetic=getSharedPreferences("appearance",MODE_PRIVATE)
+            .getBoolean("nw-kinetic-lyrics",true);
+        int activeWord=-1;
+        if(kinetic&&current>=0){
+            JSONObject entry=lyricLines.optJSONObject(current);
+            if(entry!=null){
+                String line=entry.optString("text","");
+                java.util.regex.Matcher counter=java.util.regex.Pattern.compile("\\S+").matcher(line);
+                int total=0;while(counter.find())total++;
+                double start=entry.optDouble("time",position);
+                JSONObject after=lyricLines.optJSONObject(current+1);
+                double end=after==null?start+4:after.optDouble("time",start+4);
+                double progress=Math.max(0,Math.min(.999,(position-start)/Math.max(.4,end-start)));
+                if(total>0)activeWord=Math.min(total-1,(int)(progress*total));
+            }
+        }
+        if(current==activeLyric&&activeWord==activeLyricWord)return;
+        boolean changedLine=current!=activeLyric;
+        activeLyric=current;activeLyricWord=activeWord;
         final String trackID=lyricsTrack;
         StringBuilder all=new StringBuilder();
         android.util.SparseArray<int[]> ranges=new android.util.SparseArray<>();
@@ -1673,15 +1821,38 @@ public final class MainActivity extends Activity {
                 },range[0],range[1],android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             }
             if(i==current){
-                styled.setSpan(new android.text.style.ForegroundColorSpan(0xffeeeeee),
+                styled.setSpan(new android.text.style.ForegroundColorSpan(kinetic?0xffc1c1cd:0xffeeeeee),
                     range[0],range[1],android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                 styled.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD),
                     range[0],range[1],android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                if(kinetic){
+                    java.util.regex.Matcher word=java.util.regex.Pattern.compile("\\S+")
+                        .matcher(line.optString("text",""));
+                    int ordinal=0;
+                    while(word.find()){
+                        int from=range[0]+word.start(),to=range[0]+word.end();
+                        if(ordinal<=activeWord){
+                            styled.setSpan(new android.text.style.ForegroundColorSpan(0xffffffff),
+                                from,to,android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                        }
+                        if(ordinal==activeWord){
+                            styled.setSpan(new android.text.style.RelativeSizeSpan(1.12f),
+                                from,to,android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                            styled.setSpan(new android.text.style.BackgroundColorSpan(0x33ffffff),
+                                from,to,android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                        }
+                        ordinal++;
+                    }
+                }
             }
         }
         lyricsText.setHighlightColor(Color.TRANSPARENT);
         lyricsText.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
         lyricsText.setText(styled);
+        if(changedLine&&kinetic){
+            lyricsText.setAlpha(.86f);
+            lyricsText.animate().alpha(1f).setDuration(220).start();
+        }
         int[] highlighted=ranges.get(current);
         final int scrollOffset=highlighted==null?0:highlighted[0];
         lyricsText.post(()->{
@@ -2220,6 +2391,26 @@ public final class MainActivity extends Activity {
                 if(full)ui.post(()->openPlayer());
             }));
         panel.addView(coverStyleButton);
+        android.widget.Switch depthQueue=new android.widget.Switch(this);
+        depthQueue.setText("Объёмная очередь");
+        styleSwitch(depthQueue);
+        depthQueue.setChecked(getSharedPreferences("appearance",MODE_PRIVATE)
+            .getBoolean("nw-depth-queue",false));
+        depthQueue.setOnCheckedChangeListener((view,enabled)->
+            getSharedPreferences("appearance",MODE_PRIVATE).edit()
+                .putBoolean("nw-depth-queue",enabled).apply());
+        panel.addView(depthQueue);
+        TextView depthHint=text("Стопка обложек и быстрый выбор следующей песни. Если выключить, останется обычная очередь.",12);
+        depthHint.setTextColor(0xff9fa6b8);panel.addView(depthHint);
+        android.widget.Switch kineticText=new android.widget.Switch(this);
+        kineticText.setText("Кинетический текст песен");
+        styleSwitch(kineticText);
+        kineticText.setChecked(getSharedPreferences("appearance",MODE_PRIVATE)
+            .getBoolean("nw-kinetic-lyrics",true));
+        kineticText.setOnCheckedChangeListener((view,enabled)->
+            getSharedPreferences("appearance",MODE_PRIVATE).edit()
+                .putBoolean("nw-kinetic-lyrics",enabled).apply());
+        panel.addView(kineticText);
         panel.addView(sectionLabel("Оформление"));
         panel.addView(sheetAction("Темы и ленты · Premium",()->feature("appearance")));
         panel.addView(sectionLabel("Воспроизведение"));

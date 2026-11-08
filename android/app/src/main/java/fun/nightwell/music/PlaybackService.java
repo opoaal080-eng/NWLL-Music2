@@ -446,6 +446,18 @@ public final class PlaybackService extends MediaSessionService {
         waveHandler.postDelayed(pendingStreamRetry, attempt == 1 ? 1200 : attempt == 2 ? 3000 : 6000);
         return true;
     }
+    // Keep the active decoder and seek position intact while changing
+    // the order of future media items. Abort any staged handoff first.
+    void moveUpcomingTrack(int from,int to) {
+        if(player==null)return;
+        int current=player.getCurrentMediaItemIndex();
+        int count=player.getMediaItemCount();
+        if(from<=current||to<=current||from<0||to<0||
+           from>=count||to>=count||from==to)return;
+        cancelPreparedNext();
+        player.moveMediaItem(from,to);
+        persistPlayback(true);
+    }
     void prepare(String json) {
         cancelPreparedNext();
         cancelStreamRetry();
