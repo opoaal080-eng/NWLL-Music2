@@ -317,6 +317,7 @@ struct NativeRoot: View {
     @State private var transferPresented = false
     @State private var favoriteSort = "recent"
     @State private var collectionScrolled = false
+    @StateObject private var artworkPalette = NightwellArtworkPalette()
     @State private var remoteHomeCollapsed = false
     @ObservedObject private var favoritePremium = PremiumFeatureState.shared
     @State private var fullPlayer = false
@@ -340,9 +341,12 @@ struct NativeRoot: View {
                 endPoint: .bottomTrailing
             )
             .ignoresSafeArea()
-            if !backgroundOnly && store.screen == .home {
+            if !backgroundOnly {
+                // Keep one backdrop alive while the app changes tabs, pauses,
+                // buffers audio, and restores a session after launch.
                 RibbonScene(playing: store.clock.playing, flash: store.likeFlash)
                     .ignoresSafeArea()
+                    .opacity(store.screen == .home ? 1.0 : 0.18)
                     .allowsHitTesting(false)
             }
             if backgroundOnly { BackgroundOnlyScene(clock: store.clock, lyrics: store.lyrics, flash: store.likeFlash) }
@@ -429,7 +433,11 @@ struct NativeRoot: View {
 
     var body: some View {
         mainScene
+            .environmentObject(artworkPalette)
             .overlay { modalScene }
+            .task(id: store.clock.current?.id) {
+                await artworkPalette.refresh(track: store.clock.current, origin: store.origin)
+            }
         .animation(.spring(response: 0.3, dampingFraction: 0.86), value: settings)
         .animation(.spring(response: 0.3, dampingFraction: 0.86), value: store.authPresented)
         .tint(pumpkin)
