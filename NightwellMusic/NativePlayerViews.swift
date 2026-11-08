@@ -497,6 +497,7 @@ struct FullPlayer: View {
     @Environment(\.dismiss) private var dismiss
     @State private var lyricsFrame = CGRect.zero
     @State private var showLyrics = false
+    @State private var playerToolsPresented = false
     @State private var feature: PremiumFeatureView.Kind?
     @State private var showQueue = false
     @State private var selectedArtist: ArtistSelection?
@@ -617,7 +618,9 @@ struct FullPlayer: View {
         .onPreferenceChange(PlayerLyricsFramePreference.self) { lyricsFrame = $0 }
         .simultaneousGesture(DragGesture(minimumDistance: 24, coordinateSpace: .global).onEnded { value in
             // Keep scrubbing, horizontal track changes and lyric scrolling independent.
-            guard !seeking, !showQueue else { return }
+            // When lyrics are visible all vertical gestures belong to
+            // the lyrics view. Only the explicit chevron can close the player.
+            guard !showLyrics, !seeking, !showQueue else { return }
             let dx = value.translation.width
             let dy = value.translation.height
             guard dy > 95, dy > abs(dx) * 1.45 else { return }
@@ -662,26 +665,94 @@ struct FullPlayer: View {
         }
     }
     private var tools: some View {
-        Menu {
-            Menu {
-                qualityChoice("Авто", value: "auto")
-                qualityChoice("Низкое", value: "low")
-                qualityChoice("Среднее", value: "medium")
-                qualityChoice("Высокое", value: "high")
-            } label: {
-                Label("Качество звука", systemImage: "waveform")
-            }
-            Button("Эквалайзер", systemImage: "slider.vertical.3") { feature = .sound }
-            Button(showLyrics ? "Обложка" : "Текст песни", systemImage: "text.alignleft") { showLyrics.toggle() }
-            if let track = clock.current {
-                Button(store.isRecommendationHidden(track) ? "Вернуть в рекомендации" : "Не рекомендовать", systemImage: "hand.thumbsdown") {
-                    store.toggleRecommendationHidden(track)
+        Button {
+            playerToolsPresented = true
+        } label: {
+            Image(systemName: "ellipsis")
+                .frame(width: 44, height: 44)
+                .nightwellLiquidGlass(24)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Действия с треком")
+        // Present a stable sheet rather than a live SwiftUI Menu in a player
+        // whose progress changes many times a second. The old menu rebuilt
+        // during playback and appeared to flash or dismiss spontaneously.
+        .sheet(isPresented: $playerToolsPresented) {
+            NavigationStack {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        Menu {
+                            qualityChoice("Авто", value: "auto")
+                            qualityChoice("Низкое", value: "low")
+                            qualityChoice("Среднее", value: "medium")
+                            qualityChoice("Высокое", value: "high")
+                        } label: {
+                            Label("Качество звука", systemImage: "waveform")
+                                .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+                        }
+                        Button {
+                            playerToolsPresented = false
+                            feature = .sound
+                        } label: {
+                            Label("Эквалайзер", systemImage: "slider.vertical.3")
+                                .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+                        }
+                        Button {
+                            showLyrics.toggle()
+                            playerToolsPresented = false
+                        } label: {
+                            Label(showLyrics ? "Обложка" : "Текст песни", systemImage: "text.alignleft")
+                                .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+                        }
+                        if let track = clock.current {
+                            Button {
+                                store.toggleRecommendationHidden(track)
+                                playerToolsPresented = false
+                            } label: {
+                                Label(store.isRecommendationHidden(track)
+                                      ? "Вернуть в рекомендации" : "Не рекомендовать",
+                                      systemImage: "hand.thumbsdown")
+                                    .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+                            }
+                            Button {
+                                playerToolsPresented = false
+                                Task { await store.download([track]) }
+                            } label: {
+                                Label("Скачать", systemImage: "arrow.down.to.line")
+                                    .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+                            }
+                            ShareLink(item: store.origin.appendingPathComponent("track/" + track.id)) {
+                                Label("Поделиться", systemImage: "square.and.arrow.up")
+                                    .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+                            }
+                            Menu {
+                                ForEach(store.playlists) { item in
+                                    Button(item.name) {
+                                        playerToolsPresented = false
+                                        Task { await store.add(track, playlist: item) }
+                                    }
+                                }
+                            } label: {
+                                Label("Добавить в плейлист", systemImage: "text.badge.plus")
+                                    .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .padding(22)
                 }
-                Button("Скачать", systemImage: "arrow.down.to.line") { Task { await store.download([track]) } }
-                ShareLink(item: store.origin.appendingPathComponent("track/" + track.id)) { Label("Поделиться", systemImage: "square.and.arrow.up") }
-                Menu("Добавить в плейлист") { ForEach(store.playlists) { p in Button(p.name) { Task { await store.add(track, playlist: p) } } } }
+                .navigationTitle("Действия с треком")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Готово") { playerToolsPresented = false }
+                    }
+                }
             }
-        } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44).nightwellLiquidGlass(24) }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+            .presentationBackground(Color(white: 0.10))
+        }
     }
 }
 func formatTime(_ seconds: Double) -> String { let value = seconds.isFinite ? max(0, Int(seconds)) : 0; return String(format: "%d:%02d", value / 60, value % 60) }
