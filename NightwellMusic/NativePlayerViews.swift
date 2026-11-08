@@ -35,7 +35,9 @@ struct RibbonScene: View {
                 let valid = values.filter { $0.isFinite }.map { min(1, max(0, $0)) }
                 let level = valid.reduce(0, +) / Double(max(1, valid.count))
                 let gain = sensitivity.isFinite ? min(4, max(0.5, sensitivity)) : 2.5
-                let energy = playing ? min(1, pow(level, 0.43) * gain * 0.65) : 0.0
+                // A wider dynamic range reacts to quiet notes and bass hits
+                // without pushing ordinary music permanently to full brightness.
+                let energy = playing ? min(1, pow(level, 0.56) * gain * 0.50) : 0.0
                 draw(context: context, size: size, colors: colors, time: t, energy: energy)
             }
         }
@@ -70,8 +72,9 @@ struct RibbonScene: View {
             let center = CGPoint(x: x, y: y)
             let radius = scale * (index == 0 ? 0.72 : 0.61)
             let tint = index.isMultiple(of: 2) ? primary : secondary
-            // Small modulation keeps audio responsiveness without visible flashing.
-            let opacity = 0.30 + energy * 0.035
+            // More pronounced audio response; movement remains time-based
+            // so individual audio peaks cannot teleport the gradient.
+            let opacity = 0.29 + energy * 0.105
             context.fill(Path(ellipseIn: CGRect(x: x - radius, y: y - radius,
                                                  width: radius * 2, height: radius * 2)),
                          with: .radialGradient(
@@ -235,11 +238,13 @@ struct MiniPlayer: View {
                             // listening position, starting at 12 o'clock.
                             Circle()
                                 .stroke(Color.white.opacity(0.22), lineWidth: 2.2)
+                                .frame(width: 44, height: 44)
                             Circle()
                                 .trim(from: 0, to: playbackFraction)
                                 .stroke(Color.white.opacity(0.96),
                                         style: StrokeStyle(lineWidth: 2.7, lineCap: .round))
                                 .rotationEffect(.degrees(-90))
+                                .frame(width: 44, height: 44)
                             Image(systemName: clock.playing ? "pause" : "play.fill")
                                 .font(.system(size: 17, weight: .light))
                         }
