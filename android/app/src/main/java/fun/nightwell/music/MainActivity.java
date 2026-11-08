@@ -1901,8 +1901,6 @@ public final class MainActivity extends Activity {
             if(i==current){
                 styled.setSpan(new android.text.style.ForegroundColorSpan(kinetic?0xffc1c1cd:0xffeeeeee),
                     range[0],range[1],android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                styled.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD),
-                    range[0],range[1],android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                 if(kinetic){
                     java.util.regex.Matcher word=java.util.regex.Pattern.compile("\\S+")
                         .matcher(line.optString("text",""));
@@ -1914,8 +1912,6 @@ public final class MainActivity extends Activity {
                                 from,to,android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                         }
                         if(ordinal==activeWord){
-                            styled.setSpan(new android.text.style.RelativeSizeSpan(1.12f),
-                                from,to,android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                             styled.setSpan(new android.text.style.BackgroundColorSpan(0x33ffffff),
                                 from,to,android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                         }
@@ -1924,22 +1920,33 @@ public final class MainActivity extends Activity {
                 }
             }
         }
+        // Word emphasis is paint-only: no font size/weight spans that
+        // would change TextView line breaks or the scrollable height.
+        final int preservedScrollY=lyricsScroll==null?0:lyricsScroll.getScrollY();
         lyricsText.setHighlightColor(Color.TRANSPARENT);
         lyricsText.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
         lyricsText.setText(styled);
+        if(!changedLine&&lyricsScroll!=null){
+            lyricsScroll.post(()->{
+                if(lyricsScroll!=null)lyricsScroll.scrollTo(0,preservedScrollY);
+            });
+        }
         if(changedLine&&kinetic){
             lyricsText.setAlpha(.86f);
             lyricsText.animate().alpha(1f).setDuration(220).start();
         }
-        int[] highlighted=ranges.get(current);
-        final int scrollOffset=highlighted==null?0:highlighted[0];
-        lyricsText.post(()->{
-            if(lyricsText==null||lyricsScroll==null||lyricsText.getLayout()==null)return;
-            int offset=Math.min(scrollOffset,lyricsText.length());
-            int line=lyricsText.getLayout().getLineForOffset(offset);
-            lyricsScroll.smoothScrollTo(0,Math.max(0,
-                lyricsText.getLayout().getLineTop(line)-lyricsScroll.getHeight()/3));
-        });
+        // Follow only the NEW lyric line, never each word-level highlight.
+        if(changedLine&&current>=0){
+            int[] highlighted=ranges.get(current);
+            final int scrollOffset=highlighted==null?0:highlighted[0];
+            lyricsText.post(()->{
+                if(lyricsText==null||lyricsScroll==null||lyricsText.getLayout()==null)return;
+                int offset=Math.min(scrollOffset,lyricsText.length());
+                int line=lyricsText.getLayout().getLineForOffset(offset);
+                lyricsScroll.smoothScrollTo(0,Math.max(0,
+                    lyricsText.getLayout().getLineTop(line)-lyricsScroll.getHeight()/3));
+            });
+        }
     }
 
 
