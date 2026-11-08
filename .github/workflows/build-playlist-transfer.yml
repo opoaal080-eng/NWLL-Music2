@@ -1,0 +1,42 @@
+name: Test and package Nightwell Music playlist transfer + YouTube clip lookup
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, feature/windows-mobile-parity-20261106]
+    paths:
+      - 'server-updates/playlist-transfer/**'
+      - '.github/workflows/build-playlist-transfer.yml'
+permissions:
+  contents: read
+jobs:
+  prepare-server-update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install API test dependencies
+        run: python -m pip install fastapi httpx
+      - name: Check source syntax
+        run: python -m compileall -q server-updates/playlist-transfer
+      - name: Test import and clip lookup
+        run: python -m unittest discover -s server-updates/playlist-transfer -p 'test_*.py' -v
+      - name: Package server update
+        run: |
+          set -euo pipefail
+          mkdir -p dist/Nightwell-Playlist-Transfer-Clip-Server
+          cp server-updates/playlist-transfer/{music_import.py,music_import_sources.py,music_videos.py,install_import_update.py,README-RU.txt} dist/Nightwell-Playlist-Transfer-Clip-Server/
+          printf 'Commit: %s\nWorkflow: %s\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > dist/Nightwell-Playlist-Transfer-Clip-Server/build.txt
+          cd dist
+          zip -qr Nightwell-Transfer-Clip-Server.zip Nightwell-Playlist-Transfer-Clip-Server
+          sha256sum Nightwell-Transfer-Clip-Server.zip > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Nightwell-Transfer-Clip-Server
+          path: |
+            dist/Nightwell-Transfer-Clip-Server.zip
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
