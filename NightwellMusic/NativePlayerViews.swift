@@ -168,26 +168,17 @@ struct NativeHome: View {
 
     var body: some View {
         GeometryReader { box in
-            VStack(alignment: .leading, spacing: 0) {
-                VStack(spacing: 24) {
-                    VStack(spacing: 8) {
-                        Text("Твой ритм")
-                            .font(.system(size: min(48, box.size.width * 0.125), weight: .bold))
-                            .tracking(-1.4)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.75)
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                        Text("Музыка под твоё настроение")
-                            .font(.system(size: 16))
-                            .foregroundStyle(.white.opacity(0.65))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                    }
-                    .multilineTextAlignment(.center)
-
-
+            VStack(alignment: .center, spacing: 0) {
+                VStack(spacing: 22) {
+                    Text("Твой ритм")
+                        .font(.system(size: min(46, box.size.width * 0.125), weight: .bold))
+                        .tracking(-1.2)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .accessibilityAddTraits(.isHeader)
                     Button {
                         if clock.current == nil { Task { await store.wave() } }
                         else { clock.toggle() }
@@ -229,10 +220,10 @@ struct NativeHome: View {
                     .buttonStyle(.plain)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding(.bottom, max(70, box.size.height * 0.16))
+                .padding(.bottom, max(24, box.size.height * 0.07))
             }
             .padding(.horizontal, 24)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             .background { HomeSparkles() }
         }
     }
