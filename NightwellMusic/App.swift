@@ -362,7 +362,7 @@ struct NativeRoot: View {
                     }
                     .accessibilityLabel("Подключение Nightwell: \(store.connectionStatus)")
                     .padding(.horizontal, 22)
-                    if store.hasRemotePlayback {
+                    if store.hasRemotePlayback && compactCollectionTitle == nil {
                         Button {
                             Task { await store.continuePlaybackHere() }
                         } label: {
@@ -468,15 +468,6 @@ struct NativeRoot: View {
             if gesture.startLocation.x < 24 && dx > 90 && abs(dy) < 60 {
                 store.screen = .home
             }
-            // Gesture fallback for iOS 17 and short lists that do not expose
-            // scroll geometry. Keep the full Nightwell title on other screens.
-            if (store.screen == .likes || store.screen == .playlists || store.screen == .offline)
-                && abs(dy) > 28 && abs(dy) > abs(dx) * 1.4 {
-                let collapsed = dy < 0
-                if collectionScrolled != collapsed {
-                    collectionScrolled = collapsed
-                }
-            }
         })
         .onChange(of: store.screen) { _ in
             collectionScrolled = false
@@ -563,7 +554,21 @@ struct NativeRoot: View {
     }
 
     private var header: some View {
-        HStack {
+        HStack(spacing: 7) {
+            if store.hasRemotePlayback && compactCollectionTitle != nil {
+                Button {
+                    Task { await store.continuePlaybackHere() }
+                } label: {
+                    Image(systemName: "iphone.and.arrow.forward")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(.white)
+                        .frame(width: 40, height: 42)
+                        .frostedGlass(20, bordered: false, intensity: 0.20)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Продолжить музыку с другого устройства")
+                .accessibilityHint("Перенести воспроизведение на этот iPhone")
+            }
             Button {
                 withAnimation(reducedMotion ? nil : .easeInOut(duration: 0.22)) {
                     store.screen = .home
