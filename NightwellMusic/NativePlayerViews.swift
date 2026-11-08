@@ -592,7 +592,7 @@ struct FullPlayer: View {
                     HStack {
                         Button { shuffle.toggle(); NativePlayer.shared.modes(repeatMode: repeatMode, shuffle: shuffle) } label: { Image(systemName: "shuffle").foregroundStyle(shuffle ? Color.white : .secondary) }; Spacer()
                         Button { NativePlayer.shared.step(-1) } label: { Image(systemName: "backward.end") }; Spacer()
-                        Button { clock.toggle() } label: { Image(systemName: clock.playing ? "pause" : "play.fill").font(.system(size: 25)).frame(width: 68, height: 68).nightwellLiquidGlass(34) }; Spacer()
+                        Button { clock.toggle() } label: { Image(systemName: clock.playing ? "pause" : "play.fill").font(.system(size: 25)).frame(width: 68, height: 68).frostedGlass(34, bordered: false, intensity: 0.20) }; Spacer()
                         Button { NativePlayer.shared.step(1) } label: { Image(systemName: "forward.end") }; Spacer()
                         Button { repeatMode = (repeatMode + 1) % 3; NativePlayer.shared.modes(repeatMode: repeatMode, shuffle: shuffle) } label: { Image(systemName: repeatMode == 2 ? "repeat.1" : "repeat").foregroundStyle(repeatMode > 0 ? Color.white : .secondary) }
                     }.font(.system(size: 20))
