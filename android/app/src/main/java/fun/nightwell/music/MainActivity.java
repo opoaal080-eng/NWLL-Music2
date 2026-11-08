@@ -319,7 +319,10 @@ public final class MainActivity extends Activity {
     TextView action(String label,Runnable run){TextView v=NativeIconButton.isIcon(label)?new NativeIconButton(this):text(label,16);v.setText(label);v.setTextColor(0xfff3f3f5);v.setTextSize(NativeIconButton.isIcon(label)?20:16);if(NativeIconButton.isIcon(label))v.setContentDescription(iconLabel(label));v.setGravity(Gravity.CENTER);v.setPadding(dp(14),dp(12),dp(14),dp(12));v.setMinHeight(dp(50));v.setOnClickListener(x->run.run());return v;}
     TextView iconButton(String label,Runnable run){TextView v=action(label,run);v.setPadding(0,0,0,0);v.setTextSize(20);v.setTextColor(0xfff1f1f6);v.setBackground(touchSurface(0xa61f232c,24));return v;}
     void toggleBackgroundOnly(){backgroundOnly=!backgroundOnly;build();}
+    private int depthQueuePage = 0;
+
     void showQueue(){
+        depthQueuePage = 0;
         boolean depth=getSharedPreferences("appearance",MODE_PRIVATE)
             .getBoolean("nw-depth-queue",false);
         if(!depth){
@@ -339,21 +342,34 @@ public final class MainActivity extends Activity {
         if(queue==null)queue=new JSONArray();
         updatePlayback();
     }
+    // Visible confirmation without interrupting the current song.
+    void depthQueueFeedback(android.view.View card,String message){
+        card.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY);
+        android.widget.Toast.makeText(this,message,android.widget.Toast.LENGTH_SHORT).show();
+        final float sx=card.getScaleX(),sy=card.getScaleY();
+        card.animate().scaleX(sx+0.045f).scaleY(sy+0.045f).setDuration(120)
+            .withEndAction(()->card.animate().scaleX(sx).scaleY(sy).setDuration(160).start()).start();
+    }
+
     void showDepthQueue(){
         int playing=playback==null?-1:playback.player.getCurrentMediaItemIndex();
         android.widget.ScrollView scroll=new android.widget.ScrollView(this);
         LinearLayout panel=column();panel.setPadding(dp(16),dp(8),dp(16),dp(16));
         scroll.addView(panel);
-        TextView intro=text("Свайп по первой обложке меняет порядок, удержание ставит песню следующей.",12);
+        TextView intro=text("Нажми на обложку, чтобы слушать сейчас. Удерживай, чтобы поставить следующей.",12);
         intro.setTextColor(0xffaeb2c1);intro.setPadding(0,0,0,dp(12));
         panel.addView(intro);
         final AlertDialog[] holder={null};
-        if(queue.length()>playing+1){
+        final int totalUpcoming=Math.max(0,queue.length()-playing-1);
+        final int pageCount=Math.max(1,(totalUpcoming+2)/3);
+        depthQueuePage=Math.min(Math.max(0,depthQueuePage),pageCount-1);
+        final int pageStart=playing+1+depthQueuePage*3;
+        if(totalUpcoming>0){
             android.widget.FrameLayout deck=new android.widget.FrameLayout(this);
             panel.addView(deck,new LinearLayout.LayoutParams(-1,dp(212)));
-            int available=Math.min(3,Math.max(0,queue.length()-playing-1));
+            int available=Math.min(3,Math.max(0,queue.length()-pageStart));
             for(int rank=available-1;rank>=0;rank--){
-                final int from=playing+1+rank;
+                final int from=pageStart+rank;
                 JSONObject track=queue.optJSONObject(from);
                 if(track==null)continue;
                 android.widget.FrameLayout card=new android.widget.FrameLayout(this);
@@ -385,9 +401,17 @@ public final class MainActivity extends Activity {
                     play(track,queue,false);
                 });
                 card.setOnLongClickListener(v->{
+                    if(from<=playing+1){
+                        depthQueueFeedback(v,"Уже следующий в очереди");
+                        return true;
+                    }
                     reorderUpcoming(from,playing+1);
-                    if(holder[0]!=null)holder[0].dismiss();
-                    ui.post(this::showQueue);
+                    depthQueueFeedback(v,"Следующий в очереди ✓");
+                    depthQueuePage=0;
+                    ui.postDelayed(()->{
+                        if(holder[0]!=null)holder[0].dismiss();
+                        showQueue();
+                    },370);
                     return true;
                 });
                 if(rank==0){
@@ -400,13 +424,16 @@ public final class MainActivity extends Activity {
                         }
                         if(event.getActionMasked()==android.view.MotionEvent.ACTION_UP){
                             float delta=event.getX()-start[0];
-                            if(Math.abs(delta)>dp(52)&&queue.length()>playing+2){
+                            if(Math.abs(delta)>dp(52)&&queue.length()>pageStart+1){
                                 v.cancelLongPress();
-                                int source=delta<0?playing+2:playing+1;
-                                int destination=delta<0?playing+1:playing+2;
+                                int source=delta<0?pageStart+1:pageStart;
+                                int destination=delta<0?pageStart:pageStart+1;
                                 reorderUpcoming(source,destination);
-                                if(holder[0]!=null)holder[0].dismiss();
-                                ui.post(this::showQueue);
+                                depthQueueFeedback(v,"Порядок обновлён");
+                                ui.postDelayed(()->{
+                                    if(holder[0]!=null)holder[0].dismiss();
+                                    showDepthQueue();
+                                },320);
                                 return true;
                             }
                         }
@@ -416,40 +443,38 @@ public final class MainActivity extends Activity {
                 }
             }
         }
-        TextView heading=sectionLabel("СЛЕДУЮЩИЕ ТРЕКИ");
-        panel.addView(heading);
-        for(int i=0;i<queue.length();i++){
-            final int from=i;
-            JSONObject track=queue.optJSONObject(i);
-            if(track==null)continue;
-            LinearLayout row=row();row.setGravity(Gravity.CENTER_VERTICAL);
-            TextView title=sheetAction((i==playing?"▶  ":"")+track.optString("title")+
-                " · "+track.optString("artist"),()->{
-                    if(holder[0]!=null)holder[0].dismiss();
-                    play(track,queue,false);
-                });
-            row.addView(title,new LinearLayout.LayoutParams(0,-2,1));
-            if(i>playing+1&&playing>=0){
-                TextView next=action("↑",()->{
-                    reorderUpcoming(from,playing+1);
-                    if(holder[0]!=null)holder[0].dismiss();
-                    ui.post(this::showQueue);
-                });
-                next.setContentDescription("Играть следующим");
-                row.addView(next,new LinearLayout.LayoutParams(dp(44),dp(48)));
-            }
-            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);
-            lp.bottomMargin=dp(5);panel.addView(row,lp);
-            row.setOnLongClickListener(v->{
-                if(from>playing+1){
-                    reorderUpcoming(from,playing+1);
-                    if(holder[0]!=null)holder[0].dismiss();
-                    ui.post(this::showQueue);
-                    return true;
-                }
-                return false;
+        // Only the 3D deck is visible in this mode; later songs are reachable by pages.
+        if(totalUpcoming>3){
+            LinearLayout pager=row();pager.setGravity(Gravity.CENTER);
+            TextView previous=action("‹",()->{
+                if(depthQueuePage==0)return;
+                depthQueuePage--;
+                if(holder[0]!=null)holder[0].dismiss();
+                ui.post(this::showDepthQueue);
             });
+            previous.setEnabled(depthQueuePage>0);
+            pager.addView(previous,new LinearLayout.LayoutParams(dp(52),dp(48)));
+            TextView counter=text((depthQueuePage*3+1)+"–"+
+                Math.min(totalUpcoming,(depthQueuePage+1)*3)+" из "+totalUpcoming,12);
+            counter.setGravity(Gravity.CENTER);counter.setTextColor(0xffbfc1ca);
+            pager.addView(counter,new LinearLayout.LayoutParams(0,dp(48),1));
+            TextView nextPage=action("›",()->{
+                if(depthQueuePage>=pageCount-1)return;
+                depthQueuePage++;
+                if(holder[0]!=null)holder[0].dismiss();
+                ui.post(this::showDepthQueue);
+            });
+            nextPage.setEnabled(depthQueuePage<pageCount-1);
+            pager.addView(nextPage,new LinearLayout.LayoutParams(dp(52),dp(48)));
+            panel.addView(pager);
+        }else if(totalUpcoming==0){
+            TextView empty=text("Следующих треков пока нет",14);
+            empty.setGravity(Gravity.CENTER);empty.setPadding(0,dp(18),0,dp(18));
+            panel.addView(empty);
         }
+        TextView guide=text("Тап: играть сейчас · удержание: следующая · свайп: порядок",12);
+        guide.setTextColor(0xffaeb2c1);guide.setGravity(Gravity.CENTER);
+        panel.addView(guide);
         AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Очередь")
             .setView(scroll).setNegativeButton("Закрыть",null).create();
         holder[0]=dialog;styleSheet(dialog);dialog.show();
