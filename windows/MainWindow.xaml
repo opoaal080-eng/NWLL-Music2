@@ -53,7 +53,7 @@
       <TextBox x:Name="SearchBox" Tag="Трек или исполнитель" TextChanged="SearchChanged" Height="46" ToolTip="Название трека или исполнитель" AutomationProperties.Name="Поиск музыки"/>
       <StackPanel Orientation="Horizontal" Margin="0,8,0,0"><Button Content="Исполнители" Click="SearchArtistsClick" Style="{StaticResource QuietButton}" Margin="0,0,8,0"/><Button Content="Плейлисты" Click="SearchPlaylistsClick" Style="{StaticResource QuietButton}" Margin="0"/></StackPanel>
      </StackPanel>
-     <Grid Grid.Row="2"><ListBox x:Name="Tracks" MouseDoubleClick="TrackDoubleClick" ScrollViewer.CanContentScroll="True" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling">
+     <Grid Grid.Row="2"><ListBox x:Name="Tracks" PreviewMouseLeftButtonUp="TrackRowClick" ScrollViewer.CanContentScroll="True" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling">
       <ListBox.ItemTemplate><DataTemplate><Grid>
        <Grid.ColumnDefinitions><ColumnDefinition Width="48"/><ColumnDefinition Width="*"/><ColumnDefinition Width="56"/><ColumnDefinition Width="44"/></Grid.ColumnDefinitions>
        <Border Width="3" Height="18" Background="#B7B7B7" CornerRadius="1.5" HorizontalAlignment="Left" Margin="-10,0,0,0">
