@@ -509,6 +509,7 @@ struct FullPlayer: View {
     @State private var scrub = 0.0
     @State private var repeatMode = 0
     @State private var shuffleMode = 0
+    @AppStorage("nw-cover-style") private var coverStyle = "immersive"
     var body: some View {
         playerFinal
     }
@@ -618,9 +619,9 @@ struct FullPlayer: View {
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
 
-                // The square artwork now fills the full device height. Its
-                // top and bottom extend 38pt beyond the visible screen,
-                // rather than ending inside the controls' layout region.
+                // Immersive style keeps the full-height artwork behind the
+                // controls. Classic style draws a rounded square in its slot.
+                if coverStyle != "classic" {
                 GeometryReader { screen in
                     let coverSide = max(screen.size.width, screen.size.height + 76)
                     NightwellAnimatedCover(
@@ -643,6 +644,7 @@ struct FullPlayer: View {
                 }
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
+                }
             } else {
                 LinearGradient(colors: [Color(white: 0.085), Color(white: 0.025), .black],
                                startPoint: .topLeading, endPoint: .bottomTrailing)
@@ -678,17 +680,27 @@ struct FullPlayer: View {
                             .background { GeometryReader { proxy in Color.clear.preference(key: PlayerLyricsFramePreference.self, value: proxy.frame(in: .global)) } }
 
                     } else {
-                        // Artwork is drawn behind the whole player. Keep
-                        // swipe-to-change-track gestures in the former area.
-                        Color.clear
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .contentShape(Rectangle())
-                            .gesture(DragGesture(minimumDistance: 18).onEnded { value in
-                                let dx = value.translation.width
-                                if abs(dx) > 52 && abs(dx) > abs(value.translation.height) * 1.15 {
-                                    NativePlayer.shared.step(dx < 0 ? 1 : -1)
-                                }
-                            })
+                        Group {
+                            if coverStyle == "classic" {
+                                let side = min(box.size.width, box.size.height) * 0.96
+                                Cover(track: clock.current, origin: store.origin, pixelWidth: 1024)
+                                    .frame(width: side, height: side)
+                                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                                    .shadow(color: .black.opacity(0.38), radius: 22, y: 12)
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            } else {
+                                // Immersive artwork is already behind controls.
+                                Color.clear
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                        .gesture(DragGesture(minimumDistance: 18).onEnded { value in
+                            let dx = value.translation.width
+                            if abs(dx) > 52 && abs(dx) > abs(value.translation.height) * 1.15 {
+                                NativePlayer.shared.step(dx < 0 ? 1 : -1)
+                            }
+                        })
                     }
                 }
     }
@@ -1094,6 +1106,7 @@ struct NativeSettings: View {
     @AppStorage("nw-ambient-lyrics") private var ambientLyrics = true
     @AppStorage("nw-ambient-animate-when-paused") private var animatePausedAmbient = true
     @AppStorage("nw-ambient-audio-sensitivity") private var ambientSensitivity = 2.5
+    @AppStorage("nw-cover-style") private var coverStyle = "immersive"
     @State private var playbackDiagnostics = "Нет данных о запуске"
     private var buildCaption: String {
         let info = Bundle.main.infoDictionary ?? [:]
@@ -1118,6 +1131,19 @@ struct NativeSettings: View {
                     VStack(alignment: .leading, spacing: 12) {
                         Label("Кастомизация", systemImage: "slider.horizontal.3")
                             .font(.system(size: 18, weight: .semibold))
+                        Text("Стиль обложки в плеере")
+                            .font(.system(size: 14, weight: .medium))
+                        Picker("Стиль обложки", selection: $coverStyle) {
+                            Text("Во весь экран").tag("immersive")
+                            Text("Классическая").tag("classic")
+                        }
+                        .pickerStyle(.segmented)
+                        .accessibilityLabel("Стиль обложки")
+                        Text(coverStyle == "classic"
+                            ? "Большая квадратная обложка с закруглёнными углами, как в классическом музыкальном плеере."
+                            : "Обложка занимает всю высоту экрана, верх и низ плавно переходят в фон.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.white.opacity(0.5))
                         Toggle("Переливание фона на паузе", isOn: $animatePausedAmbient)
                         Text("Плавный цветной градиент продолжает двигаться, даже если музыка остановлена.")
                             .font(.system(size: 12)).foregroundStyle(.white.opacity(0.5))

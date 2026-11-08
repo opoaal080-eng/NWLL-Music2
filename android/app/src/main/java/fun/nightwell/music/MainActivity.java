@@ -1533,12 +1533,25 @@ public final class MainActivity extends Activity {
         artworkCache.load(miniCover,origin,track==null?"":track.optString("cover_url"));
     }
     void addCover(JSONObject track,LinearLayout parent) {
-        // Android uses a subtly animated artwork, unlike the static Windows cover.
-        NightwellMotionCover cover=new NightwellMotionCover(this);
+        boolean classic="classic".equals(getSharedPreferences("appearance",MODE_PRIVATE)
+            .getString("nw-cover-style","immersive"));
+        // Full-screen style keeps the large moving feathered cover. Classic
+        // restores the clean rounded square, without any vertical fading.
+        android.widget.ImageView cover=classic
+            ?new android.widget.ImageView(this):new NightwellMotionCover(this);
         cover.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
         android.view.GestureDetector detector=gestures(true);
         cover.setOnTouchListener((v,event)->detector.onTouchEvent(event));
-        int edge=Math.max(280,getResources().getConfiguration().screenWidthDp+18);
+        int width=getResources().getConfiguration().screenWidthDp;
+        int edge=classic?Math.max(200,width-44):Math.max(280,width+18);
+        if(classic){
+            GradientDrawable rounded=new GradientDrawable();
+            rounded.setColor(0xff25252b);
+            rounded.setCornerRadius(dp(24));
+            cover.setBackground(rounded);
+            cover.setClipToOutline(true);
+            cover.setElevation(dp(8));
+        }
         LinearLayout.LayoutParams coverLayout=new LinearLayout.LayoutParams(dp(edge),dp(edge));
         coverLayout.gravity=Gravity.CENTER_HORIZONTAL;
         parent.addView(cover,coverLayout);
@@ -2190,6 +2203,23 @@ public final class MainActivity extends Activity {
         }
         panel.addView(sectionLabel("Перенос музыки"));
         panel.addView(sheetAction("Импорт плейлистов",this::nativeTransfer));
+        panel.addView(sectionLabel("Кастомизация"));
+        final String currentCoverStyle=getSharedPreferences("appearance",MODE_PRIVATE)
+            .getString("nw-cover-style","immersive");
+        TextView coverStyleButton=sheetAction(
+            "Стиль обложки · "+("classic".equals(currentCoverStyle)?"Классическая":"Во весь экран"),
+            ()->{});
+        coverStyleButton.setOnClickListener(view->nightwellOptions("Стиль обложки",
+            new String[]{"Во весь экран · плавные края","Классическая · скруглённый квадрат"},
+            option->{
+                String style=option==1?"classic":"immersive";
+                getSharedPreferences("appearance",MODE_PRIVATE).edit()
+                    .putString("nw-cover-style",style).apply();
+                coverStyleButton.setText("Стиль обложки · "+
+                    (option==1?"Классическая":"Во весь экран"));
+                if(full)ui.post(()->openPlayer());
+            }));
+        panel.addView(coverStyleButton);
         panel.addView(sectionLabel("Оформление"));
         panel.addView(sheetAction("Темы и ленты · Premium",()->feature("appearance")));
         panel.addView(sectionLabel("Воспроизведение"));
