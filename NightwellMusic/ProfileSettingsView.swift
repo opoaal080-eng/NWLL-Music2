@@ -18,7 +18,12 @@ extension MusicStore {
             if let path = details.avatar_url,
                let url = URL(string: path, relativeTo: origin)?.absoluteURL,
                url.scheme == "https", url.host == origin.host {
-                let (data,response) = try await URLSession.shared.data(from: url)
+                // Avatar URLs are public and previously had a five-minute cache TTL.
+                // Always revalidate after changing a photo, even against older servers.
+                var request = URLRequest(url: url)
+                request.cachePolicy = .reloadIgnoringLocalCacheData
+                request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+                let (data,response) = try await URLSession.shared.data(for: request)
                 if let r = response as? HTTPURLResponse, r.statusCode == 200,
                    data.count <= 768*1024, let image=UIImage(data:data) {
                     profileAvatar = image
@@ -42,10 +47,16 @@ extension MusicStore {
         guard let compressed, compressed.count <= 768*1024 else {
             throw NSError(domain:"Nightwell",code:413,userInfo:[NSLocalizedDescriptionKey:"Фото слишком большое"])
         }
+        let owner = account?.id
         let _: NightwellProfile = try await api.request(
             "/api/profile/avatar", method:"POST",
             body:["mime":"image/jpeg","avatar_base64":compressed.base64EncodedString()])
+        guard owner == account?.id else { return }
+        // Update immediately from the pixels we just uploaded, even if an old
+        // reverse proxy temporarily serves a stale image for the same URL.
+        profileAvatar = UIImage(data: compressed)
         await refreshProfile()
+        profileAvatar = UIImage(data: compressed)
     }
 }
 
@@ -103,9 +114,15 @@ struct ProfileSettingsView: View {
         .background(.white.opacity(0.035),in:RoundedRectangle(cornerRadius:24))
         .task { await store.refreshProfile();nickname=store.profileNickname }
         .onChange(of:selectedPhoto) { next in
-            guard let next else { return }
+            guard let next, !busy else { return }
             busy=true
             Task {
+                defer {
+                    busy=false
+                    // Reset the system picker selection. Without this, picking
+                    // the exact same photo a second time produces no change.
+                    selectedPhoto=nil
+                }
                 do {
                     guard let data=try await next.loadTransferable(type:Data.self) else {
                         throw NSError(domain:"Nightwell",code:400,userInfo:[NSLocalizedDescriptionKey:"Фото не открылось"])
@@ -113,7 +130,6 @@ struct ProfileSettingsView: View {
                     try await store.saveProfileAvatar(data)
                     notice="Аватар обновлён"
                 } catch { notice="Не удалось обновить аватар: "+error.localizedDescription }
-                busy=false
             }
         }
     }
