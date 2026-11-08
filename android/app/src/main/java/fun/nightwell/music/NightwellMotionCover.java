@@ -13,14 +13,14 @@ import android.graphics.Shader;
 import android.os.Build;
 import android.view.View;
 import android.view.animation.AccelerateDecelerateInterpolator;
-import androidx.appcompat.widget.AppCompatImageView;
+import android.widget.ImageView;
 
 /**
  * Lightweight Ken Burns artwork motion, without fetching video or decoding
  * frames. The vertical alpha falloff blends the cover into the player.
  * Animations are disposed when the view is detached.
  */
-public final class NightwellMotionCover extends AppCompatImageView {
+public final class NightwellMotionCover extends ImageView {
     private final Paint fadeMask=new Paint(Paint.ANTI_ALIAS_FLAG);
     private AnimatorSet motion;
 
