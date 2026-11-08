@@ -275,6 +275,28 @@ private struct CollectionScrollOffsetKey: PreferenceKey {
     }
 }
 
+private struct NightwellLibraryScrollTracker: ViewModifier {
+    @Binding var collapsed: Bool
+
+    // iOS 18+: read the real UIScrollView geometry. A zero-height
+    // GeometryReader/PreferenceKey alone can stay at 0 on recent SwiftUI.
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.onScrollGeometryChange(for: Bool.self) { geometry in
+                let offset = geometry.contentOffset.y + geometry.contentInsets.top
+                return offset > 38
+            } action: { _, next in
+                if collapsed != next { collapsed = next }
+            }
+        } else {
+            content.onPreferenceChange(CollectionScrollOffsetKey.self) { value in
+                let next = value < -38
+                if collapsed != next { collapsed = next }
+            }
+        }
+    }
+}
+
 struct NativeRoot: View {
     @EnvironmentObject var store: MusicStore
     @State private var feature: PremiumFeatureView.Kind?
@@ -432,8 +454,21 @@ struct NativeRoot: View {
             #endif
         }
         .animation(reducedMotion ? nil : .easeInOut(duration: 0.22), value: store.screen)
-        .simultaneousGesture(DragGesture(minimumDistance: 35).onEnded { gesture in
-            if gesture.startLocation.x < 24 && gesture.translation.width > 90 && abs(gesture.translation.height) < 60 { store.screen = .home }
+        .simultaneousGesture(DragGesture(minimumDistance: 24).onEnded { gesture in
+            let dx = gesture.translation.width
+            let dy = gesture.translation.height
+            if gesture.startLocation.x < 24 && dx > 90 && abs(dy) < 60 {
+                store.screen = .home
+            }
+            // Gesture fallback for iOS 17 and short lists that do not expose
+            // scroll geometry. Keep the full Nightwell title on other screens.
+            if (store.screen == .likes || store.screen == .playlists)
+                && abs(dy) > 28 && abs(dy) > abs(dx) * 1.4 {
+                let collapsed = dy < 0
+                if collectionScrolled != collapsed {
+                    collectionScrolled = collapsed
+                }
+            }
         })
         .onChange(of: store.screen) { _ in
             collectionScrolled = false
@@ -649,7 +684,7 @@ struct NativeRoot: View {
                 .padding(.horizontal, 20)
             }
             .coordinateSpace(name: "nightwell-library-scroll")
-            .onPreferenceChange(CollectionScrollOffsetKey.self, perform: updateCollectionScroll)
+            .modifier(NightwellLibraryScrollTracker(collapsed: $collectionScrolled))
             .scrollDismissesKeyboard(.interactively)
         case .playlists:
             ScrollView {
@@ -702,7 +737,7 @@ struct NativeRoot: View {
                 .padding(.horizontal, 20)
             }
             .coordinateSpace(name: "nightwell-library-scroll")
-            .onPreferenceChange(CollectionScrollOffsetKey.self, perform: updateCollectionScroll)
+            .modifier(NightwellLibraryScrollTracker(collapsed: $collectionScrolled))
             .scrollDismissesKeyboard(.interactively)
         case .offline:
             VStack(alignment: .leading, spacing: 16) {
