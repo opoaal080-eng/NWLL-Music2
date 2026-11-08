@@ -150,7 +150,7 @@ struct NativeHome: View {
                             .font(.system(size: 31, weight: .light))
                             .foregroundStyle(Color.white)
                             .frame(width: 88, height: 88)
-                            .nightwellLiquidGlass(44)
+                            .frostedGlass(44, bordered: false, intensity: 0.20)
                             .contentShape(Circle())
                     }
                     .accessibilityLabel(clock.playing ? "Пауза" : "Воспроизвести")
