@@ -132,7 +132,7 @@ final class NativePlayer {
                 reason: "Следующий трек загружается слишком долго.")
         }
         pendingNextTimeout = deadline
-        DispatchQueue.main.asyncAfter(deadline: .now() + 20, execute: deadline)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8, execute: deadline)
         publish()
     }
 
@@ -272,11 +272,11 @@ final class NativePlayer {
         startupTimeout?.cancel()
         let check = DispatchWorkItem { [weak self] in
             guard let self, self.itemGeneration == generation, self.wantsPlay,
-                  self.audibleAfterSeconds == nil || !self.audible else { return }
+                  (self.waitingForReady || !self.audible) else { return }
             self.playbackFailed(URLError(.timedOut), generation: generation)
         }
         startupTimeout = check
-        DispatchQueue.main.asyncAfter(deadline: .now() + 20, execute: check)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10, execute: check)
     }
     private var backgroundHandoffTask: UIBackgroundTaskIdentifier = .invalid
     private let recovery = PlaybackRecovery()
@@ -320,6 +320,11 @@ final class NativePlayer {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 if player.timeControlStatus == .playing {
+                    // Start with a small forward buffer, then restore the user's
+                    // full jitter-resistance preference after audio begins.
+                    if self.current?.offline != true, let item = player.currentItem {
+                        item.preferredForwardBufferDuration = self.streamBufferSeconds
+                    }
                     self.endBackgroundHandoff()
                     if !self.waitingForReady {
                         // A playable next item resets the bounded failure chain.
@@ -493,7 +498,7 @@ final class NativePlayer {
             nextAssetWarmup = Task(priority: .utility) { let _ = try? await asset.load(.isPlayable) }
         } else if wantsPlay {
             nextAssetWarmup = Task(priority: .utility) {
-                do { try await Task.sleep(nanoseconds: 2_000_000_000) } catch { return }
+                do { try await Task.sleep(nanoseconds: 1_000_000_000) } catch { return }
                 guard !Task.isCancelled else { return }
                 let _ = try? await asset.load(.isPlayable)
             }
@@ -562,7 +567,7 @@ final class NativePlayer {
         let item = AVPlayerItem(asset: asset)
         // Give remote streams enough audio ahead to absorb network jitter.
         // Locally downloaded tracks do not need forward network buffering.
-        item.preferredForwardBufferDuration = saved == nil ? streamBufferSeconds : 0
+        item.preferredForwardBufferDuration = saved == nil ? min(1.5, streamBufferSeconds) : 0
         // Respect AVPlayer's buffering decisions rather than forcing playback
         // immediately with too little media in the buffer.
         // Keep the old processing tap alive until the old AVPlayerItem
@@ -719,7 +724,8 @@ final class NativePlayer {
         streamBufferSeconds = min(12, max(0, value))
         UserDefaults.standard.set(streamBufferSeconds, forKey: "nw-stream-buffer-seconds")
         if let item = player.currentItem, current?.offline != true {
-            item.preferredForwardBufferDuration = streamBufferSeconds
+            item.preferredForwardBufferDuration = player.timeControlStatus == .playing
+                ? streamBufferSeconds : min(1.5, streamBufferSeconds)
         }
     }
     func stop() {
