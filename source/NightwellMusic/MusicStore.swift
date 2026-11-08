@@ -1223,7 +1223,7 @@ private struct AudioQualityDecision: Decodable {
             }
             await playSeededRhythm(seeds: songs, startWithSeed: nil)
         } catch {
-            error = "Не получилось прочитать плейлист: " + error.localizedDescription
+            self.error = "Не получилось прочитать плейлист: " + error.localizedDescription
         }
     }
 
@@ -1236,8 +1236,13 @@ private struct AudioQualityDecision: Decodable {
         let owner = account?.id
         let blocked = blockedArtists
         let hidden = hiddenRecommendationIDs
-        let songs = catalog + results + offline + favoriteTrackDetails
-            + indexedPlaylistTracks + lastWave + clock.queue
+        var songs = catalog
+        songs.append(contentsOf: results)
+        songs.append(contentsOf: offline)
+        songs.append(contentsOf: favoriteTrackDetails)
+        songs.append(contentsOf: indexedPlaylistTracks)
+        songs.append(contentsOf: lastWave)
+        songs.append(contentsOf: clock.queue)
         let preferenceArtists = NightwellSeededRhythm.artists(seeds)
         let seedCopy = Array(seeds.prefix(400))
         func rank(_ pool: [Track]) async -> [Track] {
@@ -1254,7 +1259,9 @@ private struct AudioQualityDecision: Decodable {
             var query = URLComponents()
             query.path = "/api/wave"
             let settings = WaveSettings.read(origin, owner ?? "device")
-            let skip = Array(Set(seedCopy.prefix(100).map(\.id) + picked.prefix(70).map(\.id)))
+            let seedIDs: [String] = seedCopy.prefix(100).map { $0.id }
+            let candidateIDs: [String] = picked.prefix(70).map { $0.id }
+            let skip = Array(Set(seedIDs + candidateIDs))
             query.queryItems = [
                 URLQueryItem(name: "exclude", value: skip.joined(separator: ",")),
                 URLQueryItem(name: "artists", value: preferenceArtists.joined(separator: ","))
