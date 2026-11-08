@@ -57,12 +57,15 @@ extension MusicStore {
         guard let userID = account?.id else {
             profileNickname = ""
             profileAvatar = nil
+            profileLoadError = "Войди в аккаунт, чтобы загрузить сохранённый профиль."
             return
         }
+        profileLoadError = nil
         let server = origin
         do {
             let details: NightwellProfile = try await api.request("/api/profile/me")
             guard account?.id == userID, origin == server else { return }
+            profileLoadError = nil
             profileNickname = details.nickname
             UserDefaults.standard.set(details.nickname,
                 forKey: cachedNicknameKey(userID: userID, server: server))
@@ -70,6 +73,7 @@ extension MusicStore {
                   let url = URL(string: path, relativeTo: server)?.absoluteURL,
                   url.scheme == "https", url.host == server.host else {
                 profileAvatar = nil
+                profileLoadError = "На сервере пока нет аватарки для этого аккаунта."
                 try? FileManager.default.removeItem(
                     at: profileCachePath(userID: userID, server: server))
                 return
@@ -86,9 +90,12 @@ extension MusicStore {
                   !data.isEmpty, data.count <= 768 * 1024,
                   let image = UIImage(data: data) else { return }
             profileAvatar = image
+            profileLoadError = nil
             cacheAvatar(data, userID: userID, server: server)
         } catch {
-            // Offline startup: show the last cached avatar until the next refresh.
+            // Keep the last local image and report why a fresh install could
+            // not restore the avatar from the server.
+            profileLoadError = "Не удалось загрузить профиль: " + error.localizedDescription
         }
     }
 
@@ -166,6 +173,12 @@ struct ProfileSettingsView: View {
                 PhotosPicker(selection:$selectedPhoto, matching:.images) {
                     Text("Изменить аватар").font(.system(size:15))
                 }.disabled(busy)
+            }
+            if let profileError = store.profileLoadError {
+                Text(profileError).font(.caption).foregroundStyle(.secondary)
+                Button("Повторить загрузку профиля") {
+                    Task { await store.refreshProfile(); nickname = store.profileNickname }
+                }.font(.system(size: 13, weight: .medium))
             }
             TextField("Ник, от 2 до 32 символов",text:$nickname)
                 .textInputAutocapitalization(.never)
