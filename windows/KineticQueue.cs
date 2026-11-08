@@ -52,23 +52,76 @@ public partial class MainWindow {
   var deck=new Grid{Height=248,ClipToBounds=false};
   content.Children.Add(deck);
   var list=new ListBox{ItemsSource=queue,ItemTemplate=Tracks.ItemTemplate,Height=205,
-   AllowDrop=true};
-  var controlHint=new TextBlock{Text="Двойной щелчок: воспроизвести · правая кнопка: играть следующим",
+   AllowDrop=true,Visibility=Visibility.Collapsed};
+  var controlHint=new TextBlock{Text="Нажатие: играть сейчас · удержание или правая кнопка: следующая · свайп: порядок",
    Foreground=(Brush)FindResource("SecondaryBrush"),FontSize=12,
    TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,6,0,10)};
   content.Children.Add(controlHint);
   content.Children.Add(list);
+  // The ordinary ListBox is deliberately hidden while the album deck is enabled.
+  int deckPage=0;
+  string highlightedID="";
+  var feedback=new TextBlock{
+   Text="",FontSize=13,FontWeight=FontWeights.SemiBold,
+   Foreground=Brushes.White,TextAlignment=TextAlignment.Center,
+   Margin=new Thickness(0,5,0,8),Visibility=Visibility.Collapsed
+  };
+  content.Children.Add(feedback);
+  var pager=new StackPanel{Orientation=Orientation.Horizontal,
+   HorizontalAlignment=HorizontalAlignment.Center,Margin=new Thickness(0,4,0,2)};
+  var previousPage=new Button{Content="‹",Width=48,Height=38,Margin=new Thickness(4)};
+  var pageCounter=new TextBlock{Foreground=(Brush)FindResource("SecondaryBrush"),
+   VerticalAlignment=VerticalAlignment.Center,TextAlignment=TextAlignment.Center,
+   Width=110,FontSize=12};
+  var nextPage=new Button{Content="›",Width=48,Height=38,Margin=new Thickness(4)};
+  pager.Children.Add(previousPage);pager.Children.Add(pageCounter);pager.Children.Add(nextPage);
+  content.Children.Add(pager);
   var window=Sheet("Очередь",panel,600,show);
+  var noticeTimer=new DispatcherTimer{Interval=TimeSpan.FromMilliseconds(1550)};
+  noticeTimer.Tick+=(_,_)=>{
+   noticeTimer.Stop();feedback.Visibility=Visibility.Collapsed;highlightedID="";
+   Redraw();
+  };
+  void ShowFeedback(string message,string trackID=""){
+   noticeTimer.Stop();
+   highlightedID=trackID;feedback.Text=message;
+   feedback.Visibility=Visibility.Visible;
+   feedback.Opacity=0;
+   feedback.BeginAnimation(UIElement.OpacityProperty,
+    new System.Windows.Media.Animation.DoubleAnimation(0,1,TimeSpan.FromMilliseconds(170)));
+   noticeTimer.Start();
+  }
+  previousPage.Click+=(_,_)=>{deckPage=Math.Max(0,deckPage-1);Redraw();};
+  nextPage.Click+=(_,_)=>{deckPage++;Redraw();};
+  void MoveNext(int from,string trackID){
+   if(roomCode.Length>0){ShowFeedback("Недоступно при совместном прослушивании");return;}
+   if(from==index+1){ShowFeedback("Уже следующий в очереди",trackID);return;}
+   if(from<=index+1||from>=queue.Count)return;
+   MoveUpcomingQueueTrack(from,index+1);
+   deckPage=0;
+   ShowFeedback("Следующий в очереди ✓",trackID);
+   Redraw();
+  }
   void Redraw(){
    deck.Children.Clear();
-   int count=Math.Min(3,Math.Max(0,queue.Count-index-1));
+   int total=Math.Max(0,queue.Count-index-1);
+   int totalPages=Math.Max(1,(total+2)/3);
+   deckPage=Math.Clamp(deckPage,0,totalPages-1);
+   int pageStart=index+1+deckPage*3;
+   pager.Visibility=total>3?Visibility.Visible:Visibility.Collapsed;
+   previousPage.IsEnabled=deckPage>0;
+   nextPage.IsEnabled=deckPage<totalPages-1;
+   pageCounter.Text=$"{Math.Min(total,deckPage*3+1)}–{Math.Min(total,(deckPage+1)*3)} из {total}";
+   int count=Math.Min(3,Math.Max(0,queue.Count-pageStart));
    for(int rank=count-1;rank>=0;rank--){
-    int from=index+1+rank;
+    int from=pageStart+rank;
     var song=queue[from];
     var frame=new Border{
      Width=245,Height=210,Background=new SolidColorBrush(Color.FromRgb(22,22,27)),
-     CornerRadius=new CornerRadius(19),BorderThickness=new Thickness(1),
-     BorderBrush=new SolidColorBrush(Color.FromRgb(65,65,70)),
+     CornerRadius=new CornerRadius(19),
+     BorderThickness=new Thickness(highlightedID==song.id?2.5:1),
+     BorderBrush=new SolidColorBrush(highlightedID==song.id
+      ?Color.FromRgb(241,241,255):Color.FromRgb(65,65,70)),
      HorizontalAlignment=HorizontalAlignment.Center,
      VerticalAlignment=VerticalAlignment.Center,
      RenderTransform=new TransformGroup{Children={
@@ -100,10 +153,11 @@ public partial class MainWindow {
     bool held=false;Point down=default;
     longPress.Tick+=(_,_)=>{
       longPress.Stop();held=true;
-      if(rank>0){
-       MoveUpcomingQueueTrack(from,index+1);
-       list.ItemsSource=null;list.ItemsSource=queue;Redraw();
-      }
+      MoveNext(from,song.id);
+    };
+    frame.MouseRightButtonUp+=(_,e)=>{
+      e.Handled=true;
+      MoveNext(from,song.id);
     };
     frame.MouseLeftButtonDown+=(_,e)=>{
       down=e.GetPosition(frame);held=false;longPress.Start();
@@ -112,10 +166,14 @@ public partial class MainWindow {
     frame.MouseLeftButtonUp+=async(_,e)=>{
       longPress.Stop();if(held)return;
       var delta=e.GetPosition(frame).X-down.X;
-      if(rank==0&&Math.Abs(delta)>48&&queue.Count>index+2){
-       MoveUpcomingQueueTrack(index+1,index+2);
-       list.ItemsSource=null;list.ItemsSource=queue;Redraw();
-      }else if(Math.Abs(delta)<=48&&e.ClickCount==2){
+      if(rank==0&&Math.Abs(delta)>48&&queue.Count>from+1){
+       int source=delta<0?from+1:from;
+       int target=delta<0?from:from+1;
+       MoveUpcomingQueueTrack(source,target);
+       ShowFeedback("Порядок обновлён",song.id);
+       Redraw();
+      }else if(Math.Abs(delta)<=48){
+       // One normal click plays immediately; a completed hold never falls through.
        if(roomCode.Length>0)await Guard(()=>RoomCommand("track",song.id));
        else{index=queue.IndexOf(song);PlayCurrent();}
        window.Close();
