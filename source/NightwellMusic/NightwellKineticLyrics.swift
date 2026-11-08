@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Timing is line-based for legacy LRC lyrics. Word emphasis is interpolated
 /// across each line, and therefore never claims word-level source timing.
@@ -51,21 +52,67 @@ struct NightwellKineticLyricLine: View {
     }
 }
 
-/// Static album images, no extra video or audio rendering.
+/// Album covers in a 3D stack. The ordinary list is a separate display mode.
 struct NightwellQueueDeck: View {
     let queue: [Track]
     let currentIndex: Int
     let origin: URL
 
-    private var upcoming: [Track] {
-        Array(queue.dropFirst(max(0, currentIndex + 1)).prefix(3))
+    @State private var page = 0
+    @State private var notice: String?
+    @State private var highlightedID: String?
+    @State private var noticeRevision = 0
+
+    private var firstUpcoming: Int { max(0, currentIndex + 1) }
+    private var totalUpcoming: Int { max(0, queue.count - firstUpcoming) }
+    private var pageCount: Int { max(1, (totalUpcoming + 2) / 3) }
+    private var safePage: Int { min(page, pageCount - 1) }
+    private var pageStart: Int { firstUpcoming + safePage * 3 }
+    private var upcoming: [(offset: Int, element: Track)] {
+        Array(queue.enumerated().dropFirst(pageStart).prefix(3))
+    }
+
+    private func feedback(_ message: String, for id: String?, success: Bool = true) {
+        noticeRevision += 1
+        let ticket = noticeRevision
+        withAnimation(.spring(response: 0.24, dampingFraction: 0.7)) {
+            highlightedID = id
+            notice = message
+        }
+        if success {
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+        } else {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.45) {
+            guard ticket == noticeRevision else { return }
+            withAnimation(.easeOut(duration: 0.22)) {
+                notice = nil
+                highlightedID = nil
+            }
+        }
+    }
+
+    private func playNow(at index: Int, track: Track) {
+        NativePlayer.shared.playQueueTrackNow(at: index)
+        feedback("Воспроизводим сейчас", for: track.id)
+    }
+
+    private func queueNext(at index: Int, track: Track) {
+        guard index > currentIndex + 1 else {
+            feedback("Уже следующий в очереди", for: track.id, success: false)
+            return
+        }
+        NativePlayer.shared.playNextFromQueue(at: index)
+        page = 0
+        feedback("Следующий в очереди ✓", for: track.id)
     }
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 12) {
             ZStack {
-                ForEach(Array(upcoming.enumerated()).reversed(), id: \.offset) { item in
-                    let rank = item.offset
+                ForEach(Array(upcoming.reversed()), id: \.offset) { item in
+                    let rank = item.offset - pageStart
                     let track = item.element
                     VStack(spacing: 0) {
                         Cover(track: track, origin: origin, pixelWidth: 520)
@@ -74,7 +121,8 @@ struct NightwellQueueDeck: View {
                             .clipped()
                         VStack(alignment: .leading, spacing: 3) {
                             Text(track.title).font(.system(size: 13, weight: .bold)).lineLimit(1)
-                            Text(track.artist).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                            Text(track.artist).font(.system(size: 11))
+                                .foregroundStyle(.secondary).lineLimit(1)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 12).padding(.vertical, 8)
@@ -82,31 +130,85 @@ struct NightwellQueueDeck: View {
                     .frame(width: 222, height: 202)
                     .background(.black, in: RoundedRectangle(cornerRadius: 19))
                     .clipShape(RoundedRectangle(cornerRadius: 19))
-                    .overlay(RoundedRectangle(cornerRadius: 19).stroke(.white.opacity(0.15)))
-                    .shadow(color: .black.opacity(0.45), radius: 14, y: 8)
-                    .scaleEffect(1 - CGFloat(rank) * 0.065)
-                    .rotation3DEffect(.degrees(Double(rank) * -5), axis: (x: 0, y: 1, z: 0))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 19)
+                            .stroke(highlightedID == track.id ? Color.white : .white.opacity(0.15),
+                                    lineWidth: highlightedID == track.id ? 2.5 : 1)
+                    )
+                    .shadow(color: highlightedID == track.id ? .white.opacity(0.22) : .black.opacity(0.45),
+                            radius: highlightedID == track.id ? 20 : 14, y: 8)
+                    .scaleEffect((1 - CGFloat(rank) * 0.065) *
+                                 (highlightedID == track.id ? 1.055 : 1))
+                    .rotation3DEffect(.degrees(Double(rank) * -5),
+                                      axis: (x: 0, y: 1, z: 0))
                     .offset(x: CGFloat(rank) * 13, y: CGFloat(rank) * 16)
                     .zIndex(Double(3 - rank))
-                    .onLongPressGesture {
-                        NativePlayer.shared.playNextFromQueue(at: currentIndex + 1 + rank)
-                    }
-                    .gesture(DragGesture(minimumDistance: 24).onEnded { value in
-                        guard rank == 0, upcoming.count > 1 else { return }
-                        let next = currentIndex + 1
-                        if value.translation.width < -55 {
-                            NativePlayer.shared.moveUpcomingTrack(from: next + 1, to: next)
-                        } else if value.translation.width > 55 {
-                            NativePlayer.shared.moveUpcomingTrack(from: next, to: next + 1)
+                    .contentShape(RoundedRectangle(cornerRadius: 19))
+                    // Exclusive recognition prevents a completed hold from also playing.
+                    .gesture(
+                        LongPressGesture(minimumDuration: 0.55)
+                            .exclusively(before: TapGesture())
+                            .onEnded { result in
+                                switch result {
+                                case .first(true): queueNext(at: item.offset, track: track)
+                                case .second: playNow(at: item.offset, track: track)
+                                default: break
+                                }
+                            }
+                    )
+                    .simultaneousGesture(
+                        DragGesture(minimumDistance: 24).onEnded { value in
+                            guard rank == 0, upcoming.count > 1 else { return }
+                            if value.translation.width < -55 {
+                                NativePlayer.shared.moveUpcomingTrack(from: item.offset + 1,
+                                                                     to: item.offset)
+                                feedback("Порядок обновлён", for: track.id)
+                            } else if value.translation.width > 55 {
+                                NativePlayer.shared.moveUpcomingTrack(from: item.offset,
+                                                                     to: item.offset + 1)
+                                feedback("Порядок обновлён", for: track.id)
+                            }
                         }
-                    })
+                    )
+                    .accessibilityLabel("\(track.title), \(track.artist)")
+                    .accessibilityHint("Нажми, чтобы воспроизвести. Удерживай, чтобы поставить следующей.")
                 }
             }
             .frame(height: 235)
-            Text("Свайп по первой обложке меняет порядок · удержание ставит следующей")
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+
+            if totalUpcoming > 3 {
+                HStack(spacing: 16) {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) { page = max(0, safePage - 1) }
+                    } label: {
+                        Image(systemName: "chevron.left").frame(width: 44, height: 36)
+                    }
+                    .disabled(safePage == 0)
+                    Text("\(safePage * 3 + 1)–\(min(totalUpcoming, (safePage + 1) * 3)) из \(totalUpcoming)")
+                        .font(.system(size: 11, weight: .medium))
+                        .monospacedDigit()
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) { page = min(pageCount - 1, safePage + 1) }
+                    } label: {
+                        Image(systemName: "chevron.right").frame(width: 44, height: 36)
+                    }
+                    .disabled(safePage >= pageCount - 1)
+                }
+                .foregroundStyle(.white)
+            }
+
+            if let notice {
+                Text(notice)
+                    .font(.system(size: 12, weight: .semibold))
+                    .padding(.horizontal, 16).padding(.vertical, 9)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .transition(.scale(scale: 0.9).combined(with: .opacity))
+            } else {
+                Text("Тап: играть сейчас · удержание: следующая · свайп: порядок")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
         }
         .accessibilityElement(children: .contain)
     }
