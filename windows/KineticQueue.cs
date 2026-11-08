@@ -27,13 +27,13 @@ public partial class MainWindow {
 
  EmbeddedSheet QueueWithDepthSetting(bool show=true){
   var panel=new StackPanel();
-  panel.Children.Add(Label("Очередь воспроизведения"));
-  panel.Children.Add(new TextBlock{
-   Text=depthQueue?"Объёмная очередь · листай все треки":$"{queue.Count} треков",
-   Foreground=(Brush)FindResource("SecondaryBrush"),
-   TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,0,0,16)
-  });
   if(!depthQueue){
+   panel.Children.Add(Label("Очередь воспроизведения"));
+   panel.Children.Add(new TextBlock{
+    Text=$"{queue.Count} треков",
+    Foreground=(Brush)FindResource("SecondaryBrush"),
+    Margin=new Thickness(0,0,0,16)
+   });
    var regular=new ListBox{ItemsSource=queue,ItemTemplate=Tracks.ItemTemplate,Height=400};
    panel.Children.Add(regular);
    var normal=Sheet("Очередь",panel,570,show);
@@ -46,12 +46,43 @@ public partial class MainWindow {
    return normal;
   }
 
-  // No regular list is constructed in depth mode. The parent Sheet already
-  // scrolls, so nesting another ScrollViewer would clip the covers and footer.
+  var header=new Grid{Margin=new Thickness(4,4,4,20)};
+  header.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});
+  header.ColumnDefinitions.Add(new ColumnDefinition{Width=GridLength.Auto});
+  var titles=new StackPanel();
+  titles.Children.Add(new TextBlock{
+   Text="Т В О Я   М У З Ы К А",FontSize=10,FontWeight=FontWeights.SemiBold,
+   Foreground=(Brush)FindResource("SecondaryBrush"),Margin=new Thickness(0,0,0,7)
+  });
+  titles.Children.Add(new TextBlock{
+   Text="Очередь",FontSize=29,FontWeight=FontWeights.Bold,Foreground=Brushes.White
+  });
+  header.Children.Add(titles);
+  var badge=new Border{
+   CornerRadius=new CornerRadius(28),Width=56,Height=56,
+   Background=new SolidColorBrush(Color.FromArgb(190,49,49,55)),
+   BorderThickness=new Thickness(1),
+   BorderBrush=new SolidColorBrush(Color.FromArgb(70,255,255,255)),
+   Child=new TextBlock{Text=queue.Count.ToString(),FontSize=17,
+    VerticalAlignment=VerticalAlignment.Center,
+    HorizontalAlignment=HorizontalAlignment.Center,Foreground=Brushes.White}
+  };
+  Grid.SetColumn(badge,1);header.Children.Add(badge);
+  panel.Children.Add(header);
+
+  // A single glass surface prevents nested scrolling and clipped labels.
   var content=new StackPanel{HorizontalAlignment=HorizontalAlignment.Stretch};
-  panel.Children.Add(content);
+  var glass=new Border{
+   Background=new LinearGradientBrush(
+    Color.FromRgb(46,46,50),Color.FromRgb(27,27,31),65),
+   BorderThickness=new Thickness(1),
+   BorderBrush=new SolidColorBrush(Color.FromArgb(70,255,255,255)),
+   CornerRadius=new CornerRadius(28),Padding=new Thickness(12,20,12,24),
+   Child=content
+  };
+  panel.Children.Add(glass);
   var deck=new Grid{
-   Width=360,Height=316,HorizontalAlignment=HorizontalAlignment.Center,
+   Width=360,Height=334,HorizontalAlignment=HorizontalAlignment.Center,
    ClipToBounds=false,IsManipulationEnabled=true
   };
   content.Children.Add(deck);
@@ -61,7 +92,6 @@ public partial class MainWindow {
    TextWrapping=TextWrapping.Wrap,TextAlignment=TextAlignment.Center,
    Margin=new Thickness(0,10,0,8)
   };
-  content.Children.Add(hint);
   var feedback=new TextBlock{
    FontSize=13,FontWeight=FontWeights.SemiBold,Foreground=Brushes.White,
    TextAlignment=TextAlignment.Center,Margin=new Thickness(0,6,0,7),
@@ -77,8 +107,9 @@ public partial class MainWindow {
   var next=new Button{Content="›",Width=48,Height=40,Margin=new Thickness(4),FontSize=20,Padding=new Thickness(0)};
   pager.Children.Add(previous);pager.Children.Add(position);pager.Children.Add(next);
   content.Children.Add(pager);
+  content.Children.Add(hint);
 
-  var window=Sheet("Очередь",panel,670,show);
+  var window=Sheet("Очередь",panel,690,show);
   var artworkTasks=new Dictionary<string,Task<BitmapSource?>>(StringComparer.Ordinal);
   bool closed=false;
   window.Closed+=(_,_)=>closed=true;
@@ -196,7 +227,7 @@ public partial class MainWindow {
     var song=queue[from];
 
     var frame=new Border{
-     Width=250,Height=250,CornerRadius=new CornerRadius(21),
+     Width=260,Height=278,CornerRadius=new CornerRadius(22),
      BorderThickness=new Thickness(highlightedID==song.id?2:1),
      BorderBrush=new SolidColorBrush(highlightedID==song.id
       ?Color.FromRgb(239,239,255):Color.FromRgb(88,88,103)),
@@ -249,11 +280,11 @@ public partial class MainWindow {
     labels.Children.Add(new TextBlock{
      Text=song.title,TextTrimming=TextTrimming.CharacterEllipsis,
      TextWrapping=TextWrapping.NoWrap,FontWeight=FontWeights.SemiBold,
-     Foreground=Brushes.White,FontSize=13,ToolTip=song.title
+     Foreground=Brushes.White,FontSize=16,ToolTip=song.title
     });
     labels.Children.Add(new TextBlock{
      Text=song.artist,TextTrimming=TextTrimming.CharacterEllipsis,
-     TextWrapping=TextWrapping.NoWrap,FontSize=11,
+     TextWrapping=TextWrapping.NoWrap,FontSize=12,
      Foreground=new SolidColorBrush(Color.FromRgb(203,203,215)),
      Margin=new Thickness(0,4,0,0),ToolTip=song.artist
     });
