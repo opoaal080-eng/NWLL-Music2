@@ -368,4 +368,12 @@ def install(app,identity,csrf,path):
         if changed:jobs.launch(save(key,user,request))
         return view(jobs.get(key,user))
     app.state.music_import_jobs=jobs
+    # The clip lookup is small and optional: it never proxies video and never
+    # reintroduces CPU-heavy server-side playlist matching.
+    try:
+        from music_videos import install as install_music_videos
+    except ImportError:
+        pass
+    else:
+        install_music_videos(app, identity)
     return jobs
