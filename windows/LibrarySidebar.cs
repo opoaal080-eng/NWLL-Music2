@@ -33,6 +33,8 @@ public partial class MainWindow {
    var response=await api.Request("api/playlists/"+Uri.EscapeDataString(p.id)+"/tracks");
    if(screen!="Плейлисты"||playlist!=p.id)return;
    shown=ParseTracks(response);
+   ownedPlaylistCache[p.id]=shown.ToList();
+   SaveOwnedPlaylistCache(p.id,shown);
    Tracks.ItemsSource=shown;
    Status.Text="";
   });

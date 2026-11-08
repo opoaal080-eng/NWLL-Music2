@@ -19,7 +19,7 @@ public sealed class NativeAPI:IDisposable {
 }
 public sealed record Track {
  [System.Text.Json.Serialization.JsonIgnore] public string DisplayDuration=>double.IsFinite(duration)&&duration>0?$"{(int)duration/60}:{(int)duration%60:00}":"";
- public string id {get;set;}="";public string title{get;set;}="";public string artist{get;set;}="";public string? cover_url{get;set;}public string? source{get;set;}public bool is_remote{get;set;}public double duration{get;set;}public string? LocalPath{get;set;}
+ public string id {get;set;}="";public string title{get;set;}="";public string artist{get;set;}="";public string? album{get;set;}public string? cover_url{get;set;}public string? source{get;set;}public string? source_url{get;set;}public bool is_remote{get;set;}public double duration{get;set;}public string? LocalPath{get;set;}
 }
 public sealed record Playlist {public string id{get;set;}="";public string name{get;set;}="";}
 
