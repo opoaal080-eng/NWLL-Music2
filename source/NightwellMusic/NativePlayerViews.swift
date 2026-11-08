@@ -485,6 +485,12 @@ private struct ArtworkColorBackground: View {
     }
 }
 
+private struct NightwellPresentedClip: Identifiable {
+    let id = UUID()
+    let url: URL
+    let trackTitle: String
+}
+
 struct FullPlayer: View {
     @State private var artworkTextColors: [Color] = [.white, .white]
     @EnvironmentObject var store: MusicStore
@@ -494,6 +500,7 @@ struct FullPlayer: View {
     @State private var showLyrics = false
     @State private var playerToolsPresented = false
     @State private var availableClipURL: URL?
+    @State private var presentedClip: NightwellPresentedClip?
     @AppStorage("nw-animated-album-artwork") private var animatedArtwork = true
     @State private var feature: PremiumFeatureView.Kind?
     @State private var showQueue = false
@@ -509,8 +516,13 @@ struct FullPlayer: View {
             // Neutral home-style backdrop instead of the seasonal Halloween illustration.
             Color.black.ignoresSafeArea()
             if !showLyrics {
-                NightwellAnimatedArtworkBackground(track: clock.current, origin: store.origin)
-                    .ignoresSafeArea()
+                ArtworkColorBackground(
+                    url: clock.current?.cover_url.flatMap {
+                        URL(string: $0, relativeTo: store.origin)
+                    }
+                )
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
             } else {
                 LinearGradient(colors: [Color(white: 0.085), Color(white: 0.025), .black],
                                startPoint: .topLeading, endPoint: .bottomTrailing)
@@ -527,11 +539,13 @@ struct FullPlayer: View {
                             .background { GeometryReader { proxy in Color.clear.preference(key: PlayerLyricsFramePreference.self, value: proxy.frame(in: .global)) } }
 
                     } else {
-                        // The entire main area is the animated cover. Music
-                        // controls remain over the artwork, with no video layer.
-                        Color.clear
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .contentShape(Rectangle())
+                        NightwellAnimatedCover(
+                            track: clock.current,
+                            origin: store.origin,
+                            side: min(box.size.width, box.size.height) * 0.82
+                        )
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .contentShape(Rectangle())
                             .gesture(DragGesture(minimumDistance: 18).onEnded { value in
                                 let dx = value.translation.width
                                 if abs(dx) > 52 && abs(dx) > abs(value.translation.height) * 1.15 {
@@ -630,6 +644,9 @@ struct FullPlayer: View {
             }
         }
         .sheet(item: $feature) { PremiumFeatureView(kind: $0).environmentObject(store) }
+        .sheet(item: $presentedClip) { clip in
+            NightwellClipScreen(clipURL: clip.url, title: clip.trackTitle, origin: store.origin)
+        }
         .task(id: clock.current?.id) {
             availableClipURL = nil
             guard let selected = clock.current else { return }
@@ -733,11 +750,13 @@ struct FullPlayer: View {
                         if let track = clock.current {
                             if let clip = availableClipURL {
                                 Button {
-                                    // Pause Nightwell *before* handing off to
-                                    // YouTube with its own soundtrack.
+                                    // Pause Nightwell before presenting YouTube's
+                                    // official embedded player with original audio.
                                     NativePlayer.shared.pause()
                                     playerToolsPresented = false
-                                    UIApplication.shared.open(clip)
+                                    DispatchQueue.main.async {
+                                        presentedClip = NightwellPresentedClip(url: clip, trackTitle: track.title)
+                                    }
                                 } label: {
                                     Label("Клип", systemImage: "play.rectangle")
                                         .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)

@@ -1,49 +1,34 @@
 import SwiftUI
 import Foundation
+import WebKit
 
 /// Only the artwork moves in Nightwell's player. No local clips and no
 /// YouTube video are used as a playback background.
-struct NightwellAnimatedArtworkBackground: View {
+struct NightwellAnimatedCover: View {
     let track: Track?
     let origin: URL
+    let side: CGFloat
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @AppStorage("nw-animated-album-artwork") private var animate = true
-    @State private var floating = false
+    @AppStorage("nw-animated-album-artwork") private var animated = true
+    @State private var drifting = false
 
     var body: some View {
-        GeometryReader { geometry in
-            let side = max(geometry.size.width, geometry.size.height) * 1.28
-            ZStack {
-                Color.black
-                Cover(track: track, origin: origin, pixelWidth: 1024)
-                    .frame(width: side, height: side)
-                    .scaleEffect(animate && !reduceMotion && floating ? 1.14 : 1.015)
-                    .offset(
-                        x: animate && !reduceMotion && floating ? -16 : 14,
-                        y: animate && !reduceMotion && floating ? 14 : -17)
-                    .animation(animate && !reduceMotion
-                               ? .easeInOut(duration: 10).repeatForever(autoreverses: true)
-                               : .none, value: floating)
-                LinearGradient(stops: [
-                    .init(color: .black.opacity(0.28), location: 0),
-                    .init(color: .black.opacity(0.05), location: 0.33),
-                    .init(color: .black.opacity(0.12), location: 0.48),
-                    .init(color: .black.opacity(0.72), location: 0.83),
-                    .init(color: .black.opacity(0.91), location: 1)
-                ], startPoint: .top, endPoint: .bottom)
-            }
-            .frame(width: geometry.size.width, height: geometry.size.height)
-            .clipped()
-        }
-        .id(track?.id)
-        .onAppear { floating = true }
-        .onChange(of: track?.id) { _ in
-            floating = false
-            DispatchQueue.main.async { floating = true }
-        }
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
+        Cover(track: track, origin: origin, pixelWidth: 1024)
+            .frame(width: side, height: side)
+            // Restrict movement to a few pixels, rather than enlarging the
+            // artwork over the entire display.
+            .scaleEffect(animated && !reduceMotion && drifting ? 1.035 : 1.005)
+            .offset(x: animated && !reduceMotion && drifting ? -2.5 : 2.5,
+                    y: animated && !reduceMotion && drifting ? 2.5 : -2.5)
+            .animation(animated && !reduceMotion
+                       ? .easeInOut(duration: 9).repeatForever(autoreverses: true)
+                       : .none, value: drifting)
+            .frame(width: side, height: side)
+            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .id(track?.id)
+            .onAppear { drifting = true }
+            .accessibilityLabel(track?.title ?? "Обложка трека")
     }
 }
 
@@ -90,4 +75,120 @@ struct NightwellClipLookupResponse: Decodable {
     var video_id: String?
     var title: String?
     var channel: String?
+}
+
+struct NightwellClipScreen: View {
+    let clipURL: URL
+    let title: String
+    let origin: URL
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                if let videoID = NightwellYouTubeLink.videoID(from: clipURL.absoluteString) {
+                    NightwellYouTubeEmbed(videoID: videoID, origin: origin)
+                        .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                        .frame(maxWidth: .infinity)
+                        .background(.black)
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                }
+                Text(title).font(.headline).lineLimit(2)
+                Text("Видео воспроизводится во встроенном плеере YouTube с оригинальным звуком.")
+                    .font(.footnote).foregroundStyle(.secondary)
+                Link("Открыть в YouTube", destination: clipURL)
+                    .font(.subheadline)
+                Spacer()
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .background(Color.black.ignoresSafeArea())
+            .navigationTitle("Клип")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Закрыть") { dismiss() }
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
+    }
+}
+
+/// Official YouTube iframe playback with original audio and untouched controls.
+/// Loading a local HTML document with an HTTPS base URL identifies the host
+/// application to YouTube so embeds do not fail with error 153.
+struct NightwellYouTubeEmbed: UIViewRepresentable {
+    let videoID: String
+    let origin: URL
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> WKWebView {
+        let config = WKWebViewConfiguration()
+        config.allowsInlineMediaPlayback = true
+        config.mediaTypesRequiringUserActionForPlayback = .all
+        let web = WKWebView(frame: .zero, configuration: config)
+        web.isOpaque = false
+        web.backgroundColor = .black
+        web.scrollView.isScrollEnabled = false
+        web.navigationDelegate = context.coordinator
+        web.uiDelegate = context.coordinator
+        return web
+    }
+
+    func updateUIView(_ web: WKWebView, context: Context) {
+        guard NightwellYouTubeLink.videoID(from: videoID) == videoID else { return }
+        let baseURL = (origin.scheme == "https") ? origin : URL(string: "https://music.nightwell.fun")!
+        guard context.coordinator.loadedVideoID != videoID else { return }
+        context.coordinator.loadedVideoID = videoID
+        let html = """
+        <!doctype html>
+        <html lang="ru"><head>
+        <meta name="viewport" content="width=device-width,initial-scale=1">
+        <meta name="referrer" content="strict-origin-when-cross-origin">
+        <style>
+        html,body {margin:0;padding:0;background:#000;width:100%;height:100%;overflow:hidden}
+        iframe {position:absolute;top:0;left:0;width:100%;height:100%;border:0}
+        </style>
+        </head><body>
+        <iframe src="https://www.youtube-nocookie.com/embed/\(videoID)?autoplay=0&amp;playsinline=1&amp;controls=1"
+          title="YouTube video player"
+          allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+          referrerpolicy="strict-origin-when-cross-origin"
+          allowfullscreen></iframe>
+        </body></html>
+        """
+        web.loadHTMLString(html, baseURL: baseURL)
+    }
+
+    static func dismantleUIView(_ web: WKWebView, coordinator: Coordinator) {
+        web.stopLoading()
+        web.loadHTMLString("", baseURL: nil)
+    }
+
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
+        var loadedVideoID: String?
+
+        func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
+                     decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+            if navigationAction.navigationType == .linkActivated,
+               let url = navigationAction.request.url,
+               url.scheme == "https" {
+                UIApplication.shared.open(url)
+                decisionHandler(.cancel)
+                return
+            }
+            decisionHandler(.allow)
+        }
+
+        func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
+                     for navigationAction: WKNavigationAction,
+                     windowFeatures: WKWindowFeatures) -> WKWebView? {
+            if let url = navigationAction.request.url, url.scheme == "https" {
+                UIApplication.shared.open(url)
+            }
+            return nil
+        }
+    }
 }

@@ -20,5 +20,12 @@ assert 'configureWave()' in views
 assert '.sheet(isPresented: $waveSettingsPresented)' not in views
 assert 'NWSourceCommit' in views
 for file in (root / 'NightwellMusic').rglob('*.swift'):
-    assert 'WKWebView' not in file.read_text(), file
-print('Native entry point, three popup surfaces and build provenance verified')
+    if file.name == 'NightwellVideoExperience.swift':
+        video = file.read_text()
+        assert 'https://www.youtube-nocookie.com/embed/' in video
+        assert 'autoplay=0' in video
+        assert 'mediaTypesRequiringUserActionForPlayback = .all' in video
+        assert 'WKWebView' in video
+    else:
+        assert 'WKWebView' not in file.read_text(), file
+print('Native entry point, official YouTube embed and build provenance verified')
