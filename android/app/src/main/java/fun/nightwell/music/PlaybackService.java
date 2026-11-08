@@ -214,6 +214,7 @@ public final class PlaybackService extends MediaSessionService {
     private boolean waveActive, waveLoading;
     int shuffleMode = 0; // 0 off, 1 random, 2 smart
     private WaveSettings waveSettings=new WaveSettings(new JSONObject());
+    private String waveSeedArtists="";
     private int waveGeneration;
     private final LatestRequest waveRequest = new LatestRequest();
     private long waveRetryAt;
@@ -486,6 +487,13 @@ public final class PlaybackService extends MediaSessionService {
             cacheScope=scope.toString();origin=nextOrigin;error="";
             boolean nextWave=data.optBoolean("wave",false);
             waveSettings=new WaveSettings(data.optJSONObject("wave_preferences")==null?new JSONObject():data.optJSONObject("wave_preferences"));
+            JSONArray seedArtists=data.optJSONArray("wave_seed_artists");
+            java.util.List<String> seeds=new java.util.ArrayList<>();
+            if(seedArtists!=null)for(int i=0;i<Math.min(5,seedArtists.length());i++){
+                String artist=seedArtists.optString(i,"").trim();
+                if(!artist.isEmpty()&&artist.length()<100)seeds.add(artist);
+            }
+            waveSeedArtists=android.text.TextUtils.join(",",seeds);
             if(!waveActive||!nextWave)waveSeen.clear();
             waveActive=nextWave;waveGeneration++;waveLoading=false;waveRetryAt=0;
             if(waveActive){player.setRepeatMode(Player.REPEAT_MODE_OFF);player.setShuffleModeEnabled(false);}
@@ -662,7 +670,7 @@ public final class PlaybackService extends MediaSessionService {
                 java.util.List<String> ids=new java.util.ArrayList<>(excluded);
                 String query=URLEncoder.encode(String.join(",",ids.subList(
                     Math.max(0,ids.size()-160),ids.size())),"UTF-8");
-                result=client.search("api/wave?exclude="+query+settingsQuery+"&artists="+URLEncoder.encode(ArtistTaste.selectedArtists(this),"UTF-8"));
+                result=client.search("api/wave?exclude="+query+settingsQuery+"&artists="+URLEncoder.encode(waveSeedArtists.isEmpty()?ArtistTaste.selectedArtists(this):waveSeedArtists,"UTF-8"));
             }catch(Exception ignored){}
             finally{client.close();}
             final JSONObject data=result;final String message=failure;
@@ -749,7 +757,10 @@ public final class PlaybackService extends MediaSessionService {
             state.put("ended",player.getPlaybackState()==Player.STATE_ENDED);
             state.put("repeat",player.getRepeatMode()==Player.REPEAT_MODE_ALL?1:player.getRepeatMode()==Player.REPEAT_MODE_ONE?2:0);state.put("shuffle",player.getShuffleModeEnabled());state.put("shuffleMode",shuffleMode);
             state.put("error",error);state.put("volume",baseVolume);state.put("smoothTransitions",true);state.put("transitionSeconds",transitionSeconds);
-            state.put("wave_preferences",waveSettings.json());state.put("wave",waveActive);state.put("waveSupported",true);
+            state.put("wave_preferences",waveSettings.json());
+            JSONArray seeds=new JSONArray();
+            if(!waveSeedArtists.isEmpty())for(String artist:waveSeedArtists.split(","))seeds.put(artist);
+            state.put("wave_seed_artists",seeds);state.put("wave",waveActive);state.put("waveSupported",true);
             JSONArray fullQueue=new JSONArray();
             for(int i=0;includeQueue&&i<player.getMediaItemCount();i++){
                 Bundle extras=player.getMediaItemAt(i).mediaMetadata.extras;
