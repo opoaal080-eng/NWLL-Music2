@@ -282,16 +282,24 @@ private struct NightwellLibraryScrollTracker: ViewModifier {
     // GeometryReader/PreferenceKey alone can stay at 0 on recent SwiftUI.
     @ViewBuilder func body(content: Content) -> some View {
         if #available(iOS 18.0, *) {
-            content.onScrollGeometryChange(for: Bool.self) { geometry in
-                let offset = geometry.contentOffset.y + geometry.contentInsets.top
-                return offset > 38
-            } action: { _, next in
-                if collapsed != next { collapsed = next }
+            content.onScrollGeometryChange(for: CGFloat.self) { geometry in
+                geometry.contentOffset.y + geometry.contentInsets.top
+            } action: { _, offset in
+                // Preserve the compact heading until the large one has fully
+                // returned. Hysteresis avoids alternating headers at the top.
+                if collapsed {
+                    if offset <= 0.5 { collapsed = false }
+                } else if offset >= 12 {
+                    collapsed = true
+                }
             }
         } else {
             content.onPreferenceChange(CollectionScrollOffsetKey.self) { value in
-                let next = value < -38
-                if collapsed != next { collapsed = next }
+                if collapsed {
+                    if value >= -0.5 { collapsed = false }
+                } else if value <= -12 {
+                    collapsed = true
+                }
             }
         }
     }
@@ -309,6 +317,7 @@ struct NativeRoot: View {
     @State private var transferPresented = false
     @State private var favoriteSort = "recent"
     @State private var collectionScrolled = false
+    @State private var remoteHomeCollapsed = false
     @ObservedObject private var favoritePremium = PremiumFeatureState.shared
     @State private var fullPlayer = false
     @State private var selectedArtist: ArtistSelection?
@@ -354,7 +363,7 @@ struct NativeRoot: View {
                     }
                     .accessibilityLabel("Подключение Nightwell: \(store.connectionStatus)")
                     .padding(.horizontal, 22)
-                    if store.hasRemotePlayback {
+                    if store.hasRemotePlayback && compactCollectionTitle == nil && !(store.screen == .home && remoteHomeCollapsed) {
                         Button {
                             Task { await store.continuePlaybackHere() }
                         } label: {
@@ -370,6 +379,7 @@ struct NativeRoot: View {
                             .background(.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 18))
                         }
                         .padding(.horizontal, 20)
+                        .transition(.move(edge: .top).combined(with: .opacity))
                     }
                     content
                     MiniPlayer(clock: store.clock, open: { fullPlayer = true })
@@ -440,6 +450,23 @@ struct NativeRoot: View {
         .sheet(isPresented: $premiumPresented) { PremiumView(api: store.api) }
         .overlay { if launching { MonochromeNightwellLaunch().transition(.opacity) } }
         .task { try? await Task.sleep(nanoseconds: reducedMotion ? 150_000_000 : 1_200_000_000); withAnimation(.easeOut(duration: 0.3)) { launching = false } }
+        // Async task is cancelled automatically if the offer disappears or
+        // the user changes screens. No timers survive when the Home page closes.
+        .task(id: store.hasRemotePlayback && store.screen == .home) {
+            guard store.hasRemotePlayback, store.screen == .home else {
+                remoteHomeCollapsed = false
+                return
+            }
+            remoteHomeCollapsed = false
+            do { try await Task.sleep(nanoseconds: 8_000_000_000) }
+            catch { return }
+            guard !Task.isCancelled, store.hasRemotePlayback, store.screen == .home else { return }
+            withAnimation(reducedMotion ? nil : .spring(response: 0.48, dampingFraction: 0.82)) {
+                remoteHomeCollapsed = true
+            }
+        }
+        .animation(reducedMotion ? nil : .spring(response: 0.48, dampingFraction: 0.82),
+                   value: remoteHomeCollapsed)
         .onChange(of: store.account?.id) { _ in Task { await store.refreshProfile() } }
         .task { await store.start()
             #if DEBUG
@@ -459,15 +486,6 @@ struct NativeRoot: View {
             let dy = gesture.translation.height
             if gesture.startLocation.x < 24 && dx > 90 && abs(dy) < 60 {
                 store.screen = .home
-            }
-            // Gesture fallback for iOS 17 and short lists that do not expose
-            // scroll geometry. Keep the full Nightwell title on other screens.
-            if (store.screen == .likes || store.screen == .playlists)
-                && abs(dy) > 28 && abs(dy) > abs(dx) * 1.4 {
-                let collapsed = dy < 0
-                if collectionScrolled != collapsed {
-                    collectionScrolled = collapsed
-                }
             }
         })
         .onChange(of: store.screen) { _ in
@@ -528,6 +546,7 @@ struct NativeRoot: View {
         switch store.screen {
         case .likes: return "Избранное"
         case .playlists: return "Плейлисты"
+        case .offline: return "Офлайн"
         default: return nil
         }
     }
@@ -544,8 +563,8 @@ struct NativeRoot: View {
     }
 
     private func updateCollectionScroll(_ y: CGFloat) {
-        guard store.screen == .likes || store.screen == .playlists else { return }
-        let compact = y < -58
+        guard store.screen == .likes || store.screen == .playlists || store.screen == .offline else { return }
+        let compact = y < -12
         if collectionScrolled != compact {
             withAnimation(reducedMotion ? nil : .easeInOut(duration: 0.18)) {
                 collectionScrolled = compact
@@ -554,7 +573,7 @@ struct NativeRoot: View {
     }
 
     private var header: some View {
-        HStack {
+        HStack(spacing: 7) {
             Button {
                 withAnimation(reducedMotion ? nil : .easeInOut(duration: 0.22)) {
                     store.screen = .home
@@ -580,6 +599,23 @@ struct NativeRoot: View {
             .accessibilityLabel("На главную")
             Spacer()
             Button { if store.screen == .search { store.screen = .home } else { store.screen = .search } } label: { Image(systemName: store.screen == .search ? "xmark" : "magnifyingglass").font(.system(size: 19, weight: .medium)).foregroundStyle(.white).frame(width: 44, height: 44).frostedGlass(22, bordered: false, intensity: 0.20) }.accessibilityLabel(store.screen == .search ? "Закрыть поиск" : "Поиск")
+            // On Home the full resume banner becomes a small action next to Search
+            // after eight seconds; scrolling collections hide the banner so the title stays clear.
+            if store.hasRemotePlayback && store.screen == .home && remoteHomeCollapsed {
+                Button {
+                    Task { await store.continuePlaybackHere() }
+                } label: {
+                    Image(systemName: "iphone.and.arrow.forward")
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundStyle(.white)
+                        .frame(width: 42, height: 44)
+                        .frostedGlass(22, bordered: false, intensity: 0.20)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Продолжить музыку с другого устройства")
+                .transition(.asymmetric(insertion: .scale(scale: 0.68, anchor: .trailing).combined(with: .opacity),
+                                        removal: .opacity))
+            }
             Button { navigationMenuPresented = true } label: {
                 Group {
                     if let avatar=store.profileAvatar {
@@ -614,7 +650,7 @@ struct NativeRoot: View {
         }
     }
     private var favoriteTracks: [Track] {
-        let entries = store.catalog.filter { store.likes.contains($0.id) }
+        let entries = store.favoriteDisplayTracks
         if favoriteSort == "title" && favoritePremium.allowed {
             return entries.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
         }
@@ -677,12 +713,14 @@ struct NativeRoot: View {
                         collectionHeading("Избранное", tracks: favoriteTracks, kind: "likes")
                         Spacer(minLength: 0)
                         Menu {
+                            Button("Недавно добавленные", systemImage: favoriteSort == "recent" ? "checkmark" : "clock") {
+                                favoriteSort = "recent"
+                            }
                             if favoritePremium.allowed {
-                                Button("Недавние") { favoriteSort = "recent" }
                                 Button("По названию") { favoriteSort = "title" }
                                 Button("По исполнителю") { favoriteSort = "artist" }
                             } else {
-                                Button("Оформить Premium") { premiumPresented = true }
+                                Button("Другие виды сортировки · Premium") { premiumPresented = true }
                             }
                         } label: {
                             Image(systemName: "arrow.up.arrow.down")
@@ -752,39 +790,45 @@ struct NativeRoot: View {
             .modifier(NightwellLibraryScrollTracker(collapsed: $collectionScrolled))
             .scrollDismissesKeyboard(.interactively)
         case .offline:
-            VStack(alignment: .leading, spacing: 16) {
-                HStack {
-                    Text("Офлайн").font(.largeTitle.bold())
-                    Spacer()
-                    Button { importFiles = true } label: { Label("Файлы", systemImage: "folder") }
-                }
-                Text("Музыка на этом устройстве, доступная без интернета")
-                    .font(.caption).foregroundStyle(.secondary)
-                if !store.damagedOffline.isEmpty {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Не удалось открыть файлы: \(store.damagedOffline.count)")
-                            .font(.subheadline.weight(.semibold))
-                        Text("Название и обложка сохранились, но сами аудиофайлы повреждены или отсутствуют.")
-                            .font(.caption).foregroundStyle(.secondary)
-                        if store.damagedOffline.contains(where: { !$0.id.hasPrefix("local_") }) {
-                            Button {
-                                Task { await store.repairDamagedDownloads() }
-                            } label: {
-                                Label("Скачать эти треки повторно", systemImage: "arrow.clockwise")
-                            }
-                            .disabled(store.downloading)
-                        }
-                        if store.damagedOffline.contains(where: { $0.id.hasPrefix("local_") }) {
-                            Text("Аудиофайлы, добавленные вручную, нужно повторно импортировать через «Файлы».")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    collectionScrollMarker
+                    HStack {
+                        Text("Офлайн").font(.largeTitle.bold())
+                        Spacer()
+                        Button { importFiles = true } label: { Label("Файлы", systemImage: "folder") }
                     }
-                    .padding(14)
-                    .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 16))
+                    Text("Музыка на этом устройстве, доступная без интернета")
+                        .font(.caption).foregroundStyle(.secondary)
+                    if !store.damagedOffline.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Не удалось открыть файлы: \(store.damagedOffline.count)")
+                                .font(.subheadline.weight(.semibold))
+                            Text("Название и обложка сохранились, но сами аудиофайлы повреждены или отсутствуют.")
+                                .font(.caption).foregroundStyle(.secondary)
+                            if store.damagedOffline.contains(where: { !$0.id.hasPrefix("local_") }) {
+                                Button {
+                                    Task { await store.repairDamagedDownloads() }
+                                } label: {
+                                    Label("Скачать эти треки повторно", systemImage: "arrow.clockwise")
+                                }
+                                .disabled(store.downloading)
+                            }
+                            if store.damagedOffline.contains(where: { $0.id.hasPrefix("local_") }) {
+                                Text("Аудиофайлы, добавленные вручную, нужно повторно импортировать через «Файлы».")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(14)
+                        .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 16))
+                    }
+                    TrackList(tracks: store.offline, embedded: true)
                 }
-                TrackList(tracks: store.offline)
+                .padding(.horizontal, 20)
             }
-            .padding(.horizontal, 20)
+            .coordinateSpace(name: "nightwell-library-scroll")
+            .modifier(NightwellLibraryScrollTracker(collapsed: $collectionScrolled))
+            .scrollDismissesKeyboard(.interactively)
         }
     }
     private func collectionHeading(_ title: String, tracks: [Track], kind: String) -> some View {
