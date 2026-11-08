@@ -394,18 +394,23 @@ public final class MainActivity extends Activity {
                     final float[] start={0f};
                     card.setOnTouchListener((v,event)->{
                         if(event.getActionMasked()==android.view.MotionEvent.ACTION_DOWN){
-                            start[0]=event.getX();return true;
+                            start[0]=event.getX();
+                            // Let Android schedule the normal long-press callback.
+                            return false;
                         }
                         if(event.getActionMasked()==android.view.MotionEvent.ACTION_UP){
                             float delta=event.getX()-start[0];
                             if(Math.abs(delta)>dp(52)&&queue.length()>playing+2){
-                                int destination=delta<0?playing+2:playing+2;
-                                reorderUpcoming(playing+1,destination);
+                                v.cancelLongPress();
+                                int source=delta<0?playing+2:playing+1;
+                                int destination=delta<0?playing+1:playing+2;
+                                reorderUpcoming(source,destination);
                                 if(holder[0]!=null)holder[0].dismiss();
                                 ui.post(this::showQueue);
-                            }else v.performClick();
-                            return true;
+                                return true;
+                            }
                         }
+                        // Preserve the default click and long-press gestures.
                         return false;
                     });
                 }
