@@ -52,7 +52,8 @@ struct NightwellKineticLyricLine: View {
     }
 }
 
-/// Album covers in a 3D stack. The ordinary list is a separate display mode.
+/// A compact, balanced cover stack inspired by the Nightwell glass queue design.
+/// Browsing never reorders playback. Only a deliberate hold changes what is next.
 struct NightwellQueueDeck: View {
     let queue: [Track]
     let currentIndex: Int
@@ -65,9 +66,11 @@ struct NightwellQueueDeck: View {
 
     private var firstUpcoming: Int { max(0, currentIndex + 1) }
     private var totalUpcoming: Int { max(0, queue.count - firstUpcoming) }
-    // A swipe advances one cover; every song in the queue remains reachable.
     private var safePosition: Int { min(max(0, position), max(0, totalUpcoming - 1)) }
-    private var pageStart: Int { firstUpcoming + safePosition }
+    private var windowStart: Int { firstUpcoming + safePosition }
+    private var upcoming: [(offset: Int, element: Track)] {
+        Array(queue.enumerated().dropFirst(windowStart).prefix(3))
+    }
 
     private func browse(_ direction: Int) {
         let target = min(max(0, safePosition + direction), max(0, totalUpcoming - 1))
@@ -77,25 +80,22 @@ struct NightwellQueueDeck: View {
         }
         UISelectionFeedbackGenerator().selectionChanged()
     }
-    private var upcoming: [(offset: Int, element: Track)] {
-        Array(queue.enumerated().dropFirst(pageStart).prefix(3))
-    }
 
     private func feedback(_ message: String, for id: String?, success: Bool = true) {
         noticeRevision += 1
-        let ticket = noticeRevision
-        withAnimation(.spring(response: 0.24, dampingFraction: 0.7)) {
-            highlightedID = id
+        let revision = noticeRevision
+        withAnimation(.spring(response: 0.24, dampingFraction: 0.72)) {
             notice = message
+            highlightedID = id
         }
         if success {
             UINotificationFeedbackGenerator().notificationOccurred(.success)
         } else {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.45) {
-            guard ticket == noticeRevision else { return }
-            withAnimation(.easeOut(duration: 0.22)) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            guard revision == noticeRevision else { return }
+            withAnimation(.easeOut(duration: 0.2)) {
                 notice = nil
                 highlightedID = nil
             }
@@ -117,97 +117,143 @@ struct NightwellQueueDeck: View {
         feedback("Следующий в очереди ✓", for: track.id)
     }
 
-    var body: some View {
-        VStack(spacing: 12) {
-            ZStack {
-                ForEach(Array(upcoming.reversed()), id: \.offset) { item in
-                    let rank = item.offset - pageStart
-                    let track = item.element
-                    VStack(spacing: 0) {
-                        Cover(track: track, origin: origin, pixelWidth: 520)
-                            .scaledToFill()
-                            .frame(width: 222, height: 145)
-                            .clipped()
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(track.title).font(.system(size: 13, weight: .bold)).lineLimit(1)
-                            Text(track.artist).font(.system(size: 11))
-                                .foregroundStyle(.secondary).lineLimit(1)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 12).padding(.vertical, 8)
-                    }
-                    .frame(width: 222, height: 202)
-                    .background(.black, in: RoundedRectangle(cornerRadius: 19))
-                    .clipShape(RoundedRectangle(cornerRadius: 19))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 19)
-                            .stroke(highlightedID == track.id ? Color.white : .white.opacity(0.15),
-                                    lineWidth: highlightedID == track.id ? 2.5 : 1)
-                    )
-                    .shadow(color: highlightedID == track.id ? .white.opacity(0.22) : .black.opacity(0.45),
-                            radius: highlightedID == track.id ? 20 : 14, y: 8)
-                    .scaleEffect((1 - CGFloat(rank) * 0.065) *
-                                 (highlightedID == track.id ? 1.055 : 1))
-                    .rotation3DEffect(.degrees(Double(rank) * -5),
-                                      axis: (x: 0, y: 1, z: 0))
-                    .offset(x: CGFloat(rank) * 13, y: CGFloat(rank) * 16)
-                    .zIndex(Double(3 - rank))
-                    .contentShape(RoundedRectangle(cornerRadius: 19))
-                    // Exclusive recognition prevents a completed hold from also playing.
-                    .gesture(
-                        LongPressGesture(minimumDuration: 0.55)
-                            .exclusively(before: TapGesture())
-                            .onEnded { result in
-                                switch result {
-                                case .first(true): queueNext(at: item.offset, track: track)
-                                case .second: playNow(at: item.offset, track: track)
-                                default: break
-                                }
-                            }
-                    )
-                    .simultaneousGesture(
-                        DragGesture(minimumDistance: 24).onEnded { value in
-                            guard rank == 0, abs(value.translation.width) > 48,
-                                  abs(value.translation.width) > abs(value.translation.height) else { return }
-                            browse(value.translation.width < 0 ? 1 : -1)
-                        }
-                    )
-                    .accessibilityLabel("\(track.title), \(track.artist)")
-                    .accessibilityHint("Нажми, чтобы воспроизвести. Удерживай, чтобы поставить следующей.")
-                }
+    private func albumCard(
+        _ track: Track, at absoluteIndex: Int, depth: Int, width: CGFloat
+    ) -> some View {
+        let height = width * 0.82
+        let selected = highlightedID == track.id
+        return VStack(spacing: 0) {
+            Cover(track: track, origin: origin, pixelWidth: 680)
+                .scaledToFill()
+                .frame(width: width, height: height)
+                .clipped()
+            VStack(alignment: .leading, spacing: 5) {
+                Text(track.title)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                Text(track.artist)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color.white.opacity(0.62))
+                    .lineLimit(1)
             }
-            .frame(height: 235)
+            .frame(width: width - 32, height: 74, alignment: .leading)
+            .padding(.horizontal, 16)
+            .background(
+                LinearGradient(
+                    colors: [Color(white: 0.075), Color(white: 0.022)],
+                    startPoint: .top, endPoint: .bottom
+                )
+            )
+        }
+        .frame(width: width, height: height + 74)
+        .background(Color(white: 0.04), in: RoundedRectangle(cornerRadius: 22))
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .strokeBorder(
+                    selected ? Color.white.opacity(0.90) : Color.white.opacity(0.19),
+                    lineWidth: selected ? 2 : 1
+                )
+        }
+        .shadow(color: .black.opacity(0.48), radius: 18, y: 10)
+        .scaleEffect((1 - CGFloat(depth) * 0.048) * (selected ? 1.035 : 1))
+        .rotationEffect(.degrees(Double(depth) * 1.3))
+        .offset(x: CGFloat(depth) * 15, y: CGFloat(depth) * 13)
+        .zIndex(Double(3 - depth))
+        .contentShape(RoundedRectangle(cornerRadius: 22))
+        .gesture(
+            LongPressGesture(minimumDuration: 0.55)
+                .exclusively(before: TapGesture())
+                .onEnded { result in
+                    switch result {
+                    case .first(true):
+                        queueNext(at: absoluteIndex, track: track)
+                    case .second:
+                        playNow(at: absoluteIndex, track: track)
+                    default:
+                        break
+                    }
+                }
+        )
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 22).onEnded { gesture in
+                guard depth == 0,
+                      abs(gesture.translation.width) > 48,
+                      abs(gesture.translation.width) > abs(gesture.translation.height) else { return }
+                browse(gesture.translation.width < 0 ? 1 : -1)
+            }
+        )
+        .accessibilityLabel("\(track.title), \(track.artist)")
+        .accessibilityHint("Нажми, чтобы слушать сейчас. Удерживай, чтобы поставить следующим.")
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            GeometryReader { geometry in
+                let cardWidth = min(max(190, geometry.size.width - 78), 310)
+                ZStack {
+                    ForEach(Array(upcoming.reversed()), id: \.offset) { item in
+                        albumCard(item.element,
+                                  at: item.offset,
+                                  depth: item.offset - windowStart,
+                                  width: cardWidth)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .frame(height: 354)
 
             if totalUpcoming > 1 {
-                HStack(spacing: 16) {
+                HStack(spacing: 20) {
                     Button { browse(-1) } label: {
-                        Image(systemName: "chevron.left").frame(width: 44, height: 36)
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 18, weight: .medium))
+                            .frame(width: 44, height: 44)
                     }
                     .disabled(safePosition == 0)
+                    .opacity(safePosition == 0 ? 0.35 : 1)
+
                     Text("\(safePosition + 1) из \(totalUpcoming)")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: 14, weight: .medium))
                         .monospacedDigit()
+                        .frame(minWidth: 84)
+
                     Button { browse(1) } label: {
-                        Image(systemName: "chevron.right").frame(width: 44, height: 36)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 18, weight: .medium))
+                            .frame(width: 44, height: 44)
                     }
                     .disabled(safePosition >= totalUpcoming - 1)
+                    .opacity(safePosition >= totalUpcoming - 1 ? 0.35 : 1)
                 }
-                .foregroundStyle(.white)
+                .foregroundStyle(Color.white.opacity(0.90))
+                .padding(.top, 4)
+                .accessibilityElement(children: .contain)
             }
 
-            if let notice {
-                Text(notice)
-                    .font(.system(size: 12, weight: .semibold))
-                    .padding(.horizontal, 16).padding(.vertical, 9)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .transition(.scale(scale: 0.9).combined(with: .opacity))
-            } else {
-                Text("Тап: играть сейчас · удержание: следующая · свайп: листать очередь")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
+            ZStack {
+                if let notice {
+                    Text(notice)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 7)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .transition(.scale(scale: 0.92).combined(with: .opacity))
+                }
             }
+            .frame(height: 42)
+
+            Text("Тап: играть сейчас · удержание: следующая\nСвайп: листать всю очередь")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Color.white.opacity(0.53))
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 10)
         }
+        .frame(maxWidth: .infinity)
         .accessibilityElement(children: .contain)
         .onChange(of: currentIndex) { _ in position = 0 }
     }
