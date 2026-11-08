@@ -17,6 +17,8 @@ struct RibbonScene: View {
     let flash: Int
     @Environment(\.scenePhase) private var scene
     @Environment(\.accessibilityReduceMotion) private var reduced
+    @AppStorage("nw-ambient-animate-when-paused") private var animateWhilePaused = true
+    @AppStorage("nw-ambient-audio-sensitivity") private var audioSensitivity = 2.5
     @State private var bands = [Double](repeating: 0, count: 4)
     @State private var flowTime = 0.0
 
@@ -24,43 +26,51 @@ struct RibbonScene: View {
         Canvas(opaque: false, rendersAsynchronously: true) { context, size in
             draw(context: context, size: size)
         }
-        .task(id: scene == .active && playing && !reduced) { @MainActor in
-            bands = [Double](repeating: 0, count: 4)
-            guard scene == .active, playing, !reduced else { return }
+        .task(id: scene == .active && !reduced && (playing || animateWhilePaused)) { @MainActor in
+            guard scene == .active, !reduced, (playing || animateWhilePaused) else { return }
             var adaptive = [Double](repeating: 0.07, count: 4)
             var previous = ProcessInfo.processInfo.systemUptime
             while !Task.isCancelled {
                 let now = ProcessInfo.processInfo.systemUptime
-                let elapsed = min(0.1, max(0, now - previous))
+                let dt = min(0.12, max(0.001, now - previous))
                 previous = now
                 let preferences = premium.preferences
-                let incoming = NativePlayer.shared.auraLevels()
+                let input = playing ? NativePlayer.shared.auraLevels() : []
                 let enabled = premium.allowed
                     ? [preferences.aura_voice, preferences.aura_low, preferences.aura_mid, preferences.aura_high]
                     : [true, true, true, true]
-                let intensity = premium.allowed ? preferences.ribbon_intensity : 1.0
-                let gain = intensity.isFinite ? min(3, max(0, intensity)) : 1.0
-                let speed = premium.allowed ? preferences.ribbon_speed : 1.0
-                let safeSpeed = speed.isFinite ? min(3, max(0.2, speed)) : 1.0
+                let rawIntensity = premium.allowed ? preferences.ribbon_intensity : 1.0
+                let intensity = rawIntensity.isFinite ? min(3, max(0, rawIntensity)) : 1.0
+                let rawSpeed = premium.allowed ? preferences.ribbon_speed : 1.0
+                let speed = rawSpeed.isFinite ? min(3, max(0.2, rawSpeed)) : 1.0
+                let sensitivity = audioSensitivity.isFinite
+                    ? min(4, max(0.5, audioSensitivity)) : 2.5
                 var next = bands
                 for index in 0..<4 {
-                    let sample = index < incoming.count && enabled[index] && incoming[index].isFinite
-                        ? min(1, max(0, incoming[index])) : 0
-                    adaptive[index] += (sample - adaptive[index]) * (1 - exp(-elapsed / 2.0))
-                    let target = enabled[index] ? min(1, sample / max(0.025, adaptive[index] * 1.5) * gain) : 0
-                    let response = 1 - exp(-elapsed / (target > bands[index] ? 0.09 : 0.55))
-                    next[index] += (target - next[index]) * response
-                    if !enabled[index] || gain == 0 { next[index] = 0 }
+                    let raw = index < input.count && input[index].isFinite
+                        ? min(1.0, max(0.0, input[index])) : 0.0
+                    // A compression curve reveals very small sound variations,
+                    // without fabricating an audible signal during silence.
+                    let detected = raw > 0.00002 ? pow(raw, 0.55) : 0.0
+                    adaptive[index] += (detected - adaptive[index]) *
+                        (1 - exp(-dt / 0.34))
+                    let normalized = detected / max(0.018, adaptive[index] * 1.35)
+                    let target = playing && enabled[index]
+                        ? min(1.0, normalized * sensitivity * intensity * 0.33) : 0.0
+                    let reaction = target > bands[index] ? 0.045 : 0.28
+                    next[index] += (target - next[index]) *
+                        (1 - exp(-dt / reaction))
+                    if !enabled[index] || intensity == 0 { next[index] = 0 }
                 }
                 let energy = next.reduce(0, +) / 4
                 var transaction = Transaction()
                 transaction.disablesAnimations = true
                 withTransaction(transaction) {
                     bands = next
-                    // Integrate only foreground time so resuming never jumps ahead.
-                    flowTime += elapsed * safeSpeed * (0.16 + energy * 0.48)
+                    flowTime += dt * speed * (playing ? 0.21 + energy * 0.54 : 0.07)
                 }
-                do { try await Task.sleep(nanoseconds: 40_000_000) }
+                // Paused mode saves power but still has smooth flowing colors.
+                do { try await Task.sleep(nanoseconds: playing ? 33_000_000 : 83_000_000) }
                 catch { return }
             }
         }
@@ -69,59 +79,54 @@ struct RibbonScene: View {
     }
 
     private func draw(context: GraphicsContext, size: CGSize) {
-        guard scene == .active, playing, !reduced, size.width > 1, size.height > 1 else { return }
-        let w = Double(size.width), h = Double(size.height)
-        let scale = min(w, h)
+        guard scene == .active, size.width > 1, size.height > 1 else { return }
+        guard playing || animateWhilePaused else { return }
+        let width = Double(size.width)
+        let height = Double(size.height)
+        let scale = max(width, height)
         let energy = bands.reduce(0, +) / 4
-        guard energy > 0.001 else { return }
-        // Broad, feathered ribbons cross the edges and leave the controls readable.
-        for stream in 0..<4 {
-            let seed = Double(stream)
-            let level = bands[stream]
-            guard level > 0.001 else { continue }
-            let phase = flowTime + seed * 1.7
-            var path = Path()
-            for step in 0...48 {
-                let u = Double(step) / 48
-                let x = w * (-0.16 + u * 1.32)
-                let base = 0.28 + seed * 0.15
-                let wave = sin(u * 5.4 + phase) * (0.055 + level * 0.055)
-                let fold = sin(u * 10.2 - phase * 0.7 + seed) * 0.022
-                let point = CGPoint(x: x, y: h * (base + wave + fold))
-                if step == 0 { path.move(to: point) } else { path.addLine(to: point) }
-            }
-            let tint = Color(red: 0.82 + seed * 0.04, green: 0.88 + seed * 0.025, blue: 1)
-            let gradient = Gradient(stops: [
-                .init(color: .clear, location: 0),
-                .init(color: tint.opacity(level * 0.20), location: 0.20),
-                .init(color: .white.opacity(level * 0.28), location: 0.54),
-                .init(color: tint.opacity(level * 0.18), location: 0.82),
-                .init(color: .clear, location: 1)
-            ])
-            // Blur each layer independently: no hard cone edges or point light sources.
-            for layer in 0..<2 {
-                var soft = context
-                soft.addFilter(.blur(radius: scale * (0.018 + Double(layer) * 0.023)))
-                soft.opacity = 0.70 - Double(layer) * 0.18
-                soft.stroke(path, with: .linearGradient(gradient,
-                    startPoint: CGPoint(x: -w * 0.16, y: h * 0.5),
-                    endPoint: CGPoint(x: w * 1.16, y: h * 0.5)),
-                    style: StrokeStyle(lineWidth: scale * (0.055 + Double(layer) * 0.07 + level * 0.035),
-                                       lineCap: .round, lineJoin: .round))
-            }
-            let center = CGPoint(x: w * (0.5 + sin(phase * 0.62) * 0.34),
-                                 y: h * (0.30 + seed * 0.14 + cos(phase * 0.48) * 0.07))
-            let radius = scale * (0.30 + level * 0.12)
-            let haze = CGRect(x: center.x - radius, y: center.y - radius,
-                              width: radius * 2, height: radius * 2)
-            context.fill(Path(ellipseIn: haze), with: .radialGradient(
-                Gradient(colors: [tint.opacity(level * 0.065), .clear]),
+        let phase = reduced ? 0 : flowTime
+
+        let shades = [
+            Color(red: 0.50, green: 0.34, blue: 0.85),
+            Color(red: 0.26, green: 0.53, blue: 0.81),
+            Color(red: 0.59, green: 0.39, blue: 0.72),
+            Color(red: 0.31, green: 0.63, blue: 0.72)
+        ]
+        // Wide feathered glows overlap continuously; no distinct color ribbons.
+        for index in 0..<4 {
+            let level = playing ? bands[index] : 0.21
+            guard level > 0.003 else { continue }
+            let seed = Double(index)
+            let t = phase * (0.49 + seed * 0.07) + seed * 1.6
+            let center = CGPoint(
+                x: width * (0.15 + seed * 0.22 + sin(t) * 0.095),
+                y: height * (0.19 + seed * 0.19 + cos(t * 0.72) * 0.09)
+            )
+            let radius = scale * (0.67 + level * 0.13)
+            let bounds = CGRect(x: center.x - radius, y: center.y - radius,
+                                width: radius * 2, height: radius * 2)
+            let opacity = playing ? 0.040 + level * 0.23 : 0.11
+            context.fill(Path(ellipseIn: bounds), with: .radialGradient(
+                Gradient(colors: [
+                    shades[index].opacity(opacity),
+                    shades[index].opacity(opacity * 0.42),
+                    .clear
+                ]), center: center, startRadius: 0, endRadius: radius))
+        }
+        if playing && energy > 0.01 {
+            let center = CGPoint(
+                x: width * (0.5 + sin(phase * 0.36) * 0.26),
+                y: height * (0.45 + cos(phase * 0.46) * 0.10))
+            let radius = scale * 0.65
+            context.fill(Path(ellipseIn: CGRect(
+                x: center.x-radius, y: center.y-radius,
+                width: 2*radius, height: 2*radius)), with: .radialGradient(
+                Gradient(colors: [.white.opacity(energy * 0.045), .clear]),
                 center: center, startRadius: 0, endRadius: radius))
         }
     }
 }
-
-
 
 // Quiet decorative stars are independent of the audio engine and playback state.
 private struct HomeSparkles: View {
@@ -1026,6 +1031,8 @@ struct NativeSettings: View {
     @AppStorage("nw-stream-buffer-seconds") private var streamBufferSeconds = 4.0
     @AppStorage("nw-equal-volume") private var equalVolume = 0.0
     @AppStorage("nw-ambient-lyrics") private var ambientLyrics = true
+    @AppStorage("nw-ambient-animate-when-paused") private var animatePausedAmbient = true
+    @AppStorage("nw-ambient-audio-sensitivity") private var ambientSensitivity = 2.5
     @State private var playbackDiagnostics = "Нет данных о запуске"
     private var buildCaption: String {
         let info = Bundle.main.infoDictionary ?? [:]
@@ -1047,6 +1054,30 @@ struct NativeSettings: View {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 18) {
                     if store.account != nil { ProfileSettingsView().environmentObject(store) }
+                    VStack(alignment: .leading, spacing: 12) {
+                        Label("Кастомизация", systemImage: "slider.horizontal.3")
+                            .font(.system(size: 18, weight: .semibold))
+                        Toggle("Переливание фона на паузе", isOn: $animatePausedAmbient)
+                        Text("Плавный цветной градиент продолжает двигаться, даже если музыка остановлена.")
+                            .font(.system(size: 12)).foregroundStyle(.white.opacity(0.5))
+                        HStack {
+                            Text("Чувствительность активного фона")
+                            Spacer()
+                            Text(String(format: "%.2fx", ambientSensitivity))
+                                .monospacedDigit().foregroundStyle(.secondary)
+                        }
+                        .font(.system(size: 13))
+                        GlassSlider(value: $ambientSensitivity,
+                                    range: 0.5...4.0, step: 0.25,
+                                    accessibilityStep: 0.25,
+                                    label: "Чувствительность активного фона",
+                                    valueText: String(format: "%.2fx", ambientSensitivity))
+                        Text("Усиливает реакцию на тихие звуки. На паузе работает только плавный градиент.")
+                            .font(.system(size: 12)).foregroundStyle(.white.opacity(0.5))
+                    }
+                    .padding(16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 24))
                     VStack(alignment:.leading,spacing:12) {
                         Label("Перенос музыки",systemImage:"square.and.arrow.down").font(.system(size:18,weight:.semibold))
                         Button("Импортировать плейлисты") { transferPresented = true }
