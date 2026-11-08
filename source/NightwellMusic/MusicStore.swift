@@ -421,7 +421,14 @@ private struct AudioQualityDecision: Decodable {
                 await client.setCSRF(identity.csrf)
                 guard !Task.isCancelled, self.origin == server,
                       self.sessionGeneration == session, self.connectionCheckGeneration == checkID else { return }
-                if changedAccount { self.restoreSessionSnapshot() }
+                if changedAccount { self.restoreCachedProfile(); self.restoreSessionSnapshot() }
+                if changedAccount || wasOffline {
+                    Task { [weak self] in
+                        guard let self, self.sessionGeneration == session,
+                              self.origin == server else { return }
+                        await self.refreshProfile()
+                    }
+                }
                 self.connectionStatus = "Онлайн"
                 if (wasOffline || changedAccount) && self.account != nil &&
                     Date().timeIntervalSince(self.lastConnectionRefresh) > 30 {
@@ -474,6 +481,7 @@ private struct AudioQualityDecision: Decodable {
         origin = ServerAddress.validated(saved) ?? URL(string: "https://music.nightwell.fun/")!
         api = MusicAPI(origin: origin)
         if let bytes = UserDefaults.standard.data(forKey: "native.account") { account = try? JSONDecoder().decode(Account.self, from: bytes) }
+        restoreCachedProfile()
         restoreSessionSnapshot()
         startConnectionWatcher()
         clock.onTick = { [weak self] value in self?.playbackTick(value) }
@@ -542,9 +550,19 @@ private struct AudioQualityDecision: Decodable {
                 NativePlayer.shared.stop()
             }
             account = identity.user
+            restoreCachedProfile()
             restoreAutoFavoritesSetting()
             cacheAccount()
             await client.setCSRF(identity.csrf)
+            guard generation == sessionGeneration, !Task.isCancelled else { return }
+            // This is required even if /api/me returns the same cached account ID.
+            // SwiftUI's onChange(account.id) won't fire on that common startup path.
+            if account != nil {
+                Task { [weak self] in
+                    guard let self, self.sessionGeneration == generation else { return }
+                    await self.refreshProfile()
+                }
+            }
             restoreSessionSnapshot()
             connectionStatus = "Онлайн"
             sessionReady = true
@@ -794,10 +812,16 @@ private struct AudioQualityDecision: Decodable {
             searchTask?.cancel(); artistSearchTask?.cancel(); searchGeneration = UUID(); searchCache = [:]; artistResults = []; artistSearchCache = [:]
         }
         account = user
+        restoreCachedProfile()
         restoreAutoFavoritesSetting()
         emailChallenge = nil
         cacheAccount()
         await api.setCSRF(response.csrf)
+        let signedInGeneration = sessionGeneration
+        Task { [weak self] in
+            guard let self, self.sessionGeneration == signedInGeneration else { return }
+            await self.refreshProfile()
+        }
         restoreSessionSnapshot()
         authPresented = false
         restorePlayback()
@@ -1343,7 +1367,7 @@ private struct AudioQualityDecision: Decodable {
     }
     func changeServer(_ value: String) async {
         guard let url = ServerAddress.validated(value) else { error = "Нужен HTTPS-адрес без пути и параметров"; return }
-        NativePlayer.shared.stop(); preloadTask?.cancel(); preloadTask = nil; lastPreloadIDs = []; lastPreloadAt = .distantPast; leaveSearch(); catalog = []; results = []; artistResults = []; playlists = []; likes = []; account = nil; searchCache = [:]; artistSearchCache = [:]
+        NativePlayer.shared.stop(); preloadTask?.cancel(); preloadTask = nil; lastPreloadIDs = []; lastPreloadAt = .distantPast; leaveSearch(); catalog = []; results = []; artistResults = []; playlists = []; likes = []; account = nil; profileNickname = ""; profileAvatar = nil; searchCache = [:]; artistSearchCache = [:]
         sessionGeneration = UUID(); starting = false; snapshotSaveTask?.cancel(); libraryRefresh.cancel(); connectionCheck?.cancel(); connectionCheck = nil; connectionCheckGeneration = UUID(); sessionReady = false
         stopLiveSync()
         origin = url; api = MusicAPI(origin: url); lastWave = []; restoreAutoFavoritesSetting(); cacheAccount(); await api.setCSRF(nil); UserDefaults.standard.set(url.absoluteString, forKey: "nightwell.server"); await start()
