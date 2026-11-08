@@ -361,9 +361,10 @@ public final class MainActivity extends Activity {
         panel.addView(intro);
         final AlertDialog[] holder={null};
         final int totalUpcoming=Math.max(0,queue.length()-playing-1);
-        final int pageCount=Math.max(1,(totalUpcoming+2)/3);
-        depthQueuePage=Math.min(Math.max(0,depthQueuePage),pageCount-1);
-        final int pageStart=playing+1+depthQueuePage*3;
+        // The cursor moves by ONE song per swipe, not by groups of three.
+        final int lastPosition=Math.max(0,totalUpcoming-1);
+        depthQueuePage=Math.min(Math.max(0,depthQueuePage),lastPosition);
+        final int pageStart=playing+1+depthQueuePage;
         if(totalUpcoming>0){
             android.widget.FrameLayout deck=new android.widget.FrameLayout(this);
             panel.addView(deck,new LinearLayout.LayoutParams(-1,dp(212)));
@@ -424,16 +425,20 @@ public final class MainActivity extends Activity {
                         }
                         if(event.getActionMasked()==android.view.MotionEvent.ACTION_UP){
                             float delta=event.getX()-start[0];
-                            if(Math.abs(delta)>dp(52)&&queue.length()>pageStart+1){
+                            if(Math.abs(delta)>dp(48)){
                                 v.cancelLongPress();
-                                int source=delta<0?pageStart+1:pageStart;
-                                int destination=delta<0?pageStart:pageStart+1;
-                                reorderUpcoming(source,destination);
-                                depthQueueFeedback(v,"Порядок обновлён");
-                                ui.postDelayed(()->{
-                                    if(holder[0]!=null)holder[0].dismiss();
-                                    showDepthQueue();
-                                },320);
+                                int direction=delta<0?1:-1;
+                                int newPosition=Math.max(0,Math.min(lastPosition,
+                                    depthQueuePage+direction));
+                                if(newPosition!=depthQueuePage){
+                                    depthQueuePage=newPosition;
+                                    v.animate().translationXBy(delta<0?-dp(34):dp(34))
+                                        .alpha(0.78f).setDuration(105).withEndAction(()->{
+                                            if(holder[0]!=null)holder[0].dismiss();
+                                            showDepthQueue();
+                                        }).start();
+                                }
+                                // A swipe must never also trigger click-to-play.
                                 return true;
                             }
                         }
@@ -443,8 +448,8 @@ public final class MainActivity extends Activity {
                 }
             }
         }
-        // Only the 3D deck is visible in this mode; later songs are reachable by pages.
-        if(totalUpcoming>3){
+        // One-card steps make the entire queue reachable without changing playback order.
+        if(totalUpcoming>1){
             LinearLayout pager=row();pager.setGravity(Gravity.CENTER);
             TextView previous=action("‹",()->{
                 if(depthQueuePage==0)return;
@@ -454,17 +459,16 @@ public final class MainActivity extends Activity {
             });
             previous.setEnabled(depthQueuePage>0);
             pager.addView(previous,new LinearLayout.LayoutParams(dp(52),dp(48)));
-            TextView counter=text((depthQueuePage*3+1)+"–"+
-                Math.min(totalUpcoming,(depthQueuePage+1)*3)+" из "+totalUpcoming,12);
+            TextView counter=text((depthQueuePage+1)+" из "+totalUpcoming,12);
             counter.setGravity(Gravity.CENTER);counter.setTextColor(0xffbfc1ca);
             pager.addView(counter,new LinearLayout.LayoutParams(0,dp(48),1));
             TextView nextPage=action("›",()->{
-                if(depthQueuePage>=pageCount-1)return;
+                if(depthQueuePage>=lastPosition)return;
                 depthQueuePage++;
                 if(holder[0]!=null)holder[0].dismiss();
                 ui.post(this::showDepthQueue);
             });
-            nextPage.setEnabled(depthQueuePage<pageCount-1);
+            nextPage.setEnabled(depthQueuePage<lastPosition);
             pager.addView(nextPage,new LinearLayout.LayoutParams(dp(52),dp(48)));
             panel.addView(pager);
         }else if(totalUpcoming==0){
@@ -472,7 +476,7 @@ public final class MainActivity extends Activity {
             empty.setGravity(Gravity.CENTER);empty.setPadding(0,dp(18),0,dp(18));
             panel.addView(empty);
         }
-        TextView guide=text("Тап: играть сейчас · удержание: следующая · свайп: порядок",12);
+        TextView guide=text("Тап: играть сейчас · удержание: следующая · свайп: листать очередь",12);
         guide.setTextColor(0xffaeb2c1);guide.setGravity(Gravity.CENTER);
         panel.addView(guide);
         AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Очередь")
