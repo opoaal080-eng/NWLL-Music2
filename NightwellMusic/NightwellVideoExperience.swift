@@ -25,13 +25,22 @@ struct NightwellAnimatedCover: View {
                        ? .easeInOut(duration: 9).repeatForever(autoreverses: true)
                        : .none, value: drifting)
             .frame(width: side, height: side)
-            // Feather the cover into its colour-matched backdrop, without
-            // drawing a sharp square outline around the album artwork.
+            // Fill the display width. Blur away top/bottom edges strongly
+            // while keeping the centre sharp and the image unzoomed.
             .mask {
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .fill(.white)
-                    .padding(8)
-                    .blur(radius: 18)
+                LinearGradient(stops: [
+                    .init(color: .clear, location: 0),
+                    .init(color: .white.opacity(0.10), location: 0.06),
+                    .init(color: .white.opacity(0.42), location: 0.16),
+                    .init(color: .white.opacity(0.88), location: 0.27),
+                    .init(color: .white, location: 0.36),
+                    .init(color: .white, location: 0.64),
+                    .init(color: .white.opacity(0.88), location: 0.73),
+                    .init(color: .white.opacity(0.42), location: 0.84),
+                    .init(color: .white.opacity(0.10), location: 0.94),
+                    .init(color: .clear, location: 1)
+                ], startPoint: .top, endPoint: .bottom)
+                .blur(radius: 16)
             }
             .id(track?.id)
             .onAppear { drifting = true }
