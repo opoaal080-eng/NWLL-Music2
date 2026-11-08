@@ -122,7 +122,13 @@ final class NativePlayer {
         pendingNextPlayer = nil
         pendingNextTimeout?.cancel(); pendingNextTimeout = nil
         pendingNextIndex = nil; pendingNextPrerollStarted = false; pendingNextGeneration = UUID()
-        preparedNextItem = item
+        // Never move an AVPlayerItem between two AVPlayers. Even after
+        // replaceCurrentItem(nil), AVFoundation can still consider the item
+        // owned by the preroll player and terminate the process on reassignment.
+        // Reuse the already-warmed asset, but create an independent item.
+        let playable = AVPlayerItem(asset: item.asset)
+        playable.preferredForwardBufferDuration = item.preferredForwardBufferDuration
+        preparedNextItem = playable
         index = destination
         fadeNextAutomatically = true
         load()
@@ -758,7 +764,11 @@ final class NativePlayer {
         seekCurrentItem(to: 0)
     }
     private func finishTrack() {
-        if pendingNextIndex != nil { return } // The selected next item is already preparing.
+        // Several media backends can report the same completion. Never start
+        // overlapping transitions, and ignore callbacks after manual Pause.
+        guard wantsPlay, !ended else { return }
+        if pendingNextIndex != nil { return } // The next item is already preparing.
+        ended = true
         if repeatMode == 2 { restartSmoothly() }
         else if waveActive && index + 1 >= tracks.count {
             fadeNextAutomatically = true
