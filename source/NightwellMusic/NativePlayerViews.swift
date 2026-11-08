@@ -498,12 +498,9 @@ struct FullPlayer: View {
     @Environment(\.dismiss) private var dismiss
     @State private var lyricsFrame = CGRect.zero
     @State private var showLyrics = false
-    @State private var playerToolsPresented = false
+    @State private var playerActionSnapshot: NightwellPlayerActionSnapshot?
     @State private var availableClipURL: URL?
-    @State private var toolsTrackSnapshot: Track?
-    @State private var toolsClipSnapshot: URL?
     @State private var presentedClip: NightwellPresentedClip?
-    @AppStorage("nw-animated-album-artwork") private var animatedArtwork = true
     @State private var feature: PremiumFeatureView.Kind?
     @State private var showQueue = false
     @State private var selectedArtist: ArtistSelection?
@@ -512,7 +509,6 @@ struct FullPlayer: View {
     @State private var scrub = 0.0
     @State private var repeatMode = 0
     @State private var shuffle = false
-    @AppStorage("nw-audio-quality") private var audioQuality = "auto"
     var body: some View {
         ZStack {
             // Neutral home-style backdrop instead of the seasonal Halloween illustration.
@@ -646,6 +642,43 @@ struct FullPlayer: View {
             }
         }
         .sheet(item: $feature) { PremiumFeatureView(kind: $0).environmentObject(store) }
+        .sheet(item: $playerActionSnapshot) { snapshot in
+            NightwellPlayerActionsSheet(
+                snapshot: snapshot,
+                onClose: { playerActionSnapshot = nil },
+                onEqualizer: {
+                    playerActionSnapshot = nil
+                    feature = .sound
+                },
+                onLyrics: {
+                    playerActionSnapshot = nil
+                    withAnimation { showLyrics.toggle() }
+                },
+                onClip: { url, track in
+                    NativePlayer.shared.pause()
+                    playerActionSnapshot = nil
+                    DispatchQueue.main.async {
+                        presentedClip = NightwellPresentedClip(url: url, trackTitle: track.title)
+                    }
+                },
+                onHide: { track in
+                    store.toggleRecommendationHidden(track)
+                    playerActionSnapshot = nil
+                },
+                onDownload: { track in
+                    playerActionSnapshot = nil
+                    Task { await store.download([track]) }
+                },
+                onAddPlaylist: { track, list in
+                    playerActionSnapshot = nil
+                    Task { await store.add(track, playlist: list) }
+                },
+                onQuality: { _ in
+                    store.audioQualityNotice = "Качество изменится со следующего трека"
+                    Task { await store.checkAudioQualitySupport() }
+                }
+            )
+        }
         .sheet(item: $presentedClip) { clip in
             NightwellClipScreen(clipURL: clip.url, title: clip.trackTitle, origin: store.origin)
         }
@@ -661,9 +694,7 @@ struct FullPlayer: View {
         }
         .onChange(of: clock.current?.id) { _ in
             // An already-open menu must never show a previous track's clip.
-            playerToolsPresented = false
-            toolsTrackSnapshot = nil
-            toolsClipSnapshot = nil
+            playerActionSnapshot = nil
         }
         .confirmationDialog("Выбери исполнителя", isPresented: $showArtistChoices, titleVisibility: .visible) {
             ForEach(ArtistNames.split(clock.current?.artist ?? ""), id: \.self) { name in
@@ -680,26 +711,18 @@ struct FullPlayer: View {
                 .presentationBackground(.clear)
         }
     }
-    private func qualityChoice(_ title: String, value: String) -> some View {
-        Button {
-            audioQuality = value
-            store.audioQualityNotice = "Качество изменится со следующего трека"
-            Task { await store.checkAudioQualitySupport() }
-        } label: {
-            if audioQuality == value || (value == "low" && audioQuality == "economy") {
-                Label(title, systemImage: "checkmark")
-            } else {
-                Text(title)
-            }
-        }
-    }
     private var tools: some View {
         Button {
-            // Freeze the menu model before presenting it. Network changes and
-            // frequent playback-clock ticks cannot delay the menu appearance.
-            toolsTrackSnapshot = clock.current
-            toolsClipSnapshot = availableClipURL
-            playerToolsPresented = true
+            // Build one immutable snapshot when tapping, never subscribe the
+            // presented sheet to the rapidly updating playback clock.
+            playerActionSnapshot = NightwellPlayerActionSnapshot(
+                track: clock.current,
+                clipURL: availableClipURL,
+                playlists: store.playlists,
+                recommendationHidden: clock.current.map { store.isRecommendationHidden($0) } ?? false,
+                shareBaseURL: store.origin,
+                lyricsVisible: showLyrics
+            )
         } label: {
             Image(systemName: "ellipsis")
                 .frame(width: 44, height: 44)
@@ -707,107 +730,6 @@ struct FullPlayer: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Действия с треком")
-        // Present a stable sheet rather than a live SwiftUI Menu in a player
-        // whose progress changes many times a second. The old menu rebuilt
-        // during playback and appeared to flash or dismiss spontaneously.
-        .sheet(isPresented: $playerToolsPresented) {
-            NavigationStack {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 14) {
-                        Menu {
-                            qualityChoice("Авто", value: "auto")
-                            qualityChoice("Низкое", value: "low")
-                            qualityChoice("Среднее", value: "medium")
-                            qualityChoice("Высокое", value: "high")
-                        } label: {
-                            Label("Качество звука", systemImage: "waveform")
-                                .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
-                        }
-                        Button {
-                            playerToolsPresented = false
-                            feature = .sound
-                        } label: {
-                            Label("Эквалайзер", systemImage: "slider.vertical.3")
-                                .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
-                        }
-                        Button {
-                            showLyrics.toggle()
-                            playerToolsPresented = false
-                        } label: {
-                            Label(showLyrics ? "Обложка" : "Текст песни", systemImage: "text.alignleft")
-                                .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
-                        }
-                        Button {
-                            animatedArtwork.toggle()
-                            playerToolsPresented = false
-                        } label: {
-                            Label(animatedArtwork ? "Отключить анимацию обложки" : "Включить анимацию обложки",
-                                  systemImage: "livephoto")
-                                .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
-                        }
-                        if let track = toolsTrackSnapshot {
-                            if let clip = toolsClipSnapshot {
-                                Button {
-                                    // Pause Nightwell before presenting YouTube's
-                                    // official embedded player with original audio.
-                                    NativePlayer.shared.pause()
-                                    playerToolsPresented = false
-                                    DispatchQueue.main.async {
-                                        presentedClip = NightwellPresentedClip(url: clip, trackTitle: track.title)
-                                    }
-                                } label: {
-                                    Label("Клип", systemImage: "play.rectangle")
-                                        .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
-                                }
-                            }
-                            Button {
-                                store.toggleRecommendationHidden(track)
-                                playerToolsPresented = false
-                            } label: {
-                                Label(store.isRecommendationHidden(track)
-                                      ? "Вернуть в рекомендации" : "Не рекомендовать",
-                                      systemImage: "hand.thumbsdown")
-                                    .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
-                            }
-                            Button {
-                                playerToolsPresented = false
-                                Task { await store.download([track]) }
-                            } label: {
-                                Label("Скачать", systemImage: "arrow.down.to.line")
-                                    .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
-                            }
-                            ShareLink(item: store.origin.appendingPathComponent("track/" + track.id)) {
-                                Label("Поделиться", systemImage: "square.and.arrow.up")
-                                    .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
-                            }
-                            Menu {
-                                ForEach(store.playlists) { item in
-                                    Button(item.name) {
-                                        playerToolsPresented = false
-                                        Task { await store.add(track, playlist: item) }
-                                    }
-                                }
-                            } label: {
-                                Label("Добавить в плейлист", systemImage: "text.badge.plus")
-                                    .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
-                            }
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .padding(22)
-                }
-                .navigationTitle("Действия с треком")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button("Готово") { playerToolsPresented = false }
-                    }
-                }
-            }
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
-            .presentationBackground(Color(white: 0.10))
-        }
     }
 }
 func formatTime(_ seconds: Double) -> String { let value = seconds.isFinite ? max(0, Int(seconds)) : 0; return String(format: "%d:%02d", value / 60, value % 60) }
