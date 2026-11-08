@@ -1491,16 +1491,12 @@ public final class MainActivity extends Activity {
         artworkCache.load(miniCover,origin,track==null?"":track.optString("cover_url"));
     }
     void addCover(JSONObject track,LinearLayout parent) {
-        android.widget.ImageView cover=new android.widget.ImageView(this);
+        // Android uses a subtly animated artwork, unlike the static Windows cover.
+        NightwellMotionCover cover=new NightwellMotionCover(this);
         cover.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
         android.view.GestureDetector detector=gestures(true);
         cover.setOnTouchListener((v,event)->detector.onTouchEvent(event));
-        GradientDrawable corners=new GradientDrawable();
-        corners.setColor(0x33251936);corners.setCornerRadius(dp(34));
-        cover.setBackground(corners);cover.setClipToOutline(true);
-        int edge=Math.max(160,Math.min((int)(getResources().getConfiguration().screenHeightDp*
-            (getResources().getConfiguration().screenHeightDp<700?.25f:.36f)),
-            Math.min(330,getResources().getConfiguration().screenWidthDp-44)));
+        int edge=Math.max(280,getResources().getConfiguration().screenWidthDp+18);
         LinearLayout.LayoutParams coverLayout=new LinearLayout.LayoutParams(dp(edge),dp(edge));
         coverLayout.gravity=Gravity.CENTER_HORIZONTAL;
         parent.addView(cover,coverLayout);
