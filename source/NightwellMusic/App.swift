@@ -1256,7 +1256,17 @@ struct PlaylistScreen: View {
                 return
             }
             #endif
-            do { tracks = try await store.playlistTracks(playlist.id) } catch { store.error = error.localizedDescription }
+            // Render the device copy first, then refresh asynchronously.
+            // A slow network must never leave an already-visited playlist empty.
+            let cached = store.cachedPlaylistTracks(playlist.id)
+            if let cached { tracks = cached }
+            do {
+                let fresh = try await store.playlistTracks(playlist.id)
+                guard !Task.isCancelled else { return }
+                tracks = fresh
+            } catch {
+                if cached == nil { store.error = error.localizedDescription }
+            }
         }
     }
 }

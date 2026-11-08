@@ -332,8 +332,10 @@ private struct AudioQualityDecision: Decodable {
         return "nw-favorite-tracks-v2|" + origin.absoluteString + "|" + id
     }
 
-    private func restoreFavoriteTrackDetails() {
-        guard let key = favoriteDetailCacheKey,
+    private func restoreFavoriteTrackDetails(forAccountID savedAccountID: String? = nil) {
+        let key = savedAccountID.map { "nw-favorite-tracks-v2|" + origin.absoluteString + "|" + $0 }
+            ?? favoriteDetailCacheKey
+        guard let key,
               let data = UserDefaults.standard.data(forKey: key),
               let decoded = try? JSONDecoder().decode([Track].self, from: data) else {
             favoriteTrackDetails = []
@@ -403,9 +405,11 @@ private struct AudioQualityDecision: Decodable {
         guard let id = account?.id else { return nil }
         return "nw-session-v1-" + (origin.host ?? "server") + "-" + id
     }
-    private func restoreSessionSnapshot() {
+    private func restoreSessionSnapshot(forAccountID savedAccountID: String? = nil) {
         restoreRecent()
-        guard let key = sessionCacheKey,
+        let owner = savedAccountID ?? account?.id
+        let key = owner.map { "nw-session-v1-" + (origin.host ?? "server") + "-" + $0 }
+        guard let key,
               let data = UserDefaults.standard.data(forKey: key) else { return }
         guard let cache = try? JSONDecoder().decode(SessionSnapshot.self, from: data),
               cache.savedAt.timeIntervalSinceNow > -365 * 24 * 60 * 60,
@@ -415,7 +419,18 @@ private struct AudioQualityDecision: Decodable {
         }
         catalog = cache.tracks
         likes = Set(cache.likes)
-        reconcileFavoriteOrder(cache.likes)
+        if account?.id == owner {
+            reconcileFavoriteOrder(cache.likes)
+        } else if let owner {
+            // Display the last authorized user's local library without treating
+            // the cached identity as an authenticated network session.
+            let key = "nw-favorites-order-v1|" + origin.absoluteString + "|" + owner
+            let saved = UserDefaults.standard.stringArray(forKey: key) ?? []
+            var seen = Set<String>()
+            favoriteOrder = (saved + cache.likes.reversed()).filter {
+                likes.contains($0) && seen.insert($0).inserted
+            }
+        }
         playlists = cache.playlists
         lastWave = cache.wave
     }
@@ -597,10 +612,18 @@ private struct AudioQualityDecision: Decodable {
         // Disk scanning and the session request are independent.
         async let localFiles: Void = refreshOffline()
         restorePlayback()
+        // Show previously saved track lists immediately, even if /api/me is
+        // slow or the device temporarily has no network connection.
+        let savedAccount = UserDefaults.standard.data(forKey: "native.account")
+            .flatMap { try? JSONDecoder().decode(Account.self, from: $0) }
+        if account == nil, let savedAccount {
+            restoreSessionSnapshot(forAccountID: savedAccount.id)
+            restoreFavoriteTrackDetails(forAccountID: savedAccount.id)
+        }
         do {
             let identity: Identity = try await client.request("/api/me", timeout: 10)
             guard generation == sessionGeneration, !Task.isCancelled else { return }
-            if account?.id != identity.user?.id {
+            if account?.id != identity.user?.id || (identity.user == nil && savedAccount != nil) {
                 libraryRefresh.cancel()
                 catalog = []; likes = []; favoriteOrder = []; favoriteTrackDetails = []; playlists = []; lastWave = []; results = []
                 searchTask?.cancel(); artistSearchTask?.cancel(); searchGeneration = UUID(); searchCache.removeAll(); artistResults = []; artistSearchCache.removeAll()
@@ -1251,6 +1274,7 @@ private struct AudioQualityDecision: Decodable {
             persistFavoriteTrackDetails()
         }
         saveFavoriteOrder()
+        saveSessionSnapshot()
         var failure: Error?
         do {
             // The HTTP operation may succeed even if its body is empty or uses an
@@ -1282,40 +1306,73 @@ private struct AudioQualityDecision: Decodable {
             favoriteTrackDetails = beforeDetails
             persistFavoriteTrackDetails()
             saveFavoriteOrder()
+            saveSessionSnapshot()
             self.error = "Не удалось проверить избранное. Проверьте подключение и повторите."
         }
     }
     private func playlistCacheKey(_ id: String) -> String? {
-        guard let scope = sessionCacheKey, !id.isEmpty else { return nil }
-        return scope + "-playlist-" + id
+        guard !id.isEmpty else { return nil }
+        // The server may be unavailable at startup, so reading on-device
+        // playlists must not depend on an authenticated session response.
+        let owner = account?.id ?? UserDefaults.standard.data(forKey: "native.account")
+            .flatMap { try? JSONDecoder().decode(Account.self, from: $0).id }
+        guard let owner else { return nil }
+        return "nw-session-v1-" + (origin.host ?? "server") + "-" + owner + "-playlist-" + id
     }
+
+    func cachedPlaylistTracks(_ id: String) -> [Track]? {
+        guard let key = playlistCacheKey(id),
+              let data = UserDefaults.standard.data(forKey: key) else { return nil }
+        return try? JSONDecoder().decode([Track].self, from: data)
+    }
+
+    private func persistPlaylistTracks(_ tracks: [Track], playlist id: String) {
+        guard let key = playlistCacheKey(id),
+              let data = try? JSONEncoder().encode(tracks),
+              data.count < 3_500_000 else { return }
+        UserDefaults.standard.set(data, forKey: key)
+    }
+
     func playlistTracks(_ id: String) async throws -> [Track] {
         let key = playlistCacheKey(id)
         do {
             let value: TrackResult = try await api.request("/api/playlists/" + id + "/tracks", timeout: 10)
-            if let key, let data = try? JSONEncoder().encode(value.tracks), data.count < 1_500_000 {
-                UserDefaults.standard.set(data, forKey: key)
-            }
+            if key != nil { persistPlaylistTracks(value.tracks, playlist: id) }
             return value.tracks
         } catch {
-            if let key, let data = UserDefaults.standard.data(forKey: key),
-               let saved = try? JSONDecoder().decode([Track].self, from: data) {
+            if key != nil, let saved = cachedPlaylistTracks(id) {
                 return saved
             }
             throw error
         }
     }
     func createPlaylist(_ name: String) async {
-        do { let _: Playlist = try await api.request("/api/playlists", method: "POST", body: ["name": name]); await refresh() }
-        catch { self.error = error.localizedDescription }
+        do {
+            let created: Playlist = try await api.request("/api/playlists", method: "POST", body: ["name": name])
+            playlists.append(created)
+            saveSessionSnapshot()
+            await refresh()
+        } catch { self.error = error.localizedDescription }
     }
     func deletePlaylist(_ id: String) async {
-        do { let _: OK = try await api.request("/api/playlists/" + id, method: "DELETE"); await refresh() }
-        catch { self.error = error.localizedDescription }
+        do {
+            let _: OK = try await api.request("/api/playlists/" + id, method: "DELETE")
+            playlists.removeAll { $0.id == id }
+            if let key = playlistCacheKey(id) { UserDefaults.standard.removeObject(forKey: key) }
+            saveSessionSnapshot()
+            await refresh()
+        } catch { self.error = error.localizedDescription }
     }
     func add(_ track: Track, playlist: Playlist, remove: Bool = false) async {
-        do { let _: OK = try await api.request("/api/playlists/" + playlist.id + "/tracks/" + track.id, method: remove ? "DELETE" : "POST") }
-        catch { self.error = error.localizedDescription }
+        do {
+            let _: OK = try await api.request("/api/playlists/" + playlist.id + "/tracks/" + track.id,
+                                              method: remove ? "DELETE" : "POST")
+            if var cached = cachedPlaylistTracks(playlist.id) {
+                cached.removeAll { $0.id == track.id }
+                if !remove { cached.append(track) }
+                persistPlaylistTracks(cached, playlist: playlist.id)
+            }
+        } catch { self.error = error.localizedDescription }
     }
     func share(kind: String, playlist: String = "", title: String = "", tracks: [Track] = []) async -> String? {
         // Prefer an actual hosted collection link if the current server supports it.
