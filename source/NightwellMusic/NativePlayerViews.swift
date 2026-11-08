@@ -493,11 +493,7 @@ struct FullPlayer: View {
     @State private var lyricsFrame = CGRect.zero
     @State private var showLyrics = false
     @State private var playerToolsPresented = false
-    @State private var showYouTubeClip = false
-    @State private var chooseCanvasVideo = false
-    @State private var canvasRevision = 0
-    @State private var canvasMessage = ""
-    @AppStorage("nw-canvas-fullscreen") private var canvasMode = true
+    @State private var availableClipURL: URL?
     @AppStorage("nw-animated-album-artwork") private var animatedArtwork = true
     @State private var feature: PremiumFeatureView.Kind?
     @State private var showQueue = false
@@ -513,25 +509,15 @@ struct FullPlayer: View {
             // Neutral home-style backdrop instead of the seasonal Halloween illustration.
             Color.black.ignoresSafeArea()
             if !showLyrics {
-                if canvasMode {
-                    NightwellCanvasBackground(track: clock.current,
-                                              origin: store.origin,
-                                              revision: canvasRevision,
-                                              position: clock.position,
-                                              playing: clock.playing)
-                        .ignoresSafeArea()
-                } else {
-                    ArtworkColorBackground(url: clock.current?.cover_url.flatMap { URL(string: $0, relativeTo: store.origin) })
-                        .ignoresSafeArea()
-                        .allowsHitTesting(false)
-                }
+                NightwellAnimatedArtworkBackground(track: clock.current, origin: store.origin)
+                    .ignoresSafeArea()
             } else {
                 LinearGradient(colors: [Color(white: 0.085), Color(white: 0.025), .black],
                                startPoint: .topLeading, endPoint: .bottomTrailing)
                     .ignoresSafeArea()
                     .allowsHitTesting(false)
             }
-            if !canvasMode || showLyrics { HomeSparkles().ignoresSafeArea() }
+            if showLyrics { HomeSparkles().ignoresSafeArea() }
             VStack(spacing: 14) {
                 HStack { Button { dismiss() } label: { Image(systemName: "chevron.down").frame(width: 44, height: 44).nightwellLiquidGlass(24) }; Spacer(); NightwellAudioOutputControl(); Spacer(); tools }
                 GeometryReader { box in
@@ -540,29 +526,12 @@ struct FullPlayer: View {
                             .id(clock.id)
                             .background { GeometryReader { proxy in Color.clear.preference(key: PlayerLyricsFramePreference.self, value: proxy.frame(in: .global)) } }
 
-                    } else if canvasMode {
-                        VStack {
-                            Spacer()
-                            HStack(spacing: 6) {
-                                Image(systemName: "waveform.path")
-                                Text(NightwellCanvasStore.video(for: clock.id) == nil
-                                     ? "ЖИВАЯ ОБЛОЖКА" : "CANVAS")
-                            }
-                            .font(.system(size: 10, weight: .semibold))
-                            .tracking(1.5)
-                            .foregroundStyle(Color.white.opacity(0.70))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.bottom, 8)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .allowsHitTesting(false)
                     } else {
-                        Cover(track: clock.current, origin: store.origin, pixelWidth: 1024)
-                            .frame(width: min(box.size.width, box.size.height) * 0.9, height: min(box.size.width, box.size.height) * 0.9)
-                            .clipShape(RoundedRectangle(cornerRadius: 26))
+                        // The entire main area is the animated cover. Music
+                        // controls remain over the artwork, with no video layer.
+                        Color.clear
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .contentShape(Rectangle())
-
                             .gesture(DragGesture(minimumDistance: 18).onEnded { value in
                                 let dx = value.translation.width
                                 if abs(dx) > 52 && abs(dx) > abs(value.translation.height) * 1.15 {
@@ -661,34 +630,30 @@ struct FullPlayer: View {
             }
         }
         .sheet(item: $feature) { PremiumFeatureView(kind: $0).environmentObject(store) }
-        .sheet(isPresented: $showYouTubeClip) {
-            if let track = clock.current { NightwellYouTubeClip(track: track) }
-        }
-        .fileImporter(isPresented: $chooseCanvasVideo,
-                      allowedContentTypes: [.movie], allowsMultipleSelection: false) { result in
-            guard let id = clock.current?.id else { return }
-            switch result {
-            case .success(let files):
-                guard let selected = files.first else { return }
-                Task {
-                    do {
-                        try await Task.detached(priority: .utility) {
-                            try NightwellCanvasStore.save(selected, trackID: id)
-                        }.value
-                        canvasRevision += 1
-                        canvasMode = true
-                        canvasMessage = "Видео сохранено на устройстве."
-                    } catch { canvasMessage = error.localizedDescription }
-                }
-            case .failure(let error):
-                canvasMessage = error.localizedDescription
+        .task(id: clock.current?.id) {
+            availableClipURL = nil
+            guard let selected = clock.current else { return }
+            if let direct = NightwellYouTubeLink.videoURL(from: selected.source_url) {
+                availableClipURL = direct
+                return
+            }
+            var query = URLComponents()
+            query.path = "/api/music-videos/clip"
+            query.queryItems = [
+                URLQueryItem(name: "title", value: selected.title),
+                URLQueryItem(name: "artist", value: selected.artist)
+            ]
+            guard let path = query.string else { return }
+            do {
+                let match: NightwellClipLookupResponse = try await store.api.request(path, timeout: 8)
+                guard !Task.isCancelled, clock.current?.id == selected.id,
+                      match.available == true else { return }
+                availableClipURL = NightwellYouTubeLink.videoURL(from: match.video_id)
+            } catch {
+                // The backend may not have YouTube lookup configured; then
+                // hide the action instead of showing a broken video.
             }
         }
-        .alert("Видео Canvas", isPresented: Binding(
-            get: { !canvasMessage.isEmpty },
-            set: { if !$0 { canvasMessage = "" } })) {
-            Button("ОК", role: .cancel) { canvasMessage = "" }
-        } message: { Text(canvasMessage) }
         .confirmationDialog("Выбери исполнителя", isPresented: $showArtistChoices, titleVisibility: .visible) {
             ForEach(ArtistNames.split(clock.current?.artist ?? ""), id: \.self) { name in
                 Button(name) { selectedArtist = ArtistSelection(name: name) }
@@ -758,45 +723,25 @@ struct FullPlayer: View {
                                 .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
                         }
                         Button {
-                            canvasMode.toggle()
+                            animatedArtwork.toggle()
                             playerToolsPresented = false
                         } label: {
-                            Label(canvasMode ? "Обычная обложка" : "Canvas на весь экран",
-                                  systemImage: canvasMode ? "square" : "rectangle.portrait")
-                                .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
-                        }
-                        Button {
-                            animatedArtwork.toggle()
-                        } label: {
-                            Label(animatedArtwork ? "Отключить движение обложки" : "Включить движение обложки",
+                            Label(animatedArtwork ? "Отключить анимацию обложки" : "Включить анимацию обложки",
                                   systemImage: "livephoto")
                                 .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
                         }
                         if let track = clock.current {
-                            Button {
-                                playerToolsPresented = false
-                                chooseCanvasVideo = true
-                            } label: {
-                                Label("Выбрать своё видео Canvas", systemImage: "video.badge.plus")
-                                    .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
-                            }
-                            if NightwellCanvasStore.video(for: track.id) != nil {
-                                Button(role: .destructive) {
-                                    NightwellCanvasStore.delete(trackID: track.id)
-                                    canvasRevision += 1
+                            if let clip = availableClipURL {
+                                Button {
+                                    // Pause Nightwell *before* handing off to
+                                    // YouTube with its own soundtrack.
+                                    NativePlayer.shared.pause()
                                     playerToolsPresented = false
+                                    UIApplication.shared.open(clip)
                                 } label: {
-                                    Label("Удалить видео Canvas", systemImage: "trash")
+                                    Label("Клип", systemImage: "play.rectangle")
                                         .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
                                 }
-                            }
-                            Button {
-                                NativePlayer.shared.pause()
-                                playerToolsPresented = false
-                                showYouTubeClip = true
-                            } label: {
-                                Label("Клип на YouTube", systemImage: "play.rectangle")
-                                    .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
                             }
                             Button {
                                 store.toggleRecommendationHidden(track)
