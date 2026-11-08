@@ -25,7 +25,14 @@ struct NightwellAnimatedCover: View {
                        ? .easeInOut(duration: 9).repeatForever(autoreverses: true)
                        : .none, value: drifting)
             .frame(width: side, height: side)
-            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            // Feather the cover into its colour-matched backdrop, without
+            // drawing a sharp square outline around the album artwork.
+            .mask {
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .fill(.white)
+                    .padding(19)
+                    .blur(radius: 23)
+            }
             .id(track?.id)
             .onAppear { drifting = true }
             .accessibilityLabel(track?.title ?? "Обложка трека")
@@ -75,6 +82,60 @@ struct NightwellClipLookupResponse: Decodable {
     var video_id: String?
     var title: String?
     var channel: String?
+}
+
+/// Preload clip availability on track selection, never when opening the menu.
+/// Positive and negative results remain cached even across player presentations.
+@MainActor
+final class NightwellClipAvailabilityCache {
+    static let shared = NightwellClipAvailabilityCache()
+    private struct Entry {
+        let url: URL?
+        let validUntil: Date
+    }
+    private var entries: [String: Entry] = [:]
+    private var pending: [String: Task<URL?, Never>] = [:]
+
+    func lookup(track: Track, api: MusicAPI, origin: URL, accountID: String?) async -> URL? {
+        if let direct = NightwellYouTubeLink.videoURL(from: track.source_url) {
+            return direct
+        }
+        let key = origin.absoluteString + "|" + (accountID ?? "guest")
+            + "|" + track.title.lowercased() + "|" + track.artist.lowercased()
+        if let entry = entries[key], entry.validUntil > Date() {
+            return entry.url
+        }
+        if let task = pending[key] {
+            return await task.value
+        }
+        var query = URLComponents()
+        query.path = "/api/music-videos/clip"
+        query.queryItems = [
+            URLQueryItem(name: "title", value: track.title),
+            URLQueryItem(name: "artist", value: track.artist)
+        ]
+        guard let path = query.string else { return nil }
+        // URLSession requests suspend; they do not block sheet presentation.
+        let task = Task<URL?, Never> {
+            do {
+                let response: NightwellClipLookupResponse = try await api.request(path, timeout: 6)
+                guard response.available == true else { return nil }
+                return NightwellYouTubeLink.videoURL(from: response.video_id)
+            } catch {
+                return nil
+            }
+        }
+        pending[key] = task
+        let result = await task.value
+        pending[key] = nil
+        entries[key] = Entry(url: result,
+                             validUntil: Date().addingTimeInterval(result == nil ? 900 : 21600))
+        if entries.count > 300 {
+            entries = entries.filter { $0.value.validUntil > Date() }
+            if entries.count > 300 { entries.removeAll() }
+        }
+        return result
+    }
 }
 
 struct NightwellClipScreen: View {

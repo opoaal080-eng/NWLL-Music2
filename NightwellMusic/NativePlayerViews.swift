@@ -500,6 +500,8 @@ struct FullPlayer: View {
     @State private var showLyrics = false
     @State private var playerToolsPresented = false
     @State private var availableClipURL: URL?
+    @State private var toolsTrackSnapshot: Track?
+    @State private var toolsClipSnapshot: URL?
     @State private var presentedClip: NightwellPresentedClip?
     @AppStorage("nw-animated-album-artwork") private var animatedArtwork = true
     @State private var feature: PremiumFeatureView.Kind?
@@ -647,29 +649,21 @@ struct FullPlayer: View {
         .sheet(item: $presentedClip) { clip in
             NightwellClipScreen(clipURL: clip.url, title: clip.trackTitle, origin: store.origin)
         }
-        .task(id: clock.current?.id) {
+        .task(id: (clock.current?.id ?? "") + "|" + (store.account?.id ?? "")) {
+            // Prefetch for the selected song. The ⋯ button never starts a request.
             availableClipURL = nil
             guard let selected = clock.current else { return }
-            if let direct = NightwellYouTubeLink.videoURL(from: selected.source_url) {
-                availableClipURL = direct
-                return
-            }
-            var query = URLComponents()
-            query.path = "/api/music-videos/clip"
-            query.queryItems = [
-                URLQueryItem(name: "title", value: selected.title),
-                URLQueryItem(name: "artist", value: selected.artist)
-            ]
-            guard let path = query.string else { return }
-            do {
-                let match: NightwellClipLookupResponse = try await store.api.request(path, timeout: 8)
-                guard !Task.isCancelled, clock.current?.id == selected.id,
-                      match.available == true else { return }
-                availableClipURL = NightwellYouTubeLink.videoURL(from: match.video_id)
-            } catch {
-                // The backend may not have YouTube lookup configured; then
-                // hide the action instead of showing a broken video.
-            }
+            let result = await NightwellClipAvailabilityCache.shared.lookup(
+                track: selected, api: store.api, origin: store.origin,
+                accountID: store.account?.id)
+            guard !Task.isCancelled, clock.current?.id == selected.id else { return }
+            availableClipURL = result
+        }
+        .onChange(of: clock.current?.id) { _ in
+            // An already-open menu must never show a previous track's clip.
+            playerToolsPresented = false
+            toolsTrackSnapshot = nil
+            toolsClipSnapshot = nil
         }
         .confirmationDialog("Выбери исполнителя", isPresented: $showArtistChoices, titleVisibility: .visible) {
             ForEach(ArtistNames.split(clock.current?.artist ?? ""), id: \.self) { name in
@@ -701,6 +695,10 @@ struct FullPlayer: View {
     }
     private var tools: some View {
         Button {
+            // Freeze the menu model before presenting it. Network changes and
+            // frequent playback-clock ticks cannot delay the menu appearance.
+            toolsTrackSnapshot = clock.current
+            toolsClipSnapshot = availableClipURL
             playerToolsPresented = true
         } label: {
             Image(systemName: "ellipsis")
@@ -747,8 +745,8 @@ struct FullPlayer: View {
                                   systemImage: "livephoto")
                                 .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
                         }
-                        if let track = clock.current {
-                            if let clip = availableClipURL {
+                        if let track = toolsTrackSnapshot {
+                            if let clip = toolsClipSnapshot {
                                 Button {
                                     // Pause Nightwell before presenting YouTube's
                                     // official embedded player with original audio.
