@@ -510,39 +510,29 @@ struct FullPlayer: View {
     @State private var repeatMode = 0
     @State private var shuffle = false
     var body: some View {
-        ZStack {
-            playerBackdrop
-            playerControls
-        }.tint(Color.white)
-        .environment(\.lyricsPalette, artworkTextColors)
-        .onPreferenceChange(ArtworkPaletteKey.self) { colors in
-            artworkTextColors = colors.isEmpty ? [.white, .white] : colors
-        }
-        .onPreferenceChange(PlayerLyricsFramePreference.self) { lyricsFrame = $0 }
-        .simultaneousGesture(DragGesture(minimumDistance: 24, coordinateSpace: .global).onEnded { value in
-            // Keep scrubbing, horizontal track changes and lyric scrolling independent.
-            // When lyrics are visible all vertical gestures belong to
-            // the lyrics view. Only the explicit chevron can close the player.
-            guard !showLyrics, !seeking, !showQueue else { return }
-            let dx = value.translation.width
-            let dy = value.translation.height
-            guard dy > 95, dy > abs(dx) * 1.45 else { return }
-            // A swipe beginning in synchronized lyrics belongs to the lyrics scroller.
-            if showLyrics && lyricsFrame.contains(value.startLocation) { return }
-            withAnimation(.easeOut(duration: 0.24)) { dismiss() }
-        })
-        .onAppear {
-            refreshNativeMenu()
-            let modes = NativePlayer.shared.snapshot(includeQueue: false)
-            repeatMode = modes["repeat"] as? Int ?? 0; shuffle = modes["shuffle"] as? Bool ?? false
-            if store.lyrics.value == nil || store.lyrics.value?.status == "error" || store.lyrics.value?.status == "unavailable" {
-                store.lyrics.select(clock.current, api: store.api, origin: store.origin, online: store.account != nil)
+        playerFinal
+    }
+
+    private var playerFinal: some View {
+        playerSearchAndUpdates
+        .confirmationDialog("Выбери исполнителя", isPresented: $showArtistChoices, titleVisibility: .visible) {
+            ForEach(ArtistNames.split(clock.current?.artist ?? ""), id: \.self) { name in
+                Button(name) { selectedArtist = ArtistSelection(name: name) }
             }
         }
-        .sheet(item: $feature) { PremiumFeatureView(kind: $0).environmentObject(store) }
-        .sheet(item: $presentedClip) { clip in
-            NightwellClipScreen(clipURL: clip.url, title: clip.trackTitle, origin: store.origin)
+        .sheet(item: $selectedArtist) { artist in
+            ArtistProfileView(name: artist.name).environmentObject(store)
         }
+        .sheet(isPresented: $showQueue) {
+            PlaybackQueue(clock: clock)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .presentationBackground(.clear)
+        }
+    }
+
+    private var playerSearchAndUpdates: some View {
+        playerWithSheets
         .task(id: (clock.current?.id ?? "") + "|" + (store.account?.id ?? "")) {
             // Prefetch for the selected song. The ⋯ button never starts a request.
             availableClipURL = nil
@@ -565,21 +555,56 @@ struct FullPlayer: View {
         .onChange(of: store.likes) { _ in
             refreshNativeMenu()
         }
-        .confirmationDialog("Выбери исполнителя", isPresented: $showArtistChoices, titleVisibility: .visible) {
-            ForEach(ArtistNames.split(clock.current?.artist ?? ""), id: \.self) { name in
-                Button(name) { selectedArtist = ArtistSelection(name: name) }
-            }
-        }
-        .sheet(item: $selectedArtist) { artist in
-            ArtistProfileView(name: artist.name).environmentObject(store)
-        }
-        .sheet(isPresented: $showQueue) {
-            PlaybackQueue(clock: clock)
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-                .presentationBackground(.clear)
+    }
+
+    private var playerWithSheets: some View {
+        playerLifecycle
+        .sheet(item: $feature) { PremiumFeatureView(kind: $0).environmentObject(store) }
+        .sheet(item: $presentedClip) { clip in
+            NightwellClipScreen(clipURL: clip.url, title: clip.trackTitle, origin: store.origin)
         }
     }
+
+    private var playerLifecycle: some View {
+        playerGesture
+        .onAppear {
+            refreshNativeMenu()
+            let modes = NativePlayer.shared.snapshot(includeQueue: false)
+            repeatMode = modes["repeat"] as? Int ?? 0; shuffle = modes["shuffle"] as? Bool ?? false
+            if store.lyrics.value == nil || store.lyrics.value?.status == "error" || store.lyrics.value?.status == "unavailable" {
+                store.lyrics.select(clock.current, api: store.api, origin: store.origin, online: store.account != nil)
+            }
+        }
+    }
+
+    private var playerGesture: some View {
+        playerBase
+        .simultaneousGesture(DragGesture(minimumDistance: 24, coordinateSpace: .global).onEnded { value in
+            // Keep scrubbing, horizontal track changes and lyric scrolling independent.
+            // When lyrics are visible all vertical gestures belong to
+            // the lyrics view. Only the explicit chevron can close the player.
+            guard !showLyrics, !seeking, !showQueue else { return }
+            let dx = value.translation.width
+            let dy = value.translation.height
+            guard dy > 95, dy > abs(dx) * 1.45 else { return }
+            // A swipe beginning in synchronized lyrics belongs to the lyrics scroller.
+            if showLyrics && lyricsFrame.contains(value.startLocation) { return }
+            withAnimation(.easeOut(duration: 0.24)) { dismiss() }
+        })
+    }
+
+    private var playerBase: some View {
+        ZStack {
+            playerBackdrop
+            playerControls
+        }.tint(Color.white)
+        .environment(\.lyricsPalette, artworkTextColors)
+        .onPreferenceChange(ArtworkPaletteKey.self) { colors in
+            artworkTextColors = colors.isEmpty ? [.white, .white] : colors
+        }
+        .onPreferenceChange(PlayerLyricsFramePreference.self) { lyricsFrame = $0 }
+    }
+
     @ViewBuilder private var playerBackdrop: some View {
             // Neutral home-style backdrop instead of the seasonal Halloween illustration.
             Color.black.ignoresSafeArea()
