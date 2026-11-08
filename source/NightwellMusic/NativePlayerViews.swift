@@ -226,16 +226,36 @@ struct MiniPlayer: View {
                         Button { Task { await store.like(track) } } label: { Image(systemName: store.likes.contains(track.id) ? "heart.fill" : "heart").font(.system(size: 19)).foregroundStyle(Color.white).frame(width: compact ? 26 : 29, height: 44) }.accessibilityLabel("Избранное")
                     }
                     Button { changeTrack(-1) } label: { Image(systemName: "backward.end").font(.system(size: 15)).frame(width: compact ? 24 : 28, height: 44) }.accessibilityLabel("Предыдущий трек")
-                    Button { clock.toggle() } label: { Image(systemName: clock.playing ? "pause" : "play.fill").font(.system(size: 17, weight: .light)).frame(width: compact ? 42 : 42, height: compact ? 42 : 42).background(Circle().fill(Color.black.opacity(0.16))).overlay(Circle().stroke(Color.white.opacity(0.95), lineWidth: 1.5)) }.accessibilityLabel(clock.playing ? "Пауза" : "Воспроизвести")
+                    Button { clock.toggle() } label: {
+                        ZStack {
+                            Circle()
+                                .fill(Color.black.opacity(0.16))
+                                .frame(width: 42, height: 42)
+                            // Track stays subtle. The white arc shows the actual
+                            // listening position, starting at 12 o'clock.
+                            Circle()
+                                .stroke(Color.white.opacity(0.22), lineWidth: 2.2)
+                            Circle()
+                                .trim(from: 0, to: playbackFraction)
+                                .stroke(Color.white.opacity(0.96),
+                                        style: StrokeStyle(lineWidth: 2.7, lineCap: .round))
+                                .rotationEffect(.degrees(-90))
+                            Image(systemName: clock.playing ? "pause" : "play.fill")
+                                .font(.system(size: 17, weight: .light))
+                        }
+                        .frame(width: 50, height: 50)
+                    }
+                    .accessibilityLabel(clock.playing ? "Пауза" : "Воспроизвести")
+                    .accessibilityValue(clock.duration > 0
+                                        ? "\(Int((playbackFraction * 100).rounded()))% трека"
+                                        : "Прогресс неизвестен")
                     Button { changeTrack(1) } label: { Image(systemName: "forward.end").font(.system(size: 15)).frame(width: compact ? 24 : 28, height: 44) }.accessibilityLabel("Следующий трек")
                 }.buttonStyle(.plain)
             }.foregroundStyle(.white) .padding(.horizontal, 14).frame(maxWidth: .infinity, maxHeight: .infinity)
             .background {
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 32, style: .continuous).fill(.ultraThinMaterial).opacity(0.23)
-                    LinearGradient(colors: [Color.white.opacity(0.055), Color.purple.opacity(0.01)], startPoint: .leading, endPoint: .trailing)
-                        .frame(width: box.size.width * min(1, max(0, clock.duration > 0 ? clock.position / clock.duration : 0)))
-                }
+                RoundedRectangle(cornerRadius: 32, style: .continuous)
+                    .fill(.ultraThinMaterial)
+                    .opacity(0.23)
             }
             .overlay(RoundedRectangle(cornerRadius: 34, style: .continuous).stroke(LinearGradient(colors: [.white.opacity(0.34), Color.white.opacity(0.34), .white.opacity(0.14)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.1))
             .clipShape(RoundedRectangle(cornerRadius: 34, style: .continuous))
@@ -245,6 +265,14 @@ struct MiniPlayer: View {
         .task(id: clock.id) { guard !reduced else { return }; glow = true; try? await Task.sleep(nanoseconds: 80_000_000); guard !Task.isCancelled else { return }; withAnimation(.easeOut(duration: 0.9)) { glow = false } }
         // Swipe wins over the artwork/title tap, so it never opens the full player.
     }
+    private var playbackFraction: CGFloat {
+        // Protect against unknown duration, invalid stream timestamps and
+        // seeking overshoot. @ObservedObject updates the ring on every tick.
+        guard clock.duration.isFinite, clock.position.isFinite,
+              clock.duration > 0 else { return 0 }
+        return CGFloat(min(1, max(0, clock.position / clock.duration)))
+    }
+
     private func changeTrack(_ step: Int) {
         slideDirection = step < 0 ? -1 : 1
         NativePlayer.shared.step(step)
