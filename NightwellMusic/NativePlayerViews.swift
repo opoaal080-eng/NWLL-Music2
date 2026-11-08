@@ -230,7 +230,7 @@ struct MiniPlayer: View {
                         ZStack {
                             Circle()
                                 .fill(Color.black.opacity(0.16))
-                                .frame(width: 42, height: 42)
+                                .frame(width: 40, height: 40)
                             // Track stays subtle. The white arc shows the actual
                             // listening position, starting at 12 o'clock.
                             Circle()
@@ -243,7 +243,7 @@ struct MiniPlayer: View {
                             Image(systemName: clock.playing ? "pause" : "play.fill")
                                 .font(.system(size: 17, weight: .light))
                         }
-                        .frame(width: 50, height: 50)
+                        .frame(width: 48, height: 48)
                     }
                     .accessibilityLabel(clock.playing ? "Пауза" : "Воспроизвести")
                     .accessibilityValue(clock.duration > 0
