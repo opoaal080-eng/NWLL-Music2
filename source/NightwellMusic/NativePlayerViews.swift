@@ -168,23 +168,17 @@ struct NativeHome: View {
 
     var body: some View {
         GeometryReader { box in
-            VStack(alignment: .leading, spacing: 0) {
-                VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .center, spacing: 0) {
+                VStack(spacing: 22) {
                     Text("Твой ритм")
-                        .font(.system(size: min(48, box.size.width * 0.125), weight: .bold))
-                        .tracking(-1.4)
+                        .font(.system(size: min(46, box.size.width * 0.125), weight: .bold))
+                        .tracking(-1.2)
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
                         .foregroundStyle(.white)
-                    Text("Музыка под твоё настроение")
-                        .font(.system(size: 16))
-                        .foregroundStyle(.white.opacity(0.65))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                }
-                .padding(.top, 18)
-
-                VStack(spacing: 24) {
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .accessibilityAddTraits(.isHeader)
                     Button {
                         if clock.current == nil { Task { await store.wave() } }
                         else { clock.toggle() }
@@ -226,10 +220,10 @@ struct NativeHome: View {
                     .buttonStyle(.plain)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding(.bottom, max(70, box.size.height * 0.16))
+                .padding(.bottom, max(24, box.size.height * 0.07))
             }
             .padding(.horizontal, 24)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             .background { HomeSparkles() }
         }
     }
@@ -535,14 +529,14 @@ struct FullPlayer: View {
                         SharedLyricsPanel(model: store.lyrics, clock: clock)
                             .id(clock.id)
                             .background { GeometryReader { proxy in Color.clear.preference(key: PlayerLyricsFramePreference.self, value: proxy.frame(in: .global)) } }
-                            .onTapGesture { withAnimation(.easeInOut(duration: 0.22)) { showLyrics = false } }
+
                     } else {
                         Cover(track: clock.current, origin: store.origin, pixelWidth: 1024)
                             .frame(width: min(box.size.width, box.size.height) * 0.9, height: min(box.size.width, box.size.height) * 0.9)
                             .clipShape(RoundedRectangle(cornerRadius: 26))
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .contentShape(Rectangle())
-                            .onTapGesture { withAnimation(.easeInOut(duration: 0.22)) { showLyrics = true } }
+
                             .gesture(DragGesture(minimumDistance: 18).onEnded { value in
                                 let dx = value.translation.width
                                 if abs(dx) > 52 && abs(dx) > abs(value.translation.height) * 1.15 {
@@ -766,14 +760,27 @@ struct LyricsView: View {
                     if let lyrics {
                         if lyrics.synced == true, let lines = lyrics.lines {
                             ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
-                                Text(line.text)
-                                    .font(.system(size: index == active ? 32 : 26, weight: .bold, design: .rounded))
-                                    .foregroundStyle(index == active ? Color.white : Color.white.opacity(0.42))
-                                    .shadow(color: index == active ? nightwellText.opacity(0.32) : .clear, radius: 8)
-                                    .shadow(color: index == active ? Color.white.opacity(0.10) : .clear, radius: 18)
-                                    .multilineTextAlignment(.center)
-                                    .frame(maxWidth: .infinity)
-                                    .id(index)
+                                Button {
+                                    // Seeking is explicitly tied to a timestamped line,
+                                    // never to a background tap that could close lyrics.
+                                    NativePlayer.shared.seek(max(0, line.time))
+                                    followingPlayback = true
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        reader.scrollTo(index, anchor: .center)
+                                    }
+                                } label: {
+                                    Text(line.text)
+                                        .font(.system(size: index == active ? 32 : 26, weight: .bold, design: .rounded))
+                                        .foregroundStyle(index == active ? Color.white : Color.white.opacity(0.42))
+                                        .shadow(color: index == active ? nightwellText.opacity(0.32) : .clear, radius: 8)
+                                        .shadow(color: index == active ? Color.white.opacity(0.10) : .clear, radius: 18)
+                                        .multilineTextAlignment(.center)
+                                        .frame(maxWidth: .infinity, minHeight: 44)
+                                        .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Перейти к строке: " + line.text)
+                                .id(index)
                             }
                         } else {
                             Text(lyrics.plain ?? lyrics.message ?? (lyrics.searching ? "Ищем текст…" : "Текст пока не найден"))
