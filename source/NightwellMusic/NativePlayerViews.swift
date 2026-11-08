@@ -26,7 +26,7 @@ struct RibbonScene: View {
         Canvas(opaque: false, rendersAsynchronously: true) { context, size in
             draw(context: context, size: size)
         }
-        .task(id: scene == .active && !reduced && (playing || animateWhilePaused)) { @MainActor in
+        .task(id: scene == .active && !reduced ? (playing ? 1 : (animateWhilePaused ? 2 : 0)) : 0) { @MainActor in
             guard scene == .active, !reduced, (playing || animateWhilePaused) else { return }
             var adaptive = [Double](repeating: 0.07, count: 4)
             var previous = ProcessInfo.processInfo.systemUptime
