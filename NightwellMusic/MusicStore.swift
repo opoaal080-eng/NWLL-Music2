@@ -98,6 +98,7 @@ private struct AudioQualityDecision: Decodable {
     @Published var account: Account?
     @Published var profileNickname = ""
     @Published var profileAvatar: UIImage?
+    @Published var profileLoadError: String?
     @Published var query = ""
     @Published var searchMessage = ""
     @Published var audioQualityNotice = ""
