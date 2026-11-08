@@ -475,10 +475,16 @@ final class NativePlayer {
         item.preferredForwardBufferDuration = saved == nil ? streamBufferSeconds : 0
         // Respect AVPlayer's buffering decisions rather than forcing playback
         // immediately with too little media in the buffer.
+        // Keep the old processing tap alive until the old AVPlayerItem
+        // is detached. Cancel its async install as part of cleanup so a
+        // late audio-track load cannot install a tap on the retired item.
+        let previousItem = player.currentItem
+        let previousMeter = audioMeter
         audioMeter = LocalAudioMeter()
         liveMeterStartUptime = ProcessInfo.processInfo.systemUptime
         configureAudioMeter(for: item)
         player.replaceCurrentItem(with: item)
+        if let previousItem { previousMeter.detach(from: previousItem) }
         itemObservation = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
             DispatchQueue.main.async {
                 guard let self, self.itemGeneration == generation else { return }
