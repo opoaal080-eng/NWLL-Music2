@@ -317,6 +317,7 @@ struct NativeRoot: View {
     @State private var transferPresented = false
     @State private var favoriteSort = "recent"
     @State private var collectionScrolled = false
+    @State private var remoteHomeCollapsed = false
     @ObservedObject private var favoritePremium = PremiumFeatureState.shared
     @State private var fullPlayer = false
     @State private var selectedArtist: ArtistSelection?
@@ -362,7 +363,7 @@ struct NativeRoot: View {
                     }
                     .accessibilityLabel("Подключение Nightwell: \(store.connectionStatus)")
                     .padding(.horizontal, 22)
-                    if store.hasRemotePlayback && compactCollectionTitle == nil {
+                    if store.hasRemotePlayback && compactCollectionTitle == nil && !(store.screen == .home && remoteHomeCollapsed) {
                         Button {
                             Task { await store.continuePlaybackHere() }
                         } label: {
@@ -378,6 +379,7 @@ struct NativeRoot: View {
                             .background(.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 18))
                         }
                         .padding(.horizontal, 20)
+                        .transition(.asymmetric(insertion: .move(edge: .top).combined(with: .opacity), removal: .opacity))
                     }
                     content
                     MiniPlayer(clock: store.clock, open: { fullPlayer = true })
@@ -448,6 +450,23 @@ struct NativeRoot: View {
         .sheet(isPresented: $premiumPresented) { PremiumView(api: store.api) }
         .overlay { if launching { MonochromeNightwellLaunch().transition(.opacity) } }
         .task { try? await Task.sleep(nanoseconds: reducedMotion ? 150_000_000 : 1_200_000_000); withAnimation(.easeOut(duration: 0.3)) { launching = false } }
+        // Async task is cancelled automatically if the offer disappears or
+        // the user changes screens. No timers survive when the Home page closes.
+        .task(id: store.hasRemotePlayback && store.screen == .home) {
+            guard store.hasRemotePlayback, store.screen == .home else {
+                remoteHomeCollapsed = false
+                return
+            }
+            remoteHomeCollapsed = false
+            do { try await Task.sleep(nanoseconds: 8_000_000_000) }
+            catch { return }
+            guard !Task.isCancelled, store.hasRemotePlayback, store.screen == .home else { return }
+            withAnimation(reducedMotion ? nil : .spring(response: 0.48, dampingFraction: 0.82)) {
+                remoteHomeCollapsed = true
+            }
+        }
+        .animation(reducedMotion ? nil : .spring(response: 0.48, dampingFraction: 0.82),
+                   value: remoteHomeCollapsed)
         .onChange(of: store.account?.id) { _ in Task { await store.refreshProfile() } }
         .task { await store.start()
             #if DEBUG
@@ -594,6 +613,23 @@ struct NativeRoot: View {
             .accessibilityLabel("На главную")
             Spacer()
             Button { if store.screen == .search { store.screen = .home } else { store.screen = .search } } label: { Image(systemName: store.screen == .search ? "xmark" : "magnifyingglass").font(.system(size: 19, weight: .medium)).foregroundStyle(.white).frame(width: 44, height: 44).frostedGlass(22, bordered: false, intensity: 0.20) }.accessibilityLabel(store.screen == .search ? "Закрыть поиск" : "Поиск")
+            // On Home the full resume banner becomes a small action next to Search
+            // after eight seconds; scrolling collections keep their icon before N.
+            if store.hasRemotePlayback && store.screen == .home && remoteHomeCollapsed {
+                Button {
+                    Task { await store.continuePlaybackHere() }
+                } label: {
+                    Image(systemName: "iphone.and.arrow.forward")
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundStyle(.white)
+                        .frame(width: 42, height: 44)
+                        .frostedGlass(22, bordered: false, intensity: 0.20)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Продолжить музыку с другого устройства")
+                .transition(.asymmetric(insertion: .scale(scale: 0.68, anchor: .trailing).combined(with: .opacity),
+                                        removal: .opacity))
+            }
             Button { navigationMenuPresented = true } label: {
                 Group {
                     if let avatar=store.profileAvatar {
