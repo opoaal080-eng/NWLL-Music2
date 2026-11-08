@@ -498,7 +498,7 @@ struct FullPlayer: View {
     @Environment(\.dismiss) private var dismiss
     @State private var lyricsFrame = CGRect.zero
     @State private var showLyrics = false
-    @State private var playerActionSnapshot: NightwellPlayerActionSnapshot?
+    @State private var nativeMenuSnapshot: NightwellPlayerActionSnapshot?
     @State private var availableClipURL: URL?
     @State private var presentedClip: NightwellPresentedClip?
     @State private var feature: PremiumFeatureView.Kind?
@@ -641,50 +641,6 @@ struct FullPlayer: View {
                 if !clock.failure.isEmpty { Text(clock.failure).font(.caption).foregroundStyle(Color.white) }
             }.padding(.horizontal, 26).padding(.top, 12).padding(.bottom, 4)
         }.tint(Color.white)
-        .overlay {
-            if let snapshot = playerActionSnapshot {
-            NightwellPlayerActionsOverlay(
-                snapshot: snapshot,
-                onClose: { playerActionSnapshot = nil },
-                onEqualizer: {
-                    playerActionSnapshot = nil
-                    feature = .sound
-                },
-                onSeededRhythm: { track in
-                    playerActionSnapshot = nil
-                    Task { await store.rhythm(around: track) }
-                },
-                onLyrics: {
-                    playerActionSnapshot = nil
-                    withAnimation { showLyrics.toggle() }
-                },
-                onClip: { url, track in
-                    NativePlayer.shared.pause()
-                    playerActionSnapshot = nil
-                    DispatchQueue.main.async {
-                        presentedClip = NightwellPresentedClip(url: url, trackTitle: track.title)
-                    }
-                },
-                onHide: { track in
-                    store.toggleRecommendationHidden(track)
-                    playerActionSnapshot = nil
-                },
-                onDownload: { track in
-                    playerActionSnapshot = nil
-                    Task { await store.download([track]) }
-                },
-                onAddPlaylist: { track, list in
-                    playerActionSnapshot = nil
-                    Task { await store.add(track, playlist: list) }
-                },
-                onQuality: { _ in
-                    store.audioQualityNotice = "Качество изменится со следующего трека"
-                    Task { await store.checkAudioQualitySupport() }
-                }
-            )
-                    .id(snapshot.id)
-            }
-        }
         .environment(\.lyricsPalette, artworkTextColors)
         .onPreferenceChange(ArtworkPaletteKey.self) { colors in
             artworkTextColors = colors.isEmpty ? [.white, .white] : colors
@@ -694,7 +650,7 @@ struct FullPlayer: View {
             // Keep scrubbing, horizontal track changes and lyric scrolling independent.
             // When lyrics are visible all vertical gestures belong to
             // the lyrics view. Only the explicit chevron can close the player.
-            guard !showLyrics, !seeking, !showQueue, playerActionSnapshot == nil else { return }
+            guard !showLyrics, !seeking, !showQueue else { return }
             let dx = value.translation.width
             let dy = value.translation.height
             guard dy > 95, dy > abs(dx) * 1.45 else { return }
@@ -703,6 +659,7 @@ struct FullPlayer: View {
             withAnimation(.easeOut(duration: 0.24)) { dismiss() }
         })
         .onAppear {
+            refreshNativeMenu()
             let modes = NativePlayer.shared.snapshot(includeQueue: false)
             repeatMode = modes["repeat"] as? Int ?? 0; shuffle = modes["shuffle"] as? Bool ?? false
             if store.lyrics.value == nil || store.lyrics.value?.status == "error" || store.lyrics.value?.status == "unavailable" {
@@ -724,8 +681,16 @@ struct FullPlayer: View {
             availableClipURL = result
         }
         .onChange(of: clock.current?.id) { _ in
-            // An already-open menu must never show a previous track's clip.
-            playerActionSnapshot = nil
+            refreshNativeMenu()
+        }
+        .onChange(of: availableClipURL) { _ in
+            refreshNativeMenu()
+        }
+        .onChange(of: store.playlists.map(\.id).joined(separator: "|")) { _ in
+            refreshNativeMenu()
+        }
+        .onChange(of: store.likes) { _ in
+            refreshNativeMenu()
         }
         .confirmationDialog("Выбери исполнителя", isPresented: $showArtistChoices, titleVisibility: .visible) {
             ForEach(ArtistNames.split(clock.current?.artist ?? ""), id: \.self) { name in
@@ -742,28 +707,50 @@ struct FullPlayer: View {
                 .presentationBackground(.clear)
         }
     }
+    private func refreshNativeMenu() {
+        let selected = clock.current
+        nativeMenuSnapshot = NightwellPlayerActionSnapshot(
+            track: selected,
+            clipURL: availableClipURL,
+            playlists: store.playlists,
+            recommendationHidden: selected.map { store.isRecommendationHidden($0) } ?? false,
+            shareBaseURL: store.origin,
+            lyricsVisible: showLyrics
+        )
+    }
+
     private var tools: some View {
-        Button {
-            // Build one immutable snapshot when tapping, never subscribe the
-            // presented sheet to the rapidly updating playback clock.
-            var transaction = Transaction()
-            transaction.disablesAnimations = true
-            withTransaction(transaction) {
-                playerActionSnapshot = NightwellPlayerActionSnapshot(
-                    track: clock.current,
-                    clipURL: availableClipURL,
-                    playlists: store.playlists,
-                    recommendationHidden: clock.current.map { store.isRecommendationHidden($0) } ?? false,
-                    shareBaseURL: store.origin,
-                    lyricsVisible: showLyrics
-                )
+        NightwellPlayerNativeMenu(
+            snapshot: nativeMenuSnapshot,
+            onEqualizer: { feature = .sound },
+            onSeededRhythm: { track in
+                Task { await store.rhythm(around: track) }
+            },
+            onLyrics: {
+                withAnimation { showLyrics.toggle() }
+                refreshNativeMenu()
+            },
+            onClip: { url, track in
+                NativePlayer.shared.pause()
+                presentedClip = NightwellPresentedClip(url: url, trackTitle: track.title)
+            },
+            onHide: { track in
+                store.toggleRecommendationHidden(track)
+                refreshNativeMenu()
+            },
+            onDownload: { track in
+                Task { await store.download([track]) }
+            },
+            onAddPlaylist: { track, list in
+                Task { await store.add(track, playlist: list) }
+            },
+            onQuality: { _ in
+                store.audioQualityNotice = "Качество изменится со следующего трека"
+                Task { await store.checkAudioQualitySupport() }
             }
-        } label: {
-            Image(systemName: "ellipsis")
-                .frame(width: 44, height: 44)
-                .nightwellLiquidGlass(24)
-        }
-        .buttonStyle(.plain)
+        )
+        .frame(width: 44, height: 44)
+        .nightwellLiquidGlass(24)
         .accessibilityLabel("Действия с треком")
     }
 }

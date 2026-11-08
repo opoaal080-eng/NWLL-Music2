@@ -18,9 +18,9 @@ struct NightwellAnimatedCover: View {
             .frame(width: side, height: side)
             // Restrict movement to a few pixels, rather than enlarging the
             // artwork over the entire display.
-            .scaleEffect(animated && !reduceMotion && drifting ? 1.035 : 1.005)
-            .offset(x: animated && !reduceMotion && drifting ? -2.5 : 2.5,
-                    y: animated && !reduceMotion && drifting ? 2.5 : -2.5)
+            .scaleEffect(animated && !reduceMotion && drifting ? 1.055 : 1.008)
+            .offset(x: animated && !reduceMotion && drifting ? -5 : 5,
+                    y: animated && !reduceMotion && drifting ? 5 : -5)
             .animation(animated && !reduceMotion
                        ? .easeInOut(duration: 9).repeatForever(autoreverses: true)
                        : .none, value: drifting)
