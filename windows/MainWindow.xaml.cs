@@ -68,6 +68,8 @@ public partial class MainWindow:Window {
  if(prefs.TryGetProperty("transition",out var tr))transition=tr.GetDouble();
  if(prefs.TryGetProperty("normalization",out var nl))normalization=Math.Clamp(nl.GetInt32(),0,100);
  if(prefs.TryGetProperty("volume",out var vu)&&vu.TryGetDouble(out var v))userVolume=Math.Clamp(v,0,1);
+ if(prefs.TryGetProperty("depthQueue",out var dq))depthQueue=dq.GetBoolean();
+ if(prefs.TryGetProperty("kineticLyrics",out var kl))kineticLyrics=kl.GetBoolean();
 }catch{}
 Loaded+=async(_,_)=>{try{if(IsDesignPreview){IsEnabled=true;await CaptureDesignPreviews();Close();return;}await Task.Run(()=>{api=new NativeAPI(origin);proxy=new StreamProxy(api);Core.Initialize();
 var audioArgs=new List<string>{"--no-video","--no-xlib"};
@@ -389,9 +391,18 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
   if(syncLyrics&&result.TryGetProperty("synced",out var synced)&&synced.GetBoolean()&&result.TryGetProperty("lines",out var lines)){
    var all=lines.EnumerateArray().ToArray();
    int activeIndex=Array.FindLastIndex(all,line=>line.GetProperty("time").GetDouble()<=audioTime/1000.0);
-   if(renderedLyric==activeIndex&&displayedLyricsTrack==currentID&&syncedLyricButtons.Count==all.Length)return;
-   renderedLyric=activeIndex;
-   DisplaySyncedLyrics(all,activeIndex);
+   int activeWord=-1;
+   if(kineticLyrics&&activeIndex>=0){
+    string line=all[activeIndex].GetProperty("text").GetString()??"";
+    int count=line.Split(' ',StringSplitOptions.RemoveEmptyEntries).Length;
+    double start=all[activeIndex].GetProperty("time").GetDouble();
+    double end=activeIndex+1<all.Length?all[activeIndex+1].GetProperty("time").GetDouble():start+4;
+    double ratio=Math.Clamp((audioTime/1000.0-start)/Math.Max(.4,end-start),0,.999);
+    if(count>0)activeWord=Math.Min(count-1,(int)(ratio*count));
+   }
+   if(renderedLyric==activeIndex&&renderedKineticWord==activeWord&&displayedLyricsTrack==currentID&&syncedLyricButtons.Count==all.Length)return;
+   renderedLyric=activeIndex;renderedKineticWord=activeWord;
+   DisplaySyncedLyrics(all,activeIndex,activeWord);
   }else{
    SyncedLyricsLines.Visibility=Visibility.Collapsed;
    LyricsText.Visibility=Visibility.Visible;
@@ -399,14 +410,7 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
   }
  }
  void QueueClick(object sender,RoutedEventArgs e)=>QueueWindow();
- EmbeddedSheet QueueWindow(bool show=true){
-  var panel=new StackPanel();panel.Children.Add(Label("Очередь воспроизведения"));
-  panel.Children.Add(new TextBlock{Text=$"{queue.Count} треков",Foreground=(Brush)FindResource("SecondaryBrush"),Margin=new Thickness(0,0,0,16)});
-  var list=new ListBox{ItemsSource=queue,ItemTemplate=Tracks.ItemTemplate,Height=400};
-  panel.Children.Add(list);var window=Sheet("Очередь",panel,570,show);
-  list.MouseDoubleClick+=async(_,_)=>{if(list.SelectedItem is Track t){if(roomCode.Length>0)await Guard(()=>RoomCommand("track",t.id));else{index=queue.IndexOf(t);PlayCurrent();}window.Close();}};
-  return window;
- }
+ EmbeddedSheet QueueWindow(bool show=true)=>QueueWithDepthSetting(show);
  void BackgroundClick(object sender,RoutedEventArgs e){backgroundOnly=true;Header.Visibility=Dock.Visibility=HomeControls.Visibility=HomeHeading.Visibility=Visibility.Collapsed;PlaybackBadge.Visibility=Status.Visibility=Visibility.Collapsed;HeaderRow.Height=new GridLength(0);MouseDoubleClick-=RestoreBackground;MouseDoubleClick+=RestoreBackground;}
  void RestoreBackground(object sender,MouseButtonEventArgs e){LeaveBackgroundMode();Show("Главная");}
  void ShowPlaylists()=>Show("Плейлисты");
@@ -448,6 +452,17 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
  EmbeddedSheet Settings(bool show=true){
   var panel=new StackPanel();panel.Children.Add(Label("Настройки"));
   panel.Children.Add(new TextBlock{Text="Воспроизведение и твоя медиатека",Foreground=(Brush)FindResource("SecondaryBrush"),Margin=new Thickness(0,0,0,16)});
+  var customization=new StackPanel();
+  customization.Children.Add(Label("Кастомизация"));
+  var deckToggle=new CheckBox{Content="Объёмная очередь · стопка обложек",IsChecked=depthQueue};
+  deckToggle.Click+=(_,_)=>{depthQueue=deckToggle.IsChecked==true;SaveSettings();};
+  customization.Children.Add(deckToggle);
+  customization.Children.Add(new TextBlock{Text="Если выключить, останется привычный список. Обложки на Windows не анимируются.",
+    TextWrapping=TextWrapping.Wrap,Foreground=(Brush)FindResource("SecondaryBrush"),Margin=new Thickness(0,4,0,10)});
+  var kineticToggle=new CheckBox{Content="Кинетический текст песен",IsChecked=kineticLyrics};
+  kineticToggle.Click+=(_,_)=>{kineticLyrics=kineticToggle.IsChecked==true;renderedLyric=int.MinValue;SaveSettings();};
+  customization.Children.Add(kineticToggle);
+  panel.Children.Add(SettingsCard(customization));
   var playback=new StackPanel();
   var label=Label($"Переход между треками · {transition:0.0} с");
   var slider=new Slider{Minimum=0,Maximum=5,Value=transition,TickFrequency=.1,IsSnapToTickEnabled=true,Margin=new Thickness(0,4,0,16)};
@@ -472,7 +487,7 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
  Border SettingsCard(UIElement content)=>new(){Background=(Brush)FindResource("InputBrush"),BorderBrush=(Brush)FindResource("LineBrush"),BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(14),Padding=new Thickness(18,8,18,12),Margin=new Thickness(0,8,0,0),Child=content};
  CancellationTokenSource? settingsDebounce;
  void SaveSettings(){
-  string data=JsonSerializer.Serialize(new{origin,transition,normalization,volume=userVolume});settingsDebounce?.Cancel();settingsDebounce=new();var token=settingsDebounce.Token;
+  string data=JsonSerializer.Serialize(new{origin,transition,normalization,volume=userVolume,depthQueue,kineticLyrics});settingsDebounce?.Cancel();settingsDebounce=new();var token=settingsDebounce.Token;
   _=Task.Run(async()=>{try{await Task.Delay(300,token);await settingsGate.WaitAsync(token);try{Directory.CreateDirectory(NativeAPI.Storage);string file=Path.Combine(NativeAPI.Storage,"settings.json");await File.WriteAllTextAsync(file+".tmp",data,token);token.ThrowIfCancellationRequested();File.Move(file+".tmp",file,true);}finally{settingsGate.Release();}}catch(OperationCanceledException){}catch{}});
  }
  void Prompt(string title,string hint,Func<string,Task> run){
