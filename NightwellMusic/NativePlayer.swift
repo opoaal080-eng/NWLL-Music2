@@ -838,6 +838,23 @@ final class NativePlayer {
     }
     deinit { if let fadeObserver { player.removeTimeObserver(fadeObserver) } }
 
+    // Changes only future tracks. The currently playing track keeps its
+    // decoder, position and playback state.
+    func moveUpcomingTrack(from source: Int, to destination: Int) {
+        guard tracks.indices.contains(source), tracks.indices.contains(destination),
+              source > index, destination > index, source != destination else { return }
+        cancelPendingNext()
+        let song = tracks.remove(at: source)
+        tracks.insert(song, at: destination)
+        queueRevision += 1
+        publish()
+    }
+
+    func playNextFromQueue(at source: Int) {
+        guard source > index + 1 else { return }
+        moveUpcomingTrack(from: source, to: index + 1)
+    }
+
     func modes(repeatMode: Int, shuffle: Bool) {
         self.repeatMode = max(0, min(2, repeatMode))
         // Preserve smart mode when playback is restored from an older

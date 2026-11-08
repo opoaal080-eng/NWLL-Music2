@@ -839,6 +839,7 @@ struct PlaybackQueue: View {
     @EnvironmentObject var store: MusicStore
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var clock: PlaybackClock
+    @AppStorage("nw-depth-queue") private var depthQueue = false
 
     private var currentIndex: Int { clock.queue.firstIndex { $0.id == clock.id } ?? -1 }
     var body: some View {
@@ -862,6 +863,16 @@ struct PlaybackQueue: View {
                 }
                 ScrollViewReader { reader in
                     ScrollView {
+                        VStack(spacing: 12) {
+                            if depthQueue && currentIndex + 1 < clock.queue.count {
+                                NightwellQueueDeck(
+                                    queue: clock.queue,
+                                    currentIndex: currentIndex,
+                                    origin: store.origin
+                                )
+                                .frame(maxWidth: .infinity)
+                                .padding(.bottom, 6)
+                            }
                         LazyVStack(spacing: 8) {
                             if clock.queue.isEmpty {
                                 Text("Выбери трек — здесь появится твоя музыка")
@@ -876,9 +887,27 @@ struct PlaybackQueue: View {
                                         Text("ДАЛЬШЕ").font(.system(size: 9, weight: .semibold))
                                             .tracking(2).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.top, 8)
                                     }
-                                    NativeTrackRow(track: track, queue: clock.queue, status: clock.status, playlist: nil)
+                                    HStack(spacing: 8) {
+                                        NativeTrackRow(track: track, queue: clock.queue, status: clock.status, playlist: nil)
+                                        if index > currentIndex + 1 && currentIndex >= 0 {
+                                            Button {
+                                                NativePlayer.shared.playNextFromQueue(at: index)
+                                            } label: {
+                                                Image(systemName: "text.line.first.and.arrowtriangle.forward")
+                                                    .frame(width: 42, height: 42)
+                                                    .nightwellLiquidGlass(18)
+                                            }
+                                            .accessibilityLabel("Играть следующим")
+                                        }
+                                    }
+                                    .onLongPressGesture {
+                                        if index > currentIndex + 1 {
+                                            NativePlayer.shared.playNextFromQueue(at: index)
+                                        }
+                                    }
                                 }.id(index)
                             }
+                        }
                         }.padding(12)
                     }
                     .nightwellLiquidGlass(28)
@@ -901,6 +930,7 @@ struct LyricsView: View {
     let position: Double
     @State private var resumeFollowingAt = Date.distantPast
     @State private var followingPlayback = true
+    @AppStorage("nw-kinetic-lyrics") private var kineticLyrics = true
     var active: Int { (lyrics?.lines ?? []).lastIndex { $0.time <= position } ?? -1 }
     var body: some View {
         ScrollViewReader { reader in
@@ -918,14 +948,21 @@ struct LyricsView: View {
                                         reader.scrollTo(index, anchor: .center)
                                     }
                                 } label: {
-                                    Text(line.text)
-                                        .font(.system(size: index == active ? 32 : 26, weight: .bold, design: .rounded))
-                                        .foregroundStyle(index == active ? Color.white : Color.white.opacity(0.42))
-                                        .shadow(color: index == active ? nightwellText.opacity(0.32) : .clear, radius: 8)
-                                        .shadow(color: index == active ? Color.white.opacity(0.10) : .clear, radius: 18)
-                                        .multilineTextAlignment(.center)
-                                        .frame(maxWidth: .infinity, minHeight: 44)
-                                        .contentShape(Rectangle())
+                                    NightwellKineticLyricLine(
+                                        text: line.text,
+                                        start: line.time,
+                                        end: index + 1 < lines.count ? lines[index + 1].time : line.time + 4,
+                                        position: position,
+                                        active: index == active,
+                                        enabled: kineticLyrics,
+                                        chorus: lines.filter {
+                                            $0.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                                                .localizedCaseInsensitiveCompare(
+                                                    line.text.trimmingCharacters(in: .whitespacesAndNewlines)) == .orderedSame
+                                        }.count >= 2
+                                    )
+                                    .frame(maxWidth: .infinity, minHeight: 44)
+                                    .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
                                 .accessibilityLabel("Перейти к строке: " + line.text)
@@ -1107,6 +1144,8 @@ struct NativeSettings: View {
     @AppStorage("nw-ambient-animate-when-paused") private var animatePausedAmbient = true
     @AppStorage("nw-ambient-audio-sensitivity") private var ambientSensitivity = 2.5
     @AppStorage("nw-cover-style") private var coverStyle = "immersive"
+    @AppStorage("nw-depth-queue") private var depthQueue = false
+    @AppStorage("nw-kinetic-lyrics") private var kineticLyrics = true
     @State private var playbackDiagnostics = "Нет данных о запуске"
     private var buildCaption: String {
         let info = Bundle.main.infoDictionary ?? [:]
@@ -1144,6 +1183,12 @@ struct NativeSettings: View {
                             : "Обложка занимает всю высоту экрана, верх и низ плавно переходят в фон.")
                             .font(.system(size: 12))
                             .foregroundStyle(.white.opacity(0.5))
+                        Toggle("Объёмная очередь", isOn: $depthQueue)
+                        Text("Стопка обложек следующих песен. Свайпом меняй их порядок, удержанием ставь песню следующей.")
+                            .font(.system(size: 12)).foregroundStyle(.white.opacity(0.5))
+                        Toggle("Кинетический текст песен", isOn: $kineticLyrics)
+                        Text("Плавная подсветка слов и строк. Если точных таймкодов слов нет, движение рассчитывается по времени строки.")
+                            .font(.system(size: 12)).foregroundStyle(.white.opacity(0.5))
                         Toggle("Переливание фона на паузе", isOn: $animatePausedAmbient)
                         Text("Плавный цветной градиент продолжает двигаться, даже если музыка остановлена.")
                             .font(.system(size: 12)).foregroundStyle(.white.opacity(0.5))
