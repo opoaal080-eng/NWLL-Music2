@@ -108,6 +108,12 @@ struct NightwellQueueDeck: View {
     let compact: Bool
     let availableHeight: CGFloat
 
+    // Reserve space for the header, controls and the pinned compact hint.
+    // A medium sheet must never crop the bottom of the deck or its footer.
+    private var deckHeight: CGFloat {
+        compact ? min(240, max(156, availableHeight - 214)) : 354
+    }
+
     // -1 means follow the first upcoming track until the user browses.
     @State private var position = -1
     @State private var notice: String?
@@ -257,8 +263,8 @@ struct NightwellQueueDeck: View {
         VStack(spacing: 0) {
             GeometryReader { geometry in
                 let cardWidth = compact
-                    ? min(240, max(168, min(geometry.size.width - 50,
-                                            (geometry.size.height - 72) / 0.78)))
+                    ? min(240, max(130, min(geometry.size.width - 50,
+                                            (geometry.size.height - 60) / 0.78)))
                     : min(max(190, geometry.size.width - 78), 310)
                 ZStack {
                     ForEach(Array(upcoming.reversed()), id: \.offset) { item in
@@ -270,7 +276,7 @@ struct NightwellQueueDeck: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(height: compact ? min(264, max(220, availableHeight * 0.60)) : 354)
+            .frame(height: deckHeight)
 
             if queue.count > 1 {
                 HStack(spacing: compact ? 12 : 20) {
@@ -311,15 +317,19 @@ struct NightwellQueueDeck: View {
                         .transition(.scale(scale: 0.92).combined(with: .opacity))
                 }
             }
-            .frame(height: compact ? 24 : 42)
+            .frame(height: compact ? 18 : 42)
 
-            Text(compact ? "Тап: играть · удержание: следующим\nСвайп: листать очередь" : "Тап: играть сейчас · удержание: следующая\nСвайп: листать всю очередь")
-                .font(.system(size: compact ? 9 : 11, weight: .medium))
-                .foregroundStyle(Color.white.opacity(0.53))
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 10)
+            // On medium detents the two-line hint lives outside the scroll
+            // viewport, so it remains fully visible even as cards are browsed.
+            if !compact {
+                Text("Тап: играть сейчас · удержание: следующая\nСвайп: листать всю очередь")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color.white.opacity(0.53))
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 10)
+            }
         }
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .contain)
