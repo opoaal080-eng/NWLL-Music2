@@ -632,6 +632,12 @@ struct FullPlayer: View {
         .onChange(of: store.likes) { _ in
             refreshNativeMenu()
         }
+        .onChange(of: store.offline.map(\.id).sorted().joined(separator: "|")) { _ in
+            refreshNativeMenu()
+        }
+        .onChange(of: coverStyle) { _ in
+            refreshNativeMenu()
+        }
     }
 
     private var playerWithSheets: some View {
@@ -904,7 +910,9 @@ struct FullPlayer: View {
             playlists: store.playlists,
             recommendationHidden: selected.map { store.isRecommendationHidden($0) } ?? false,
             shareBaseURL: store.origin,
-            lyricsVisible: showLyrics
+            lyricsVisible: showLyrics,
+            coverStyle: coverStyle,
+            downloaded: selected.map { store.isDownloaded($0) } ?? false
         )
     }
 
@@ -928,7 +936,14 @@ struct FullPlayer: View {
                 refreshNativeMenu()
             },
             onDownload: { track in
-                Task { await store.download([track]) }
+                Task {
+                    if store.isDownloaded(track) {
+                        await store.removeDownload(track)
+                    } else {
+                        await store.download([track])
+                    }
+                    refreshNativeMenu()
+                }
             },
             onAddPlaylist: { track, list in
                 Task { await store.add(track, playlist: list) }
@@ -936,6 +951,9 @@ struct FullPlayer: View {
             onQuality: { _ in
                 store.audioQualityNotice = "Качество изменится со следующего трека"
                 Task { await store.checkAudioQualitySupport() }
+            },
+            onAnimationChanged: {
+                refreshNativeMenu()
             }
         )
         .frame(width: 44, height: 44)
