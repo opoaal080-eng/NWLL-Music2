@@ -990,6 +990,47 @@ private struct PlayerLyricsFramePreference: PreferenceKey {
     static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() }
 }
 
+private struct NightwellSyncedLyricsRows: View {
+    let lines: [Lyrics.Line]
+    let position: Double
+    let active: Int
+    let kinetic: Bool
+    let onSeek: (Int, Double) -> Void
+
+    private var repetitionCounts: [String: Int] {
+        Dictionary(
+            lines.map { ($0.text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), 1) },
+            uniquingKeysWith: +
+        )
+    }
+
+    var body: some View {
+        let counts = repetitionCounts
+        ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+            Button {
+                onSeek(index, line.time)
+            } label: {
+                NightwellKineticLyricLine(
+                    text: line.text,
+                    start: line.time,
+                    end: index + 1 < lines.count ? lines[index + 1].time : line.time + 4,
+                    position: position,
+                    active: index == active,
+                    enabled: kinetic,
+                    chorus: (counts[line.text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()] ?? 0) >= 2,
+                    timedWords: line.words
+                )
+                .equatable()
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Перейти к строке: " + line.text)
+            .id(index)
+        }
+    }
+}
+
 struct LyricsView: View {
     @Environment(\.lyricsPalette) private var artworkColors
     private var artworkGradient: LinearGradient { LinearGradient(colors: artworkColors, startPoint: .leading, endPoint: .trailing) }
@@ -1005,39 +1046,17 @@ struct LyricsView: View {
                 LazyVStack(alignment: .center, spacing: 25) {
                     if let lyrics {
                         if lyrics.synced == true, let lines = lyrics.lines {
-                            // Compute repetitions in one pass. Filtering the whole
-                            // song for every line was O(n²) on each playback tick.
-                            let chorusCounts = Dictionary(
-                                lines.map { ($0.text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), 1) },
-                                uniquingKeysWith: +
-                            )
-                            ForEach(Array(lines.enumerated()), id: .offset) { index, line in
-                                Button {
-                                    // Seeking is explicitly tied to a timestamped line,
-                                    // never to a background tap that could close lyrics.
-                                    NativePlayer.shared.seek(max(0, line.time))
-                                    followingPlayback = true
-                                    withAnimation(.easeInOut(duration: 0.2)) {
-                                        reader.scrollTo(index, anchor: .center)
-                                    }
-                                } label: {
-                                    NightwellKineticLyricLine(
-                                        text: line.text,
-                                        start: line.time,
-                                        end: index + 1 < lines.count ? lines[index + 1].time : line.time + 4,
-                                        position: position,
-                                        active: index == active,
-                                        enabled: kineticLyrics,
-                                        chorus: (chorusCounts[line.text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()] ?? 0) >= 2,
-                                        timedWords: line.words
-                                    )
-                                    .equatable()
-                                    .frame(maxWidth: .infinity, minHeight: 44)
-                                    .contentShape(Rectangle())
+                            NightwellSyncedLyricsRows(
+                                lines: lines,
+                                position: position,
+                                active: active,
+                                kinetic: kineticLyrics
+                            ) { index, time in
+                                NativePlayer.shared.seek(max(0, time))
+                                followingPlayback = true
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    reader.scrollTo(index, anchor: .center)
                                 }
-                                .buttonStyle(.plain)
-                                .accessibilityLabel("Перейти к строке: " + line.text)
-                                .id(index)
                             }
                         } else {
                             Text(lyrics.plain ?? lyrics.message ?? (lyrics.searching ? "Ищем текст…" : "Текст пока не найден"))
