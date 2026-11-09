@@ -14,6 +14,10 @@ import Network
     var onTick: (([String: Any]) -> Void)?
     @Published var position = 0.0
     @Published var duration = 1.0
+    // Visual metadata may lead the actual playhead while the next asset loads.
+    @Published var displayID = ""
+    @Published var displayPosition = 0.0
+    @Published var displayDuration = 1.0
     @Published var playing = false
     @Published var preparing = false
     @Published var bufferFraction = 0.0
@@ -50,6 +54,16 @@ import Network
         let next = value["playing"] as? Bool ?? false
         if playing != next { playing = next; status.playing = next }
         if id != nextID { id = nextID; status.id = nextID }
+        let nextDisplayID = value["displayID"] as? String ?? nextID
+        if displayID != nextDisplayID { displayID = nextDisplayID }
+        let rawDisplayDuration = value["displayDuration"] as? Double ?? duration
+        let nextDisplayDuration = rawDisplayDuration.isFinite && rawDisplayDuration > 0.5
+            ? max(1, min(rawDisplayDuration, 604800)) : duration
+        if displayDuration != nextDisplayDuration { displayDuration = nextDisplayDuration }
+        let rawDisplayPosition = value["displayPosition"] as? Double ?? position
+        let nextDisplayPosition = rawDisplayPosition.isFinite
+            ? min(displayDuration, max(0, rawDisplayPosition)) : 0
+        if displayPosition != nextDisplayPosition { displayPosition = nextDisplayPosition }
         let nextPreparing = value["preparing"] as? Bool ?? false
         let rawBuffered = value["bufferFraction"] as? Double ?? 0
         let nextBuffered = rawBuffered.isFinite ? min(1, max(0, rawBuffered)) : 0
@@ -64,6 +78,9 @@ import Network
         onTick?(value)
     }
     var current: Track? { queue.first { $0.id == id } }
+    var displayCurrent: Track? {
+        queue.first { $0.id == (displayID.isEmpty ? id : displayID) } ?? current
+    }
     func toggle() { playing ? NativePlayer.shared.pause() : NativePlayer.shared.play() }
 }
 
