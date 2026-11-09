@@ -175,10 +175,10 @@ struct NightwellQueueDeck: View {
     private func albumCard(
         _ track: Track, at absoluteIndex: Int, depth: Int, width: CGFloat
     ) -> some View {
-        let height = width * (compact ? 0.76 : 0.82)
+        let height = width * (compact ? 0.78 : 0.82)
         let selected = highlightedID == track.id
         return VStack(spacing: 0) {
-            Cover(track: track, origin: origin, pixelWidth: compact ? 440 : 680)
+            Cover(track: track, origin: origin, pixelWidth: compact ? 600 : 680)
                 .scaledToFill()
                 .frame(width: width, height: height)
                 .clipped()
@@ -194,16 +194,16 @@ struct NightwellQueueDeck: View {
                 }
             VStack(alignment: .leading, spacing: compact ? 2 : 5) {
                 Text(track.title)
-                    .font(.system(size: compact ? 13 : 16, weight: .semibold))
+                    .font(.system(size: compact ? 15 : 16, weight: .semibold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
                 Text(track.artist)
-                    .font(.system(size: compact ? 10 : 12, weight: .medium))
+                    .font(.system(size: compact ? 12 : 12, weight: .medium))
                     .foregroundStyle(Color.white.opacity(0.62))
                     .lineLimit(1)
             }
-            .frame(width: width - (compact ? 24 : 32), height: compact ? 48 : 74, alignment: .leading)
-            .padding(.horizontal, compact ? 12 : 16)
+            .frame(width: width - (compact ? 28 : 32), height: compact ? 58 : 74, alignment: .leading)
+            .padding(.horizontal, compact ? 14 : 16)
             .background(
                 LinearGradient(
                     colors: [Color(white: 0.075), Color(white: 0.022)],
@@ -211,7 +211,7 @@ struct NightwellQueueDeck: View {
                 )
             )
         }
-        .frame(width: width, height: height + (compact ? 48 : 74))
+        .frame(width: width, height: height + (compact ? 58 : 74))
         .background(Color(white: 0.04), in: RoundedRectangle(cornerRadius: compact ? 17 : 22))
         .clipShape(RoundedRectangle(cornerRadius: compact ? 17 : 22, style: .continuous))
         .overlay {
@@ -257,7 +257,8 @@ struct NightwellQueueDeck: View {
         VStack(spacing: 0) {
             GeometryReader { geometry in
                 let cardWidth = compact
-                    ? min(170, max(112, min(geometry.size.width - 66, (geometry.size.height - 60) / 0.76)))
+                    ? min(240, max(168, min(geometry.size.width - 50,
+                                            (geometry.size.height - 72) / 0.78)))
                     : min(max(190, geometry.size.width - 78), 310)
                 ZStack {
                     ForEach(Array(upcoming.reversed()), id: \.offset) { item in
@@ -269,7 +270,7 @@ struct NightwellQueueDeck: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(height: compact ? max(145, min(195, availableHeight * 0.445)) : 354)
+            .frame(height: compact ? min(264, max(220, availableHeight * 0.60)) : 354)
 
             if queue.count > 1 {
                 HStack(spacing: compact ? 12 : 20) {
