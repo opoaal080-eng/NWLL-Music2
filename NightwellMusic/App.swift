@@ -953,6 +953,14 @@ struct NativeRoot: View {
                     .frame(width: 44, height: 44)
                     .frostedGlass(22, bordered: false, intensity: 0.20)
             }
+            // Only hide the avatar that *opens* the menu. The avatar in the
+            // open menu stays visible and opens Profile. Retain the button's
+            // layout width so the header does not jump during sheet animations.
+            .opacity(navigationMenuPresented ? 0 : 1)
+            .allowsHitTesting(!navigationMenuPresented)
+            .accessibilityHidden(navigationMenuPresented)
+            .animation(reducedMotion ? nil : .easeOut(duration: 0.18),
+                       value: navigationMenuPresented)
             .accessibilityLabel("Меню")
         }
         .padding(.horizontal, landscape ? 10 : 20)
