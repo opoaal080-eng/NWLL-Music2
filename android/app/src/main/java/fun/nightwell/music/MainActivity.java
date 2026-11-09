@@ -19,6 +19,9 @@ public final class MainActivity extends Activity {
     private final ExecutorService io=Executors.newFixedThreadPool(3);
     private final ExecutorService prefetch=Executors.newSingleThreadExecutor();
     private TextView liveHandoff;
+    private View handoffCompact;
+    private boolean handoffAvailable, handoffCollapsed;
+    private final Runnable handoffAutoCollapse = () -> collapseLiveHandoff(true);
     private TextView nightwellBadge, nightwellMenuStatus;
     private String nightwellStatus = "Проверка…";
     private final Runnable nightwellProbe = new Runnable() {
@@ -113,10 +116,71 @@ public final class MainActivity extends Activity {
         });
     }
     private void refreshLiveHandoff(){
-        if(liveHandoff==null)return;
         boolean show=!user.isEmpty()&&liveRemote!=null&&
-            !liveRemote.optString("track_id").isEmpty()&&!backgroundOnly;
-        liveHandoff.setVisibility(show?View.VISIBLE:View.GONE);
+            !liveRemote.optString("track_id").isEmpty()&&!backgroundOnly&&!full;
+        if(!show){
+            ui.removeCallbacks(handoffAutoCollapse);
+            handoffAvailable=false;handoffCollapsed=false;
+            if(liveHandoff!=null){liveHandoff.animate().cancel();liveHandoff.setVisibility(View.GONE);}
+            if(handoffCompact!=null){handoffCompact.animate().cancel();handoffCompact.setVisibility(View.GONE);}
+            return;
+        }
+        if(!handoffAvailable){
+            handoffAvailable=true;handoffCollapsed=false;
+            scheduleHandoffCollapse();
+        }
+        if(liveHandoff!=null){
+            liveHandoff.animate().cancel();
+            liveHandoff.setAlpha(1f);liveHandoff.setScaleX(1f);liveHandoff.setScaleY(1f);
+            liveHandoff.setTranslationY(0f);
+            liveHandoff.setVisibility(handoffCollapsed?View.GONE:View.VISIBLE);
+        }
+        if(handoffCompact!=null){
+            handoffCompact.animate().cancel();
+            handoffCompact.setAlpha(1f);handoffCompact.setScaleX(1f);handoffCompact.setScaleY(1f);
+            handoffCompact.setVisibility(handoffCollapsed?View.VISIBLE:View.GONE);
+        }
+    }
+    private void scheduleHandoffCollapse(){
+        ui.removeCallbacks(handoffAutoCollapse);
+        if(handoffAvailable&&!handoffCollapsed)ui.postDelayed(handoffAutoCollapse,4800);
+    }
+    private void collapseLiveHandoff(boolean animate){
+        if(!handoffAvailable||handoffCollapsed)return;
+        handoffCollapsed=true;
+        ui.removeCallbacks(handoffAutoCollapse);
+        if(liveHandoff==null||handoffCompact==null||!animate||!liveHandoff.isAttachedToWindow()){
+            refreshLiveHandoff();return;
+        }
+        liveHandoff.animate().cancel();handoffCompact.animate().cancel();
+        handoffCompact.setVisibility(View.VISIBLE);handoffCompact.setAlpha(0f);
+        handoffCompact.setScaleX(.75f);handoffCompact.setScaleY(.75f);
+        handoffCompact.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(300)
+            .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
+        liveHandoff.animate().alpha(0f).scaleX(.93f).scaleY(.85f)
+            .translationY(-dp(12)).setDuration(280)
+            .withEndAction(()->{
+                if(handoffCollapsed)liveHandoff.setVisibility(View.GONE);
+                liveHandoff.setAlpha(1f);liveHandoff.setScaleX(1f);
+                liveHandoff.setScaleY(1f);liveHandoff.setTranslationY(0f);
+            }).start();
+    }
+    private void expandLiveHandoff(){
+        if(!handoffAvailable||!handoffCollapsed)return;
+        handoffCollapsed=false;
+        if(liveHandoff==null||handoffCompact==null){refreshLiveHandoff();return;}
+        liveHandoff.animate().cancel();handoffCompact.animate().cancel();
+        liveHandoff.setVisibility(View.VISIBLE);liveHandoff.setAlpha(0f);
+        liveHandoff.setScaleX(.94f);liveHandoff.setScaleY(.85f);
+        liveHandoff.setTranslationY(-dp(10));
+        liveHandoff.animate().alpha(1f).scaleX(1f).scaleY(1f).translationY(0f)
+            .setDuration(320).setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
+        handoffCompact.animate().alpha(0f).scaleX(.8f).scaleY(.8f).setDuration(220)
+            .withEndAction(()->{
+                if(!handoffCollapsed)handoffCompact.setVisibility(View.GONE);
+                handoffCompact.setAlpha(1f);handoffCompact.setScaleX(1f);handoffCompact.setScaleY(1f);
+            }).start();
+        scheduleHandoffCollapse();
     }
     private void publishLive(boolean takeover){
         if(smokeMode||liveBusy||user.isEmpty()||playback==null||(!takeover&&!liveOwner))return;
@@ -223,7 +287,7 @@ public final class MainActivity extends Activity {
         };
     private LinearLayout root,body,dock,head;
     private TextView status,miniTitle,miniArtist,miniPlay,miniPrev,miniNext,miniLike;
-    private android.widget.ImageView miniCover;private android.graphics.drawable.ClipDrawable miniProgress;
+    private android.widget.ImageView miniCover;private CircularProgressRing miniProgressRing;
     private ArtworkCache artworkCache;
     private TextView fullTime,homePlay,fullPlay,fullLike,fullDislike,fullAudioOutput;
     private SeekBar seek;
@@ -234,6 +298,7 @@ public final class MainActivity extends Activity {
     private TrackAdapter adapter;
     private RibbonView ribbon;
     private HomeSparklesView atmosphere;
+    private ArtworkAmbientView ambient;
     private Runnable pendingSearch;
     private PopupWindow navigationPopup;
     private static final int PLAYLIST_DOCUMENT = 633;
@@ -335,6 +400,7 @@ public final class MainActivity extends Activity {
         // Render scenery and aura across the window, outside the padded controls.
         android.widget.FrameLayout scene=new android.widget.FrameLayout(this);
         scene.setBackground(new NativeSceneryDrawable(this));
+        ambient=new ArtworkAmbientView(this);scene.addView(ambient,new android.widget.FrameLayout.LayoutParams(-1,-1));
         atmosphere=new HomeSparklesView(this);scene.addView(atmosphere,new android.widget.FrameLayout.LayoutParams(-1,-1));
         ribbon=new RibbonView(this);ui.post(this::applyPremium);ribbon.meter(()->playback==null?0:playback.level());ribbon.bands(index->playback==null?0:playback.bandLevel(index));
         ribbon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
@@ -346,7 +412,7 @@ public final class MainActivity extends Activity {
         TextView brandName=text("Nightwell",27);brandName.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);brandName.setTextColor(0xfff3f3f5);brandName.setIncludeFontPadding(false);brandName.setSingleLine(true);brandName.setAutoSizeTextTypeUniformWithConfiguration(20,27,1,android.util.TypedValue.COMPLEX_UNIT_SP);
         wordmark.addView(brandName,new LinearLayout.LayoutParams(-1,dp(33)));
         TextView brandCaption=text("M U S I C",12);brandCaption.setIncludeFontPadding(false);brandCaption.setSingleLine(true);brandCaption.setTextColor(0xff92959f);LinearLayout.LayoutParams captionParams=new LinearLayout.LayoutParams(-1,-2);captionParams.topMargin=dp(1);wordmark.addView(brandCaption,captionParams);
-        wordmark.setOnClickListener(v->navigate("Главная"));wordmark.setContentDescription("Nightwell Music, на главный экран");head.addView(wordmark,new LinearLayout.LayoutParams(0,-2,1));TextView searchButton=iconButton("⌕",()->navigate("Поиск"));searchButton.setBackground(touchSurface(0x40202228,24));head.addView(searchButton,new LinearLayout.LayoutParams(dp(48),dp(48)));TextView menuButton=iconButton("☰",this::menu);menuButton.setBackground(touchSurface(0x40202228,24));head.addView(menuButton,new LinearLayout.LayoutParams(dp(48),dp(48)));LinearLayout.LayoutParams headerParams=new LinearLayout.LayoutParams(-1,dp(58));headerParams.bottomMargin=dp(12);root.addView(head,headerParams);if(backgroundOnly)head.setVisibility(View.GONE);
+        wordmark.setOnClickListener(v->navigate("Главная"));wordmark.setContentDescription("Nightwell Music, на главный экран");head.addView(wordmark,new LinearLayout.LayoutParams(0,-2,1));TextView searchButton=iconButton("⌕",()->navigate("Поиск"));searchButton.setBackground(touchSurface(0x40202228,24));head.addView(searchButton,new LinearLayout.LayoutParams(dp(44),dp(48)));handoffCompact=new HandoffButton(this);handoffCompact.setBackground(touchSurface(0x40202228,24));handoffCompact.setOnClickListener(v->expandLiveHandoff());handoffCompact.setContentDescription("Продолжить на этом устройстве. Развернуть плашку");handoffCompact.setVisibility(View.GONE);head.addView(handoffCompact,new LinearLayout.LayoutParams(dp(40),dp(48)));TextView menuButton=iconButton("☰",this::menu);menuButton.setBackground(touchSurface(0x40202228,24));head.addView(menuButton,new LinearLayout.LayoutParams(dp(44),dp(48)));LinearLayout.LayoutParams headerParams=new LinearLayout.LayoutParams(-1,dp(58));headerParams.bottomMargin=dp(12);root.addView(head,headerParams);if(backgroundOnly)head.setVisibility(View.GONE);
         nightwellBadge = text("", 11);
         nightwellBadge.setContentDescription("Состояние подключения Nightwell");
         setNightwellStatus(nightwellStatus);
@@ -356,11 +422,13 @@ public final class MainActivity extends Activity {
             root.addView(nightwellBadge, networkParams);
         }
         liveHandoff=sheetAction("Музыка на другом устройстве · Продолжить здесь",this::continueLiveHere);
+        liveHandoff.setContentDescription("Продолжить музыку на этом устройстве. Удерживай, чтобы свернуть");
+        liveHandoff.setOnLongClickListener(v->{collapseLiveHandoff(true);return true;});
         liveHandoff.setVisibility(View.GONE);root.addView(liveHandoff);
         refreshLiveHandoff();
-        body=column();root.addView(body,new LinearLayout.LayoutParams(-1,0,1));status=text("",12);root.addView(status);dock=row();dock.setPadding(dp(10),dp(8),dp(10),dp(8));GradientDrawable fill=new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,new int[]{0x12ffbc78,0x12ffbc78});fill.setCornerRadius(dp(34));miniProgress=new android.graphics.drawable.ClipDrawable(fill,Gravity.LEFT,android.graphics.drawable.ClipDrawable.HORIZONTAL);GradientDrawable glassDock=new GradientDrawable();glassDock.setColor(0x8c202228);glassDock.setCornerRadius(dp(34));glassDock.setStroke(dp(1),0x38ffffff);dock.setBackground(new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{glassDock,miniProgress}));dock.setClipToOutline(true);
+        body=column();root.addView(body,new LinearLayout.LayoutParams(-1,0,1));status=text("",12);root.addView(status);dock=row();dock.setPadding(dp(10),dp(8),dp(10),dp(8));GradientDrawable glassDock=new GradientDrawable();glassDock.setColor(0x8c202228);glassDock.setCornerRadius(dp(34));glassDock.setStroke(dp(1),0x38ffffff);dock.setBackground(glassDock);dock.setClipToOutline(true);
         miniCover=new android.widget.ImageView(this);miniCover.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);GradientDrawable coverShape=new GradientDrawable();coverShape.setColor(0x443e2d52);coverShape.setCornerRadius(dp(16));miniCover.setBackground(coverShape);miniCover.setClipToOutline(true);miniCover.setOnClickListener(v->openPlayer());LinearLayout.LayoutParams coverParams=new LinearLayout.LayoutParams(dp(44),dp(44));coverParams.rightMargin=dp(10);dock.addView(miniCover,coverParams);
-        LinearLayout labels=column();miniTitle=text("Выбери трек",15);miniTitle.setMaxLines(1);miniTitle.setTextSize(15);miniTitle.setLetterSpacing(-.015f);miniTitle.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);miniArtist=text("Nightwell Music",12);miniArtist.setMaxLines(1);miniArtist.setTextSize(12);miniArtist.setLetterSpacing(.005f);miniArtist.setTextColor(0xffa4a6b1);miniTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);miniArtist.setEllipsize(android.text.TextUtils.TruncateAt.END);labels.addView(miniTitle);labels.addView(miniArtist);labels.setOnClickListener(v->openPlayer());dock.addView(labels,new LinearLayout.LayoutParams(0,-2,1));miniPrev=action("|‹",()->previous());miniPlay=action("▶",()->toggle());miniNext=action("›|",()->{nextTrack();});miniLike=action("♡",()->toggleFavorite(current()));miniLike.setTextColor(0xffeeeeee);miniPlay.setTextSize(23);miniNext.setTextSize(24);miniPlay.setPadding(0,0,0,0);miniNext.setPadding(0,0,0,0);miniPlay.setTextColor(0xffeeeeee);miniPlay.setBackground(null);miniPrev.setPadding(0,0,0,0);miniLike.setPadding(0,0,0,0);if(getResources().getConfiguration().screenWidthDp>=380)dock.addView(miniLike,new LinearLayout.LayoutParams(dp(40),dp(48)));dock.addView(miniPrev,new LinearLayout.LayoutParams(dp(40),dp(48)));dock.addView(miniPlay,new LinearLayout.LayoutParams(dp(48),dp(48)));dock.addView(miniNext,new LinearLayout.LayoutParams(dp(44),dp(48)));LinearLayout.LayoutParams dockParams=new LinearLayout.LayoutParams(-1,-2);dockParams.topMargin=dp(10);root.addView(dock,dockParams);if(backgroundOnly)dock.setVisibility(View.GONE);android.view.GestureDetector miniGestures=gestures(false);labels.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));dock.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));
+        LinearLayout labels=column();miniTitle=text("Выбери трек",15);miniTitle.setMaxLines(1);miniTitle.setTextSize(15);miniTitle.setLetterSpacing(-.015f);miniTitle.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);miniArtist=text("Nightwell Music",12);miniArtist.setMaxLines(1);miniArtist.setTextSize(12);miniArtist.setLetterSpacing(.005f);miniArtist.setTextColor(0xffa4a6b1);miniTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);miniArtist.setEllipsize(android.text.TextUtils.TruncateAt.END);labels.addView(miniTitle);labels.addView(miniArtist);labels.setOnClickListener(v->openPlayer());dock.addView(labels,new LinearLayout.LayoutParams(0,-2,1));miniPrev=action("|‹",()->previous());miniPlay=action("▶",()->toggle());miniNext=action("›|",()->{nextTrack();});miniLike=action("♡",()->toggleFavorite(current()));miniLike.setTextColor(0xffeeeeee);miniPlay.setTextSize(23);miniNext.setTextSize(24);miniPlay.setPadding(0,0,0,0);miniNext.setPadding(0,0,0,0);miniPlay.setTextColor(0xffeeeeee);miniPlay.setBackground(null);miniPrev.setPadding(0,0,0,0);miniLike.setPadding(0,0,0,0);if(getResources().getConfiguration().screenWidthDp>=380)dock.addView(miniLike,new LinearLayout.LayoutParams(dp(40),dp(48)));dock.addView(miniPrev,new LinearLayout.LayoutParams(dp(40),dp(48)));miniProgressRing=new CircularProgressRing(this);miniProgressRing.addView(miniPlay,new android.widget.FrameLayout.LayoutParams(-1,-1));dock.addView(miniProgressRing,new LinearLayout.LayoutParams(dp(48),dp(48)));dock.addView(miniNext,new LinearLayout.LayoutParams(dp(44),dp(48)));LinearLayout.LayoutParams dockParams=new LinearLayout.LayoutParams(-1,-2);dockParams.topMargin=dp(10);root.addView(dock,dockParams);if(backgroundOnly)dock.setVisibility(View.GONE);android.view.GestureDetector miniGestures=gestures(false);labels.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));dock.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));
         showScreen();updatePlayback();loadMiniCover(current());
     }
     // Audio routing is controlled by Android. Report the current media route without
@@ -1333,7 +1401,7 @@ public final class MainActivity extends Activity {
     }
 
     void setLabel(TextView view,String value){if(view!=null&&!android.text.TextUtils.equals(view.getText(),value))view.setText(value);}
-    void updatePlayback(){if(smokeMode||playback==null)return;try{JSONObject state=new JSONObject(playback.snapshot(false));String next=state.optString("id");if(!currentID.equals(next)||queue.length()!=state.optInt("queueCount")){queue=new JSONObject(playback.snapshot(true)).optJSONArray("queueTracks");}if(queue==null)queue=new JSONArray();JSONObject t=null;for(int i=0;i<queue.length();i++)if(queue.optJSONObject(i).optString("id").equals(next)){t=queue.optJSONObject(i);break;}setLabel(miniTitle,t==null?"Выбери трек":t.optString("title"));setLabel(miniArtist,t==null?"Nightwell Music":t.optString("artist"));refreshFavoriteButtons();if(miniProgress!=null)miniProgress.setLevel((int)Math.max(0,Math.min(10000,10000*state.optDouble("position")/Math.max(1,state.optDouble("duration")))));setLabel(miniPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(homePlay!=null)setLabel(homePlay,state.optBoolean("playing")?"Ⅱ":"▶");if(fullPlay!=null)setLabel(fullPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(ribbon!=null)ribbon.playing(state.optBoolean("playing"));if(!currentID.equals(next)){currentID=next;if(!next.isEmpty()){rememberRecent(next);checkTrackAudioQuality(t);}activeLyrics=null;homeLine="";loadMiniCover(t);fetchLyricsAndPreload();animateTrackTransition();updateList();if(full)openPlayer();}if(seek!=null&&!seek.isPressed()){seek.setMax((int)Math.max(1,state.optDouble("duration")));seek.setProgress((int)state.optDouble("position"));}if(fullTime!=null)setLabel(fullTime,time(state.optDouble("position"))+"     /     "+time(state.optDouble("duration")));if(!state.optString("error").isEmpty())status.setText(state.optString("error"));syncLyrics(state.optDouble("position"));syncHomeLyrics(state.optDouble("position"));if(lastPlaying!=state.optBoolean("playing")){lastPlaying=state.optBoolean("playing");updateList();}}catch(Exception ignored){}}
+    void updatePlayback(){if(smokeMode||playback==null)return;try{JSONObject state=new JSONObject(playback.snapshot(false));String next=state.optString("id");if(!currentID.equals(next)||queue.length()!=state.optInt("queueCount")){queue=new JSONObject(playback.snapshot(true)).optJSONArray("queueTracks");}if(queue==null)queue=new JSONArray();JSONObject t=null;for(int i=0;i<queue.length();i++)if(queue.optJSONObject(i).optString("id").equals(next)){t=queue.optJSONObject(i);break;}setLabel(miniTitle,t==null?"Выбери трек":t.optString("title"));setLabel(miniArtist,t==null?"Nightwell Music":t.optString("artist"));refreshFavoriteButtons();if(miniProgressRing!=null)miniProgressRing.setProgress(state.optDouble("position")/Math.max(1,state.optDouble("duration")));if(ambient!=null)ambient.setPlaybackActive(state.optBoolean("playing"));setLabel(miniPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(homePlay!=null)setLabel(homePlay,state.optBoolean("playing")?"Ⅱ":"▶");if(fullPlay!=null)setLabel(fullPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(ribbon!=null)ribbon.playing(state.optBoolean("playing"));if(!currentID.equals(next)){currentID=next;if(!next.isEmpty()){rememberRecent(next);checkTrackAudioQuality(t);}activeLyrics=null;homeLine="";loadMiniCover(t);fetchLyricsAndPreload();animateTrackTransition();updateList();if(full)openPlayer();}if(seek!=null&&!seek.isPressed()){seek.setMax((int)Math.max(1,state.optDouble("duration")));seek.setProgress((int)state.optDouble("position"));}if(fullTime!=null)setLabel(fullTime,time(state.optDouble("position"))+"     /     "+time(state.optDouble("duration")));if(!state.optString("error").isEmpty())status.setText(state.optString("error"));syncLyrics(state.optDouble("position"));syncHomeLyrics(state.optDouble("position"));if(lastPlaying!=state.optBoolean("playing")){lastPlaying=state.optBoolean("playing");updateList();}}catch(Exception ignored){}}
     void animateTrackTransition(){
         if(dock==null||!dock.isShown())return;
         final float slide=dp(24)*trackTransitionDirection;
@@ -1429,7 +1497,12 @@ public final class MainActivity extends Activity {
     }
     void loadMiniCover(JSONObject track) {
         if (miniCover == null || artworkCache == null) return;
-        artworkCache.load(miniCover,origin,track==null?"":track.optString("cover_url"));
+        artworkCache.load(miniCover,origin,track==null?"":track.optString("cover_url"),bitmap->{
+            if(ambient!=null){
+                ambient.setArtwork(bitmap);
+                if(miniProgressRing!=null)miniProgressRing.setAccent(ambient.accentColor());
+            }
+        });
     }
     void addCover(JSONObject track,LinearLayout parent) {
         android.widget.ImageView cover=new android.widget.ImageView(this);
