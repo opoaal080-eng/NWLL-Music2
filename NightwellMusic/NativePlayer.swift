@@ -1280,10 +1280,26 @@ final class NativePlayer {
         let position = !wantsPlay ? lastPosition :
             ((waitingForReady || player.currentItem?.status == .failed)
                 ? requestedPosition : playbackPosition)
+        // loadedTimeRanges reports bytes/time actually buffered by AVPlayer.
+        // Never pretend to know server-side preparation percent before media
+        // ranges become available. The UI shows an indeterminate animation then.
+        let loadedEnd = (player.currentItem?.loadedTimeRanges ?? [])
+            .map { $0.timeRangeValue }
+            .compactMap { span -> Double? in
+                let begin = span.start.seconds
+                let length = span.duration.seconds
+                guard begin.isFinite, length.isFinite, begin >= 0, length >= 0 else { return nil }
+                return begin + length
+            }
+            .max() ?? 0
+        let bufferFraction = duration.isFinite && duration > 0
+            ? min(1.0, max(0.0, loadedEnd / duration)) : 0.0
+        let preparing = current != nil && wantsPlay && !audible
         return ["id": current?.id ?? "", "origin": origin?.absoluteString ?? "",
             "position": position.isFinite ? max(0, position) : 0.0,
             "duration": duration.isFinite ? max(0, duration) : (current?.duration ?? 0),
-            "playing": wantsPlay, "audible": audible, "nextPreparing": pendingNextIndex != nil || waveWaiting, "account": offlineAccount, "ended": ended, "repeat": repeatMode, "shuffle": shuffle, "shuffleMode": shuffleStyle,
+            "playing": wantsPlay, "audible": audible, "preparing": preparing, "bufferFraction": bufferFraction,
+            "nextPreparing": pendingNextIndex != nil || waveWaiting, "account": offlineAccount, "ended": ended, "repeat": repeatMode, "shuffle": shuffle, "shuffleMode": shuffleStyle,
             "volume": baseVolume, "smoothTransitions": true, "transitionSeconds": transitionSeconds, "queueRevision": queueRevision, "queueIds": includeQueue ? tracks.map { $0.id } : [], "error": error,
             "wave": waveActive, "waveSupported": true,
             "audioOutput": AVAudioSession.sharedInstance().currentRoute.outputs.map { ["type": $0.portType.rawValue, "name": $0.portName] },
