@@ -63,10 +63,13 @@ public partial class MainWindow {
   var owned=new HashSet<string>(likes,StringComparer.OrdinalIgnoreCase);
   foreach(var t in ownedPlaylistCache.Values.SelectMany(x=>x))owned.Add(t.id);
   var terms=query.Split(' ',StringSplitOptions.RemoveEmptyEntries|StringSplitOptions.TrimEntries);
-  return input.Where(t=>
-      (t.title+" "+t.artist).Contains(query,StringComparison.OrdinalIgnoreCase)
-      || terms.All(q=>(t.title+" "+t.artist).Contains(q,StringComparison.OrdinalIgnoreCase)))
-   .Where(t=>!string.IsNullOrEmpty(t.id))
+  bool Matches(Track track){
+   if(string.IsNullOrEmpty(track.id))return false;
+   var haystack=track.title+" "+track.artist;
+   return haystack.Contains(query,StringComparison.OrdinalIgnoreCase)
+    || terms.All(q=>haystack.Contains(q,StringComparison.OrdinalIgnoreCase));
+  }
+  return input.Where(Matches)
    .GroupBy(t=>t.id,StringComparer.OrdinalIgnoreCase).Select(g=>g.First())
    .OrderByDescending(t=>owned.Contains(t.id))
    .ThenByDescending(t=>t.title.Equals(query,StringComparison.OrdinalIgnoreCase))
