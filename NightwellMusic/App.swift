@@ -245,14 +245,22 @@ private struct StableNavigationSheet: View {
                     .minimumScaleFactor(0.76)
                 // Compact connectivity indicator on the same baseline as
                 // "Меню", without using a separate row in navigation.
-                Image(systemName: status == "Онлайн" ? "wifi" :
-                      status == "Ограничен" ? "wifi.exclamationmark" :
-                      status == "Загрузка…" ? "arrow.triangle.2.circlepath" : "wifi.slash")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(status == "Онлайн" ? Color.green :
-                                     status == "Ограничен" ? Color.orange : Color.gray)
-                    .frame(width: 22, height: 28)
-                    .accessibilityLabel("Подключение Nightwell: " + status)
+                Group {
+                    if status == "Загрузка…" {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                            .tint(Color(red: 0.25, green: 0.60, blue: 1.0))
+                            .scaleEffect(0.78)
+                    } else {
+                        Image(systemName: status == "Онлайн" ? "wifi" :
+                              status == "Ограничен" ? "wifi.exclamationmark" : "wifi.slash")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(status == "Онлайн" ? Color.green :
+                                             status == "Ограничен" ? Color.orange : Color.gray)
+                    }
+                }
+                .frame(width: 22, height: 28)
+                .accessibilityLabel("Подключение Nightwell: " + status)
                 Spacer(minLength: 8)
                 // Always one tap from the menu header, immediately to the
                 // left of the profile avatar. Tapping again returns to Menu.
