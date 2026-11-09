@@ -32,14 +32,21 @@ import Network
         let value = NativePlayer.shared.snapshot(includeQueue: false)
         // Streaming manifests occasionally expose NaN or infinite lengths.
         // Never pass those into a SwiftUI ClosedRange or an audio frame seek.
-        let rawDuration = value["duration"] as? Double ?? 1
-        duration = rawDuration.isFinite && rawDuration > 0
-            ? max(1, min(rawDuration, 604800)) : 1
+        let nextID = value["id"] as? String ?? ""
+        let rawDuration = value["duration"] as? Double ?? 0
+        if rawDuration.isFinite && rawDuration > 0.5 {
+            duration = max(1, min(rawDuration, 604800))
+        } else if nextID != id {
+            // Keep a known duration for the SAME track when AVPlayer briefly
+            // reports an indefinite time during pause or buffering.
+            duration = 1
+        }
         let rawPosition = value["position"] as? Double ?? 0
-        position = rawPosition.isFinite ? min(duration, max(0, rawPosition)) : 0
+        position = rawPosition.isFinite
+            ? min(duration, max(0, rawPosition))
+            : (nextID == id ? position : 0)
         let next = value["playing"] as? Bool ?? false
         if playing != next { playing = next; status.playing = next }
-        let nextID = value["id"] as? String ?? ""
         if id != nextID { id = nextID; status.id = nextID }
         failure = value["error"] as? String ?? ""
         let revision = value["queueRevision"] as? Int ?? 0

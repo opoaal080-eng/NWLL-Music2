@@ -1250,7 +1250,11 @@ final class NativePlayer {
         ["id": current?.id ?? "", "level": audioLevel(), "ready": (usesLiveMeter && audioMeter.processing) || independentMeter.envelope != nil]
     }
     func snapshot(includeQueue: Bool = true) -> [String: Any] {
-        let duration = player.currentItem?.duration.seconds ?? 0
+        let measuredDuration = player.currentItem?.duration.seconds ?? 0
+        let metadataDuration = current?.duration ?? 0
+        let duration = measuredDuration.isFinite && measuredDuration > 0.5
+            ? measuredDuration : (metadataDuration.isFinite && metadataDuration > 0
+                ? metadataDuration : 0)
         // Use the frozen playhead while paused, including when the EQ engine
         // is active. Reading enginePlayback.position here bypasses pause()'s
         // snapshot and caused the visible slider to jump backward.
