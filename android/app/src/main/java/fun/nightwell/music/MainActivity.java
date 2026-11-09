@@ -892,11 +892,78 @@ public final class MainActivity extends Activity {
                 stage.addView(restore,new android.widget.FrameLayout.LayoutParams(dp(48),dp(48),Gravity.TOP|Gravity.LEFT));
             }return;
         }
-        if(screen.equals("Поиск")){search=new EditText(this);search.setTextColor(Color.WHITE);search.setSingleLine(true);search.setTextSize(16);search.setHintTextColor(0xff999ca8);search.setPadding(dp(16),dp(14),dp(16),dp(14));search.setBackground(touchSurface(0xff202228,24));search.setHint("Трек или исполнитель");body.addView(search);search.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int st,int c,int a){}public void onTextChanged(CharSequence s,int st,int before,int count){query=s.toString();search(query);}public void afterTextChanged(Editable e){}});shown=new JSONArray();artistStrip=column();body.addView(artistStrip);}
-        else if(screen.equals("Избранное")){shown=new JSONArray();for(int i=0;i<catalog.length();i++)if(likes.contains(catalog.optJSONObject(i).optString("id")))shown.put(catalog.optJSONObject(i));shown=sortedFavorites(shown);LinearLayout actionsRow=column();actionsRow.setGravity(Gravity.RIGHT);TextView sort=iconButton("⇅",()->favoriteSortMenu());actionsRow.addView(sort);TextView more=iconButton("⋯",()->collectionMenu("likes",""));LinearLayout.LayoutParams moreParams=new LinearLayout.LayoutParams(dp(52),dp(48));moreParams.gravity=Gravity.RIGHT;actionsRow.addView(more,moreParams);body.addView(actionsRow);}
-        else if(screen.equals("Плейлисты")){android.widget.ScrollView scroll=new android.widget.ScrollView(this);LinearLayout entries=column();scroll.addView(entries);body.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));entries.addView(sheetAction("Умные плейлисты · Premium",()->feature("smart")));entries.addView(sheetAction("Подборки дня · обновляются ежедневно",this::dailyPublicPlaylists));entries.addView(action("＋ Создать плейлист",()->input("Новый плейлист",name->task(()->api.request("api/playlists","POST",new JSONObject().put("name",name)),v->load()))));for(int i=0;i<playlists.length();i++){JSONObject p=playlists.optJSONObject(i);LinearLayout r=row();r.setBackground(surface());r.addView(action(p.optString("name"),()->openPlaylist(p)),new LinearLayout.LayoutParams(0,-2,1));r.addView(action("⋯",()->collectionMenu("playlist",p.optString("id"))));LinearLayout.LayoutParams gap=new LinearLayout.LayoutParams(-1,-2);gap.bottomMargin=dp(10);entries.addView(r,gap);}return;}
+        if(screen.equals("Поиск")){
+            LinearLayout searchRow=row();
+            searchRow.setBackground(NightwellDesign.ripple(this,NightwellDesign.FIELD,19,true));
+            searchRow.setPadding(dp(9),0,dp(8),0);
+            TextView icon=action("⌕",()->{if(search!=null){search.requestFocus();((android.view.inputmethod.InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).showSoftInput(search,android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);}});
+            icon.setPadding(0,0,0,0);icon.setTextColor(NightwellDesign.MUTED);
+            searchRow.addView(icon,new LinearLayout.LayoutParams(dp(38),dp(48)));
+            search=new EditText(this);search.setTextColor(NightwellDesign.PRIMARY);
+            search.setSingleLine(true);search.setTextSize(15);search.setHintTextColor(NightwellDesign.MUTED);
+            search.setPadding(dp(8),dp(10),dp(8),dp(10));
+            search.setBackgroundColor(Color.TRANSPARENT);
+            search.setHint("Название, артист или альбом");
+            search.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
+            searchRow.addView(search,new LinearLayout.LayoutParams(0,dp(54),1));
+            LinearLayout.LayoutParams searchLayout=new LinearLayout.LayoutParams(-1,-2);
+            searchLayout.bottomMargin=dp(15);body.addView(searchRow,searchLayout);
+            search.addTextChangedListener(new TextWatcher(){
+                public void beforeTextChanged(CharSequence s,int st,int c,int a){}
+                public void onTextChanged(CharSequence s,int st,int before,int count){
+                    query=s.toString();search(query);
+                }
+                public void afterTextChanged(Editable e){}
+            });
+            shown=new JSONArray();artistStrip=column();body.addView(artistStrip);
+        }
+        else if(screen.equals("Избранное")){shown=new JSONArray();for(int i=0;i<catalog.length();i++)if(likes.contains(catalog.optJSONObject(i).optString("id")))shown.put(catalog.optJSONObject(i));shown=sortedFavorites(shown);LinearLayout actionsRow=row();actionsRow.setGravity(Gravity.CENTER_VERTICAL);
+            TextView info=text(shown.length()+" треков",13);
+            info.setTextColor(NightwellDesign.MUTED);
+            actionsRow.addView(info,new LinearLayout.LayoutParams(0,-2,1));
+            TextView sort=iconButton("⇅",()->favoriteSortMenu());
+            sort.setContentDescription("Сортировать избранное");
+            actionsRow.addView(sort,new LinearLayout.LayoutParams(dp(46),dp(46)));
+            TextView more=iconButton("⋯",()->collectionMenu("likes",""));
+            LinearLayout.LayoutParams moreParams=new LinearLayout.LayoutParams(dp(46),dp(46));
+            moreParams.leftMargin=dp(8);actionsRow.addView(more,moreParams);
+            LinearLayout.LayoutParams actionsParams=new LinearLayout.LayoutParams(-1,-2);
+            actionsParams.bottomMargin=dp(12);body.addView(actionsRow,actionsParams);}
+        else if(screen.equals("Плейлисты")){
+            android.widget.ScrollView scroll=new android.widget.ScrollView(this);
+            scroll.setVerticalScrollBarEnabled(false);scroll.setClipToPadding(false);
+            LinearLayout entries=column();entries.setPadding(0,0,0,dp(16));
+            scroll.addView(entries);body.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+            TextView create=sheetAction("＋  Создать плейлист",()->input("Новый плейлист",
+                name->task(()->api.request("api/playlists","POST",new JSONObject().put("name",name)),v->load())));
+            NightwellDesign.styleButton(this,create,true);
+            create.setGravity(Gravity.CENTER);
+            LinearLayout.LayoutParams cta=new LinearLayout.LayoutParams(-1,dp(52));
+            cta.bottomMargin=dp(15);entries.addView(create,cta);
+            TextView smart=sectionLabel("Подборки Nightwell");entries.addView(smart);
+            addPlaylistEntry(entries,"Умные плейлисты","Premium · по твоим предпочтениям",()->feature("smart"),null);
+            addPlaylistEntry(entries,"Подборки дня","Обновляются ежедневно",this::dailyPublicPlaylists,null);
+            entries.addView(sectionLabel("Твои плейлисты"));
+            if(playlists.length()==0){
+                TextView empty=text("Здесь будут твои плейлисты",14);
+                empty.setTextColor(NightwellDesign.MUTED);
+                empty.setPadding(dp(10),dp(24),dp(10),dp(24));
+                empty.setGravity(Gravity.CENTER);entries.addView(empty);
+            }
+            for(int i=0;i<playlists.length();i++){
+                JSONObject p=playlists.optJSONObject(i);
+                if(p==null)continue;
+                addPlaylistEntry(entries,p.optString("name"),"Личная медиатека",
+                    ()->openPlaylist(p),()->collectionMenu("playlist",p.optString("id")));
+            }
+            return;
+        }
         else if(screen.equals("Офлайн")){
-            body.addView(action("Добавить аудиофайлы",this::importFiles));
+            TextView importButton=sheetAction("＋  Добавить аудиофайлы",this::importFiles);
+            NightwellDesign.styleButton(this,importButton,false);
+            LinearLayout.LayoutParams importParams=new LinearLayout.LayoutParams(-1,dp(50));
+            importParams.bottomMargin=dp(12);
+            body.addView(importButton,importParams);
             TextView repairNotice=text("",13);
             body.addView(repairNotice);
             task(()->new JSONObject(OfflineStore.operation(this,origin,"{\"op\":\"listAll\"}")),v->{
@@ -918,8 +985,56 @@ public final class MainActivity extends Activity {
             });
             shown=new JSONArray();
         }
-        list=new ListView(this);list.setDivider(null);list.setCacheColorHint(Color.TRANSPARENT);adapter=new TrackAdapter();list.setAdapter(adapter);body.addView(list,new LinearLayout.LayoutParams(-1,0,1));list.setOnItemClickListener((p,v,pos,id)->play(shown.optJSONObject(pos),shown,false));list.setOnItemLongClickListener((p,v,pos,id)->{trackMenu(shown.optJSONObject(pos));return true;});
+        list=new ListView(this);
+        list.setDivider(new android.graphics.drawable.ColorDrawable(NightwellDesign.BACKGROUND));
+        list.setDividerHeight(dp(7));
+        list.setSelector(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
+        list.setVerticalScrollBarEnabled(false);
+        list.setCacheColorHint(Color.TRANSPARENT);
+        list.setClipToPadding(false);
+        list.setPadding(0,dp(3),0,dp(18));
+        adapter=new TrackAdapter();list.setAdapter(adapter);
+        body.addView(list,new LinearLayout.LayoutParams(-1,0,1));
+        list.setOnItemClickListener((p,v,pos,id)->play(shown.optJSONObject(pos),shown,false));
+        list.setOnItemLongClickListener((p,v,pos,id)->{trackMenu(shown.optJSONObject(pos));return true;});
     }
+
+    private void addPlaylistEntry(LinearLayout parent,String name,String subtitle,
+                                  Runnable open,Runnable more){
+        LinearLayout container=row();
+        container.setBackground(NightwellDesign.ripple(this,NightwellDesign.SURFACE,18,true));
+        container.setPadding(dp(12),dp(12),dp(10),dp(12));
+        View iconBackground=new View(this);
+        iconBackground.setBackground(NightwellDesign.surface(this,NightwellDesign.RAISED,12,false));
+        android.widget.FrameLayout cover=new android.widget.FrameLayout(this);
+        cover.addView(iconBackground,new android.widget.FrameLayout.LayoutParams(-1,-1));
+        TextView glyph=text("♫",24);glyph.setTextColor(NightwellDesign.PRIMARY);
+        glyph.setGravity(Gravity.CENTER);
+        cover.addView(glyph,new android.widget.FrameLayout.LayoutParams(-1,-1));
+        container.addView(cover,new LinearLayout.LayoutParams(dp(48),dp(48)));
+        LinearLayout copy=column();copy.setPadding(dp(12),0,dp(4),0);
+        TextView title=text(name,15);NightwellDesign.headline(title);
+        title.setSingleLine(true);title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        copy.addView(title);
+        TextView detail=text(subtitle,12);NightwellDesign.detail(detail);
+        detail.setPadding(0,dp(5),0,0);detail.setSingleLine(true);
+        detail.setEllipsize(android.text.TextUtils.TruncateAt.END);copy.addView(detail);
+        copy.setOnClickListener(v->open.run());
+        container.addView(copy,new LinearLayout.LayoutParams(0,-2,1));
+        if(more!=null){
+            TextView action=iconButton("⋯",more);
+            action.setBackgroundColor(Color.TRANSPARENT);
+            container.addView(action,new LinearLayout.LayoutParams(dp(42),dp(44)));
+        }else{
+            TextView arrow=text("›",25);arrow.setTextColor(NightwellDesign.MUTED);
+            arrow.setGravity(Gravity.CENTER);
+            container.addView(arrow,new LinearLayout.LayoutParams(dp(24),dp(44)));
+        }
+        container.setOnClickListener(v->open.run());
+        LinearLayout.LayoutParams margins=new LinearLayout.LayoutParams(-1,-2);
+        margins.bottomMargin=dp(9);parent.addView(container,margins);
+    }
+
     void updateList(){
         if(shown==null)shown=new JSONArray();
         // Search results are already normalized by NativeAPI off the UI thread.
