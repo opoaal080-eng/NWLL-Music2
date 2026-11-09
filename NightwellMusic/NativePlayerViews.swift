@@ -1373,7 +1373,6 @@ struct NativeSettings: View {
     @AppStorage("nw-kinetic-lyrics") private var kineticLyrics = true
     @State private var playbackDiagnostics = "Нет данных о запуске"
 
-    // Each settings category has its own screen, like the main navigation.
     private enum SettingsPage: String, CaseIterable {
         case customization = "Кастомизация"
         case playback = "Воспроизведение"
@@ -1383,7 +1382,32 @@ struct NativeSettings: View {
 
         var icon: String {
             switch self {
-         @ViewBuilder
+            case .customization: return "slider.horizontal.3"
+            case .playback: return "waveform"
+            case .appearance: return "paintbrush"
+            case .transfer: return "square.and.arrow.down"
+            case .about: return "info.circle"
+            }
+        }
+        var subtitle: String {
+            switch self {
+            case .customization: return "Обложки, очередь, текст и фон"
+            case .playback: return "Звук, буфер, громкость и офлайн"
+            case .appearance: return "Ленты, темы и визуальные эффекты"
+            case .transfer: return "Импорт плейлистов и музыки"
+            case .about: return "Версия и сведения о сборке"
+            }
+        }
+    }
+    @State private var activePage: SettingsPage?
+    private var buildCaption: String {
+        let info = Bundle.main.infoDictionary ?? [:]
+        let version = info["CFBundleShortVersionString"] as? String ?? ""
+        let number = info["CFBundleVersion"] as? String ?? ""
+        let revision = String((info["NWSourceCommit"] as? String ?? "local").prefix(7))
+        return "Nightwell Music \(version) (\(number)) · \(revision)"
+    }
+    @ViewBuilder
     private func pageContents(for page: SettingsPage) -> some View {
         switch page {
         case .customization:
@@ -1591,23 +1615,6 @@ struct NativeSettings: View {
         .font(.system(size: 17))
         .padding(20)
         .tint(.white)
-    }ится доступно после анализа записи.")
-                            .font(.system(size: 12)).foregroundStyle(.white.opacity(0.43))
-                        Text("Диагностика: " + playbackDiagnostics)
-                            .font(.system(size: 12)).monospacedDigit().foregroundStyle(.white.opacity(0.6))
-                            .task {
-                                while !Task.isCancelled {
-                                    playbackDiagnostics = NativePlayer.shared.startupDiagnostics
-                                    do { try await Task.sleep(nanoseconds: 1_000_000_000) }
-                                    catch { return }
-                                }
-                            }
-                    }.padding(16).frame(maxWidth: .infinity, minHeight: 166, alignment: .leading).background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
-                    Text(buildCaption).font(.system(size: 11)).foregroundStyle(.white.opacity(0.4)).frame(maxWidth: .infinity)
-                }.padding(.vertical, 2)
-            }
-        }.font(.system(size: 17)).padding(20).tint(Color.white)
-
     }
 }
 
