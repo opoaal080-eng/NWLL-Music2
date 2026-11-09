@@ -13,6 +13,7 @@ struct NightwellPlayerNativeMenu: UIViewRepresentable {
     let onDownload: (Track) -> Void
     let onAddPlaylist: (Track, Playlist) -> Void
     let onQuality: (String) -> Void
+    let onAnimationChanged: () -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -37,6 +38,7 @@ struct NightwellPlayerNativeMenu: UIViewRepresentable {
         coordinator.onDownload = onDownload
         coordinator.onAddPlaylist = onAddPlaylist
         coordinator.onQuality = onQuality
+        coordinator.onAnimationChanged = onAnimationChanged
         guard coordinator.snapshot?.id != snapshot?.id else { return }
         coordinator.snapshot = snapshot
         button.menu = coordinator.menu()
@@ -52,6 +54,7 @@ struct NightwellPlayerNativeMenu: UIViewRepresentable {
         var onDownload: ((Track) -> Void)?
         var onAddPlaylist: ((Track, Playlist) -> Void)?
         var onQuality: ((String) -> Void)?
+        var onAnimationChanged: (() -> Void)?
 
         func menu() -> UIMenu {
             let quality = UIMenu(title: "Качество звука",
@@ -71,13 +74,19 @@ struct NightwellPlayerNativeMenu: UIViewRepresentable {
                 UIAction(title: snapshot?.lyricsVisible == true ? "Обложка" : "Текст песни",
                          image: UIImage(systemName: "text.alignleft")) { [weak self] _ in
                     self?.onLyrics?()
-                },
-                UIAction(title: animationEnabled ? "Отключить анимацию обложки" : "Включить анимацию обложки",
-                         image: UIImage(systemName: "livephoto")) { [weak self] _ in
-                    let enabled = self?.animationEnabled ?? true
-                    UserDefaults.standard.set(!enabled, forKey: "nw-animated-album-artwork")
                 }
             ]
+            // Artwork animation only applies to the immersive full-screen cover.
+            if snapshot?.coverStyle != "classic" {
+                actions.append(UIAction(
+                    title: animationEnabled ? "Отключить анимацию обложки" : "Включить анимацию обложки",
+                    image: UIImage(systemName: "livephoto")
+                ) { [weak self] _ in
+                    let enabled = self?.animationEnabled ?? true
+                    UserDefaults.standard.set(!enabled, forKey: "nw-animated-album-artwork")
+                    self?.onAnimationChanged?()
+                })
+            }
             if let track = snapshot?.track {
                 actions.append(UIAction(title: "Твой ритм по треку",
                                         image: UIImage(systemName: "waveform.path")) { [weak self] _ in
@@ -94,8 +103,9 @@ struct NightwellPlayerNativeMenu: UIViewRepresentable {
                                         image: UIImage(systemName: "hand.thumbsdown")) { [weak self] _ in
                     self?.onHide?(track)
                 })
-                actions.append(UIAction(title: "Скачать",
-                                        image: UIImage(systemName: "arrow.down.to.line")) { [weak self] _ in
+                let downloaded = snapshot?.downloaded == true
+                actions.append(UIAction(title: downloaded ? "Удалить загрузку" : "Скачать",
+                                        image: UIImage(systemName: downloaded ? "trash" : "arrow.down.to.line")) { [weak self] _ in
                     self?.onDownload?(track)
                 })
                 if let base = snapshot?.shareBaseURL {
