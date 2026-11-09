@@ -9,6 +9,9 @@ namespace Nightwell.Native;
 
 public partial class MainWindow {
  readonly Dictionary<string,Task<ImageSource?>> thumbnailTasks=new();
+ // Failed/missing covers should not trigger a fresh HTTP request every
+ // time a virtualized row scrolls back into view.
+ readonly Dictionary<string,DateTime> thumbnailRetryAfter=new();
  readonly SemaphoreSlim thumbnailSlots=new(4,4);
 
  void TrackThumbnailLoaded(object sender,RoutedEventArgs e){
@@ -29,17 +32,27 @@ public partial class MainWindow {
    return;
   }
   string key=uri.AbsoluteUri;
+  if(thumbnailRetryAfter.TryGetValue(key,out var retryAt)){
+   if(DateTime.UtcNow<retryAt)return;
+   thumbnailRetryAfter.Remove(key);
+   thumbnailTasks.Remove(key);
+  }
   if(!thumbnailTasks.TryGetValue(key,out var task)){
    if(thumbnailTasks.Count>=256){
-    foreach(var old in thumbnailTasks.Where(pair=>pair.Value.IsCompleted).Take(40).Select(pair=>pair.Key).ToArray())
+    foreach(var old in thumbnailTasks.Where(pair=>pair.Value.IsCompleted)
+      .Take(40).Select(pair=>pair.Key).ToArray()){
      thumbnailTasks.Remove(old);
+     thumbnailRetryAfter.Remove(old);
+    }
    }
    task=FetchThumbnailAsync(uri);
    thumbnailTasks[key]=task;
   }
   var bitmap=await task;
-  if(bitmap==null&&thumbnailTasks.TryGetValue(key,out var failed)&&ReferenceEquals(failed,task))
-   thumbnailTasks.Remove(key);
+  if(thumbnailTasks.TryGetValue(key,out var pending)&&ReferenceEquals(pending,task)){
+   if(bitmap==null)thumbnailRetryAfter[key]=DateTime.UtcNow.AddSeconds(25);
+   else thumbnailRetryAfter.Remove(key);
+  }
   if(ReferenceEquals(image.DataContext,track))image.Source=bitmap;
  }
  async Task<ImageSource?> FetchThumbnailAsync(Uri uri){
