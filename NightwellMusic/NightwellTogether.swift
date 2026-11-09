@@ -3,7 +3,7 @@ import SwiftUI
 import UIKit
 
 // Mirrors the existing Nightwell "together" room protocol used by Windows.
-private struct TogetherMember: Decodable {
+struct TogetherMember: Decodable {
     init(from decoder: Decoder) throws {}
 }
 
