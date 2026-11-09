@@ -31,7 +31,7 @@ public partial class MainWindow {
  async Task SafeNext(){
   if(nextPreparing||queue.Count==0)return;
   if(roomCode.Length>0){await RoomCommand("next");return;}
-  if(index+1>=queue.Count&&wave)await Refill();
+  if(index+1>=queue.Count&&wave)await Refill(force:true);
   int next=repeat==2?index:shuffle&&queue.Count>1?ChooseShuffleIndex():index+1;
   if(next>=queue.Count){if(repeat==1)next=0;else return;}
   var track=queue[next];nextPreparing=true;nextCancellation?.Cancel();nextCancellation=CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
