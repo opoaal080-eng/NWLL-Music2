@@ -206,7 +206,19 @@ public final class MainActivity extends Activity {
             });}
         });
     }
-    private TextView homeLyric;private JSONObject activeLyrics;private String homeLine="";private boolean lastPlaying,mixing;private final java.util.ArrayDeque<String> mixRecent=new java.util.ArrayDeque<>();
+    private TextView homeLyric;private JSONObject activeLyrics;private String homeLine="";private int homeWord=-2;
+    private final java.util.ArrayList<Object> homeKineticSpans=new java.util.ArrayList<>();
+    private final Runnable homeKineticTicker=new Runnable(){
+        @Override public void run(){
+            if(isDestroyed()||!visible)return;
+            boolean playing=playback!=null&&playback.player.getPlayWhenReady();
+            if(homeLyric!=null&&homeLyric.isAttachedToWindow()&&
+                (screen.equals("Главная")||backgroundOnly)&&!full&&playing){
+                syncHomeLyrics(playback.player.getCurrentPosition()/1000.0);
+            }
+            ui.postDelayed(this,playing?150:650);
+        }
+    };private boolean lastPlaying,mixing;private final java.util.ArrayDeque<String> mixRecent=new java.util.ArrayDeque<>();
     private NativeAPI api;
     private String supportUploadTicket="";private boolean supportUploadAdmin;
     private PlaybackService playback;
@@ -344,8 +356,8 @@ public final class MainActivity extends Activity {
         super.onSaveInstanceState(saved);
     }
 
-    @Override protected void onResume(){super.onResume();if(redirectedToFirstRun)return;restoreRecent();visible=true;ui.removeCallbacks(nightwellProbe);ui.post(nightwellProbe);if(!smokeMode&&sessionReady&&SystemClock.elapsedRealtime()-lastResumeRefresh>30000)load();if(premiumRefresh!=null)premiumRefresh.run();BackgroundDownloads.reconcile(this);if(ribbon!=null)ribbon.running(!smokeMode&&!full&&screen.equals("Главная"));ui.removeCallbacks(tick);if(!smokeMode)ui.post(tick);}
-    @Override protected void onPause(){super.onPause();if(redirectedToFirstRun)return;ui.removeCallbacks(nightwellProbe);ui.removeCallbacks(connectionRecovery);if(navigationPopup!=null)navigationPopup.dismiss();if(playback!=null)playback.persistPlayback(true);visible=false;if(ribbon!=null)ribbon.running(false);ui.removeCallbacks(tick);}
+    @Override protected void onResume(){super.onResume();if(redirectedToFirstRun)return;restoreRecent();visible=true;ui.removeCallbacks(nightwellProbe);ui.post(nightwellProbe);if(!smokeMode&&sessionReady&&SystemClock.elapsedRealtime()-lastResumeRefresh>30000)load();if(premiumRefresh!=null)premiumRefresh.run();BackgroundDownloads.reconcile(this);if(ribbon!=null)ribbon.running(!smokeMode&&!full&&screen.equals("Главная"));ui.removeCallbacks(tick);if(!smokeMode)ui.post(tick);ui.removeCallbacks(homeKineticTicker);if(!smokeMode)ui.post(homeKineticTicker);}
+    @Override protected void onPause(){super.onPause();if(redirectedToFirstRun)return;ui.removeCallbacks(nightwellProbe);ui.removeCallbacks(connectionRecovery);if(navigationPopup!=null)navigationPopup.dismiss();if(playback!=null)playback.persistPlayback(true);visible=false;if(ribbon!=null)ribbon.running(false);ui.removeCallbacks(tick);ui.removeCallbacks(homeKineticTicker);}
     @Override protected void onDestroy(){if(redirectedToFirstRun){super.onDestroy();return;}ui.removeCallbacks(nightwellProbe);generation++;cancelMix();accountRequest.cancel();if(api!=null)api.close();ui.removeCallbacksAndMessages(null);if(artworkCache!=null)artworkCache.close();io.shutdownNow();waveIO.shutdownNow();prefetch.shutdownNow();playlistIndexer.shutdownNow();if(playback!=null)playback.player.removeListener(playbackIntentObserver);if(bindingRegistered){unbindService(connection);bindingRegistered=false;}super.onDestroy();}
     int dp(float n){return (int)(n*getResources().getDisplayMetrics().density+.5f);}
     LinearLayout column(){LinearLayout v=new LinearLayout(this);v.setOrientation(LinearLayout.VERTICAL);return v;}
@@ -958,7 +970,38 @@ public final class MainActivity extends Activity {
             stage.addView(intro,introParams);
             homePlay=action("▶",()->{if(currentID.isEmpty())wave();else toggle();});homePlay.setTextColor(0xffffffff);homePlay.setTextSize(31);homePlay.setBackground(touchSurface(0x40222222,44));android.widget.FrameLayout.LayoutParams playParams=new android.widget.FrameLayout.LayoutParams(dp(88),dp(88),Gravity.CENTER);if(compact){playParams.gravity=Gravity.CENTER_VERTICAL|Gravity.RIGHT;playParams.rightMargin=dp(50);}else playParams.topMargin=dp(30);stage.addView(homePlay,playParams);
             TextView mix=action("Новая подборка",this::wave);mix.setOnLongClickListener(v->{waveSettings();return true;});mix.setContentDescription("Новая подборка. Удерживай, чтобы настроить");mix.setTextSize(14);mix.setBackground(touchSurface(0x40222222,24));mix.setTextColor(0xffffffff);mix.setTypeface(null,android.graphics.Typeface.BOLD);android.widget.FrameLayout.LayoutParams mixParams=new android.widget.FrameLayout.LayoutParams(dp(184),dp(44),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL);mixParams.bottomMargin=dp(compact?20:124);stage.addView(mix,mixParams);
-            homeLyric=text("",16);homeLyric.setGravity(Gravity.CENTER);homeLyric.setTextColor(0xffe1e1e1);homeLyric.setMaxLines(2);homeLyric.setOnClickListener(v->{JSONObject t=current();if(t!=null)showLyrics(t);});android.widget.FrameLayout.LayoutParams lyricParams=new android.widget.FrameLayout.LayoutParams(-1,dp(50),Gravity.BOTTOM);stage.addView(homeLyric,lyricParams);if(compact)homeLyric.setVisibility(View.GONE);
+            homeLyric=text("",16);homeLyric.setGravity(Gravity.CENTER);homeLyric.setTextColor(0xffe1e1e1);homeLyric.setMaxLines(2);homeLyric.setOnClickListener(v->{JSONObject t=current();if(t!=null)showLyrics(t);});android.widget.FrameLayout.LayoutParams lyricParams=new android.widget.FrameLayout.LayoutParams(-1,dp(50),Gravity.BOTTOM);stage.addView(homeLyric,lyricParams);if(compact)homeLyric.setVisibility(View.VISIBLE);
+            if(compact&&!backgroundOnly){
+                // Real two-column landscape layout. Prevent the album/lyrics
+                // area from overlapping playback controls on short screens.
+                stage.removeView(intro);
+                stage.removeView(homePlay);
+                stage.removeView(mix);
+                stage.removeView(homeLyric);
+                LinearLayout twoColumns=row();
+                twoColumns.setGravity(Gravity.CENTER_VERTICAL);
+                twoColumns.setPadding(dp(12),dp(4),dp(12),dp(4));
+                LinearLayout left=column();
+                left.setGravity(Gravity.CENTER);
+                left.addView(intro,new LinearLayout.LayoutParams(-1,-2));
+                LinearLayout controls=row();controls.setGravity(Gravity.CENTER);
+                homePlay.setTextSize(26);
+                controls.addView(homePlay,new LinearLayout.LayoutParams(dp(68),dp(68)));
+                LinearLayout.LayoutParams waveParams=new LinearLayout.LayoutParams(dp(150),dp(38));
+                waveParams.leftMargin=dp(10);
+                mix.setTextSize(12);
+                controls.addView(mix,waveParams);
+                left.addView(controls,new LinearLayout.LayoutParams(-1,-2));
+                twoColumns.addView(left,new LinearLayout.LayoutParams(0,-1,0.46f));
+                LinearLayout lyricColumn=column();lyricColumn.setGravity(Gravity.CENTER);
+                homeLyric.setTextSize(18);
+                homeLyric.setMaxLines(3);
+                homeLyric.setGravity(Gravity.CENTER);
+                homeLyric.setPadding(dp(12),dp(5),dp(12),dp(5));
+                lyricColumn.addView(homeLyric,new LinearLayout.LayoutParams(-1,-2));
+                twoColumns.addView(lyricColumn,new LinearLayout.LayoutParams(0,-1,0.54f));
+                stage.addView(twoColumns,new android.widget.FrameLayout.LayoutParams(-1,-1));
+            }
             if(backgroundOnly){
                 intro.setVisibility(View.GONE);
                 mix.setVisibility(View.GONE);
@@ -1734,7 +1777,7 @@ public final class MainActivity extends Activity {
     }
 
     void setLabel(TextView view,String value){if(view!=null&&!android.text.TextUtils.equals(view.getText(),value))view.setText(value);}
-    void updatePlayback(){if(smokeMode||playback==null)return;try{JSONObject state=new JSONObject(playback.snapshot(false));String next=state.optString("id");boolean trackChanged=!currentID.equals(next);boolean queueChanged=trackChanged||queue==null||queue.length()!=state.optInt("queueCount");if(queueChanged){queue=new JSONObject(playback.snapshot(true)).optJSONArray("queueTracks");}if(queue==null)queue=new JSONArray();JSONObject t=null;if(queueChanged){for(int i=0;i<queue.length();i++){JSONObject item=queue.optJSONObject(i);if(item!=null&&next.equals(item.optString("id"))){t=item;break;}}setLabel(miniTitle,t==null?"Выбери трек":t.optString("title"));setLabel(miniArtist,t==null?"Nightwell Music":t.optString("artist"));}if(miniProgress!=null)miniProgress.setLevel((int)Math.max(0,Math.min(10000,10000*state.optDouble("position")/Math.max(1,state.optDouble("duration")))));setLabel(miniPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(homePlay!=null)setLabel(homePlay,state.optBoolean("playing")?"Ⅱ":"▶");if(fullPlay!=null)setLabel(fullPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(ribbon!=null)ribbon.playing(state.optBoolean("playing"));if(trackChanged){currentID=next;refreshFavoriteButtons();if(!next.isEmpty()){rememberRecent(next);checkTrackAudioQuality(t);prefetchClip(t);}activeLyrics=null;homeLine="";loadMiniCover(t);fetchLyricsAndPreload();animateTrackTransition();updateList();if(full)openPlayer();}if(seek!=null&&!seek.isPressed()){seek.setMax((int)Math.max(1,state.optDouble("duration")));seek.setProgress((int)state.optDouble("position"));}if(fullTime!=null)setLabel(fullTime,time(state.optDouble("position"))+"     /     "+time(state.optDouble("duration")));if(!state.optString("error").isEmpty())status.setText(state.optString("error"));syncLyrics(state.optDouble("position"));syncHomeLyrics(state.optDouble("position"));if(lastPlaying!=state.optBoolean("playing")){lastPlaying=state.optBoolean("playing");updateList();}}catch(Exception ignored){}}
+    void updatePlayback(){if(smokeMode||playback==null)return;try{JSONObject state=new JSONObject(playback.snapshot(false));String next=state.optString("id");boolean trackChanged=!currentID.equals(next);boolean queueChanged=trackChanged||queue==null||queue.length()!=state.optInt("queueCount");if(queueChanged){queue=new JSONObject(playback.snapshot(true)).optJSONArray("queueTracks");}if(queue==null)queue=new JSONArray();JSONObject t=null;if(queueChanged){for(int i=0;i<queue.length();i++){JSONObject item=queue.optJSONObject(i);if(item!=null&&next.equals(item.optString("id"))){t=item;break;}}setLabel(miniTitle,t==null?"Выбери трек":t.optString("title"));setLabel(miniArtist,t==null?"Nightwell Music":t.optString("artist"));}if(miniProgress!=null)miniProgress.setLevel((int)Math.max(0,Math.min(10000,10000*state.optDouble("position")/Math.max(1,state.optDouble("duration")))));setLabel(miniPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(homePlay!=null)setLabel(homePlay,state.optBoolean("playing")?"Ⅱ":"▶");if(fullPlay!=null)setLabel(fullPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(ribbon!=null)ribbon.playing(state.optBoolean("playing"));if(trackChanged){currentID=next;refreshFavoriteButtons();if(!next.isEmpty()){rememberRecent(next);checkTrackAudioQuality(t);prefetchClip(t);}activeLyrics=null;homeLine="";homeWord=-2;homeKineticSpans.clear();if(homeLyric!=null)homeLyric.setText("");loadMiniCover(t);fetchLyricsAndPreload();animateTrackTransition();updateList();if(full)openPlayer();}if(seek!=null&&!seek.isPressed()){seek.setMax((int)Math.max(1,state.optDouble("duration")));seek.setProgress((int)state.optDouble("position"));}if(fullTime!=null)setLabel(fullTime,time(state.optDouble("position"))+"     /     "+time(state.optDouble("duration")));if(!state.optString("error").isEmpty())status.setText(state.optString("error"));syncLyrics(state.optDouble("position"));syncHomeLyrics(state.optDouble("position"));if(lastPlaying!=state.optBoolean("playing")){lastPlaying=state.optBoolean("playing");updateList();}}catch(Exception ignored){}}
     void animateTrackTransition(){
         if(dock==null||!dock.isShown())return;
         final float slide=dp(24)*trackTransitionDirection;
@@ -1776,7 +1819,19 @@ public final class MainActivity extends Activity {
         top.addView(iconButton("⋯",()->fullPlayerMenu(track)),new LinearLayout.LayoutParams(dp(48),dp(48)));
         body.addView(top);
         android.widget.ScrollView scroll=new android.widget.ScrollView(this);scroll.setFillViewport(true);scroll.setClipToPadding(false);LinearLayout content=column();content.setPadding(0,dp(16),0,dp(16));scroll.addView(content);body.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
-        addCover(track,content);
+        boolean landscapePlayer=getResources().getConfiguration().orientation==
+            android.content.res.Configuration.ORIENTATION_LANDSCAPE;
+        LinearLayout details=content;
+        if(landscapePlayer){
+            LinearLayout split=row();split.setGravity(Gravity.TOP);
+            content.addView(split,new LinearLayout.LayoutParams(-1,-2));
+            LinearLayout artworkColumn=column();artworkColumn.setGravity(Gravity.TOP);
+            split.addView(artworkColumn,new LinearLayout.LayoutParams(0,-2,0.46f));
+            details=column();
+            details.setPadding(dp(8),0,dp(8),0);
+            split.addView(details,new LinearLayout.LayoutParams(0,-2,0.54f));
+            addCover(track,artworkColumn);
+        }else addCover(track,content);
         LinearLayout metadata=row();metadata.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout names=column();
         TextView title=text(track.optString("title"),25);title.setMaxLines(2);title.setLetterSpacing(-.025f);title.setLineSpacing(dp(2),1f);title.setAutoSizeTextTypeUniformWithConfiguration(19,25,1,android.util.TypedValue.COMPLEX_UNIT_SP);title.setEllipsize(android.text.TextUtils.TruncateAt.END);title.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);title.setPadding(dp(8),dp(18),dp(8),dp(6));names.addView(title);
@@ -1802,8 +1857,8 @@ public final class MainActivity extends Activity {
         fullDislike.setContentDescription(hidden?"Вернуть в рекомендации":"Не рекомендовать");
         metadata.addView(fullDislike,new LinearLayout.LayoutParams(dp(44),dp(48)));
         metadata.addView(fullLike,likeParams);
-        content.addView(metadata);
-        LinearLayout transport=column();transport.setPadding(dp(12),dp(12),dp(12),dp(6));transport.setBackground(new NativeSurfaceDrawable(transport,26));content.addView(transport);
+        details.addView(metadata);
+        LinearLayout transport=column();transport.setPadding(dp(12),dp(12),dp(12),dp(6));transport.setBackground(new NativeSurfaceDrawable(transport,26));details.addView(transport);
         seek=new SeekBar(this);seek.setMinimumHeight(dp(44));seek.setProgressTintList(android.content.res.ColorStateList.valueOf(0xffeeeeee));seek.setThumbTintList(android.content.res.ColorStateList.valueOf(0xfff1f1f1));seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar b,int p,boolean user){}public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){cancelMix();if(playback!=null)playback.seek(b.getProgress());}});transport.addView(seek);fullTime=text("",12);fullTime.setPadding(dp(8),0,dp(8),dp(12));fullTime.setTextColor(0xffc8c8c8);transport.addView(fullTime);
         LinearLayout controls=row();controls.setGravity(Gravity.CENTER);
         TextView shuffleButton=iconButton("⇄",()->{
@@ -1858,7 +1913,12 @@ public final class MainActivity extends Activity {
         android.view.GestureDetector detector=gestures(true);
         cover.setOnTouchListener((v,event)->detector.onTouchEvent(event));
         int width=getResources().getConfiguration().screenWidthDp;
-        int edge=classic?Math.max(200,width-44):Math.max(280,width+18);
+        boolean landscape=getResources().getConfiguration().orientation==
+            android.content.res.Configuration.ORIENTATION_LANDSCAPE;
+        int edge=landscape
+            ?Math.max(120,Math.min((int)(width*.44),
+                getResources().getConfiguration().screenHeightDp-130))
+            :(classic?Math.max(200,width-44):Math.max(280,width+18));
         if(classic){
             GradientDrawable rounded=new GradientDrawable();
             rounded.setColor(0xff25252b);
@@ -1912,35 +1972,83 @@ public final class MainActivity extends Activity {
     private String lyricsPollID="";private int lyricsRound;
     void acceptLyrics(String id,JSONObject value){
         if(!currentID.equals(id)||isDestroyed())return;activeLyrics=value;
+        if(homeLyric!=null&&playback!=null)
+            syncHomeLyrics(playback.player.getCurrentPosition()/1000.0);
         if(lyricsText!=null&&lyricsTrack.equals(id)){lyricLines=value.optBoolean("synced")?value.optJSONArray("lines"):null;activeLyric=-2;activeLyricWord=-2;lyricLayoutTrack="";if(lyricLines==null)lyricsText.setText(value.optString("plain",value.optString("message",lyricsPending(value)?"Ищем подходящий текст…":"Текст пока не найден")));syncLyrics(playback==null?0:playback.player.getCurrentPosition()/1000.0);}
         if(!lyricsPollID.equals(id)){lyricsPollID=id;lyricsRound=0;}
         if(lyricsPending(value)&&lyricsRound++<20){int round=lyricsRound;ui.postDelayed(()->{if(!currentID.equals(id)||round!=lyricsRound)return;task(()->cachedLyrics(id),next->acceptLyrics(id,next));},Math.max(2000,Math.min(60000,value.optLong("retry_after",3)*1000)));}
     }
     void syncHomeLyrics(double position){
-        if(homeLyric==null)return;
-        String line="";double start=-1;
-        if(getSharedPreferences("appearance",MODE_PRIVATE).getBoolean("ambient-lyrics",true)
-            &&playback!=null&&playback.player.isPlaying()&&activeLyrics!=null&&activeLyrics.optBoolean("synced")){
+        if(homeLyric==null||!homeLyric.isAttachedToWindow())return;
+        String line="";JSONObject active=null,next=null;
+        boolean playing=playback!=null&&playback.player.isPlaying();
+        if(getSharedPreferences("appearance",MODE_PRIVATE)
+                .getBoolean("ambient-lyrics",true)&&playing&&
+                activeLyrics!=null&&activeLyrics.optBoolean("synced")){
             JSONArray lines=activeLyrics.optJSONArray("lines");
-            if(lines!=null)for(int i=0;i<lines.length();i++){
-                JSONObject entry=lines.optJSONObject(i);
-                if(entry!=null&&entry.optDouble("time")<=position){
-                    line=entry.optString("text");start=entry.optDouble("time");
-                }else break;
+            if(lines!=null){
+                for(int i=0;i<lines.length();i++){
+                    JSONObject candidate=lines.optJSONObject(i);
+                    if(candidate==null)continue;
+                    if(candidate.optDouble("time")<=position){
+                        active=candidate;
+                        next=lines.optJSONObject(i+1);
+                    }else break;
+                }
+                if(active!=null){
+                    line=active.optString("text");
+                    if(position-active.optDouble("time")>4.5)line="";
+                }
             }
         }
-        // Leave each line visible briefly, then fade it out until the next timed line.
-        if(start>=0&&position-start>4.5)line="";
-        if(!line.equals(homeLine)){
+        boolean kinetic=getSharedPreferences("appearance",MODE_PRIVATE)
+            .getBoolean("nw-kinetic-lyrics",true);
+        int word=kinetic&&active!=null&&!line.isEmpty()?
+            lyricWordAt(active,next,position):-1;
+        boolean changedLine=!line.equals(homeLine);
+        if(changedLine){
             homeLine=line;
+            homeWord=-2;
+            homeKineticSpans.clear();
             homeLyric.animate().cancel();
             if(line.isEmpty()){
-                homeLyric.animate().alpha(0).translationY(-dp(6)).setDuration(550).start();
-            }else{
-                homeLyric.setText(line);homeLyric.setAlpha(0);homeLyric.setTranslationY(dp(8));
-                homeLyric.animate().alpha(1).translationY(0).setDuration(350).start();
+                homeLyric.animate().alpha(0).translationY(-dp(6))
+                    .setDuration(220).withEndAction(()->{
+                        if(homeLine.isEmpty()&&homeLyric!=null)homeLyric.setText("");
+                    }).start();
+                return;
             }
+            homeLyric.setText(new android.text.SpannableStringBuilder(line),
+                TextView.BufferType.SPANNABLE);
+            homeLyric.setAlpha(0);
+            homeLyric.setTranslationY(dp(7));
+            homeLyric.animate().alpha(1).translationY(0).setDuration(260).start();
         }
+        if(line.isEmpty()||(!changedLine&&homeWord==word))return;
+        homeWord=word;
+        if(!(homeLyric.getText() instanceof android.text.Spannable))return;
+        android.text.Spannable styled=(android.text.Spannable)homeLyric.getText();
+        for(Object span:homeKineticSpans)styled.removeSpan(span);
+        homeKineticSpans.clear();
+        if(!kinetic)return;
+        java.util.regex.Matcher matcher=KINETIC_TOKENS.matcher(line);
+        int ordinal=0;
+        while(matcher.find()){
+            int from=matcher.start(),to=matcher.end();
+            android.text.style.ForegroundColorSpan color=
+                new android.text.style.ForegroundColorSpan(
+                    ordinal<=word?0xffffffff:0xffa0a2af);
+            styled.setSpan(color,from,to,android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            homeKineticSpans.add(color);
+            if(ordinal==word){
+                android.text.style.BackgroundColorSpan glow=
+                    new android.text.style.BackgroundColorSpan(0x24ffffff);
+                styled.setSpan(glow,from,to,android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                homeKineticSpans.add(glow);
+            }
+            ordinal++;
+        }
+        homeLyric.invalidate();
     }
     void showLyrics(JSONObject track){String id=track.optString("id");status.setText("Ищем текст…");task(()->cachedLyrics(id),v->{
         if(!currentID.equals(id))return;acceptLyrics(id,v);lyricLines=v.optBoolean("synced")?v.optJSONArray("lines"):null;lyricsTrack=id;activeLyric=-2;activeLyricWord=-2;
