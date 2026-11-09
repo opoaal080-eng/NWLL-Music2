@@ -367,7 +367,8 @@ struct NativeRoot: View {
             Spacer(minLength: 0)
         }
         .padding(.top, 5)
-        .frame(width: 54, maxHeight: .infinity, alignment: .top)
+        .frame(width: 54)
+        .frame(maxHeight: .infinity, alignment: .top)
         .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 17))
         .padding(.leading, 7)
         .padding(.bottom, 7)
@@ -450,7 +451,6 @@ struct NativeRoot: View {
                 }
                 .ignoresSafeArea(.container, edges: .bottom)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
                 }
             }
         }
