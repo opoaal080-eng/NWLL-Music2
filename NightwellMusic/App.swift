@@ -983,30 +983,34 @@ struct NativeRoot: View {
                 .transition(.asymmetric(insertion: .scale(scale: 0.68, anchor: .trailing).combined(with: .opacity),
                                         removal: .opacity))
             }
-            Button { navigationMenuPresented = true } label: {
-                Group {
-                    if let avatar=store.profileAvatar {
-                        Image(uiImage:avatar).resizable().scaledToFill()
-                    } else {
-                        Image(systemName:"person.crop.circle")
-                            .font(.system(size:19,weight:.medium))
+            // Remove the menu opener from layout while the sheet is open.
+            // The search and Continue buttons slide right to fill its space;
+            // closing the sheet restores all three controls to their positions.
+            if !navigationMenuPresented {
+                Button { navigationMenuPresented = true } label: {
+                    Group {
+                        if let avatar=store.profileAvatar {
+                            Image(uiImage:avatar).resizable().scaledToFill()
+                        } else {
+                            Image(systemName:"person.crop.circle")
+                                .font(.system(size:19,weight:.medium))
+                        }
                     }
+                        .clipShape(Circle())
+                        .foregroundStyle(.white)
+                        .frame(width: 44, height: 44)
+                        .frostedGlass(22, bordered: false, intensity: 0.20)
                 }
-                    .clipShape(Circle())
-                    .foregroundStyle(.white)
-                    .frame(width: 44, height: 44)
-                    .frostedGlass(22, bordered: false, intensity: 0.20)
+                .buttonStyle(.plain)
+                .accessibilityLabel("Меню")
+                .transition(.asymmetric(
+                    insertion: .scale(scale: 0.72, anchor: .trailing).combined(with: .opacity),
+                    removal: .scale(scale: 0.72, anchor: .trailing).combined(with: .opacity)
+                ))
             }
-            // Only hide the avatar that *opens* the menu. The avatar in the
-            // open menu stays visible and opens Profile. Retain the button's
-            // layout width so the header does not jump during sheet animations.
-            .opacity(navigationMenuPresented ? 0 : 1)
-            .allowsHitTesting(!navigationMenuPresented)
-            .accessibilityHidden(navigationMenuPresented)
-            .animation(reducedMotion ? nil : .easeOut(duration: 0.18),
-                       value: navigationMenuPresented)
-            .accessibilityLabel("Меню")
         }
+        .animation(reducedMotion ? nil : .spring(response: 0.34, dampingFraction: 0.86),
+                   value: navigationMenuPresented)
         .padding(.horizontal, landscape ? 10 : 20)
         .padding(.top, landscape ? 0 : 8)
         .overlay(alignment: .center) {
