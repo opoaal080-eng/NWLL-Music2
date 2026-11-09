@@ -30,8 +30,29 @@ struct NightwellFirstLaunch: View {
         default: return "Выбери несколько исполнителей. Это поможет улучшить первые рекомендации."
         }
     }
+    private func welcomeCopy(compact: Bool) -> some View {
+        VStack(spacing: compact ? 9 : 13) {
+            Text(headline)
+                .font(.system(size: compact ? 25 : 34, weight: .heavy, design: .rounded))
+                .tracking(-1.2)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.white)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(description)
+                .font(.system(size: compact ? 14 : 16))
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.white.opacity(0.62))
+                .lineSpacing(compact ? 2 : 4)
+                .padding(.horizontal, compact ? 8 : 4)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
     var body: some View {
         GeometryReader { geo in
+            let landscape = geo.size.width > geo.size.height * 1.12 &&
+                geo.size.height < 650
             VStack(spacing: 0) {
                 HStack {
                     HStack(spacing: 8) {
@@ -46,31 +67,31 @@ struct NightwellFirstLaunch: View {
                             .foregroundStyle(.white.opacity(0.65))
                     }
                 }
-                .padding(.top, 12)
-                .padding(.bottom, 16)
+                .padding(.top, landscape ? 4 : 12)
+                .padding(.bottom, landscape ? 6 : 16)
 
-                Group {
-                    if page == 3 { preferences }
-                    else { illustration }
+                if landscape {
+                    HStack(spacing: 17) {
+                        Group {
+                            if page == 3 { preferences }
+                            else { illustration }
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        welcomeCopy(compact: true)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    Group {
+                        if page == 3 { preferences }
+                        else { illustration }
+                    }
+                    .frame(height: max(210, min(geo.size.height * 0.46, 430)))
+                    .frame(maxWidth: .infinity)
+                    Spacer(minLength: 8)
+                    welcomeCopy(compact: false)
+                    Spacer(minLength: 14)
                 }
-                .frame(height: max(210, min(geo.size.height * 0.46, 430)))
-                .frame(maxWidth: .infinity)
-                Spacer(minLength: 8)
-                Text(headline)
-                    .font(.system(size: 34, weight: .heavy, design: .rounded))
-                    .tracking(-1.2)
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(.white)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(description)
-                    .font(.system(size: 16))
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(.white.opacity(0.62))
-                    .lineSpacing(4)
-                    .padding(.top, 13)
-                    .padding(.horizontal, 4)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 14)
                 HStack(spacing: 8) {
                     ForEach(0..<4, id: \.self) { index in
                         Capsule()
@@ -89,14 +110,14 @@ struct NightwellFirstLaunch: View {
                         .font(.system(size: 16, weight: .bold))
                         .foregroundStyle(ink)
                         .padding(.horizontal, 21)
-                        .frame(height: 54)
+                        .frame(height: landscape ? 43 : 54)
                         .background(lemon, in: Capsule())
                     }
                     .buttonStyle(.plain)
                 }
-                .padding(.bottom, 16)
+                .padding(.bottom, landscape ? 5 : 16)
             }
-            .padding(.horizontal, 25)
+            .padding(.horizontal, landscape ? 14 : 25)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(ink.ignoresSafeArea())
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: page)
@@ -188,6 +209,7 @@ struct NightwellFirstLaunch: View {
             .overlay(RoundedRectangle(cornerRadius: 24).stroke(.white.opacity(0.18)))
     }
     private var preferences: some View {
+        ScrollView(showsIndicators: false) {
         VStack(alignment: .leading, spacing: 13) {
             HStack {
                 Text("Любимые исполнители").font(.system(size: 18, weight: .bold))
@@ -226,6 +248,7 @@ struct NightwellFirstLaunch: View {
         }
         .padding(19)
         .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
         .background(Color.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 34))
     }
     private func finish() {
