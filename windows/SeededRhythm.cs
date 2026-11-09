@@ -21,32 +21,42 @@ public partial class MainWindow {
   }catch{}
  }
  async Task WarmOwnedPlaylistsAsync(string owner){
-  // Warm at most 24 playlists so desktop startup and the user's server are
-  // never held up by large library-index requests.
-  foreach(var item in playlists.Take(24)){
+  // Resolve local playlist indexes concurrently, with only two network
+  // refreshes in flight so large playlists cannot overwhelm the home server.
+  var selected=playlists.Take(24).ToArray();
+  using var slots=new SemaphoreSlim(2,2);
+  await Task.WhenAll(selected.Select(async item=>{
    if(account!=owner||lifetime.IsCancellationRequested)return;
    var id=item.id;
    try{
     var path=OwnedCachePath(id);
     List<Track>? cached=null;
     if(File.Exists(path)){
-     cached=await Task.Run(()=>JsonSerializer.Deserialize<List<Track>>(File.ReadAllText(path)));
+     cached=await Task.Run(()=>JsonSerializer.Deserialize<List<Track>>(File.ReadAllText(path)),
+       lifetime.Token);
+     if(account!=owner)return;
      if(cached!=null)ownedPlaylistCache[id]=cached;
     }
     if(cached==null||DateTime.UtcNow-File.GetLastWriteTimeUtc(path)>TimeSpan.FromHours(24)){
-     var value=await api.Request("api/playlists/"+Uri.EscapeDataString(id)+"/tracks",cancellation:lifetime.Token);
-     var fetched=ParseTracks(value);
-     if(account!=owner)return;
-     ownedPlaylistCache[id]=fetched;
-     SaveOwnedPlaylistCache(id,fetched);
+     await slots.WaitAsync(lifetime.Token);
+     try{
+      if(account!=owner||lifetime.IsCancellationRequested)return;
+      var value=await api.Request("api/playlists/"+
+       Uri.EscapeDataString(id)+"/tracks",cancellation:lifetime.Token);
+      var fetched=ParseTracks(value);
+      if(account!=owner)return;
+      ownedPlaylistCache[id]=fetched;
+      // Do not synchronously serialize thousands of tracks on the UI thread.
+      _=Task.Run(()=>SaveOwnedPlaylistCache(id,fetched),lifetime.Token);
+     }finally{slots.Release();}
     }
-    if(screen=="Поиск"&&SearchBox.Text.Trim().Length>=2){
-      string query=SearchBox.Text.Trim();
-      shown=RankSearchResults(shown.Concat(ownedPlaylistCache.Values.SelectMany(x=>x)),query);
-      Tracks.ItemsSource=shown;
-    }
-   }catch(OperationCanceledException){return;}catch{}
-   await Task.Delay(180);
+   }catch(OperationCanceledException){}catch{}
+  }));
+  if(account!=owner||lifetime.IsCancellationRequested)return;
+  if(screen=="Поиск"&&SearchBox.Text.Trim().Length>=2){
+   var query=SearchBox.Text.Trim();
+   shown=RankSearchResults(shown.Concat(ownedPlaylistCache.Values.SelectMany(x=>x)),query);
+   Tracks.ItemsSource=shown;
   }
  }
  List<Track> RankSearchResults(IEnumerable<Track> input,string query){
