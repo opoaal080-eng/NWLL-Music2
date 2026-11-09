@@ -95,8 +95,60 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
 }catch(Exception ex){Status.Text="Не удалось запустить плеер: "+ex.Message;if(IsDesignPreview||Environment.GetCommandLineArgs().Contains("--native-smoke")){File.WriteAllText("ui-preview-error.txt",ex.ToString());Environment.ExitCode=1;Close();}}};Closed+=(_,_)=>{if(!IsDesignPreview)QueueSavePlayback();timer.Stop();searchCancellation?.Cancel();lyricsCancellation?.Cancel();lifetime.Cancel();_ = Task.Run(()=>{player?.Stop();player?.Dispose();vlc?.Dispose();proxy?.Dispose();api?.Dispose();});};}
  async Task Guard(Func<Task> action){try{await action();}catch(OperationCanceledException){}catch(Exception e){Status.Text=e.Message;}}
  List<Track> ParseTracks(JsonElement json)=>json.GetProperty("tracks").Deserialize<List<Track>>()??[];
- async Task LoadAccount(){await Guard(async()=>{var me=await api.Request("api/me");api.Csrf=me.GetProperty("csrf").GetString()??"";account=me.GetProperty("user").ValueKind==JsonValueKind.Object?me.GetProperty("user").GetProperty("id").GetString()??"":"";if(account.Length==0){Status.Text="Войди в аккаунт или открой офлайн-файлы";return;}var tasks=await Task.WhenAll(api.Request("api/tracks"),api.Request("api/likes"),api.Request("api/playlists"));catalog=ParseTracks(tasks[0]);likes=tasks[1].GetProperty("ids").Deserialize<HashSet<string>>()??[];playlists=tasks[2].GetProperty("playlists").Deserialize<List<Playlist>>()??[];
- SidebarPlaylists.ItemsSource=playlists.ToList();_=WarmOwnedPlaylistsAsync(account);_=LoadProfileAsync();Status.Text="";if(screen!="Поиск")Show(screen);});}
+ async Task LoadAccount(){
+  await Guard(async()=>{
+   var me=await api.Request("api/me");
+   api.Csrf=me.GetProperty("csrf").GetString()??"";
+   account=me.GetProperty("user").ValueKind==JsonValueKind.Object
+    ?me.GetProperty("user").GetProperty("id").GetString()??"":"";
+   if(account.Length==0){
+    Status.Text="Войди в аккаунт или открой офлайн-файлы";
+    return;
+   }
+   var owner=account;
+   // Restore the authenticated user's last library before waiting for remote
+   // catalogue, likes and playlists. Never reuse another account's snapshot.
+   await RestoreLibraryCacheAsync(owner);
+   _=LoadProfileAsync();
+   int successful=0;
+   async Task Tracks(){
+    try{
+     var result=await api.Request("api/tracks",cancellation:lifetime.Token);
+     if(account!=owner||lifetime.IsCancellationRequested)return;
+     catalog=ParseTracks(result);successful++;
+     if(screen=="Избранное")Show("Избранное");
+     else if(screen=="Поиск"&&SearchBox.Text.Trim().Length>=2){
+      var query=SearchBox.Text.Trim();
+      shown=RankSearchResults(catalog.Concat(ownedPlaylistCache.Values.SelectMany(x=>x)),query);
+      Tracks.ItemsSource=shown;
+     }
+    }catch(OperationCanceledException){}catch(Exception e){if(account==owner)Status.Text="Каталог: "+e.Message;}
+   }
+   async Task Likes(){
+    try{
+     var result=await api.Request("api/likes",cancellation:lifetime.Token);
+     if(account!=owner||lifetime.IsCancellationRequested)return;
+     likes=result.GetProperty("ids").Deserialize<HashSet<string>>()??[];
+     successful++;
+     if(screen=="Избранное")Show("Избранное");
+    }catch(OperationCanceledException){}catch(Exception e){if(account==owner)Status.Text="Избранное: "+e.Message;}
+   }
+   async Task Playlists(){
+    try{
+     var result=await api.Request("api/playlists",cancellation:lifetime.Token);
+     if(account!=owner||lifetime.IsCancellationRequested)return;
+     playlists=result.GetProperty("playlists").Deserialize<List<Playlist>>()??[];
+     successful++;
+     SidebarPlaylists.ItemsSource=playlists.ToList();
+     _=WarmOwnedPlaylistsAsync(owner);
+    }catch(OperationCanceledException){}catch(Exception e){if(account==owner)Status.Text="Плейлисты: "+e.Message;}
+   }
+   // Each section becomes visible immediately, independent of slow endpoints.
+   await Task.WhenAll(Tracks(),Likes(),Playlists());
+   if(account!=owner||lifetime.IsCancellationRequested)return;
+   if(successful>0){Status.Text="";SaveLibraryCacheAsync(owner);}
+  });
+ }
  void Show(string next){
   searchCancellation?.Cancel();
   screen=next;
