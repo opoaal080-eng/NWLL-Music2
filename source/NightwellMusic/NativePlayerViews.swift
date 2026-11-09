@@ -1038,8 +1038,12 @@ struct LyricsView: View {
     let position: Double
     @State private var resumeFollowingAt = Date.distantPast
     @State private var followingPlayback = true
+    // A lightweight position poll runs only while the lyrics view is mounted.
+    // The regular 500ms player refresh remains unchanged for every other screen.
+    @State private var lyricPosition: Double?
     @AppStorage("nw-kinetic-lyrics") private var kineticLyrics = true
-    var active: Int { (lyrics?.lines ?? []).lastIndex { $0.time <= position } ?? -1 }
+    private var currentLyricPosition: Double { lyricPosition ?? position }
+    var active: Int { (lyrics?.lines ?? []).lastIndex { $0.time <= currentLyricPosition } ?? -1 }
     var body: some View {
         ScrollViewReader { reader in
             ScrollView(showsIndicators: true) {
@@ -1048,7 +1052,7 @@ struct LyricsView: View {
                         if lyrics.synced == true, let lines = lyrics.lines {
                             NightwellSyncedLyricsRows(
                                 lines: lines,
-                                position: position,
+                                position: currentLyricPosition,
                                 active: active,
                                 kinetic: kineticLyrics
                             ) { index, time in
@@ -1087,6 +1091,19 @@ struct LyricsView: View {
                 try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 guard !Task.isCancelled else { return }
                 followingPlayback = true
+            }
+            .task {
+                // Separate lightweight lyric clock avoids accelerating the
+                // whole player UI, artwork, networking and background timers.
+                while !Task.isCancelled {
+                    let state = NativePlayer.shared.snapshot(includeQueue: false)
+                    if let live = state["position"] as? Double,
+                       live.isFinite && live >= 0,
+                       lyricPosition == nil || abs(live - (lyricPosition ?? 0)) >= 0.035 {
+                        lyricPosition = live
+                    }
+                    try? await Task.sleep(nanoseconds: 160_000_000)
+                }
             }
             .onAppear { if active >= 0 { DispatchQueue.main.async { reader.scrollTo(active, anchor: .center) } } }
             .onChange(of: followingPlayback) { following in
