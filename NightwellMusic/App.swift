@@ -615,13 +615,22 @@ struct NativeRoot: View {
                             Text("Nightwell").font(.system(size: 25, weight: .bold))
                             Text("M U S I C").font(.caption).foregroundStyle(.secondary)
                         }
-                    } else {
-                        // Keep the app's name visible in landscape and while
-                        // the collection's centered compact heading is shown.
-                        Text(compactCollectionTitle == nil ? "Nightwell Music" : "Nightwell")
-                            .font(.system(size: landscape ? 16 : 14, weight: .semibold))
+                    } else if landscape {
+                        Text("Nightwell Music")
+                            .font(.system(size: 16, weight: .semibold))
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
+                    } else {
+                        // Small complete wordmark leaves room for the centered
+                        // compact collection heading on narrow phones.
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text("Nightwell")
+                                .font(.system(size: 14, weight: .bold))
+                            Text("MUSIC")
+                                .font(.system(size: 8, weight: .medium))
+                                .tracking(1.2)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }.contentShape(Rectangle())
             }
