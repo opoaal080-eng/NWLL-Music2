@@ -24,9 +24,10 @@ final class ArtworkCache {
     private final LruCache<String, Bitmap> memory = new LruCache<String, Bitmap>(32 * 1024 * 1024) {
         @Override protected int sizeOf(String key, Bitmap bitmap) { return bitmap.getByteCount(); }
     };
-    private final ExecutorService io = Executors.newFixedThreadPool(3);
+    private final ExecutorService io = Executors.newFixedThreadPool(5);
     private final ConcurrentHashMap<String, CompletableFuture<Bitmap>> inFlight = new ConcurrentHashMap<>();
     private int savedCount;
+    private final ConcurrentHashMap<String,Long> failedUntil=new ConcurrentHashMap<>();
 
     ArtworkCache(Context context) { this.context = context.getApplicationContext(); }
     private boolean valid(String path) { return path != null && path.startsWith("/api/covers/"); }
@@ -36,13 +37,20 @@ final class ArtworkCache {
     }
     void load(ImageView target, String origin, String path,
               java.util.function.Consumer<Bitmap> onReady) {
-        target.setImageDrawable(null);
         if (!valid(path)) {
+            target.setImageDrawable(null);
             target.setTag(null);
             if(onReady!=null)onReady.accept(null);
             return;
         }
         String identity = key(origin,path);
+        if(identity.equals(target.getTag())&&target.getDrawable()!=null){
+            if(onReady!=null){
+                Bitmap available=memory.get(identity);
+                if(available!=null)onReady.accept(available);
+            }
+            return;
+        }
         target.setTag(identity);
         Bitmap cached = memory.get(identity);
         if (cached != null) {
@@ -50,6 +58,7 @@ final class ArtworkCache {
             if(onReady!=null)onReady.accept(cached);
             return;
         }
+        target.setImageDrawable(null);
         CompletableFuture<Bitmap> job = request(origin,path);
         job.thenAccept(bitmap -> {
             if (bitmap == null) return;
@@ -66,9 +75,16 @@ final class ArtworkCache {
     }
     private CompletableFuture<Bitmap> request(String origin, String path) {
         String identity = key(origin,path);
+        Long denied=failedUntil.get(identity);
+        if(denied!=null&&android.os.SystemClock.elapsedRealtime()<denied)
+            return CompletableFuture.completedFuture(null);
         CompletableFuture<Bitmap> job = inFlight.computeIfAbsent(identity,
             k -> CompletableFuture.supplyAsync(() -> decodeAndFetch(origin,path,identity),io));
-        job.whenComplete((result,error) -> inFlight.remove(identity,job));
+        job.whenComplete((result,error) -> {
+            inFlight.remove(identity,job);
+            if(result!=null)failedUntil.remove(identity);
+            else failedUntil.put(identity,android.os.SystemClock.elapsedRealtime()+12000);
+        });
         return job;
     }
     private Bitmap decodeAndFetch(String origin, String path, String identity) {
@@ -84,7 +100,7 @@ final class ArtworkCache {
             if (!ServerAddress.sameOrigin(origin,url.toString())) return null;
             HttpURLConnection c = (HttpURLConnection)url.openConnection();
             c.setInstanceFollowRedirects(false);
-            c.setConnectTimeout(8000);c.setReadTimeout(12000);
+            c.setConnectTimeout(5000);c.setReadTimeout(9000);
             c.setRequestProperty("Cookie",NativeAPI.cookie(context,origin));
             byte[] bytes;
             try {
@@ -183,5 +199,5 @@ final class ArtworkCache {
         } catch (Exception ignored) { return null; }
         finally { if (connection != null) connection.disconnect(); }
     }
-    void close() { io.shutdownNow(); inFlight.clear(); memory.evictAll(); }
+    void close() { io.shutdownNow(); inFlight.clear();failedUntil.clear();memory.evictAll(); }
 }

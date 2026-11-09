@@ -125,6 +125,56 @@ public final class PlaybackService extends MediaSessionService {
     private String retriedTrackId = "";
     private int streamRetryCount = 0;
     private Runnable pendingStreamRetry;
+    private long bufferingSince;
+    private int stallRecoveries;
+    private String monitoredTrack="";
+    private final Runnable startupWatchdog=new Runnable(){
+        @Override public void run(){
+            if(player==null||!player.getPlayWhenReady()||
+                player.getPlaybackState()!=Player.STATE_BUFFERING)return;
+            MediaItem item=player.getCurrentMediaItem();
+            if(item==null)return;
+            if(!item.mediaId.equals(monitoredTrack)){
+                monitoredTrack=item.mediaId;bufferingSince=android.os.SystemClock.elapsedRealtime();
+                stallRecoveries=0;
+            }
+            long now=android.os.SystemClock.elapsedRealtime();
+            if(bufferingSince==0)bufferingSince=now;
+            if(now-bufferingSince<10000){
+                waveHandler.postDelayed(this,2000);return;
+            }
+            if(stallRecoveries>=2){
+                error="Не удалось получить аудиопоток. Проверь соединение или переключи трек.";
+                if(waveActive&&player.hasNextMediaItem()){
+                    error="Пропускаем недоступный трек.";
+                    player.seekToNextMediaItem();player.prepare();player.play();
+                }
+                return;
+            }
+            stallRecoveries++;
+            bufferingSince=now;
+            int index=player.getCurrentMediaItemIndex();
+            long position=Math.max(0,player.getCurrentPosition());
+            error="Поток отвечает слишком долго. Переподключаемся…";
+            // Restart the current media source, including a fresh HLS manifest.
+            player.stop();
+            player.seekTo(index,position);
+            player.prepare();
+            player.play();
+            waveHandler.postDelayed(this,3500);
+        }
+    };
+    private void watchBuffering(){
+        if(player==null||!player.getPlayWhenReady()||
+            player.getPlaybackState()!=Player.STATE_BUFFERING)return;
+        if(bufferingSince==0)bufferingSince=android.os.SystemClock.elapsedRealtime();
+        waveHandler.removeCallbacks(startupWatchdog);
+        waveHandler.postDelayed(startupWatchdog,2500);
+    }
+    private void clearBufferingWatch(){
+        waveHandler.removeCallbacks(startupWatchdog);
+        bufferingSince=0;stallRecoveries=0;monitoredTrack="";
+    }
     private boolean waveActive, waveLoading;
     private WaveSettings waveSettings=new WaveSettings(new JSONObject());
     private int waveGeneration;
@@ -177,7 +227,7 @@ public final class PlaybackService extends MediaSessionService {
         volumeLevelingStrength=Math.max(0,Math.min(100,getSharedPreferences("playback",MODE_PRIVATE).getInt("nw-equal-volume",0)));
         bufferChoiceSeconds=getSharedPreferences("playback",MODE_PRIVATE).getInt("nw-stream-buffer-seconds",0);
         if(bufferChoiceSeconds!=0 && bufferChoiceSeconds!=4 && bufferChoiceSeconds!=8 && bufferChoiceSeconds!=12) bufferChoiceSeconds=0;
-        DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory().setUserAgent("NightwellMusic/0.5").setConnectTimeoutMs(10000).setReadTimeoutMs(20000);
+        DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory().setUserAgent("NightwellMusic/0.5").setConnectTimeoutMs(7500).setReadTimeoutMs(14000);
         ResolvingDataSource.Factory source = new ResolvingDataSource.Factory(http, data -> {
             Uri current = data.uri;
             String hostname = current.getHost()==null?"":current.getHost().toLowerCase(java.util.Locale.ROOT);
@@ -234,6 +284,7 @@ public final class PlaybackService extends MediaSessionService {
             @Override public void onMediaItemTransition(MediaItem item,int reason) {
                 loudnessAverage=0; loudnessGain=1;
                 beginTrackTiming(item);
+                clearBufferingWatch();
                 cancelStreamRetry();
                 retriedTrackId = "";
                 streamRetryCount = 0;
@@ -246,6 +297,7 @@ public final class PlaybackService extends MediaSessionService {
             }
             @Override public void onIsPlayingChanged(boolean playing) {
                 if(playing) {
+                    clearBufferingWatch();error="";
                     if(audibleAfterMs < 0 && startupAt > 0)
                         audibleAfterMs = Math.max(0,android.os.SystemClock.elapsedRealtime()-startupAt);
                     scheduleNextFilePrefetch();
@@ -268,8 +320,13 @@ public final class PlaybackService extends MediaSessionService {
                 }else { pausedPositionMs=-1; refillWave(); }
             }
             @Override public void onPlaybackStateChanged(int state) {
-                if(state==Player.STATE_READY && readyAfterMs < 0 && startupAt > 0)
-                    readyAfterMs=Math.max(0,android.os.SystemClock.elapsedRealtime()-startupAt);
+                if(state==Player.STATE_READY){
+                    clearBufferingWatch();error="";
+                    if(readyAfterMs<0&&startupAt>0)
+                        readyAfterMs=Math.max(0,android.os.SystemClock.elapsedRealtime()-startupAt);
+                }else if(state==Player.STATE_BUFFERING)watchBuffering();
+                else if(state==Player.STATE_ENDED||state==Player.STATE_IDLE)
+                    waveHandler.removeCallbacks(startupWatchdog);
                 if(state==Player.STATE_BUFFERING && audibleAfterMs>=0 && player.getPlayWhenReady())
                     bufferingStalls++;
                 if(state==Player.STATE_ENDED)refillWave();
@@ -324,7 +381,8 @@ public final class PlaybackService extends MediaSessionService {
                     cause instanceof java.io.EOFException) temporary = true;
             if (cause instanceof androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException) {
                 int code = ((androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException) cause).responseCode;
-                temporary = code == 408 || code == 429 || code >= 500 && code <= 599;
+                temporary = code == 408 || code == 429 || (code >= 500 && code <= 599)
+                    || ((code == 403 || code == 404) && streamRetryCount == 0);
                 break;
             }
         }
@@ -345,6 +403,7 @@ public final class PlaybackService extends MediaSessionService {
             player.seekTo(retryIndex, retryPosition);
             player.prepare();
             player.play();
+            watchBuffering();
         };
         waveHandler.postDelayed(pendingStreamRetry, attempt == 1 ? 1200 : attempt == 2 ? 3000 : 6000);
         return true;
@@ -402,10 +461,10 @@ public final class PlaybackService extends MediaSessionService {
             audibleAfterMs=-1;
         }
         if(player.getPlaybackState()==Player.STATE_IDLE&&player.getMediaItemCount()>0)player.prepare();
-        player.play();refillWave();
+        player.play();watchBuffering();refillWave();
     }
-    void pause() { cancelStreamRetry(); capturePausePosition(); player.pause(); }
-    void stop() { audioPrefetchGeneration++; pausedPositionMs=-1; lastGoodPositionMs=0; cancelStreamRetry(); retriedTrackId = ""; streamRetryCount = 0; waveActive=false;cancelWaveRequest();waveSeen.clear();player.stop();player.clearMediaItems();
+    void pause() { clearBufferingWatch();cancelStreamRetry();capturePausePosition();player.pause(); }
+    void stop() { clearBufferingWatch();audioPrefetchGeneration++; pausedPositionMs=-1; lastGoodPositionMs=0; cancelStreamRetry(); retriedTrackId = ""; streamRetryCount = 0; waveActive=false;cancelWaveRequest();waveSeen.clear();player.stop();player.clearMediaItems();
         if(audioCache!=null)for(String key:new HashSet<>(audioCache.getKeys()))if(key.startsWith(cacheScope+"|"))try{audioCache.removeResource(key);}catch(Exception ignored){}
     }
     void seek(double seconds) {
@@ -597,6 +656,7 @@ public final class PlaybackService extends MediaSessionService {
             state.put("duration",player.getDuration()==C.TIME_UNSET?0:player.getDuration()/1000.0);
             state.put("playing",player.getPlayWhenReady() && player.getPlaybackState()!=Player.STATE_ENDED);
             state.put("ended",player.getPlaybackState()==Player.STATE_ENDED);
+            state.put("buffering",player.getPlaybackState()==Player.STATE_BUFFERING);
             state.put("repeat",player.getRepeatMode()==Player.REPEAT_MODE_ALL?1:player.getRepeatMode()==Player.REPEAT_MODE_ONE?2:0);state.put("shuffle",player.getShuffleModeEnabled());
             state.put("error",error);state.put("volume",baseVolume);state.put("smoothTransitions",true);state.put("transitionSeconds",transitionSeconds);
             state.put("wave_preferences",waveSettings.json());state.put("wave",waveActive);state.put("waveSupported",true);
@@ -612,7 +672,7 @@ public final class PlaybackService extends MediaSessionService {
         } catch(Exception ex) { return "{}"; }
     }
     @Override public void onDestroy() {
-        cancelStreamRetry();
+        clearBufferingWatch();cancelStreamRetry();
         persistPlayback(true);
         waveActive=false;cancelWaveRequest();audioPrefetchGeneration++;
         waveHandler.removeCallbacksAndMessages(null);waveIO.shutdownNow();audioPrefetchIO.shutdownNow();artworkIO.shutdownNow();

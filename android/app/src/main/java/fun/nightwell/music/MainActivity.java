@@ -18,6 +18,7 @@ public final class MainActivity extends Activity {
     private final Handler ui=new Handler(Looper.getMainLooper());
     private final ExecutorService io=Executors.newFixedThreadPool(3);
     private final ExecutorService prefetch=Executors.newSingleThreadExecutor();
+    private final ExecutorService favoriteIO=Executors.newSingleThreadExecutor();
     private TextView liveHandoff;
     private View handoffCompact;
     private boolean handoffAvailable, handoffCollapsed;
@@ -278,6 +279,9 @@ public final class MainActivity extends Activity {
     private final LatestRequest waveRequest=new LatestRequest(),accountRequest=new LatestRequest();
     private JSONArray catalog=new JSONArray(),shown=new JSONArray(),playlists=new JSONArray(),queue=new JSONArray();
     private final Set<String> likes=new HashSet<>();
+    private final LinkedHashMap<String,JSONObject> favoriteDetails=new LinkedHashMap<>();
+    private long lastFavoriteRecovery;
+    private volatile int favoriteRecoveryGeneration;
     private final ArrayList<String> likeOrder=new ArrayList<>();
     private final java.util.LinkedHashMap<String,JSONArray> searchCache =
         new java.util.LinkedHashMap<String,JSONArray>(24,0.75f,true) {
@@ -289,7 +293,7 @@ public final class MainActivity extends Activity {
     private TextView status,miniTitle,miniArtist,miniPlay,miniPrev,miniNext,miniLike;
     private android.widget.ImageView miniCover;private CircularProgressRing miniProgressRing;
     private ArtworkCache artworkCache;
-    private TextView fullTime,homePlay,fullPlay,fullLike,fullDislike,fullAudioOutput,fullShuffle;
+    private TextView fullTime,fullElapsed,fullNetworkNote,homePlay,fullPlay,fullLike,fullDislike,fullAudioOutput,fullShuffle;
     private SeekBar seek;
     private EditText search;
     private LinearLayout artistStrip;
@@ -376,7 +380,7 @@ public final class MainActivity extends Activity {
 
     @Override protected void onResume(){super.onResume();restoreRecent();visible=true;openPendingTogether();ui.removeCallbacks(nightwellProbe);ui.post(nightwellProbe);if(!smokeMode&&sessionReady&&SystemClock.elapsedRealtime()-lastResumeRefresh>30000)load();if(premiumRefresh!=null)premiumRefresh.run();BackgroundDownloads.reconcile(this);updateArtworkAppearance();ui.removeCallbacks(tick);if(!smokeMode)ui.post(tick);}
     @Override protected void onPause(){super.onPause();ui.removeCallbacks(nightwellProbe);ui.removeCallbacks(connectionRecovery);if(navigationPopup!=null)navigationPopup.dismiss();if(playback!=null)playback.persistPlayback(true);visible=false;if(ribbon!=null)ribbon.running(false);ui.removeCallbacks(tick);}
-    @Override protected void onDestroy(){if(together!=null)together.shutdown();ui.removeCallbacks(nightwellProbe);generation++;cancelMix();accountRequest.cancel();if(api!=null)api.close();ui.removeCallbacksAndMessages(null);if(artworkCache!=null)artworkCache.close();io.shutdownNow();prefetch.shutdownNow();if(playback!=null)playback.player.removeListener(playbackIntentObserver);if(bindingRegistered){unbindService(connection);bindingRegistered=false;}super.onDestroy();}
+    @Override protected void onDestroy(){if(together!=null)together.shutdown();ui.removeCallbacks(nightwellProbe);generation++;cancelMix();accountRequest.cancel();if(api!=null)api.close();ui.removeCallbacksAndMessages(null);if(artworkCache!=null)artworkCache.close();favoriteRecoveryGeneration++;favoriteIO.shutdownNow();io.shutdownNow();prefetch.shutdownNow();if(playback!=null)playback.player.removeListener(playbackIntentObserver);if(bindingRegistered){unbindService(connection);bindingRegistered=false;}super.onDestroy();}
     int dp(float n){return (int)(n*getResources().getDisplayMetrics().density+.5f);}
     LinearLayout column(){LinearLayout v=new LinearLayout(this);v.setOrientation(LinearLayout.VERTICAL);return v;}
     LinearLayout row(){LinearLayout v=new LinearLayout(this);v.setGravity(Gravity.CENTER_VERTICAL);return v;}
@@ -475,7 +479,7 @@ public final class MainActivity extends Activity {
         styleSheet(dialog);dialog.show();
     }
     void build(){
-        if(ribbon!=null)ribbon.running(false);full=false;lyricsOpen=false;seek=null;fullTime=null;fullPlay=null;fullLike=null;fullDislike=null;fullAudioOutput=null;fullShuffle=null;
+        if(ribbon!=null)ribbon.running(false);full=false;lyricsOpen=false;seek=null;fullTime=null;fullPlay=null;fullLike=null;fullDislike=null;fullAudioOutput=null;fullShuffle=null;fullElapsed=null;fullNetworkNote=null;
         // Render scenery and aura across the window, outside the padded controls.
         android.widget.FrameLayout scene=new android.widget.FrameLayout(this);
         scene.setBackground(new NativeSceneryDrawable(this));
@@ -673,7 +677,7 @@ public final class MainActivity extends Activity {
         else if(tab.equals("Обращения"))supportTickets(false);
         else if(tab.equals("Только фон")||tab.equals("Показать интерфейс"))toggleBackgroundOnly();
         else if(tab.equals("Войти"))auth();
-        else if(tab.equals("Выйти")){cancelMix();accountRequest.cancel();task(()->{api.request("api/logout","POST",null);new SessionStore(this).clear();clearLibrarySnapshot();return new JSONObject();},v->{libraryGeneration++;user="";searchCache.clear();playlists=new JSONArray();selectedPlaylist="";sessionReady=true;openPendingTogether();api.updateCSRF("");getSharedPreferences("native-api",MODE_PRIVATE).edit().putString("account","").apply();catalog=new JSONArray();shown=new JSONArray();likes.clear();likeOrder.clear();if(playback!=null)playback.stop();navigate("Главная");});}
+        else if(tab.equals("Выйти")){cancelMix();accountRequest.cancel();task(()->{api.request("api/logout","POST",null);new SessionStore(this).clear();clearLibrarySnapshot();getSharedPreferences("favorite-track-cache",MODE_PRIVATE).edit().remove(favoriteDetailsKey()).apply();return new JSONObject();},v->{libraryGeneration++;user="";searchCache.clear();playlists=new JSONArray();selectedPlaylist="";sessionReady=true;openPendingTogether();api.updateCSRF("");getSharedPreferences("native-api",MODE_PRIVATE).edit().putString("account","").apply();catalog=new JSONArray();shown=new JSONArray();likes.clear();likeOrder.clear();if(playback!=null)playback.stop();navigate("Главная");});}
         else navigate(tab);
     }
 
@@ -879,8 +883,8 @@ public final class MainActivity extends Activity {
         if(user.isEmpty()){auth();return;}if(track==null)return;
         final String id=track.optString("id");final boolean remove=likes.contains(id);
         task(()->api.request("api/likes/"+id,remove?"DELETE":"POST",null),v->{
-            if(remove){likes.remove(id);likeOrder.remove(id);}
-            else{likes.add(id);likeOrder.remove(id);likeOrder.add(0,id);if(ribbon!=null)ribbon.flash();}
+            if(remove){likes.remove(id);likeOrder.remove(id);favoriteDetails.remove(id);}
+            else{likes.add(id);likeOrder.remove(id);likeOrder.add(0,id);rememberFavorite(track);if(ribbon!=null)ribbon.flash();}
             saveLibrarySnapshot();
             refreshFavoriteButtons();updatePlayback();
             if(screen.equals("Избранное"))showScreen();else updateList();
@@ -974,7 +978,7 @@ public final class MainActivity extends Activity {
             });
             shown=new JSONArray();artistStrip=column();body.addView(artistStrip);
         }
-        else if(screen.equals("Избранное")){shown=new JSONArray();for(int i=0;i<catalog.length();i++)if(likes.contains(catalog.optJSONObject(i).optString("id")))shown.put(catalog.optJSONObject(i));shown=sortedFavorites(shown);LinearLayout actionsRow=row();actionsRow.setGravity(Gravity.CENTER_VERTICAL);
+        else if(screen.equals("Избранное")){shown=sortedFavorites(buildFavorites());recoverMissingFavorites();LinearLayout actionsRow=row();actionsRow.setGravity(Gravity.CENTER_VERTICAL);
             TextView info=text(shown.length()+" треков",13);
             info.setTextColor(NightwellDesign.MUTED);
             actionsRow.addView(info,new LinearLayout.LayoutParams(0,-2,1));
@@ -1052,7 +1056,15 @@ public final class MainActivity extends Activity {
         list.setPadding(0,dp(3),0,dp(18));
         adapter=new TrackAdapter();list.setAdapter(adapter);
         body.addView(list,new LinearLayout.LayoutParams(-1,0,1));
-        list.setOnItemClickListener((p,v,pos,id)->play(shown.optJSONObject(pos),shown,false));
+        list.setOnItemClickListener((p,v,pos,id)->{
+            JSONObject item=shown.optJSONObject(pos);
+            if(item==null)return;
+            if(item.optBoolean("_unresolved")){
+                status.setText("Сведения об этом треке пока недоступны. Обновляем избранное.");
+                recoverMissingFavorites();return;
+            }
+            play(item,shown,false);
+        });
         list.setOnItemLongClickListener((p,v,pos,id)->{trackMenu(shown.optJSONObject(pos));return true;});
     }
 
@@ -1098,9 +1110,124 @@ public final class MainActivity extends Activity {
         if(!screen.equals("Поиск")){
             for(int i=0;i<shown.length();i++)NativeAPI.normalizeTrack(shown.optJSONObject(i));
         }
-        if(adapter!=null)adapter.notifyDataSetChanged();
+        rememberFavorites(shown);if(adapter!=null)adapter.notifyDataSetChanged();
     }
+    // The /api/likes endpoint provides IDs, while /api/tracks may be a partial catalog.
+    // Keep the last known metadata so favorites never disappear on catalog refresh.
+    private String favoriteDetailsKey(){
+        return origin+"|"+(user.isEmpty()?"device":user);
+    }
+    private void rememberFavorite(JSONObject track){
+        if(track==null)return;
+        String id=track.optString("id");
+        if(id.isEmpty()||!likes.contains(id)||track.optBoolean("_unresolved"))return;
+        favoriteDetails.put(id,track);
+    }
+    private void rememberFavorites(JSONArray tracks){
+        if(tracks==null)return;
+        for(int i=0;i<tracks.length();i++)rememberFavorite(tracks.optJSONObject(i));
+    }
+    private void restoreFavoriteDetails(){
+        favoriteDetails.clear();
+        try{
+            String value=getSharedPreferences("favorite-track-cache",MODE_PRIVATE)
+                .getString(favoriteDetailsKey(),"[]");
+            JSONArray items=new JSONArray(value);
+            for(int i=0;i<items.length();i++){
+                JSONObject t=items.optJSONObject(i);
+                if(t!=null&&!t.optString("id").isEmpty())favoriteDetails.put(t.optString("id"),t);
+            }
+        }catch(Exception ignored){}
+    }
+    private void saveFavoriteDetails(){
+        if(user.isEmpty()||smokeMode)return;
+        JSONArray items=new JSONArray();
+        // Prefer recent favorites, but retain a practical bounded offline index.
+        for(String id:likeOrder){
+            JSONObject track=favoriteDetails.get(id);
+            if(track!=null)items.put(track);
+            if(items.length()>=1200)break;
+        }
+        String value=items.toString();
+        if(value.length()>1100000)return;
+        getSharedPreferences("favorite-track-cache",MODE_PRIVATE).edit()
+            .putString(favoriteDetailsKey(),value).apply();
+    }
+    private JSONArray buildFavorites(){
+        LinkedHashMap<String,JSONObject> available=new LinkedHashMap<>(favoriteDetails);
+        for(int i=0;i<catalog.length();i++){
+            JSONObject item=catalog.optJSONObject(i);
+            if(item!=null&&likes.contains(item.optString("id")))
+                available.put(item.optString("id"),item);
+        }
+        for(int i=0;i<queue.length();i++){
+            JSONObject item=queue.optJSONObject(i);
+            if(item!=null&&likes.contains(item.optString("id")))
+                available.put(item.optString("id"),item);
+        }
+        JSONArray values=new JSONArray();
+        HashSet<String> included=new HashSet<>();
+        for(String id:likeOrder){
+            if(!likes.contains(id)||!included.add(id))continue;
+            JSONObject item=available.get(id);
+            if(item==null){
+                item=new JSONObject();
+                try{item.put("id",id).put("title","Трек из избранного")
+                    .put("artist","Загружаем сведения")
+                    .put("_unresolved",true);}catch(JSONException ignored){}
+            }else rememberFavorite(item);
+            values.put(item);
+        }
+        for(String id:likes){
+            if(!included.add(id))continue;
+            JSONObject item=available.get(id);
+            if(item!=null)values.put(item);
+        }
+        return values;
+    }
+    private void recoverMissingFavorites(){
+        if(user.isEmpty()||smokeMode)return;
+        long now=SystemClock.elapsedRealtime();
+        if(now-lastFavoriteRecovery<45000)return;
+        ArrayList<String> missing=new ArrayList<>();
+        for(String id:likeOrder)if(!favoriteDetails.containsKey(id)
+            &&id.matches("[a-fA-F0-9]{32}")){
+            missing.add(id);
+            if(missing.size()>=16)break;
+        }
+        if(missing.isEmpty())return;
+        lastFavoriteRecovery=now;
+        final String owner=user;
+        final int generation=++favoriteRecoveryGeneration;
+        // Existing shared-track endpoint is used only as a best-effort metadata source.
+        // Do not overwrite the user's favorites set if metadata is unavailable.
+        favoriteIO.execute(()->{
+            ArrayList<JSONObject> recovered=new ArrayList<>();
+            for(String id:missing){
+                if(generation!=favoriteRecoveryGeneration||Thread.currentThread().isInterrupted())return;
+                try{
+                    JSONObject result=api.request("api/shared-track/"+id);
+                    JSONArray tracks=result.optJSONArray("tracks");
+                    if(tracks!=null)for(int k=0;k<tracks.length();k++){
+                        JSONObject item=tracks.optJSONObject(k);
+                        if(item!=null&&id.equalsIgnoreCase(item.optString("id")))
+                            recovered.add(item);
+                    }
+                }catch(Exception ignored){}
+            }
+            ui.post(()->{
+                if(isDestroyed()||!owner.equals(user)||generation!=favoriteRecoveryGeneration)return;
+                for(JSONObject item:recovered)rememberFavorite(item);
+                if(!recovered.isEmpty()){
+                    saveFavoriteDetails();
+                    if("Избранное".equals(screen)&&!full)showScreen();
+                }
+            });
+        });
+    }
+
     private void restoreLibrarySnapshot(String account) {
+        if(account!=null&&!account.isEmpty())restoreFavoriteDetails();
         try {
             String raw=getSharedPreferences("library-snapshot",MODE_PRIVATE).getString("snapshot",null);
             if(raw==null)return;
@@ -1115,6 +1242,7 @@ public final class MainActivity extends Activity {
             if(savedPlaylists!=null)playlists=savedPlaylists;
             JSONArray savedLikes=snapshot.optJSONArray("likes");
             if(savedLikes!=null){likes.clear();likeOrder.clear();for(int i=0;i<savedLikes.length();i++){String id=savedLikes.optString(i);if(likes.add(id))likeOrder.add(id);}}
+            restoreFavoriteDetails();rememberFavorites(catalog);
         }catch(Exception ignored){}
     }
     private void saveLibrarySnapshot(){
@@ -1127,6 +1255,7 @@ public final class MainActivity extends Activity {
             snapshot.put("tracks",tracks);
             snapshot.put("playlists",playlists);
             snapshot.put("likes",new JSONArray(likeOrder));
+            rememberFavorites(catalog);saveFavoriteDetails();
             String value=snapshot.toString();
             if(value.length()>750000)return;
             getSharedPreferences("library-snapshot",MODE_PRIVATE).edit().putString("snapshot",value).apply();
@@ -1151,13 +1280,13 @@ public final class MainActivity extends Activity {
                     String nextAccount=account==null?"":account.optString("id");
                     if(!nextAccount.equals(user)){
                         clearLibrarySnapshot();
-                        libraryGeneration++;catalog=new JSONArray();shown=new JSONArray();playlists=new JSONArray();likes.clear();likeOrder.clear();selectedPlaylist="";
+                        libraryGeneration++;favoriteRecoveryGeneration++;catalog=new JSONArray();shown=new JSONArray();playlists=new JSONArray();likes.clear();likeOrder.clear();favoriteDetails.clear();selectedPlaylist="";
                         if(playback!=null)playback.stop();
                     }
                     boolean accountChanged=!nextAccount.equals(user);
                     user=nextAccount;
                     if(!nextAccount.equals(getSharedPreferences("native-api",MODE_PRIVATE).getString("account","")))searchCache.clear();
-                    if(accountChanged)restoreRecent();
+                    if(accountChanged){restoreRecent();restoreFavoriteDetails();}
                     getSharedPreferences("native-api",MODE_PRIVATE).edit().putString("account",user).apply();
                     sessionReady=true;openPendingTogether();
                     if(playback!=null&&pendingDeepLinkTrack.isEmpty())playback.restorePlayback(origin,user);
@@ -1206,7 +1335,7 @@ public final class MainActivity extends Activity {
                 JSONObject value=client.request("api/tracks");
                 JSONArray tracks=value.optJSONArray("tracks");
                 ui.post(()->{if(!isDestroyed()&&client==api&&revision==libraryGeneration&&account.equals(user)&&tracks!=null){
-                    catalog=tracks;saveLibrarySnapshot();checkAutoFavoriteDownloads();if(!full&&!screen.equals("Поиск"))showScreen();
+                    catalog=tracks;rememberFavorites(tracks);saveLibrarySnapshot();checkAutoFavoriteDownloads();if(!full&&!screen.equals("Поиск"))showScreen();
                 }});
             }catch(Exception ex){ui.post(()->{if(!isDestroyed()&&client==api&&revision==libraryGeneration&&account.equals(user))status.setText(friendly(ex));});}
         });
@@ -1215,7 +1344,9 @@ public final class MainActivity extends Activity {
                 JSONObject value=client.request("api/likes");
                 JSONArray ids=value.optJSONArray("ids");
                 ui.post(()->{if(!isDestroyed()&&client==api&&revision==libraryGeneration&&account.equals(user)&&ids!=null){
-                    likes.clear();likeOrder.clear();for(int i=0;i<ids.length();i++){String id=ids.optString(i);if(likes.add(id))likeOrder.add(id);}saveLibrarySnapshot();checkAutoFavoriteDownloads();
+                    likes.clear();likeOrder.clear();for(int i=0;i<ids.length();i++){String id=ids.optString(i);if(likes.add(id))likeOrder.add(id);}
+                    rememberFavorites(value.optJSONArray("tracks"));rememberFavorites(value.optJSONArray("items"));
+                    rememberFavorites(catalog);saveLibrarySnapshot();checkAutoFavoriteDownloads();
                     if(!full&&screen.equals("Избранное"))showScreen();
                 }});
             }catch(Exception ignored){}
@@ -1690,7 +1821,14 @@ public final class MainActivity extends Activity {
     }
 
     void setLabel(TextView view,String value){if(view!=null&&!android.text.TextUtils.equals(view.getText(),value))view.setText(value);}
-    void updatePlayback(){if(smokeMode||playback==null)return;try{JSONObject state=new JSONObject(playback.snapshot(false));String next=state.optString("id");if(!currentID.equals(next)||queue.length()!=state.optInt("queueCount")){queue=new JSONObject(playback.snapshot(true)).optJSONArray("queueTracks");}if(queue==null)queue=new JSONArray();JSONObject t=null;for(int i=0;i<queue.length();i++)if(queue.optJSONObject(i).optString("id").equals(next)){t=queue.optJSONObject(i);break;}setLabel(miniTitle,t==null?"Выбери трек":t.optString("title"));setLabel(miniArtist,t==null?"Nightwell Music":t.optString("artist"));refreshFavoriteButtons();if(miniProgressRing!=null)miniProgressRing.setProgress(state.optDouble("position")/Math.max(1,state.optDouble("duration")));if(ambient!=null){ambient.setPlaybackActive(state.optBoolean("playing"));updateArtworkReaction();}setLabel(miniPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(homePlay!=null)setLabel(homePlay,state.optBoolean("playing")?"Ⅱ":"▶");if(fullPlay!=null)setLabel(fullPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(ribbon!=null)ribbon.playing(state.optBoolean("playing"));if(!currentID.equals(next)){currentID=next;if(!next.isEmpty()){rememberRecent(next);checkTrackAudioQuality(t);}activeLyrics=null;homeLine="";loadMiniCover(t);fetchLyricsAndPreload();animateTrackTransition();updateList();if(full)openPlayer();}if(seek!=null&&!seek.isPressed()){seek.setMax((int)Math.max(1,state.optDouble("duration")));seek.setProgress((int)state.optDouble("position"));}if(fullTime!=null)setLabel(fullTime,time(state.optDouble("position"))+"     /     "+time(state.optDouble("duration")));if(!state.optString("error").isEmpty())status.setText(state.optString("error"));syncLyrics(state.optDouble("position"));syncHomeLyrics(state.optDouble("position"));if(lastPlaying!=state.optBoolean("playing")){lastPlaying=state.optBoolean("playing");updateList();}}catch(Exception ignored){}}
+    void updatePlayback(){if(smokeMode||playback==null)return;try{JSONObject state=new JSONObject(playback.snapshot(false));String next=state.optString("id");if(!currentID.equals(next)||queue.length()!=state.optInt("queueCount")){queue=new JSONObject(playback.snapshot(true)).optJSONArray("queueTracks");}if(queue==null)queue=new JSONArray();JSONObject t=null;for(int i=0;i<queue.length();i++)if(queue.optJSONObject(i).optString("id").equals(next)){t=queue.optJSONObject(i);break;}rememberFavorite(t);setLabel(miniTitle,t==null?"Выбери трек":t.optString("title"));setLabel(miniArtist,t==null?"Nightwell Music":t.optString("artist"));refreshFavoriteButtons();if(miniProgressRing!=null)miniProgressRing.setProgress(state.optDouble("position")/Math.max(1,state.optDouble("duration")));if(ambient!=null){ambient.setPlaybackActive(state.optBoolean("playing"));updateArtworkReaction();}setLabel(miniPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(homePlay!=null)setLabel(homePlay,state.optBoolean("playing")?"Ⅱ":"▶");if(fullPlay!=null)setLabel(fullPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(ribbon!=null)ribbon.playing(state.optBoolean("playing"));if(!currentID.equals(next)){currentID=next;if(!next.isEmpty()){rememberRecent(next);checkTrackAudioQuality(t);}activeLyrics=null;homeLine="";loadMiniCover(t);fetchLyricsAndPreload();animateTrackTransition();updateList();if(full)openPlayer();}if(seek!=null&&!seek.isPressed()){seek.setMax((int)Math.max(1,state.optDouble("duration")));seek.setProgress((int)state.optDouble("position"));}if(fullElapsed!=null)setLabel(fullElapsed,time(state.optDouble("position")));if(fullTime!=null)setLabel(fullTime,time(state.optDouble("duration")));String streamNote=state.optString("error");
+        if(streamNote.isEmpty()&&state.optBoolean("buffering")
+            &&state.optBoolean("playing"))streamNote="Подключаемся к аудиопотоку…";
+        if(fullNetworkNote!=null){
+            setLabel(fullNetworkNote,streamNote);
+            fullNetworkNote.setVisibility(streamNote.isEmpty()?View.GONE:View.VISIBLE);
+        }
+        if(!state.optString("error").isEmpty()&&status!=null)status.setText(state.optString("error"));syncLyrics(state.optDouble("position"));syncHomeLyrics(state.optDouble("position"));if(lastPlaying!=state.optBoolean("playing")){lastPlaying=state.optBoolean("playing");updateList();}}catch(Exception ignored){}}
     void animateTrackTransition(){
         if(dock==null||!dock.isShown())return;
         final float slide=dp(24)*trackTransitionDirection;
@@ -1707,83 +1845,196 @@ public final class MainActivity extends Activity {
     JSONObject current(){for(int i=0;i<queue.length();i++)if(queue.optJSONObject(i).optString("id").equals(currentID))return queue.optJSONObject(i);return null;}
     String iconLabel(String icon){switch(icon){case "⌕":return "Поиск музыки";case "☰":return "Открыть меню";case "⋯":return "Действия с треком";case "⌄":return "Свернуть плеер";case "×":return "Закрыть";case "|‹":return "Предыдущий трек";case "›|":return "Следующий трек";case "♡":case "♥":return "Избранное";case "⇄":return "Перемешать";case "↻":return "Повтор";default:return "Воспроизведение";}}
     void openPlayer(){
-        JSONObject track=current();if(track==null)return;full=true;updateArtworkAppearance();dock.setVisibility(View.GONE);head.setVisibility(View.GONE);body.removeAllViews();
+        JSONObject track=current();
+        if(track==null)return;
+        full=true;
+        updateArtworkAppearance();
+        refreshLiveHandoff();
+        if(status!=null){status.setText("");status.setVisibility(View.GONE);}
+        if(nightwellBadge!=null)nightwellBadge.setVisibility(View.GONE);
+        if(dock!=null)dock.setVisibility(View.GONE);
+        if(head!=null)head.setVisibility(View.GONE);
+        body.removeAllViews();
+
         LinearLayout top=row();
+        top.setPadding(dp(2),dp(5),dp(2),dp(3));
         TextView close=iconButton("⌄",()->{full=false;build();});
+        close.setContentDescription("Свернуть плеер");
         top.addView(close,new LinearLayout.LayoutParams(dp(48),dp(48)));
-        LinearLayout center=column();center.setGravity(Gravity.CENTER);
+        LinearLayout header=column();
+        header.setGravity(Gravity.CENTER);
+        TextView caption=text("СЕЙЧАС ИГРАЕТ",11);
+        caption.setLetterSpacing(.2f);
+        caption.setTextColor(NightwellDesign.SECONDARY);
+        caption.setGravity(Gravity.CENTER);
+        header.addView(caption);
+        TextView brand=text("NIGHTWELL MUSIC",10);
+        brand.setLetterSpacing(.12f);
+        brand.setGravity(Gravity.CENTER);
+        brand.setTextColor(NightwellDesign.MUTED);
+        brand.setPadding(0,dp(5),0,0);
+        header.addView(brand);
+        top.addView(header,new LinearLayout.LayoutParams(0,dp(48),1));
+        TextView more=iconButton("⋯",()->fullPlayerMenu(current()));
+        more.setContentDescription("Меню плеера");
+        top.addView(more,new LinearLayout.LayoutParams(dp(48),dp(48)));
+        body.addView(top);
+
+        ScrollView scroll=new ScrollView(this);
+        scroll.setFillViewport(false);
+        scroll.setClipToPadding(false);
+        scroll.setVerticalScrollBarEnabled(false);
+        LinearLayout content=column();
+        content.setPadding(dp(3),dp(7),dp(3),dp(24));
+        scroll.addView(content);
+        body.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+
+        // System audio route stays accessible, but doesn't steal space in the header.
         fullAudioOutput=text("♫  "+audioOutputName()+"  ⌄",12);
         fullAudioOutput.setGravity(Gravity.CENTER);
         fullAudioOutput.setSingleLine(true);
         fullAudioOutput.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        fullAudioOutput.setPadding(dp(10),0,dp(10),0);
-        fullAudioOutput.setMinHeight(0);
-        fullAudioOutput.setBackground(NightwellDesign.ripple(this,0x99202226,13,true));
+        fullAudioOutput.setTextColor(NightwellDesign.SECONDARY);
+        fullAudioOutput.setPadding(dp(15),0,dp(15),0);
+        fullAudioOutput.setBackground(NightwellDesign.ripple(this,0x9c1b1e22,15,true));
         fullAudioOutput.setContentDescription("Устройство вывода: "+audioOutputName()+". Изменить");
         fullAudioOutput.setOnClickListener(v->chooseAudioOutput());
-        LinearLayout.LayoutParams routeParams=new LinearLayout.LayoutParams(-2,dp(30));
+        LinearLayout.LayoutParams routeParams=new LinearLayout.LayoutParams(-2,dp(34));
         routeParams.gravity=Gravity.CENTER_HORIZONTAL;
-        center.addView(fullAudioOutput,routeParams);
-        TextView caption=text("СЕЙЧАС ИГРАЕТ",11);caption.setLetterSpacing(.16f);caption.setTextColor(NightwellDesign.SECONDARY);
-        caption.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams captionParams=new LinearLayout.LayoutParams(-1,dp(24));
-        center.addView(caption,captionParams);
-        top.addView(center,new LinearLayout.LayoutParams(0,dp(60),1));
-        top.addView(iconButton("⋯",()->fullPlayerMenu(track)),new LinearLayout.LayoutParams(dp(48),dp(48)));
-        body.addView(top);
-        android.widget.ScrollView scroll=new android.widget.ScrollView(this);scroll.setFillViewport(true);scroll.setClipToPadding(false);LinearLayout content=column();content.setPadding(0,dp(16),0,dp(16));scroll.addView(content);body.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+        routeParams.bottomMargin=dp(19);
+        content.addView(fullAudioOutput,routeParams);
+
         addCover(track,content);
-        LinearLayout metadata=row();metadata.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout names=column();
-        TextView title=text(track.optString("title"),25);title.setMaxLines(2);title.setLetterSpacing(-.025f);title.setLineSpacing(dp(2),1f);title.setAutoSizeTextTypeUniformWithConfiguration(19,25,1,android.util.TypedValue.COMPLEX_UNIT_SP);title.setEllipsize(android.text.TextUtils.TruncateAt.END);title.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);title.setPadding(dp(8),dp(18),dp(8),dp(6));names.addView(title);
-        TextView artist=text(track.optString("artist")+"  ›",12);artist.setTextColor(0xffd3d3da);artist.setMaxLines(2);artist.setEllipsize(android.text.TextUtils.TruncateAt.END);artist.setPadding(dp(10),dp(6),dp(10),dp(6));artist.setBackground(NightwellDesign.ripple(this,0x99202226,14,true));artist.setOnClickListener(v->chooseArtist(track.optString("artist")));artist.setContentDescription("Открыть исполнителя");names.addView(artist);
-        metadata.addView(names,new LinearLayout.LayoutParams(0,-2,1));
-        fullLike=iconButton(likes.contains(track.optString("id"))?"♥":"♡",()->toggleFavorite(current()));
-        fullLike.setContentDescription(likes.contains(track.optString("id"))?"Убрать из избранного":"Добавить в избранное");
-        fullLike.setTextColor(likes.contains(track.optString("id"))?0xffeeeeee:0xffa4a6b1);
-        LinearLayout.LayoutParams likeParams=new LinearLayout.LayoutParams(dp(48),dp(48));
-        likeParams.setMargins(dp(4),0,dp(0),0);
-        fullDislike=iconButton("👎",()->{
+
+        TextView title=text(track.optString("title"),26);
+        NightwellDesign.headline(title);
+        title.setMaxLines(2);
+        title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        title.setAutoSizeTextTypeUniformWithConfiguration(19,26,1,
+            android.util.TypedValue.COMPLEX_UNIT_SP);
+        title.setLetterSpacing(-.026f);
+        LinearLayout.LayoutParams titleParams=new LinearLayout.LayoutParams(-1,-2);
+        titleParams.topMargin=dp(19);
+        titleParams.bottomMargin=dp(9);
+        content.addView(title,titleParams);
+
+        LinearLayout artistActions=row();
+        artistActions.setGravity(Gravity.CENTER_VERTICAL);
+        TextView artist=text(track.optString("artist")+"  ›",14);
+        artist.setSingleLine(true);
+        artist.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        artist.setTextColor(NightwellDesign.SECONDARY);
+        artist.setPadding(0,dp(8),dp(6),dp(8));
+        artist.setContentDescription("Открыть исполнителя");
+        artist.setOnClickListener(v->chooseArtist(track.optString("artist")));
+        artistActions.addView(artist,new LinearLayout.LayoutParams(0,-2,1));
+
+        fullDislike=iconButton("⊖",()->{
             JSONObject selected=current();
             if(selected==null)return;
             toggleRecommendationHidden(selected);
-            if(fullDislike!=null){
-                boolean hidden=hiddenRecommendations().contains(selected.optString("id"));
-                fullDislike.setAlpha(hidden?1f:.55f);
-                fullDislike.setContentDescription(hidden?"Вернуть в рекомендации":"Не рекомендовать");
-            }
+            boolean hidden=hiddenRecommendations().contains(selected.optString("id"));
+            fullDislike.setAlpha(hidden?1f:.65f);
+            fullDislike.setContentDescription(hidden?"Вернуть в рекомендации":"Не рекомендовать");
         });
         boolean hidden=hiddenRecommendations().contains(track.optString("id"));
-        fullDislike.setAlpha(hidden?1f:.55f);
+        fullDislike.setAlpha(hidden?1f:.65f);
         fullDislike.setContentDescription(hidden?"Вернуть в рекомендации":"Не рекомендовать");
-        metadata.addView(fullDislike,new LinearLayout.LayoutParams(dp(44),dp(48)));
-        metadata.addView(fullLike,likeParams);
-        content.addView(metadata);
-        LinearLayout transport=column();transport.setPadding(dp(16),dp(14),dp(16),dp(9));transport.setBackground(NightwellDesign.surface(this,0xa71c1e22,24,true));content.addView(transport);
-        seek=new SeekBar(this);styleSeekBar(seek);seek.setMinimumHeight(dp(44));seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar b,int p,boolean user){}public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){cancelMix();if(playback!=null)playback.seek(b.getProgress());}});transport.addView(seek);fullTime=text("",12);fullTime.setPadding(dp(8),0,dp(8),dp(12));fullTime.setTextColor(NightwellDesign.SECONDARY);transport.addView(fullTime);
-        LinearLayout controls=row();controls.setGravity(Gravity.CENTER);
-        TextView shuffleButton=iconButton("⇄",this::cycleShuffleMode);fullShuffle=shuffleButton;refreshShuffleButton();
-        TextView backward=iconButton("|‹",this::previous);
+        LinearLayout.LayoutParams dislikeParams=new LinearLayout.LayoutParams(dp(46),dp(46));
+        dislikeParams.rightMargin=dp(7);
+        artistActions.addView(fullDislike,dislikeParams);
+
+        fullLike=iconButton(likes.contains(track.optString("id"))?"♥":"♡",
+            ()->toggleFavorite(current()));
+        fullLike.setContentDescription(likes.contains(track.optString("id"))?
+            "Убрать из избранного":"Добавить в избранное");
+        fullLike.setTextColor(likes.contains(track.optString("id"))?
+            NightwellDesign.PRIMARY:NightwellDesign.SECONDARY);
+        artistActions.addView(fullLike,new LinearLayout.LayoutParams(dp(46),dp(46)));
+        LinearLayout.LayoutParams artistParams=new LinearLayout.LayoutParams(-1,dp(50));
+        artistParams.bottomMargin=dp(20);
+        content.addView(artistActions,artistParams);
+
+        LinearLayout transport=column();
+        transport.setPadding(dp(15),dp(12),dp(15),dp(12));
+        transport.setBackground(NightwellDesign.surface(this,0xa51a1d21,23,true));
+        content.addView(transport);
+
+        seek=new SeekBar(this);styleSeekBar(seek);
+        seek.setMinimumHeight(dp(37));
+        seek.setPadding(0,0,0,0);
+        seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
+            public void onProgressChanged(SeekBar bar,int value,boolean user){}
+            public void onStartTrackingTouch(SeekBar bar){}
+            public void onStopTrackingTouch(SeekBar bar){
+                cancelMix();
+                if(playback!=null)playback.seek(bar.getProgress());
+            }
+        });
+        transport.addView(seek,new LinearLayout.LayoutParams(-1,dp(39)));
+        LinearLayout times=row();
+        fullElapsed=text("0:00",12);
+        fullElapsed.setTextColor(NightwellDesign.MUTED);
+        fullElapsed.setGravity(Gravity.LEFT);
+        times.addView(fullElapsed,new LinearLayout.LayoutParams(0,-2,1));
+        fullTime=text("0:00",12);
+        fullTime.setTextColor(NightwellDesign.MUTED);
+        fullTime.setGravity(Gravity.RIGHT);
+        times.addView(fullTime,new LinearLayout.LayoutParams(0,-2,1));
+        transport.addView(times);
+
+        LinearLayout controls=row();
+        controls.setGravity(Gravity.CENTER_VERTICAL);
+        controls.setPadding(0,dp(12),0,dp(8));
+        TextView shuffleButton=iconButton("⇄",this::cycleShuffleMode);
+        fullShuffle=shuffleButton;
+        refreshShuffleButton();
+        TextView previousButton=iconButton("|‹",this::previous);
         fullPlay=iconButton(playback!=null&&playback.player.getPlayWhenReady()?"Ⅱ":"▶",this::toggle);
-        TextView forward=iconButton("›|",this::nextTrack);
-        TextView repeatButton=iconButton("↻",()->{if(playback!=null)playback.modes((playback.player.getRepeatMode()+1)%3,playback.player.getShuffleModeEnabled());});
-        for(TextView button:new TextView[]{shuffleButton,backward,forward,repeatButton}){
-            button.setBackground(null);button.setPadding(0,0,0,0);button.setTextSize(25);
+        TextView nextButton=iconButton("›|",this::nextTrack);
+        TextView repeatButton=iconButton("↻",()->{
+            if(playback!=null)playback.modes((playback.player.getRepeatMode()+1)%3,
+                playback.player.getShuffleModeEnabled());
+        });
+        for(TextView button:new TextView[]{shuffleButton,previousButton,nextButton,repeatButton}){
+            button.setBackground(null);
+            button.setPadding(0,0,0,0);
+            button.setTextColor(NightwellDesign.PRIMARY);
         }
-        backward.setTextSize(31);forward.setTextSize(31);
-        fullPlay.setTextColor(NightwellDesign.BACKGROUND);fullPlay.setTextSize(30);
-        fullPlay.setBackground(NightwellDesign.ripple(this,0xfff5f6f7,38,false));
+        fullPlay.setTextSize(30);
+        fullPlay.setTextColor(NightwellDesign.BACKGROUND);
+        fullPlay.setBackground(NightwellDesign.ripple(this,NightwellDesign.PRIMARY,38,false));
         fullPlay.setPadding(0,0,0,0);
-        controls.addView(shuffleButton,new LinearLayout.LayoutParams(0,dp(56),1));
-        controls.addView(backward,new LinearLayout.LayoutParams(0,dp(64),1));
-        LinearLayout.LayoutParams centerPlay=new LinearLayout.LayoutParams(dp(76),dp(76));
-        centerPlay.leftMargin=dp(2);centerPlay.rightMargin=dp(2);
-        controls.addView(fullPlay,centerPlay);
-        controls.addView(forward,new LinearLayout.LayoutParams(0,dp(64),1));
-        controls.addView(repeatButton,new LinearLayout.LayoutParams(0,dp(56),1));
+        controls.addView(shuffleButton,new LinearLayout.LayoutParams(0,dp(52),1));
+        controls.addView(previousButton,new LinearLayout.LayoutParams(0,dp(54),1));
+        LinearLayout.LayoutParams primary=new LinearLayout.LayoutParams(dp(74),dp(74));
+        primary.leftMargin=dp(5);primary.rightMargin=dp(5);
+        controls.addView(fullPlay,primary);
+        controls.addView(nextButton,new LinearLayout.LayoutParams(0,dp(54),1));
+        controls.addView(repeatButton,new LinearLayout.LayoutParams(0,dp(52),1));
         transport.addView(controls);
-        TextView queueButton=action("Дальше в очереди  ·  "+queue.length(),this::showQueue);queueButton.setTextSize(14);queueButton.setTextColor(0xffc8c8c8);transport.addView(queueButton);updatePlayback();
+
+        View divider=NightwellDesign.hairline(this);
+        LinearLayout.LayoutParams dividerParams=new LinearLayout.LayoutParams(-1,dp(1));
+        dividerParams.topMargin=dp(4);
+        transport.addView(divider,dividerParams);
+        TextView queueButton=sheetAction("☷   Очередь воспроизведения  ·  "+queue.length()+" треков",
+            this::showQueue);
+        queueButton.setTextColor(NightwellDesign.SECONDARY);
+        queueButton.setGravity(Gravity.CENTER);
+        queueButton.setBackgroundColor(Color.TRANSPARENT);
+        LinearLayout.LayoutParams queueParams=new LinearLayout.LayoutParams(-1,dp(50));
+        queueParams.topMargin=dp(5);
+        transport.addView(queueButton,queueParams);
+        fullNetworkNote=text("",12);
+        fullNetworkNote.setTextColor(NightwellDesign.SECONDARY);
+        fullNetworkNote.setGravity(Gravity.CENTER);
+        fullNetworkNote.setPadding(dp(8),dp(4),dp(8),dp(7));
+        fullNetworkNote.setVisibility(View.GONE);
+        transport.addView(fullNetworkNote);
+        updatePlayback();
     }
+
     void loadMiniCover(JSONObject track) {
         if (miniCover == null || artworkCache == null) return;
         artworkCache.load(miniCover,origin,track==null?"":track.optString("cover_url"),bitmap->{
@@ -1961,21 +2212,58 @@ public final class MainActivity extends Activity {
         task(()->api.request("api/playlists/"+id+"/tracks"),v->{
             if(gen!=generation||!id.equals(selectedPlaylist))return;
             JSONArray tracks=v.optJSONArray("tracks");if(tracks==null)return;
-            shown=tracks;updateList();
+            shown=tracks;rememberFavorites(tracks);updateList();
             if(tracks.toString().length()<750000)getSharedPreferences("playlist-snapshots",MODE_PRIVATE)
                 .edit().putString(playlistSnapshotKey(id),tracks.toString()).apply();
         });
     }
     void nightwellOptions(String title,String[] options,java.util.function.IntConsumer selected){
-        LinearLayout panel=column();panel.setPadding(dp(18),dp(14),dp(18),dp(16));
-        TextView heading=text(title,21);heading.setTextColor(0xffeeeeee);heading.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);heading.setPadding(dp(8),dp(4),dp(8),dp(16));panel.addView(heading);
-        AlertDialog dialog=new AlertDialog.Builder(this).setView(panel).create();
+        LinearLayout panel=column();
+        panel.setPadding(dp(15),dp(12),dp(15),dp(18));
+        TextView heading=text(title,21);
+        NightwellDesign.headline(heading);
+        heading.setPadding(dp(6),dp(6),dp(6),dp(8));
+        panel.addView(heading);
+        TextView hint=text("Выбери один вариант",12);
+        hint.setTextColor(NightwellDesign.MUTED);
+        hint.setPadding(dp(6),0,dp(6),dp(15));
+        panel.addView(hint);
+        LinearLayout optionsGroup=column();
+        optionsGroup.setPadding(dp(5),dp(5),dp(5),dp(5));
+        optionsGroup.setBackground(NightwellDesign.surface(this,NightwellDesign.RAISED,17,true));
+        panel.addView(optionsGroup);
+        AlertDialog dialog=new AlertDialog.Builder(this).setView(panel)
+            .setNegativeButton("Отмена",null).create();
         for(int index=0;index<options.length;index++){
             final int choice=index;
-            TextView entry=sheetAction(options[index],()->{dialog.dismiss();selected.accept(choice);});
-            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(54));lp.setMargins(0,dp(4),0,dp(4));panel.addView(entry,lp);
+            String textLabel=options[index].replace("✓  ","").trim();
+            boolean chosen=options[index].startsWith("✓");
+            LinearLayout item=row();
+            item.setPadding(dp(13),0,dp(10),0);
+            item.setMinimumHeight(dp(52));
+            item.setBackground(NightwellDesign.ripple(this,
+                chosen?NightwellDesign.SELECTED:NightwellDesign.RAISED,12,false));
+            TextView entry=text(textLabel,15);
+            entry.setSingleLine(false);
+            entry.setMaxLines(2);
+            entry.setTextColor(NightwellDesign.PRIMARY);
+            if(chosen)NightwellDesign.headline(entry);
+            item.addView(entry,new LinearLayout.LayoutParams(0,-2,1));
+            TextView marker=text(chosen?"✓":"›",chosen?18:24);
+            marker.setGravity(Gravity.CENTER);
+            marker.setTextColor(chosen?NightwellDesign.PRIMARY:NightwellDesign.MUTED);
+            item.addView(marker,new LinearLayout.LayoutParams(dp(30),dp(42)));
+            item.setOnClickListener(v->{dialog.dismiss();selected.accept(choice);});
+            optionsGroup.addView(item,new LinearLayout.LayoutParams(-1,-2));
+            if(index<options.length-1){
+                View divider=NightwellDesign.hairline(this);
+                LinearLayout.LayoutParams line=new LinearLayout.LayoutParams(-1,dp(1));
+                line.leftMargin=dp(13);line.rightMargin=dp(13);
+                optionsGroup.addView(divider,line);
+            }
         }
-        styleSheet(dialog);dialog.show();
+        styleSheet(dialog);
+        dialog.show();
     }
     void collectionMenu(String kind,String id){
         String[] options=kind.equals("playlist")?new String[]{"Скачать всё","Поделиться","Удалить"}:new String[]{"Скачать всё","Поделиться"};
