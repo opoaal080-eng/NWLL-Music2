@@ -1357,7 +1357,6 @@ struct AuthSheet: View {
 }
 
 struct NativeSettings: View {
-    @State private var transferPresented = false
     @State private var feature: PremiumFeatureView.Kind?
     let close: () -> Void
     @EnvironmentObject var store: MusicStore
@@ -1377,7 +1376,6 @@ struct NativeSettings: View {
         case customization = "Кастомизация"
         case playback = "Воспроизведение"
         case appearance = "Оформление"
-        case transfer = "Перенос музыки"
         case about = "О приложении"
 
         var icon: String {
@@ -1385,7 +1383,6 @@ struct NativeSettings: View {
             case .customization: return "slider.horizontal.3"
             case .playback: return "waveform"
             case .appearance: return "paintbrush"
-            case .transfer: return "square.and.arrow.down"
             case .about: return "info.circle"
             }
         }
@@ -1394,7 +1391,6 @@ struct NativeSettings: View {
             case .customization: return "Обложки, очередь, текст и фон"
             case .playback: return "Звук, буфер, громкость и офлайн"
             case .appearance: return "Ленты, темы и визуальные эффекты"
-            case .transfer: return "Импорт плейлистов и музыки"
             case .about: return "Версия и сведения о сборке"
             }
         }
@@ -1514,16 +1510,6 @@ struct NativeSettings: View {
                         }
                     Text("Строки с таймкодами появляются во время песни.").font(.system(size: 13)).foregroundStyle(.white.opacity(0.43))
                 }.padding(16).frame(maxWidth: .infinity, minHeight: 160, alignment: .leading).background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
-        case .transfer:
-                VStack(alignment:.leading,spacing:12) {
-                    Label("Перенос музыки",systemImage:"square.and.arrow.down").font(.system(size:18,weight:.semibold))
-                    Button("Импортировать плейлисты") { transferPresented = true }
-                        .disabled(store.account == nil)
-                    Text("Переноси музыку из файлов и других сервисов.")
-                        .font(.system(size:12)).foregroundStyle(.white.opacity(0.5))
-                }.padding(16).frame(maxWidth:.infinity,alignment:.leading)
-                    .background(.white.opacity(0.035),in:RoundedRectangle(cornerRadius:24))
-                .sheet(isPresented:$transferPresented) { NightwellNativeTransfer().environmentObject(store) }
         case .about:
             VStack(alignment: .leading, spacing: 12) {
                 Label("О приложении", systemImage: "info.circle")
