@@ -860,7 +860,7 @@ public final class MainActivity extends Activity {
             eyebrow.setLetterSpacing(.24f);eyebrow.setGravity(Gravity.CENTER);
             intro.addView(eyebrow);
             TextView theme=text("Твой ритм",compact?30:42);NightwellDesign.headline(theme);
-            theme.setTextAlign(View.TEXT_ALIGNMENT_CENTER);
+            theme.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);
             theme.setGravity(Gravity.CENTER);
             theme.setMaxLines(2);theme.setAutoSizeTextTypeUniformWithConfiguration(27,44,1,android.util.TypedValue.COMPLEX_UNIT_SP);
             theme.setPadding(0,dp(10),0,0);intro.addView(theme);
