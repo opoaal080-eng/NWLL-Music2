@@ -392,23 +392,84 @@ private struct NightwellSearchCaretLight: View {
         GeometryReader { geometry in
             TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !active || reduceMotion)) { timeline in
                 let seconds = timeline.date.timeIntervalSinceReferenceDate
-                let drift: CGFloat = reduceMotion ? 0 : CGFloat(sin(seconds * 11) * 4.0)
-                let pulse = reduceMotion ? 1.0 : 0.85 + 0.15 * sin(seconds * 14)
-                let center = min(max(28, x + drift), max(28, geometry.size.width - 10))
+                let drift: CGFloat = reduceMotion ? 0 : CGFloat(sin(seconds * 10) * 1.8)
+                let pulse = reduceMotion ? 1.0 : 0.92 + 0.08 * sin(seconds * 12)
+                let center = min(max(24, x + drift), max(24, geometry.size.width - 24))
+
                 ZStack {
                     Ellipse()
                         .fill(RadialGradient(
-                            colors: [.white.opacity(active ? 0.44 * pulse : 0), .white.opacity(active ? 0.19 * pulse : 0), .clear],
-                            center: .center, startRadius: 0, endRadius: 66
+                            colors: [
+                                .white.opacity(active ? 0.26 * pulse : 0),
+                                .white.opacity(active ? 0.10 * pulse : 0),
+                                .clear
+                            ],
+                            center: .center, startRadius: 0, endRadius: 38
                         ))
-                        .frame(width: 160, height: 112)
-                        .blur(radius: 10)
+                        .frame(width: 92, height: 64)
+                        .blur(radius: 6)
+
                     Capsule()
-                        .fill(.white.opacity(active ? 0.38 * pulse : 0))
-                        .frame(width: 5, height: 35)
-                        .blur(radius: 7)
+                        .fill(.white.opacity(active ? 0.30 * pulse : 0))
+                        .frame(width: 3, height: 26)
+                        .blur(radius: 3)
                 }
                 .position(x: center, y: geometry.size.height / 2)
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+// Two fast white highlights move across the top and bottom of the search
+// field. This view is only used in an overlay; it never affects field size.
+private struct NightwellSearchEdgeSweep: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        GeometryReader { geometry in
+            TimelineView(.animation(minimumInterval: 1.0 / 40.0, paused: reduceMotion)) { timeline in
+                let seconds = timeline.date.timeIntervalSinceReferenceDate
+                let progress = reduceMotion ? 0.5 : seconds.truncatingRemainder(dividingBy: 1.65) / 1.65
+                let width = geometry.size.width
+                let x = -60 + (width + 120) * CGFloat(progress)
+
+                ZStack {
+                    Capsule()
+                        .fill(LinearGradient(
+                            colors: [.clear, .white.opacity(0.9), .clear],
+                            startPoint: .leading, endPoint: .trailing
+                        ))
+                        .frame(width: 94, height: 2.4)
+                        .position(x: x, y: 1.5)
+
+                    Capsule()
+                        .fill(LinearGradient(
+                            colors: [.clear, .white.opacity(0.22), .clear],
+                            startPoint: .leading, endPoint: .trailing
+                        ))
+                        .frame(width: 105, height: 10)
+                        .blur(radius: 3.0)
+                        .position(x: x, y: 2)
+
+                    Capsule()
+                        .fill(LinearGradient(
+                            colors: [.clear, .white.opacity(0.72), .clear],
+                            startPoint: .leading, endPoint: .trailing
+                        ))
+                        .frame(width: 78, height: 2.2)
+                        .position(x: x - 20, y: geometry.size.height - 1.5)
+
+                    Capsule()
+                        .fill(LinearGradient(
+                            colors: [.clear, .white.opacity(0.18), .clear],
+                            startPoint: .leading, endPoint: .trailing
+                        ))
+                        .frame(width: 90, height: 9)
+                        .blur(radius: 2.8)
+                        .position(x: x - 20, y: geometry.size.height - 2)
+                }
             }
         }
         .allowsHitTesting(false)
@@ -824,10 +885,9 @@ struct NativeRoot: View {
                 Text("Поиск").font(.largeTitle.bold())
                 HStack(spacing: 12) {
                     Image(systemName: "magnifyingglass")
-                        .foregroundStyle(.white.opacity(0.8))
-                    // The search light must be a background, not a layout
-                    // child: GeometryReader otherwise expands the HStack
-                    // vertically to fill the remaining screen on iPhone.
+                        .font(.system(size: 20))
+                        .foregroundStyle(.white.opacity(0.86))
+
                     NightwellSearchCaretField(
                         text: $store.query,
                         caretX: $searchCaretX,
@@ -839,24 +899,36 @@ struct NativeRoot: View {
                         NightwellSearchCaretLight(x: searchCaretX, active: searchFocused)
                             .frame(height: 50)
                             .clipped()
-                            .animation(.easeOut(duration: 0.10), value: searchCaretX)
+                            .animation(.easeOut(duration: 0.11), value: searchCaretX)
                     }
                     .onChange(of: store.query) { _ in store.scheduleSearch() }
+
                     if !store.query.isEmpty {
                         Button { store.query = "" } label: {
                             Image(systemName: "xmark.circle.fill")
-                                .foregroundStyle(.white.opacity(0.7))
+                                .font(.system(size: 23))
+                                .foregroundStyle(.white.opacity(0.78))
                         }
                     }
                 }
+                // Keep the pill exactly the same size while typing,
+                // showing the keyboard, or animating either highlight.
                 .frame(height: 54)
-                .padding(.horizontal, 14)
+                .padding(.horizontal, 18)
                 .background {
-                    RoundedRectangle(cornerRadius: 22)
-                        .fill(.ultraThinMaterial).opacity(0.48)
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .fill(.ultraThinMaterial)
+                        .opacity(0.48)
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 22))
-                .overlay(RoundedRectangle(cornerRadius: 22).stroke(.white.opacity(0.28), lineWidth: 1))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .stroke(.white.opacity(0.22), lineWidth: 1)
+                }
+                .overlay {
+                    NightwellSearchEdgeSweep()
+                        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
                 if !store.searchMessage.isEmpty { Text(store.searchMessage).font(.caption).foregroundStyle(.secondary) }
                 // Prepared off the UI thread. Never rescan the whole catalogue while typing.
                 let combinedArtists = store.searchArtistSuggestions
