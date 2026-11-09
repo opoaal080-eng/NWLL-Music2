@@ -1,13 +1,13 @@
 package fun.nightwell.music;
 
-import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.view.View;
 
-/** Opaque Android surface. No scenery sampling, blur or reflective borders. */
+/** Shared card surface, aligned to Nightwell's modern Android design language. */
 final class NativeSurfaceDrawable extends GradientDrawable {
     NativeSurfaceDrawable(View view,float corners){
-        setColor(Color.rgb(32,34,40));
-        setCornerRadius(Math.min(corners,18)*view.getResources().getDisplayMetrics().density);
+        setColor(NightwellDesign.SURFACE);
+        setCornerRadius(NightwellDesign.dp(view.getContext(),Math.min(corners,24)));
+        setStroke(Math.max(1,NightwellDesign.dp(view.getContext(),1)),NightwellDesign.BORDER);
     }
 }
