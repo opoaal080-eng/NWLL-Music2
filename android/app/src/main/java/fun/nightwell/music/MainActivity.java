@@ -294,7 +294,39 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);setIntent(intent);acceptDeepLink(intent);}
 
-    private final Runnable tick=new Runnable(){public void run(){premiumTick();updatePlayback();if(fullAudioOutput!=null&&fullAudioOutput.isAttachedToWindow()){String output=audioOutputName();fullAudioOutput.setText("♫  "+output+"  ⌄");fullAudioOutput.setContentDescription("Устройство вывода: "+output+". Изменить");}String next=BackgroundDownloads.progress(MainActivity.this);if(!next.equals(downloadProgress)){downloadProgress=next;status.setText(next);}if(visible){livePoll();ui.postDelayed(this,playback!=null&&playback.player.getPlayWhenReady()?500:1200);}}};
+    private long lastDownloadProgressPoll;
+    private final Runnable tick=new Runnable(){
+        @Override public void run(){
+            premiumTick();
+            updatePlayback();
+            // Text and content descriptions are immutable until the audio
+            // route actually changes. Don't invalidate this view every tick.
+            if(fullAudioOutput!=null&&fullAudioOutput.isAttachedToWindow()){
+                String output=audioOutputName();
+                String label="♫  "+output+"  ⌄";
+                if(!android.text.TextUtils.equals(fullAudioOutput.getText(),label)){
+                    fullAudioOutput.setText(label);
+                    fullAudioOutput.setContentDescription(
+                        "Устройство вывода: "+output+". Изменить");
+                }
+            }
+            // SharedPreferences.getAll() copies the entire background-download
+            // index. No need to do it twice a second while music is playing.
+            long now=android.os.SystemClock.elapsedRealtime();
+            if(now-lastDownloadProgressPoll>=2500){
+                lastDownloadProgressPoll=now;
+                String next=BackgroundDownloads.progress(MainActivity.this);
+                if(!next.equals(downloadProgress)){
+                    downloadProgress=next;
+                    if(status!=null)status.setText(next);
+                }
+            }
+            if(visible){
+                livePoll();
+                ui.postDelayed(this,playback!=null&&playback.player.getPlayWhenReady()?500:1200);
+            }
+        }
+    };
     private final androidx.media3.common.Player.Listener playbackIntentObserver=new androidx.media3.common.Player.Listener(){
         @Override public void onPlayWhenReadyChanged(boolean ready,int reason){if(!ready&&mixing)cancelMix();}
         @Override public void onMediaItemTransition(androidx.media3.common.MediaItem item,int reason){if(mixing)cancelMix();}
