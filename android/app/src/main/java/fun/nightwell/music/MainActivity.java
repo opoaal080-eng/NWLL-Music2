@@ -2589,8 +2589,91 @@ public final class MainActivity extends Activity {
     void importFiles(){Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("audio/*").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true);startActivityForResult(i,72);}
     void handleAudioImportResult(int request,int result,Intent data){if(request!=72||result!=RESULT_OK||data==null)return;ArrayList<Uri> uris=new ArrayList<>();if(data.getClipData()!=null)for(int i=0;i<data.getClipData().getItemCount();i++)uris.add(data.getClipData().getItemAt(i).getUri());else if(data.getData()!=null)uris.add(data.getData());io.execute(()->{for(Uri uri:uris)try{OfflineStore.importFile(this,origin,uri);}catch(Exception ex){ui.post(()->status.setText("Не удалось импортировать файл"));}ui.post(()->navigate("Офлайн"));});}
     final class TrackAdapter extends BaseAdapter {
-        public int getCount(){return shown.length();}public Object getItem(int p){return shown.optJSONObject(p);}public long getItemId(int p){return p;}
-        public View getView(int position,View recycled,ViewGroup parent){LinearLayout r;TextView title,artist,more;if(recycled==null){r=row();r.setPadding(dp(12),dp(12),dp(8),dp(12));LinearLayout labels=column();title=text("",16);title.setMaxLines(2);artist=text("",12);artist.setMaxLines(1);labels.addView(title);labels.addView(artist);r.addView(labels,new LinearLayout.LayoutParams(0,-2,1));r.addView(new PlayingIndicator(MainActivity.this),new LinearLayout.LayoutParams(dp(20),dp(20)));more=action("⋯",()->{});r.addView(more);r.setTag(new TextView[]{title,artist,more});}else r=(LinearLayout)recycled;TextView[] holder=(TextView[])r.getTag();JSONObject t=shown.optJSONObject(position);holder[0].setText(t.optString("title"));PlayingIndicator indicator=(PlayingIndicator)r.getChildAt(1);indicator.setVisibility(currentID.equals(t.optString("id"))?View.VISIBLE:View.GONE);indicator.playing(lastPlaying);holder[1].setText(t.optString("artist"));holder[1].setOnClickListener(v->chooseArtist(t.optString("artist")));holder[1].setContentDescription(ArtistAttribution.isKnown(t.optString("artist"))?"Открыть исполнителя":"Исполнитель не указан");holder[2].setOnClickListener(v->trackMenu(t));r.setBackgroundColor(currentID.equals(t.optString("id"))?0x22ffb260:Color.TRANSPARENT);return r;}
+        final class Holder {
+            final android.widget.ImageView cover;
+            final TextView title,artist,more;
+            final PlayingIndicator indicator;
+            Holder(android.widget.ImageView cover,TextView title,TextView artist,
+                   TextView more,PlayingIndicator indicator){
+                this.cover=cover;this.title=title;this.artist=artist;
+                this.more=more;this.indicator=indicator;
+            }
+        }
+
+        @Override public int getCount(){return shown==null?0:shown.length();}
+        @Override public Object getItem(int p){return shown==null?null:shown.optJSONObject(p);}
+        @Override public long getItemId(int p){return p;}
+
+        @Override public View getView(int position,View recycled,ViewGroup parent){
+            LinearLayout row;
+            Holder holder;
+            if(!(recycled instanceof LinearLayout)||!(recycled.getTag() instanceof Holder)){
+                row=row();
+                row.setGravity(Gravity.CENTER_VERTICAL);
+                row.setPadding(dp(10),dp(9),dp(7),dp(9));
+                row.setMinimumHeight(dp(70));
+                android.widget.ImageView cover=new android.widget.ImageView(MainActivity.this);
+                cover.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+                GradientDrawable shape=NightwellDesign.surface(MainActivity.this,
+                    NightwellDesign.RAISED,12,false);
+                cover.setBackground(shape);
+                cover.setClipToOutline(true);
+                LinearLayout.LayoutParams coverParams=
+                    new LinearLayout.LayoutParams(dp(50),dp(50));
+                coverParams.rightMargin=dp(12);
+                row.addView(cover,coverParams);
+                LinearLayout labels=column();
+                labels.setGravity(Gravity.CENTER_VERTICAL);
+                TextView title=text("",15);
+                NightwellDesign.headline(title);
+                title.setMaxLines(1);title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                labels.addView(title);
+                TextView artist=text("",12);
+                NightwellDesign.detail(artist);
+                artist.setSingleLine(true);
+                artist.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                artist.setPadding(0,dp(5),0,0);
+                labels.addView(artist);
+                row.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
+                PlayingIndicator indicator=new PlayingIndicator(MainActivity.this);
+                row.addView(indicator,new LinearLayout.LayoutParams(dp(22),dp(22)));
+                TextView more=iconButton("⋯",()->{});
+                more.setBackgroundColor(Color.TRANSPARENT);
+                LinearLayout.LayoutParams actionParams=
+                    new LinearLayout.LayoutParams(dp(40),dp(46));
+                actionParams.leftMargin=dp(4);
+                row.addView(more,actionParams);
+                holder=new Holder(cover,title,artist,more,indicator);
+                row.setTag(holder);
+            }else{
+                row=(LinearLayout)recycled;
+                holder=(Holder)row.getTag();
+            }
+
+            JSONObject track=shown.optJSONObject(position);
+            if(track==null){
+                holder.title.setText("");
+                holder.artist.setText("");
+                holder.cover.setImageDrawable(null);
+                holder.indicator.setVisibility(View.GONE);
+                return row;
+            }
+            holder.title.setText(track.optString("title","Без названия"));
+            holder.artist.setText(track.optString("artist","Неизвестный исполнитель"));
+            boolean active=currentID.equals(track.optString("id"));
+            holder.indicator.setVisibility(active?View.VISIBLE:View.GONE);
+            holder.indicator.playing(lastPlaying);
+            holder.artist.setOnClickListener(v->chooseArtist(track.optString("artist")));
+            holder.artist.setContentDescription(
+                ArtistAttribution.isKnown(track.optString("artist"))?
+                    "Открыть исполнителя":"Исполнитель не указан");
+            holder.more.setOnClickListener(v->trackMenu(track));
+            row.setBackground(NightwellDesign.ripple(MainActivity.this,
+                active?NightwellDesign.SELECTED:NightwellDesign.SURFACE,18,true));
+            if(artworkCache!=null)artworkCache.load(holder.cover,origin,track.optString("cover_url"));
+            row.setContentDescription(track.optString("title")+", "+track.optString("artist"));
+            return row;
+        }
     }
     private String favoriteOrder="recent";
     private void favoriteSortMenu(){
