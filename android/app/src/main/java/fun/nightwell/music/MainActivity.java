@@ -18,6 +18,7 @@ public final class MainActivity extends Activity {
     private final Handler ui=new Handler(Looper.getMainLooper());
     private final ExecutorService io=Executors.newFixedThreadPool(3);
     private final ExecutorService prefetch=Executors.newSingleThreadExecutor();
+    private final ExecutorService favoriteIO=Executors.newSingleThreadExecutor();
     private TextView liveHandoff;
     private View handoffCompact;
     private boolean handoffAvailable, handoffCollapsed;
@@ -379,7 +380,7 @@ public final class MainActivity extends Activity {
 
     @Override protected void onResume(){super.onResume();restoreRecent();visible=true;openPendingTogether();ui.removeCallbacks(nightwellProbe);ui.post(nightwellProbe);if(!smokeMode&&sessionReady&&SystemClock.elapsedRealtime()-lastResumeRefresh>30000)load();if(premiumRefresh!=null)premiumRefresh.run();BackgroundDownloads.reconcile(this);updateArtworkAppearance();ui.removeCallbacks(tick);if(!smokeMode)ui.post(tick);}
     @Override protected void onPause(){super.onPause();ui.removeCallbacks(nightwellProbe);ui.removeCallbacks(connectionRecovery);if(navigationPopup!=null)navigationPopup.dismiss();if(playback!=null)playback.persistPlayback(true);visible=false;if(ribbon!=null)ribbon.running(false);ui.removeCallbacks(tick);}
-    @Override protected void onDestroy(){if(together!=null)together.shutdown();ui.removeCallbacks(nightwellProbe);generation++;cancelMix();accountRequest.cancel();if(api!=null)api.close();ui.removeCallbacksAndMessages(null);if(artworkCache!=null)artworkCache.close();io.shutdownNow();prefetch.shutdownNow();if(playback!=null)playback.player.removeListener(playbackIntentObserver);if(bindingRegistered){unbindService(connection);bindingRegistered=false;}super.onDestroy();}
+    @Override protected void onDestroy(){if(together!=null)together.shutdown();ui.removeCallbacks(nightwellProbe);generation++;cancelMix();accountRequest.cancel();if(api!=null)api.close();ui.removeCallbacksAndMessages(null);if(artworkCache!=null)artworkCache.close();favoriteRecoveryGeneration++;favoriteIO.shutdownNow();io.shutdownNow();prefetch.shutdownNow();if(playback!=null)playback.player.removeListener(playbackIntentObserver);if(bindingRegistered){unbindService(connection);bindingRegistered=false;}super.onDestroy();}
     int dp(float n){return (int)(n*getResources().getDisplayMetrics().density+.5f);}
     LinearLayout column(){LinearLayout v=new LinearLayout(this);v.setOrientation(LinearLayout.VERTICAL);return v;}
     LinearLayout row(){LinearLayout v=new LinearLayout(this);v.setGravity(Gravity.CENTER_VERTICAL);return v;}
@@ -882,7 +883,7 @@ public final class MainActivity extends Activity {
         if(user.isEmpty()){auth();return;}if(track==null)return;
         final String id=track.optString("id");final boolean remove=likes.contains(id);
         task(()->api.request("api/likes/"+id,remove?"DELETE":"POST",null),v->{
-            if(remove){likes.remove(id);likeOrder.remove(id);}
+            if(remove){likes.remove(id);likeOrder.remove(id);favoriteDetails.remove(id);}
             else{likes.add(id);likeOrder.remove(id);likeOrder.add(0,id);rememberFavorite(track);if(ribbon!=null)ribbon.flash();}
             saveLibrarySnapshot();
             refreshFavoriteButtons();updatePlayback();
@@ -1200,7 +1201,7 @@ public final class MainActivity extends Activity {
         final int generation=++favoriteRecoveryGeneration;
         // Existing shared-track endpoint is used only as a best-effort metadata source.
         // Do not overwrite the user's favorites set if metadata is unavailable.
-        prefetch.execute(()->{
+        favoriteIO.execute(()->{
             ArrayList<JSONObject> recovered=new ArrayList<>();
             for(String id:missing){
                 if(generation!=favoriteRecoveryGeneration||Thread.currentThread().isInterrupted())return;
@@ -1284,7 +1285,7 @@ public final class MainActivity extends Activity {
                     boolean accountChanged=!nextAccount.equals(user);
                     user=nextAccount;
                     if(!nextAccount.equals(getSharedPreferences("native-api",MODE_PRIVATE).getString("account","")))searchCache.clear();
-                    if(accountChanged)restoreRecent();
+                    if(accountChanged){restoreRecent();restoreFavoriteDetails();}
                     getSharedPreferences("native-api",MODE_PRIVATE).edit().putString("account",user).apply();
                     sessionReady=true;openPendingTogether();
                     if(playback!=null&&pendingDeepLinkTrack.isEmpty())playback.restorePlayback(origin,user);
