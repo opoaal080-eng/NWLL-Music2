@@ -2046,11 +2046,11 @@ public final class MainActivity extends Activity {
         autoFavorites.setEnabled(!user.isEmpty());
         autoFavorites.setOnCheckedChangeListener((b,enabled)->setAutoFavoritesEnabled(enabled));
         panel.addView(autoFavorites);
-        TextView label=text("Переход между треками · 0.8 с",15);
+        float savedFade=getSharedPreferences("playback",MODE_PRIVATE).getFloat("nw-transition-seconds",1.5f);TextView label=text(String.format(Locale.ROOT,"Переход между треками · %.1f с",savedFade),15);
         label.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
         panel.addView(label);
         SeekBar duration=new SeekBar(this);duration.setMax(50);
-        duration.setProgress((int)(getSharedPreferences("playback",MODE_PRIVATE).getFloat("nw-transition-seconds",.8f)*10));
+        duration.setProgress((int)(getSharedPreferences("playback",MODE_PRIVATE).getFloat("nw-transition-seconds",1.5f)*10));
         duration.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
             public void onProgressChanged(SeekBar b,int p,boolean fromUser){
                 label.setText("Переход между треками · "+p/10.0+" с");
@@ -2191,8 +2191,8 @@ public final class MainActivity extends Activity {
         for(int i=0;i<4;i++){final int key=i;int selected=i==0?Math.max(0,Arrays.asList(themes).indexOf(premiumPrefs.optString("theme"))):(i==3?getSharedPreferences("aura-color-speed",MODE_PRIVATE).getFloat(user,1):premiumPrefs.optDouble(keys[i],1))==.5?0:(i==3?getSharedPreferences("aura-color-speed",MODE_PRIVATE).getFloat(user,1):premiumPrefs.optDouble(keys[i],1))==1?1:2;
             TextView choice=premiumAction(titles[i]+" · "+options[i][selected]+"  ▾",()->{});choice.setOnClickListener(v->nightwellOptions(titles[key],options[key],n->{try{premiumPrefs.put(keys[key],key==0?themes[n]:new double[]{.5,1,1.5}[n]);if(key==3)getSharedPreferences("aura-color-speed",MODE_PRIVATE).edit().putFloat(user,(float)new double[]{.5,1,1.5}[n]).apply();choice.setText(titles[key]+" · "+options[key][n]+"  ▾");applyPremium();}catch(Exception ignored){}}));card.addView(choice);
         }
-        card.addView(sectionLabel("Реакция ауры"));
-        TextView explanation=text("Выбери, на какие составляющие музыки будет реагировать аура. Можно включить несколько сразу.",13);
+        card.addView(sectionLabel("Реакция фона на музыку"));
+        TextView explanation=text("Выбери частоты, на которые мягко реагирует фон. Можно включить несколько сразу.",13);
         explanation.setTextColor(0xffa9aec0);explanation.setPadding(0,dp(4),0,dp(8));card.addView(explanation);
         String[] auraLabels={"Голос","Низкие частоты","Средние частоты","Высокие частоты"};
         String[] names={"aura_voice","aura_low","aura_mid","aura_high"};
