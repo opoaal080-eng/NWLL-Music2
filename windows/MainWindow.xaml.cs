@@ -111,7 +111,7 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
    await RestoreLibraryCacheAsync(owner);
    _=LoadProfileAsync();
    int successful=0;
-   async Task Tracks(){
+   async Task FetchTracks(){
     try{
      var result=await api.Request("api/tracks",cancellation:lifetime.Token);
      if(account!=owner||lifetime.IsCancellationRequested)return;
@@ -144,7 +144,7 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
     }catch(OperationCanceledException){}catch(Exception e){if(account==owner)Status.Text="Плейлисты: "+e.Message;}
    }
    // Each section becomes visible immediately, independent of slow endpoints.
-   await Task.WhenAll(Tracks(),Likes(),Playlists());
+   await Task.WhenAll(FetchTracks(),Likes(),Playlists());
    if(account!=owner||lifetime.IsCancellationRequested)return;
    if(successful>0){Status.Text="";SaveLibraryCacheAsync(owner);}
   });
