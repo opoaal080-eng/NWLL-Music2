@@ -213,7 +213,7 @@ public final class MainActivity extends Activity {
             if(isDestroyed()||!visible)return;
             boolean playing=playback!=null&&playback.player.getPlayWhenReady();
             if(homeLyric!=null&&homeLyric.isAttachedToWindow()&&
-                (screen.equals("Главная")||backgroundOnly)&&!full&&playing){
+                (screen.equals("Главная")||backgroundOnly)&&!full){
                 syncHomeLyrics(playback.player.getCurrentPosition()/1000.0);
             }
             ui.postDelayed(this,playing?150:650);
@@ -1075,7 +1075,15 @@ public final class MainActivity extends Activity {
                 homeLyric.setMinHeight(dp(100));
                 TextView restore=iconButton("×",this::toggleBackgroundOnly);
                 stage.addView(restore,new android.widget.FrameLayout.LayoutParams(dp(48),dp(48),Gravity.TOP|Gravity.LEFT));
-            }return;
+            }
+            // After a tab/rotation rebuild the new TextView is attached on
+            // the next UI traversal. Restore the current lyric immediately.
+            ui.postDelayed(()->{
+                if(homeLyric!=null&&homeLyric.isAttachedToWindow()&&!full
+                    &&(screen.equals("Главная")||backgroundOnly)&&playback!=null)
+                    syncHomeLyrics(playback.player.getCurrentPosition()/1000.0);
+            },70);
+            return;
         }
         if(screen.equals("Поиск")){search=new EditText(this);search.setTextColor(Color.WHITE);search.setSingleLine(true);search.setTextSize(16);search.setHintTextColor(0xff999ca8);search.setPadding(dp(16),dp(14),dp(16),dp(14));search.setBackground(touchSurface(0xff202228,24));search.setHint("Трек или исполнитель");body.addView(search);search.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int st,int c,int a){}public void onTextChanged(CharSequence s,int st,int before,int count){query=s.toString();search(query);}public void afterTextChanged(Editable e){}});shown=new JSONArray();artistStrip=column();body.addView(artistStrip);}
         else if(screen.equals("Избранное")){shown=new JSONArray();for(int i=0;i<catalog.length();i++)if(likes.contains(catalog.optJSONObject(i).optString("id")))shown.put(catalog.optJSONObject(i));shown=sortedFavorites(shown);LinearLayout actionsRow=column();actionsRow.setGravity(Gravity.RIGHT);TextView sort=iconButton("⇅",()->favoriteSortMenu());actionsRow.addView(sort);TextView more=iconButton("⋯",()->collectionMenu("likes",""));LinearLayout.LayoutParams moreParams=new LinearLayout.LayoutParams(dp(52),dp(48));moreParams.gravity=Gravity.RIGHT;actionsRow.addView(more,moreParams);body.addView(actionsRow);}
@@ -2074,9 +2082,11 @@ public final class MainActivity extends Activity {
     void syncHomeLyrics(double position){
         if(homeLyric==null||!homeLyric.isAttachedToWindow())return;
         String line="";JSONObject active=null,next=null;
-        boolean playing=playback!=null&&playback.player.isPlaying();
+        // Media3 isPlaying briefly becomes false during rebuffering, even
+        // while the same song remains selected. Don't erase its last lyric.
+        boolean hasTrack=playback!=null&&!currentID.isEmpty();
         if(getSharedPreferences("appearance",MODE_PRIVATE)
-                .getBoolean("ambient-lyrics",true)&&playing&&
+                .getBoolean("ambient-lyrics",true)&&hasTrack&&
                 activeLyrics!=null&&activeLyrics.optBoolean("synced")){
             JSONArray lines=activeLyrics.optJSONArray("lines");
             if(lines!=null){
@@ -2089,8 +2099,9 @@ public final class MainActivity extends Activity {
                     }else break;
                 }
                 if(active!=null){
+                    // A gap between LRC lines is not a reason to blank Home.
+                    // Keep the latest line until the next timestamp.
                     line=active.optString("text");
-                    if(position-active.optDouble("time")>4.5)line="";
                 }
             }
         }
@@ -2098,24 +2109,23 @@ public final class MainActivity extends Activity {
             .getBoolean("nw-kinetic-lyrics",true);
         int word=kinetic&&active!=null&&!line.isEmpty()?
             lyricWordAt(active,next,position):-1;
-        boolean changedLine=!line.equals(homeLine);
+        boolean changedLine=!line.equals(homeLine)
+            ||!line.contentEquals(homeLyric.getText());
+        // The previous opacity animation could be cancelled while alpha=0.
+        // Restore visibility on every update, including when no word changes.
+        homeLyric.animate().cancel();
+        if(homeLyric.getAlpha()<1f)homeLyric.setAlpha(1f);
+        if(homeLyric.getTranslationY()!=0f)homeLyric.setTranslationY(0f);
         if(changedLine){
             homeLine=line;
             homeWord=-2;
             homeKineticSpans.clear();
-            homeLyric.animate().cancel();
             if(line.isEmpty()){
-                homeLyric.animate().alpha(0).translationY(-dp(6))
-                    .setDuration(220).withEndAction(()->{
-                        if(homeLine.isEmpty()&&homeLyric!=null)homeLyric.setText("");
-                    }).start();
+                homeLyric.setText("");
                 return;
             }
             homeLyric.setText(new android.text.SpannableStringBuilder(line),
                 TextView.BufferType.SPANNABLE);
-            homeLyric.setAlpha(0);
-            homeLyric.setTranslationY(dp(7));
-            homeLyric.animate().alpha(1).translationY(0).setDuration(260).start();
         }
         if(line.isEmpty()||(!changedLine&&homeWord==word))return;
         homeWord=word;
