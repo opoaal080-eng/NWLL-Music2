@@ -1249,6 +1249,14 @@ final class NativePlayer {
     func meterState() -> [String: Any] {
         ["id": current?.id ?? "", "level": audioLevel(), "ready": (usesLiveMeter && audioMeter.processing) || independentMeter.envelope != nil]
     }
+    // Fast path used by the 160ms lyrics timer. Avoid dictionary construction,
+    // audio-meter queries and route enumeration on each word update.
+    func lyricPlaybackPosition() -> Double {
+        let time = !wantsPlay ? lastPosition :
+            ((waitingForReady || player.currentItem?.status == .failed)
+                ? requestedPosition : playbackPosition)
+        return time.isFinite && time >= 0 ? time : lastPosition
+    }
     func snapshot(includeQueue: Bool = true) -> [String: Any] {
         let measuredDuration = player.currentItem?.duration.seconds ?? 0
         let metadataDuration = current?.duration ?? 0

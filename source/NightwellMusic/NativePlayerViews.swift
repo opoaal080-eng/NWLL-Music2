@@ -1096,9 +1096,8 @@ struct LyricsView: View {
                 // Separate lightweight lyric clock avoids accelerating the
                 // whole player UI, artwork, networking and background timers.
                 while !Task.isCancelled {
-                    let state = NativePlayer.shared.snapshot(includeQueue: false)
-                    if let live = state["position"] as? Double,
-                       live.isFinite && live >= 0,
+                    let live = NativePlayer.shared.lyricPlaybackPosition()
+                    if live.isFinite && live >= 0,
                        lyricPosition == nil || abs(live - (lyricPosition ?? 0)) >= 0.035 {
                         lyricPosition = live
                     }
