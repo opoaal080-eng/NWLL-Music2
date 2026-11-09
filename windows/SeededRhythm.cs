@@ -9,13 +9,13 @@ namespace Nightwell.Native;
 public partial class MainWindow {
  readonly List<string> seededWaveArtists=new();
 
- string OwnedCachePath(string id){
+ string OwnedCachePath(string id,string? owner=null){
   string safe=new string(id.Where(char.IsLetterOrDigit).Take(80).ToArray());
-  return Path.Combine(NativeAPI.Storage,"owned-playlists",account,safe+".json");
+  return Path.Combine(NativeAPI.Storage,"owned-playlists",owner??account,safe+".json");
  }
- void SaveOwnedPlaylistCache(string id,List<Track> tracks){
+ void SaveOwnedPlaylistCache(string id,List<Track> tracks,string? owner=null){
   try{
-   string file=OwnedCachePath(id);
+   string file=OwnedCachePath(id,owner);
    Directory.CreateDirectory(Path.GetDirectoryName(file)!);
    if(tracks.Count<=3000)File.WriteAllText(file,JsonSerializer.Serialize(tracks));
   }catch{}
@@ -29,7 +29,7 @@ public partial class MainWindow {
    if(account!=owner||lifetime.IsCancellationRequested)return;
    var id=item.id;
    try{
-    var path=OwnedCachePath(id);
+    var path=OwnedCachePath(id,owner);
     List<Track>? cached=null;
     if(File.Exists(path)){
      cached=await Task.Run(()=>JsonSerializer.Deserialize<List<Track>>(File.ReadAllText(path)),
@@ -47,7 +47,7 @@ public partial class MainWindow {
       if(account!=owner)return;
       ownedPlaylistCache[id]=fetched;
       // Do not synchronously serialize thousands of tracks on the UI thread.
-      _=Task.Run(()=>SaveOwnedPlaylistCache(id,fetched),lifetime.Token);
+      _=Task.Run(()=>SaveOwnedPlaylistCache(id,fetched,owner),lifetime.Token);
      }finally{slots.Release();}
     }
    }catch(OperationCanceledException){}catch{}
