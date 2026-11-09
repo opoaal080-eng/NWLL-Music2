@@ -12,7 +12,30 @@ actor CoverImagePipeline {
     private let compressed = NSCache<NSString, NSData>()
     private var pendingData: [String: Task<Data?, Never>] = [:]
     private var pendingImages: [String: Task<UIImage?, Never>] = [:]
+    // Bad/unavailable provider artwork can otherwise be re-requested by
+    // every row in a recycled list, even while the network is struggling.
+    private var retryAfter: [String: Date] = [:]
     private let session: URLSession
+
+    private func skipTemporarily(_ url: String) -> Bool {
+        guard let deadline = retryAfter[url] else { return false }
+        if deadline > Date() { return true }
+        retryAfter.removeValue(forKey: url)
+        return false
+    }
+
+    private func markUnavailable(_ url: String) {
+        retryAfter[url] = Date().addingTimeInterval(25)
+        if retryAfter.count > 256 {
+            let now = Date()
+            retryAfter = retryAfter.filter { $0.value > now }
+            if retryAfter.count > 256 {
+                for key in Array(retryAfter.keys.prefix(retryAfter.count - 192)) {
+                    retryAfter.removeValue(forKey: key)
+                }
+            }
+        }
+    }
 
     private init() {
         decoded.totalCostLimit = 48 * 1024 * 1024
@@ -54,6 +77,7 @@ actor CoverImagePipeline {
         let dimension = min(1200, max(96, maxPixel))
         let key = "\(url.absoluteString)#\(dimension)"
         if let hit = decoded.object(forKey: key as NSString) { return hit }
+        if skipTemporarily(url.absoluteString) { return nil }
         if let inFlight = pendingImages[key] { return await inFlight.value }
 
         let task = Task<UIImage?, Never>(priority: .userInitiated) {
@@ -79,6 +103,9 @@ actor CoverImagePipeline {
         if let result, let cgImage = result.cgImage {
             decoded.setObject(result, forKey: key as NSString,
                               cost: cgImage.bytesPerRow * cgImage.height)
+            retryAfter.removeValue(forKey: url.absoluteString)
+        } else if result == nil {
+            markUnavailable(url.absoluteString)
         }
         return result
     }
@@ -86,6 +113,7 @@ actor CoverImagePipeline {
     private func data(for url: URL) async -> Data? {
         let key = url.absoluteString
         if let hit = compressed.object(forKey: key as NSString) { return hit as Data }
+        if skipTemporarily(key) { return nil }
         if let inFlight = pendingData[key] { return await inFlight.value }
         let task = Task<Data?, Never>(priority: .userInitiated) {
             do {
@@ -107,6 +135,9 @@ actor CoverImagePipeline {
         pendingData[key] = nil
         if let result {
             compressed.setObject(result as NSData, forKey: key as NSString, cost: result.count)
+            retryAfter.removeValue(forKey: key)
+        } else {
+            markUnavailable(key)
         }
         return result
     }
