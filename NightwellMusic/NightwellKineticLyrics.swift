@@ -164,8 +164,14 @@ struct NightwellQueueDeck: View {
     }
 
     private func playNow(at index: Int, track: Track) {
-        NativePlayer.shared.playQueueTrackNow(at: index)
-        feedback("Воспроизводим сейчас", for: track.id)
+        let accepted = NativePlayer.shared.playQueueTrackNow(trackID: track.id)
+        if accepted {
+            // Playback can still be buffering. Do not claim the song is
+            // already audible just because the tap gesture was recognized.
+            feedback("Запускаем выбранный трек", for: track.id)
+        } else {
+            feedback("Не удалось запустить трек", for: track.id, success: false)
+        }
     }
 
     private func queueNext(at index: Int, track: Track) {
