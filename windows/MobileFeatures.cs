@@ -50,7 +50,7 @@ public partial class MainWindow {
    var previous=player;player=candidate;staged=null;index=next;
    player.EndReached+=(_,_)=>Dispatcher.InvokeAsync(()=>Advance());
    player.EncounteredError+=(_,_)=>Dispatcher.InvokeAsync(()=>Status.Text="Не удалось воспроизвести трек");
-   currentID=track.id;ActiveArtwork=null;PlayingTrackId=currentID;Ribbon.ResetPalette();UpdatePlaybackChrome();TakePlaybackHere();pausedAtMs=0;MiniTitle.Text=FullTitle.Text=track.title;MiniArtist.Text=FullArtist.Text=track.artist;
+   currentID=track.id;ActiveArtwork=null;PlayingTrackId=currentID;Ribbon.ResetPalette();UpdatePlaybackChrome();TakePlaybackHere();pausedAtMs=0;stableDurationMs=0;pauseVisualLocked=false;MiniTitle.Text=FullTitle.Text=track.title;MiniArtist.Text=FullArtist.Text=track.artist;
    lyricsCancellation?.Cancel();currentLyrics=null;lyricsID="";renderedLyric=int.MinValue;
    Cover.Source=MiniCover.Source=null;LyricsPanel.Visibility=Visibility.Collapsed;Cover.Visibility=Visibility.Visible;
    if(Uri.TryCreate(api.Origin,track.cover_url??("api/covers/"+track.id),out var uri)&&uri.Scheme=="https")_=LoadCover(uri,track.id);

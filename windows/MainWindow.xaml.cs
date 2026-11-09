@@ -18,6 +18,7 @@ public partial class MainWindow:Window {
  int normalization=0;
  double userVolume=1.0;
  long pausedAtMs;
+ long stableDurationMs;
  // Keep the displayed scrubber pinned while LibVLC settles on pause.
  // Reset on explicit track changes and seeks, never on a stale timer tick.
  bool pauseVisualLocked;
@@ -322,7 +323,7 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
   if(index<0)return;
   wave=false;PlayCurrent();
  }
- void PlayCurrent(){nextCancellation?.Cancel();var t=Current;if(t==null)return;_=PrefetchClipAsync(t);pausedAtMs=0;pauseVisualLocked=false;if(t.LocalPath==null&&account.Length==0){Login();return;}string path=StreamPath(t);_=AudioCommand(()=>{using var media=new Media(vlc,path,t.LocalPath==null?FromType.FromLocation:FromType.FromPath);player.Play(media);});lyricsCancellation?.Cancel();currentLyrics=null;lyricsID="";renderedLyric=int.MinValue;currentID=t.id;ActiveArtwork=null;Ribbon.ResetPalette();PlayerPage.Background=Brushes.Transparent;PlayingTrackId=t.id;UpdatePlaybackChrome();mixRecent.Enqueue(t.id);while(mixRecent.Count>120)mixRecent.Dequeue();MiniTitle.Text=FullTitle.Text=t.title;MiniArtist.Text=FullArtist.Text=t.artist;LyricsText.Text="";LyricsPanel.Visibility=Visibility.Collapsed;Cover.Visibility=Visibility.Visible;if(Uri.TryCreate(api.Origin,t.cover_url??("api/covers/"+t.id),out var coverURI)&&coverURI.Scheme=="https")_=LoadCover(coverURI,t.id);else Cover.Source=MiniCover.Source=null;RecordTrackStart();Dock.BeginAnimation(OpacityProperty,new System.Windows.Media.Animation.DoubleAnimation(.6,1,TimeSpan.FromSeconds(.7)));}
+ void PlayCurrent(){nextCancellation?.Cancel();var t=Current;if(t==null)return;_=PrefetchClipAsync(t);pausedAtMs=0;stableDurationMs=0;pauseVisualLocked=false;if(t.LocalPath==null&&account.Length==0){Login();return;}string path=StreamPath(t);_=AudioCommand(()=>{using var media=new Media(vlc,path,t.LocalPath==null?FromType.FromLocation:FromType.FromPath);player.Play(media);});lyricsCancellation?.Cancel();currentLyrics=null;lyricsID="";renderedLyric=int.MinValue;currentID=t.id;ActiveArtwork=null;Ribbon.ResetPalette();PlayerPage.Background=Brushes.Transparent;PlayingTrackId=t.id;UpdatePlaybackChrome();mixRecent.Enqueue(t.id);while(mixRecent.Count>120)mixRecent.Dequeue();MiniTitle.Text=FullTitle.Text=t.title;MiniArtist.Text=FullArtist.Text=t.artist;LyricsText.Text="";LyricsPanel.Visibility=Visibility.Collapsed;Cover.Visibility=Visibility.Visible;if(Uri.TryCreate(api.Origin,t.cover_url??("api/covers/"+t.id),out var coverURI)&&coverURI.Scheme=="https")_=LoadCover(coverURI,t.id);else Cover.Source=MiniCover.Source=null;RecordTrackStart();Dock.BeginAnimation(OpacityProperty,new System.Windows.Media.Animation.DoubleAnimation(.6,1,TimeSpan.FromSeconds(.7)));}
  async Task LoadCover(Uri uri,string id){try{
  var bytes=await (uri.Authority==api.Origin.Authority?api.HTTP:artworkHTTP).GetByteArrayAsync(uri,lifetime.Token);
  if(bytes.Length>5*1024*1024||currentID!=id)return;
@@ -350,15 +351,17 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
     if(restorePaused){restorePaused=false;_=AudioCommand(()=>{player.SetPause(true);player.Mute=false;});}
   }
   bool playing=audioPlaying;
+  if(audioLength>1000)stableDurationMs=audioLength;
+  long displayDurationMs=audioLength>1000?audioLength:Math.Max(1,stableDurationMs);
   long positionMs=Math.Max(0,audioTime);
   if(playing&&!pauseVisualLocked&&positionMs>0)pausedAtMs=positionMs;
   // Freeze even when LibVLC reports a nonzero but older timestamp.
-  if(pauseVisualLocked||(!playing&&pausedAtMs>0&&audioLength>0))
+  if(pauseVisualLocked||(!playing&&pausedAtMs>0&&displayDurationMs>0))
    positionMs=Math.Max(0,pausedAtMs);
-  double duration=Math.Max(1,audioLength/1000.0),position=positionMs/1000.0;
+  double duration=Math.Max(1,displayDurationMs/1000.0),position=positionMs/1000.0;
   SyncLyrics();
   MiniLike.Content=likes.Contains(currentID)?"♥":"♡";
-  MiniProgress.Width=Math.Max(0,Dock.ActualWidth-32)*Math.Clamp(positionMs/(double)Math.Max(1,audioLength),0,1);
+  MiniProgress.Width=Math.Max(0,Dock.ActualWidth-32)*Math.Clamp(positionMs/(double)Math.Max(1,displayDurationMs),0,1);
   MiniPlay.Content=HomePlay.Content=FullPlay.Content=playing?"\uE769":"\uE768";
   UpdatePlaybackChrome();
   if(!scrubbing){FullSeek.Maximum=duration;FullSeek.Value=Math.Min(duration,position);}
