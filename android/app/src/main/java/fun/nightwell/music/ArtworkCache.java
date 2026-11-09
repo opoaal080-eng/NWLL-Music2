@@ -32,18 +32,32 @@ final class ArtworkCache {
     private boolean valid(String path) { return path != null && path.startsWith("/api/covers/"); }
     private String key(String origin, String path) { return origin + path; }
     void load(ImageView target, String origin, String path) {
+        load(target,origin,path,null);
+    }
+    void load(ImageView target, String origin, String path,
+              java.util.function.Consumer<Bitmap> onReady) {
         target.setImageDrawable(null);
-        if (!valid(path)) { target.setTag(null); return; }
+        if (!valid(path)) {
+            target.setTag(null);
+            if(onReady!=null)onReady.accept(null);
+            return;
+        }
         String identity = key(origin,path);
         target.setTag(identity);
         Bitmap cached = memory.get(identity);
-        if (cached != null) { target.setImageBitmap(cached); return; }
+        if (cached != null) {
+            target.setImageBitmap(cached);
+            if(onReady!=null)onReady.accept(cached);
+            return;
+        }
         CompletableFuture<Bitmap> job = request(origin,path);
         job.thenAccept(bitmap -> {
             if (bitmap == null) return;
             target.post(() -> {
-                if (identity.equals(target.getTag()) && target.isAttachedToWindow())
+                if (identity.equals(target.getTag()) && target.isAttachedToWindow()) {
                     target.setImageBitmap(bitmap);
+                    if(onReady!=null)onReady.accept(bitmap);
+                }
             });
         });
     }
