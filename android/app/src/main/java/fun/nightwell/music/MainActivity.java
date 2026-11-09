@@ -2204,15 +2204,52 @@ public final class MainActivity extends Activity {
         });
     }
     void nightwellOptions(String title,String[] options,java.util.function.IntConsumer selected){
-        LinearLayout panel=column();panel.setPadding(dp(18),dp(14),dp(18),dp(16));
-        TextView heading=text(title,21);heading.setTextColor(0xffeeeeee);heading.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);heading.setPadding(dp(8),dp(4),dp(8),dp(16));panel.addView(heading);
-        AlertDialog dialog=new AlertDialog.Builder(this).setView(panel).create();
+        LinearLayout panel=column();
+        panel.setPadding(dp(15),dp(12),dp(15),dp(18));
+        TextView heading=text(title,21);
+        NightwellDesign.headline(heading);
+        heading.setPadding(dp(6),dp(6),dp(6),dp(8));
+        panel.addView(heading);
+        TextView hint=text("Выбери один вариант",12);
+        hint.setTextColor(NightwellDesign.MUTED);
+        hint.setPadding(dp(6),0,dp(6),dp(15));
+        panel.addView(hint);
+        LinearLayout optionsGroup=column();
+        optionsGroup.setPadding(dp(5),dp(5),dp(5),dp(5));
+        optionsGroup.setBackground(NightwellDesign.surface(this,NightwellDesign.RAISED,17,true));
+        panel.addView(optionsGroup);
+        AlertDialog dialog=new AlertDialog.Builder(this).setView(panel)
+            .setNegativeButton("Отмена",null).create();
         for(int index=0;index<options.length;index++){
             final int choice=index;
-            TextView entry=sheetAction(options[index],()->{dialog.dismiss();selected.accept(choice);});
-            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(54));lp.setMargins(0,dp(4),0,dp(4));panel.addView(entry,lp);
+            String textLabel=options[index].replace("✓  ","").trim();
+            boolean chosen=options[index].startsWith("✓");
+            LinearLayout item=row();
+            item.setPadding(dp(13),0,dp(10),0);
+            item.setMinimumHeight(dp(52));
+            item.setBackground(NightwellDesign.ripple(this,
+                chosen?NightwellDesign.SELECTED:NightwellDesign.RAISED,12,false));
+            TextView entry=text(textLabel,15);
+            entry.setSingleLine(false);
+            entry.setMaxLines(2);
+            entry.setTextColor(NightwellDesign.PRIMARY);
+            if(chosen)NightwellDesign.headline(entry);
+            item.addView(entry,new LinearLayout.LayoutParams(0,-2,1));
+            TextView marker=text(chosen?"✓":"›",chosen?18:24);
+            marker.setGravity(Gravity.CENTER);
+            marker.setTextColor(chosen?NightwellDesign.PRIMARY:NightwellDesign.MUTED);
+            item.addView(marker,new LinearLayout.LayoutParams(dp(30),dp(42)));
+            item.setOnClickListener(v->{dialog.dismiss();selected.accept(choice);});
+            optionsGroup.addView(item,new LinearLayout.LayoutParams(-1,-2));
+            if(index<options.length-1){
+                View divider=NightwellDesign.hairline(this);
+                LinearLayout.LayoutParams line=new LinearLayout.LayoutParams(-1,dp(1));
+                line.leftMargin=dp(13);line.rightMargin=dp(13);
+                optionsGroup.addView(divider,line);
+            }
         }
-        styleSheet(dialog);dialog.show();
+        styleSheet(dialog);
+        dialog.show();
     }
     void collectionMenu(String kind,String id){
         String[] options=kind.equals("playlist")?new String[]{"Скачать всё","Поделиться","Удалить"}:new String[]{"Скачать всё","Поделиться"};
