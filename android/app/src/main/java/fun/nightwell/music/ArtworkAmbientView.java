@@ -17,6 +17,9 @@ final class ArtworkAmbientView extends View {
     private final int[] target = {0xff24202b, 0xff1d222c};
     private long transitionStart;
     private boolean playing;
+    private boolean reactive=true, gradient=true;
+    private float speed=1f, strength=.12f, audioTarget, audioSmooth, transitionSpeed=1f;
+    private String theme="nightwell";
     private final float density;
 
     ArtworkAmbientView(Context context) {
@@ -31,13 +34,32 @@ final class ArtworkAmbientView extends View {
         if (playing != value) { playing=value; invalidate(); }
     }
 
+    void setAudioLevel(double level) {
+        float value=(float)(Double.isFinite(level)?Math.max(0,Math.min(1,level)):0);
+        if(!playing||!reactive)value=0;
+        if(Math.abs(audioTarget-value)>.004f){audioTarget=value;invalidate();}
+    }
+
+    void configure(boolean gradientEnabled, boolean musicReactive, float reactionStrength,
+                   float motionSpeed, float coverTransitionSpeed, String selectedTheme) {
+        boolean old=gradient;
+        gradient=gradientEnabled;
+        reactive=musicReactive;
+        strength=Math.max(0f,Math.min(.26f,reactionStrength));
+        speed=Math.max(.15f,Math.min(2.5f,motionSpeed));
+        transitionSpeed=Math.max(.4f,Math.min(2.5f,coverTransitionSpeed));
+        theme=selectedTheme==null?"nightwell":selectedTheme;
+        if(!reactive)audioTarget=0;
+        if(old!=gradient||isShown())invalidate();
+    }
+
     int accentColor() { return target[0]; }
 
     void setArtwork(Bitmap bitmap) {
         int[] colors = palette(bitmap);
         if (target[0]==colors[0] && target[1]==colors[1]) return;
         long now=SystemClock.uptimeMillis();
-        float blend=transitionStart==0?1f:Math.min(1f,(now-transitionStart)/820f);
+        float blend=transitionStart==0?1f:Math.min(1f,(now-transitionStart)/(820f/transitionSpeed));
         from[0]=mix(from[0],target[0],blend);
         from[1]=mix(from[1],target[1],blend);
         target[0]=colors[0];target[1]=colors[1];
@@ -99,20 +121,35 @@ final class ArtworkAmbientView extends View {
     @Override protected void onDraw(Canvas canvas){
         super.onDraw(canvas);
         canvas.drawColor(0xff08080b);
+        if(!gradient)return;
         int width=getWidth(),height=getHeight();
         if(width<=0||height<=0)return;
         boolean motion=android.animation.ValueAnimator.areAnimatorsEnabled();
-        float transition=transitionStart==0?1f:Math.min(1f,(SystemClock.uptimeMillis()-transitionStart)/820f);
+        float transition=transitionStart==0?1f:Math.min(1f,
+            (SystemClock.uptimeMillis()-transitionStart)/(820f/transitionSpeed));
         int a=mix(from[0],target[0],transition);
         int b=mix(from[1],target[1],transition);
-        double t=motion?SystemClock.uptimeMillis()/1000.0*(playing?.16:.07):0;
+        // Preserve cover colours. Premium themes add just a light undertone.
+        int themeAccent="ocean".equals(theme)?0xff177d9e:
+            "aurora".equals(theme)?0xff35a681:"sunset".equals(theme)?0xffe07353:0xff08080b;
+        if(!"nightwell".equals(theme)){
+            a=mix(a,themeAccent,.12f);
+            b=mix(b,themeAccent,.12f);
+        }
+        audioSmooth+=(audioTarget-audioSmooth)*.11f;
+        float pulse=(playing&&reactive)?audioSmooth*strength:0f;
+        double t=motion?SystemClock.uptimeMillis()/1000.0*
+            (playing?.10:.008)*speed:0;
         float span=Math.max(width,height);
-        layer(canvas,width*(.16f+.12f*(float)Math.sin(t)),height*(.28f+.12f*(float)Math.cos(t*.7)),
-            span*.82f,a,143);
-        layer(canvas,width*(.87f+.13f*(float)Math.cos(t*.81)),height*(.78f+.13f*(float)Math.sin(t*.93)),
-            span*.79f,b,134);
-        layer(canvas,width*(.43f+.15f*(float)Math.cos(t*.43+2)),height*(.56f+.11f*(float)Math.sin(t*.66)),
-            span*.54f,mix(a,b,.45f),67);
+        layer(canvas,width*(.16f+.09f*(float)Math.sin(t)),
+            height*(.28f+.08f*(float)Math.cos(t*.7)),
+            span*(.80f+pulse*.20f),a,Math.min(180,125+(int)(pulse*140)));
+        layer(canvas,width*(.87f+.10f*(float)Math.cos(t*.81)),
+            height*(.78f+.09f*(float)Math.sin(t*.93)),
+            span*(.79f+pulse*.25f),b,Math.min(180,117+(int)(pulse*145)));
+        layer(canvas,width*(.43f+.09f*(float)Math.cos(t*.43+2)),
+            height*(.56f+.07f*(float)Math.sin(t*.66)),
+            span*(.54f+pulse*.14f),mix(a,b,.45f),Math.min(112,58+(int)(pulse*100)));
         if(motion&&isShown()&&getWindowVisibility()==VISIBLE)postInvalidateDelayed(50);
     }
 }
