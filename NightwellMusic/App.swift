@@ -338,42 +338,6 @@ struct NativeRoot: View {
     @State private var showShare = false
     @State private var launching = true
     @Environment(\.accessibilityReduceMotion) private var reducedMotion
-    private func landscapeTab(_ destination: MusicStore.Screen, icon: String, label: String) -> some View {
-        Button {
-            withAnimation(reducedMotion ? nil : .easeInOut(duration: 0.18)) {
-                store.screen = destination
-            }
-        } label: {
-            Image(systemName: icon)
-                .font(.system(size: 19, weight: .medium))
-                .foregroundStyle(store.screen == destination ? Color.white : Color.white.opacity(0.50))
-                .frame(width: 45, height: 42)
-                .background(
-                    store.screen == destination ? Color.white.opacity(0.16) : .clear,
-                    in: RoundedRectangle(cornerRadius: 13)
-                )
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(label)
-    }
-
-    private var landscapeNavigation: some View {
-        VStack(spacing: 4) {
-            landscapeTab(.home, icon: "house", label: "Главная")
-            landscapeTab(.search, icon: "magnifyingglass", label: "Поиск")
-            landscapeTab(.likes, icon: "heart", label: "Избранное")
-            landscapeTab(.playlists, icon: "music.note.list", label: "Плейлисты")
-            landscapeTab(.offline, icon: "arrow.down.circle", label: "Офлайн")
-            Spacer(minLength: 0)
-        }
-        .padding(.top, 5)
-        .frame(width: 54)
-        .frame(maxHeight: .infinity, alignment: .top)
-        .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 17))
-        .padding(.leading, 7)
-        .padding(.bottom, 7)
-    }
-
     @ViewBuilder private var mainScene: some View {
         GeometryReader { viewport in
             let landscape = viewport.size.width > viewport.size.height * 1.12 &&
@@ -398,8 +362,7 @@ struct NativeRoot: View {
             if backgroundOnly {
                 VStack { HStack { Button { backgroundOnly = false } label: { Image(systemName: "xmark").padding().glass() }; Spacer() }; Spacer() }.padding()
             } else {
-                HStack(alignment: .top, spacing: landscape ? 8 : 0) {
-                if landscape { landscapeNavigation }
+                HStack(alignment: .top, spacing: 0) {
                 VStack(spacing: landscape ? 6 : 18) {
                     header(landscape: landscape)
                     if !landscape {
@@ -652,6 +615,13 @@ struct NativeRoot: View {
                             Text("Nightwell").font(.system(size: 25, weight: .bold))
                             Text("M U S I C").font(.caption).foregroundStyle(.secondary)
                         }
+                    } else {
+                        // Keep the app's name visible in landscape and while
+                        // the collection's centered compact heading is shown.
+                        Text(compactCollectionTitle == nil ? "Nightwell Music" : "Nightwell")
+                            .font(.system(size: landscape ? 16 : 14, weight: .semibold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
                     }
                 }.contentShape(Rectangle())
             }
