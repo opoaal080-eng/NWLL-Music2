@@ -679,17 +679,47 @@ struct FullPlayer: View {
     }
 
     private var playerControls: some View {
-        VStack(spacing: 14) {
-            playerHeader
-            artworkInteraction
-            playerTrackDetails
-            playerTransport
-            playerQuickActions
-            playerError
+        GeometryReader { viewport in
+            let landscape = viewport.size.width > viewport.size.height * 1.12 &&
+                viewport.size.height < 650
+            if landscape {
+                VStack(spacing: 6) {
+                    playerHeader
+                    HStack(alignment: .center, spacing: 16) {
+                        artworkInteraction
+                            .frame(width: min(viewport.size.width * 0.40, 260))
+                        // Avoid stacking a full-height cover over transport
+                        // controls on iPhones with short landscape viewports.
+                        ScrollView(.vertical, showsIndicators: false) {
+                            VStack(spacing: 8) {
+                                playerTrackDetails
+                                playerTransport
+                                playerQuickActions
+                                playerError
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 6)
+                        }
+                    }
+                    .frame(maxHeight: .infinity)
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 4)
+                .padding(.bottom, 4)
+            } else {
+                VStack(spacing: 14) {
+                    playerHeader
+                    artworkInteraction
+                    playerTrackDetails
+                    playerTransport
+                    playerQuickActions
+                    playerError
+                }
+                .padding(.horizontal, 26)
+                .padding(.top, 12)
+                .padding(.bottom, 4)
+            }
         }
-        .padding(.horizontal, 26)
-        .padding(.top, 12)
-        .padding(.bottom, 4)
     }
 
     @ViewBuilder private var playerHeader: some View {
@@ -705,7 +735,8 @@ struct FullPlayer: View {
 
                     } else {
                         Group {
-                            if coverStyle == "classic" {
+                            if coverStyle == "classic" ||
+                                (box.size.width > box.size.height && box.size.height < 500) {
                                 let side = min(box.size.width, box.size.height) * 0.96
                                 Cover(track: clock.current, origin: store.origin, pixelWidth: 1024)
                                     .frame(width: side, height: side)
