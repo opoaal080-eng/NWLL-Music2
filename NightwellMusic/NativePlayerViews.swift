@@ -232,14 +232,14 @@ struct MiniPlayer: View {
             HStack(spacing: compact ? 8 : 12) {
                 Button(action: open) {
                     HStack(spacing: 7) {
-                        Cover(track: clock.current, origin: store.origin)
+                        Cover(track: clock.displayCurrent, origin: store.origin)
                             .frame(width: compactHeight ? 34 : 42, height: compactHeight ? 34 : 42).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(clock.current?.title ?? "Выбери трек").font(.system(size: compact ? 12 : 14, weight: .semibold)).lineLimit(1)
-                            Text(clock.current?.artist ?? "Nightwell Music").font(.system(size: compact ? 10 : 12)).foregroundStyle(.white.opacity(0.65)).lineLimit(1)
+                            Text(clock.displayCurrent?.title ?? "Выбери трек").font(.system(size: compact ? 12 : 14, weight: .semibold)).lineLimit(1)
+                            Text(clock.displayCurrent?.artist ?? "Nightwell Music").font(.system(size: compact ? 10 : 12)).foregroundStyle(.white.opacity(0.65)).lineLimit(1)
                         }.frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .id(clock.id)
+                    .id(clock.displayID)
                     .transition(.asymmetric(
                         insertion: .offset(x: 45 * slideDirection).combined(with: .opacity),
                         removal: .offset(x: -45 * slideDirection).combined(with: .opacity)
@@ -252,7 +252,7 @@ struct MiniPlayer: View {
                     }
                 })
                 HStack(spacing: compact ? 2 : 5) {
-                    if let track = clock.current {
+                    if let track = clock.displayCurrent {
                         Button { Task { await store.like(track) } } label: { Image(systemName: store.likes.contains(track.id) ? "heart.fill" : "heart").font(.system(size: 19)).foregroundStyle(Color.white).frame(width: compact ? 26 : 29, height: 44) }.accessibilityLabel("Избранное")
                     }
                     Button { changeTrack(-1) } label: { Image(systemName: "backward.end").font(.system(size: 15)).frame(width: compact ? 24 : 28, height: 44) }.accessibilityLabel("Предыдущий трек")
@@ -319,9 +319,9 @@ struct MiniPlayer: View {
     private var playbackFraction: CGFloat {
         // Protect against unknown duration, invalid stream timestamps and
         // seeking overshoot. @ObservedObject updates the ring on every tick.
-        guard clock.duration.isFinite, clock.position.isFinite,
-              clock.duration > 0 else { return 0 }
-        return CGFloat(min(1, max(0, clock.position / clock.duration)))
+        guard clock.displayDuration.isFinite, clock.displayPosition.isFinite,
+              clock.displayDuration > 0 else { return 0 }
+        return CGFloat(min(1, max(0, clock.displayPosition / clock.displayDuration)))
     }
 
     private func changeTrack(_ step: Int) {
@@ -593,7 +593,7 @@ struct FullPlayer: View {
     private var playerFinal: some View {
         playerSearchAndUpdates
         .confirmationDialog("Выбери исполнителя", isPresented: $showArtistChoices, titleVisibility: .visible) {
-            ForEach(ArtistNames.split(clock.current?.artist ?? ""), id: \.self) { name in
+            ForEach(ArtistNames.split(clock.displayCurrent?.artist ?? ""), id: \.self) { name in
                 Button(name) { selectedArtist = ArtistSelection(name: name) }
             }
         }
@@ -610,17 +610,17 @@ struct FullPlayer: View {
 
     private var playerSearchAndUpdates: some View {
         playerWithSheets
-        .task(id: (clock.current?.id ?? "") + "|" + (store.account?.id ?? "")) {
+        .task(id: (clock.displayCurrent?.id ?? "") + "|" + (store.account?.id ?? "")) {
             // Prefetch for the selected song. The ⋯ button never starts a request.
             availableClipURL = nil
-            guard let selected = clock.current else { return }
+            guard let selected = clock.displayCurrent else { return }
             let result = await NightwellClipAvailabilityCache.shared.lookup(
                 track: selected, api: store.api, origin: store.origin,
                 accountID: store.account?.id)
-            guard !Task.isCancelled, clock.current?.id == selected.id else { return }
+            guard !Task.isCancelled, clock.displayCurrent?.id == selected.id else { return }
             availableClipURL = result
         }
-        .onChange(of: clock.current?.id) { _ in
+        .onChange(of: clock.displayCurrent?.id) { _ in
             refreshNativeMenu()
         }
         .onChange(of: availableClipURL) { _ in
@@ -650,7 +650,7 @@ struct FullPlayer: View {
             repeatMode = modes["repeat"] as? Int ?? 0
             shuffleMode = modes["shuffleMode"] as? Int ?? ((modes["shuffle"] as? Bool ?? false) ? 1 : 0)
             if store.lyrics.value == nil || store.lyrics.value?.status == "error" || store.lyrics.value?.status == "unavailable" {
-                store.lyrics.select(clock.current, api: store.api, origin: store.origin, online: store.account != nil)
+                store.lyrics.select(clock.displayCurrent, api: store.api, origin: store.origin, online: store.account != nil)
             }
         }
     }
@@ -688,7 +688,7 @@ struct FullPlayer: View {
             Color.black.ignoresSafeArea()
             if !showLyrics {
                 ArtworkColorBackground(
-                    url: clock.current?.cover_url.flatMap {
+                    url: clock.displayCurrent?.cover_url.flatMap {
                         URL(string: $0, relativeTo: store.origin)
                     }
                 )
@@ -701,7 +701,7 @@ struct FullPlayer: View {
                 GeometryReader { screen in
                     let coverSide = max(screen.size.width, screen.size.height + 76)
                     NightwellAnimatedCover(
-                        track: clock.current,
+                        track: clock.displayCurrent,
                         origin: store.origin,
                         side: coverSide
                     )
@@ -790,7 +790,7 @@ struct FullPlayer: View {
                             if coverStyle == "classic" ||
                                 (box.size.width > box.size.height && box.size.height < 500) {
                                 let side = min(box.size.width, box.size.height) * 0.96
-                                Cover(track: clock.current, origin: store.origin, pixelWidth: 1024)
+                                Cover(track: clock.displayCurrent, origin: store.origin, pixelWidth: 1024)
                                     .frame(width: side, height: side)
                                     .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
                                     .shadow(color: .black.opacity(0.38), radius: 22, y: 12)
@@ -815,14 +815,14 @@ struct FullPlayer: View {
     @ViewBuilder private var playerTrackDetails: some View {
                 HStack(spacing: 10) {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text(clock.current?.title ?? "Выбери трек").font(.system(size: 20, weight: .bold)).lineLimit(2)
+                        Text(clock.displayCurrent?.title ?? "Выбери трек").font(.system(size: 20, weight: .bold)).lineLimit(2)
                         Button {
-                            let artists = ArtistNames.split(clock.current?.artist ?? "")
+                            let artists = ArtistNames.split(clock.displayCurrent?.artist ?? "")
                             if artists.count > 1 { showArtistChoices = true }
                             else if let name = artists.first { selectedArtist = ArtistSelection(name: name) }
                         } label: {
                             HStack(spacing: 5) {
-                                Text(clock.current?.artist ?? "").lineLimit(1)
+                                Text(clock.displayCurrent?.artist ?? "").lineLimit(1)
                                 Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold))
                             }
                             .font(.system(size: 12, weight: .medium))
@@ -832,7 +832,7 @@ struct FullPlayer: View {
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Открыть исполнителя")
-                        .disabled(!ArtistAttribution.isKnown(clock.current?.artist ?? ""))
+                        .disabled(!ArtistAttribution.isKnown(clock.displayCurrent?.artist ?? ""))
                         if !store.audioQualityNotice.isEmpty {
                             Text(store.audioQualityNotice)
                                 .font(.system(size: 10))
@@ -841,7 +841,7 @@ struct FullPlayer: View {
                         }
                     }
                     Spacer(minLength: 4)
-                    if let track = clock.current {
+                    if let track = clock.displayCurrent {
                         Button { store.toggleRecommendationHidden(track) } label: {
                             Image(systemName: store.isRecommendationHidden(track) ? "hand.thumbsdown.fill" : "hand.thumbsdown")
                                 .font(.system(size: 19))
@@ -862,8 +862,11 @@ struct FullPlayer: View {
     @ViewBuilder private var playerTransport: some View {
                 VStack(spacing: 16) {
                     VStack(spacing: 8) {
-                        GlassSlider(value: Binding(get: { seeking ? scrub : min(clock.position, clock.duration) }, set: { scrub = $0 }), range: 0...clock.duration, accessibilityStep: 5, label: "Позиция трека", valueText: formatTime(seeking ? scrub : clock.position), bufferedFraction: CGFloat(clock.bufferFraction), preparing: clock.preparing, knobDiameter: 8) { editing in if editing { scrub = clock.position; seeking = true } else { NativePlayer.shared.seek(scrub); seeking = false } }
-                        HStack { Text(formatTime(seeking ? scrub : clock.position)); Spacer(); Text("−" + formatTime(max(0, clock.duration - (seeking ? scrub : clock.position)))) }.font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                        GlassSlider(value: Binding(get: { seeking ? scrub : min(clock.displayPosition, clock.displayDuration) }, set: { scrub = $0 }), range: 0...clock.displayDuration, accessibilityStep: 5, label: "Позиция трека", valueText: formatTime(seeking ? scrub : clock.displayPosition), bufferedFraction: CGFloat(clock.bufferFraction), preparing: clock.preparing, knobDiameter: 8) { editing in if editing { scrub = clock.displayPosition; seeking = true } else { NativePlayer.shared.seek(scrub); seeking = false } }
+                            // The former stream is still audible during handoff.
+                            // Disable scrubbing to avoid seeking the wrong track.
+                            .allowsHitTesting(clock.displayID == clock.id)
+                        HStack { Text(formatTime(seeking ? scrub : clock.displayPosition)); Spacer(); Text("−" + formatTime(max(0, clock.displayDuration - (seeking ? scrub : clock.displayPosition)))) }.font(.caption).foregroundStyle(.secondary).monospacedDigit()
                     }
                     HStack {
                         Button {
@@ -894,7 +897,7 @@ struct FullPlayer: View {
                 if !clock.failure.isEmpty { Text(clock.failure).font(.caption).foregroundStyle(Color.white) }
     }
     private func refreshNativeMenu() {
-        let selected = clock.current
+        let selected = clock.displayCurrent
         nativeMenuSnapshot = NightwellPlayerActionSnapshot(
             track: selected,
             clipURL: availableClipURL,
