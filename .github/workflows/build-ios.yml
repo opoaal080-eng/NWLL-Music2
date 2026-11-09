@@ -16,8 +16,7 @@ permissions:
   contents: read
 jobs:
   ios:
-    # Standard Apple Silicon runner uses a separate VM pool from Intel.
-    runs-on: macos-15
+    runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@v4
       - name: Verify recovered sources
