@@ -232,7 +232,17 @@ public final class MainActivity extends Activity {
     private LinearLayout artistStrip;
     private TextView lyricsText;private android.widget.ScrollView lyricsScroll;private JSONArray lyricLines;
     private int activeLyric=-2,activeLyricWord=-2;
-    private String lyricsTrack="";
+    private String lyricsTrack="",lyricLayoutTrack="";
+    private final android.util.SparseArray<int[]> lyricRanges=new android.util.SparseArray<>();
+    private final java.util.ArrayList<Object> lyricDynamicSpans=new java.util.ArrayList<>();
+    private static final java.util.regex.Pattern KINETIC_TOKENS=java.util.regex.Pattern.compile("\\S+");
+    private final Runnable lyricTicker=new Runnable(){
+        @Override public void run(){
+            if(lyricsText==null||playback==null)return;
+            if(playback.player.getPlayWhenReady())syncLyrics(playback.player.getCurrentPosition()/1000.0);
+            ui.postDelayed(this,160);
+        }
+    };
     private ListView list;
     private TrackAdapter adapter;
     private RibbonView ribbon;
@@ -1806,7 +1816,7 @@ public final class MainActivity extends Activity {
     private String lyricsPollID="";private int lyricsRound;
     void acceptLyrics(String id,JSONObject value){
         if(!currentID.equals(id)||isDestroyed())return;activeLyrics=value;
-        if(lyricsText!=null&&lyricsTrack.equals(id)){lyricLines=value.optBoolean("synced")?value.optJSONArray("lines"):null;activeLyric=-2;activeLyricWord=-2;if(lyricLines==null)lyricsText.setText(value.optString("plain",value.optString("message",lyricsPending(value)?"Ищем подходящий текст…":"Текст пока не найден")));syncLyrics(playback==null?0:playback.player.getCurrentPosition()/1000.0);}
+        if(lyricsText!=null&&lyricsTrack.equals(id)){lyricLines=value.optBoolean("synced")?value.optJSONArray("lines"):null;activeLyric=-2;activeLyricWord=-2;lyricLayoutTrack="";if(lyricLines==null)lyricsText.setText(value.optString("plain",value.optString("message",lyricsPending(value)?"Ищем подходящий текст…":"Текст пока не найден")));syncLyrics(playback==null?0:playback.player.getCurrentPosition()/1000.0);}
         if(!lyricsPollID.equals(id)){lyricsPollID=id;lyricsRound=0;}
         if(lyricsPending(value)&&lyricsRound++<20){int round=lyricsRound;ui.postDelayed(()->{if(!currentID.equals(id)||round!=lyricsRound)return;task(()->cachedLyrics(id),next->acceptLyrics(id,next));},Math.max(2000,Math.min(60000,value.optLong("retry_after",3)*1000)));}
     }
@@ -1840,8 +1850,100 @@ public final class MainActivity extends Activity {
         if(!currentID.equals(id))return;acceptLyrics(id,v);lyricLines=v.optBoolean("synced")?v.optJSONArray("lines"):null;lyricsTrack=id;activeLyric=-2;activeLyricWord=-2;
         lyricsScroll=new android.widget.ScrollView(this);lyricsText=text("",26);lyricsText.setGravity(Gravity.CENTER);lyricsText.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);lyricsText.setPadding(dp(22),dp(28),dp(22),dp(28));lyricsText.setLineSpacing(dp(16),1);lyricsScroll.addView(lyricsText);
         if(lyricLines==null||lyricLines.length()==0)lyricsText.setText(v.optString("plain",v.optString("message",lyricsPending(v)?"Ищем подходящий текст…":"Текст пока не найден")));
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Текст песни · "+v.optString("source")).setView(lyricsScroll).setPositiveButton("Закрыть",null).create();dialog.setOnDismissListener(d->{lyricsText=null;lyricsScroll=null;lyricLines=null;});styleSheet(dialog);dialog.show();status.setText("");syncLyrics(playback==null?0:playback.player.getCurrentPosition()/1000.0);
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Текст песни · "+v.optString("source")).setView(lyricsScroll).setPositiveButton("Закрыть",null).create();dialog.setOnDismissListener(d->{ui.removeCallbacks(lyricTicker);lyricsText=null;lyricsScroll=null;lyricLines=null;lyricLayoutTrack="";lyricDynamicSpans.clear();});styleSheet(dialog);dialog.show();status.setText("");syncLyrics(playback==null?0:playback.player.getCurrentPosition()/1000.0);ui.removeCallbacks(lyricTicker);ui.postDelayed(lyricTicker,160);
     });}
+    // Build clickable lyric spans once per lyrics payload. Each word tick updates
+    // only the existing paint spans, not the text, its layout, or the scroll offset.
+    void prepareLyricLayout(){
+        if(lyricsText==null||lyricLines==null)return;
+        lyricRanges.clear();lyricDynamicSpans.clear();
+        StringBuilder content=new StringBuilder();
+        final String track=lyricsTrack;
+        for(int i=0;i<lyricLines.length();i++){
+            JSONObject line=lyricLines.optJSONObject(i);
+            if(line==null)continue;
+            int begin=content.length();
+            content.append(line.optString("text")).append("\n\n");
+            lyricRanges.put(i,new int[]{begin,content.length()});
+        }
+        android.text.SpannableStringBuilder styled=new android.text.SpannableStringBuilder(content);
+        if(styled.length()>0)styled.setSpan(
+            new android.text.style.ForegroundColorSpan(0xff9c9c9c),0,styled.length(),
+            android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        for(int i=0;i<lyricLines.length();i++){
+            int[] range=lyricRanges.get(i);
+            JSONObject line=lyricLines.optJSONObject(i);
+            if(range==null||line==null||range[0]>=range[1])continue;
+            final double seconds=line.optDouble("time",-1);
+            if(seconds<0||!Double.isFinite(seconds))continue;
+            styled.setSpan(new android.text.style.ClickableSpan(){
+                @Override public void onClick(View view){
+                    if(track.equals(currentID)&&playback!=null)playback.seek(seconds);
+                }
+                @Override public void updateDrawState(android.text.TextPaint paint){
+                    paint.setUnderlineText(false);
+                }
+            },range[0],range[1],android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+        lyricsText.setHighlightColor(Color.TRANSPARENT);
+        lyricsText.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
+        lyricsText.setText(styled,android.widget.TextView.BufferType.SPANNABLE);
+        lyricLayoutTrack=lyricsTrack;
+    }
+
+    // Optional exact word stamps from the server (seconds or Lyricsfile ms),
+    // otherwise interpolate using phonetic-length weights in a bounded window.
+    int lyricWordAt(JSONObject line,JSONObject next,double position){
+        if(line==null)return -1;
+        String text=line.optString("text","");
+        JSONArray exact=line.optJSONArray("words");
+        double lineStart=line.optDouble("time",position);
+        double lineEnd=next==null?lineStart+4:next.optDouble("time",lineStart+4);
+        if(exact!=null&&exact.length()>0){
+            StringBuilder combined=new StringBuilder();
+            double prior=-1;
+            int selected=-1;boolean valid=true;
+            for(int j=0;j<exact.length();j++){
+                JSONObject word=exact.optJSONObject(j);
+                if(word==null){valid=false;break;}
+                combined.append(word.optString("text",""));
+                double start=word.has("start")?word.optDouble("start",-1):
+                    word.has("time")?word.optDouble("time",-1):
+                    word.optDouble("start_ms",-1000)/1000.0;
+                if(!Double.isFinite(start)||start<lineStart-.25||
+                   start>lineEnd+.5||start<prior){valid=false;break;}
+                if(start<=position)selected=j;
+                prior=start;
+            }
+            if(valid&&combined.toString().trim().equals(text.trim()))return selected;
+        }
+        java.util.regex.Matcher matcher=KINETIC_TOKENS.matcher(text);
+        java.util.ArrayList<Double> weights=new java.util.ArrayList<>();
+        double sum=0;
+        while(matcher.find()){
+            String token=matcher.group();int letters=0,vowels=0;boolean punctuation=false;
+            for(int j=0;j<token.length();j++){
+                char c=token.charAt(j);
+                if(Character.isLetter(c))letters++;
+                if("aeiouyAEIOUYаеёиоуыэюяАЕЁИОУЫЭЮЯ".indexOf(c)>=0)vowels++;
+                if(",.!?:;".indexOf(c)>=0)punctuation=true;
+            }
+            double weight=.55+Math.min(letters,16)*.16+
+                Math.min(vowels,8)*.18+(punctuation?.20:0);
+            weights.add(weight);sum+=weight;
+        }
+        if(weights.isEmpty())return -1;
+        double span=Math.max(.3,lineEnd-lineStart);
+        double singing=Math.min(span,Math.max(1.1,weights.size()*1.45));
+        double progress=Math.max(0,Math.min(.99999,(position-lineStart)/singing));
+        double cumulative=0;
+        for(int j=0;j<weights.size();j++){
+            cumulative+=weights.get(j)/Math.max(.01,sum);
+            if(progress<cumulative)return j;
+        }
+        return weights.size()-1;
+    }
+
     void syncLyrics(double position){
         if(lyricsText==null||lyricLines==null||!currentID.equals(lyricsTrack))return;
         int current=-1;
@@ -1851,104 +1953,62 @@ public final class MainActivity extends Activity {
         }
         boolean kinetic=getSharedPreferences("appearance",MODE_PRIVATE)
             .getBoolean("nw-kinetic-lyrics",true);
-        int activeWord=-1;
-        if(kinetic&&current>=0){
-            JSONObject entry=lyricLines.optJSONObject(current);
-            if(entry!=null){
-                String line=entry.optString("text","");
-                java.util.regex.Matcher counter=java.util.regex.Pattern.compile("\\S+").matcher(line);
-                int total=0;while(counter.find())total++;
-                double start=entry.optDouble("time",position);
-                JSONObject after=lyricLines.optJSONObject(current+1);
-                double end=after==null?start+4:after.optDouble("time",start+4);
-                double progress=Math.max(0,Math.min(.999,(position-start)/Math.max(.4,end-start)));
-                if(total>0)activeWord=Math.min(total-1,(int)(progress*total));
-            }
+        int word=kinetic&&current>=0
+            ?lyricWordAt(lyricLines.optJSONObject(current),lyricLines.optJSONObject(current+1),position)
+            :-1;
+        if(!lyricsTrack.equals(lyricLayoutTrack)||lyricRanges.size()!=lyricLines.length()){
+            prepareLyricLayout();activeLyric=-2;activeLyricWord=-2;
         }
-        if(current==activeLyric&&activeWord==activeLyricWord)return;
+        if(current==activeLyric&&word==activeLyricWord)return;
         boolean changedLine=current!=activeLyric;
-        activeLyric=current;activeLyricWord=activeWord;
-        final String trackID=lyricsTrack;
-        StringBuilder all=new StringBuilder();
-        android.util.SparseArray<int[]> ranges=new android.util.SparseArray<>();
-        for(int i=0;i<lyricLines.length();i++){
-            JSONObject line=lyricLines.optJSONObject(i);
-            if(line==null)continue;
-            int from=all.length();
-            all.append(line.optString("text")).append("\n\n");
-            ranges.put(i,new int[]{from,all.length()});
-        }
-        android.text.SpannableString styled=new android.text.SpannableString(all);
-        if(styled.length()>0)styled.setSpan(
-            new android.text.style.ForegroundColorSpan(0xff9c9c9c),0,styled.length(),0);
-        for(int i=0;i<lyricLines.length();i++){
-            int[] range=ranges.get(i);
-            if(range==null||range[0]>=range[1])continue;
-            JSONObject line=lyricLines.optJSONObject(i);
-            final double seconds=line.optDouble("time",-1);
-            if(seconds>=0&&Double.isFinite(seconds)){
-                styled.setSpan(new android.text.style.ClickableSpan(){
-                    @Override public void onClick(View view){
-                        if(!trackID.equals(currentID)||playback==null)return;
-                        playback.seek(seconds);
-                        // The lyrics dialog remains open after seeking.
-                    }
-                    @Override public void updateDrawState(android.text.TextPaint paint){
-                        paint.setUnderlineText(false);
-                    }
-                },range[0],range[1],android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            }
-            if(i==current){
-                styled.setSpan(new android.text.style.ForegroundColorSpan(kinetic?0xffc1c1cd:0xffeeeeee),
-                    range[0],range[1],android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        activeLyric=current;activeLyricWord=word;
+        if(!(lyricsText.getText() instanceof android.text.Spannable))return;
+        android.text.Spannable styled=(android.text.Spannable)lyricsText.getText();
+        for(Object span:lyricDynamicSpans)styled.removeSpan(span);
+        lyricDynamicSpans.clear();
+        if(current>=0){
+            int[] range=lyricRanges.get(current);
+            JSONObject line=lyricLines.optJSONObject(current);
+            if(range!=null&&line!=null){
+                android.text.style.ForegroundColorSpan activeColor=
+                    new android.text.style.ForegroundColorSpan(kinetic?0xffbcbcc9:0xffeeeeee);
+                styled.setSpan(activeColor,range[0],range[1],android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                lyricDynamicSpans.add(activeColor);
                 if(kinetic){
-                    java.util.regex.Matcher word=java.util.regex.Pattern.compile("\\S+")
-                        .matcher(line.optString("text",""));
+                    java.util.regex.Matcher m=KINETIC_TOKENS.matcher(line.optString("text",""));
                     int ordinal=0;
-                    while(word.find()){
-                        int from=range[0]+word.start(),to=range[0]+word.end();
-                        if(ordinal<=activeWord){
-                            styled.setSpan(new android.text.style.ForegroundColorSpan(0xffffffff),
-                                from,to,android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                    while(m.find()){
+                        int begin=range[0]+m.start(),finish=range[0]+m.end();
+                        if(ordinal<=word){
+                            android.text.style.ForegroundColorSpan lit=
+                                new android.text.style.ForegroundColorSpan(0xffffffff);
+                            styled.setSpan(lit,begin,finish,android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                            lyricDynamicSpans.add(lit);
                         }
-                        if(ordinal==activeWord){
-                            styled.setSpan(new android.text.style.BackgroundColorSpan(0x33ffffff),
-                                from,to,android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                        if(ordinal==word){
+                            android.text.style.BackgroundColorSpan glow=
+                                new android.text.style.BackgroundColorSpan(0x24ffffff);
+                            styled.setSpan(glow,begin,finish,android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                            lyricDynamicSpans.add(glow);
                         }
                         ordinal++;
                     }
                 }
             }
         }
-        // Word emphasis is paint-only: no font size/weight spans that
-        // would change TextView line breaks or the scrollable height.
-        final int preservedScrollY=lyricsScroll==null?0:lyricsScroll.getScrollY();
-        lyricsText.setHighlightColor(Color.TRANSPARENT);
-        lyricsText.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
-        lyricsText.setText(styled);
-        if(!changedLine&&lyricsScroll!=null){
-            lyricsScroll.post(()->{
-                if(lyricsScroll!=null)lyricsScroll.scrollTo(0,preservedScrollY);
-            });
-        }
-        if(changedLine&&kinetic){
-            lyricsText.setAlpha(.86f);
-            lyricsText.animate().alpha(1f).setDuration(220).start();
-        }
-        // Follow only the NEW lyric line, never each word-level highlight.
+        lyricsText.invalidate();
         if(changedLine&&current>=0){
-            int[] highlighted=ranges.get(current);
-            final int scrollOffset=highlighted==null?0:highlighted[0];
+            int[] highlighted=lyricRanges.get(current);
+            final int offset=highlighted==null?0:highlighted[0];
             lyricsText.post(()->{
                 if(lyricsText==null||lyricsScroll==null||lyricsText.getLayout()==null)return;
-                int offset=Math.min(scrollOffset,lyricsText.length());
-                int line=lyricsText.getLayout().getLineForOffset(offset);
+                int line=lyricsText.getLayout().getLineForOffset(
+                    Math.min(offset,lyricsText.length()));
                 lyricsScroll.smoothScrollTo(0,Math.max(0,
                     lyricsText.getLayout().getLineTop(line)-lyricsScroll.getHeight()/3));
             });
         }
     }
-
 
     // Seeded Rhythm uses the same streaming endpoint as the existing Wave.
     // Matching and deduplication happen off the UI thread.
