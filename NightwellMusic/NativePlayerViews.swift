@@ -844,37 +844,39 @@ struct PlaybackQueue: View {
     private var currentIndex: Int { clock.queue.firstIndex { $0.id == clock.id } ?? -1 }
 
     var body: some View {
-        ZStack {
+        GeometryReader { viewport in
+            let compact = viewport.size.height < 570
+            ZStack {
             LinearGradient(
                 colors: [Color(white: 0.065), .black, Color(white: 0.025)],
                 startPoint: .topLeading, endPoint: .bottomTrailing
             )
             .ignoresSafeArea()
 
-            VStack(spacing: 22) {
-                HStack(alignment: .center, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 8) {
+            VStack(spacing: compact ? 8 : 22) {
+                HStack(alignment: .center, spacing: compact ? 8 : 12) {
+                    VStack(alignment: .leading, spacing: compact ? 3 : 8) {
                         Text("ТВОЯ МУЗЫКА")
-                            .font(.system(size: 10, weight: .semibold))
-                            .tracking(3.2)
+                            .font(.system(size: compact ? 8 : 10, weight: .semibold))
+                            .tracking(compact ? 2 : 3.2)
                             .foregroundStyle(Color.white.opacity(0.78))
                         Text("Очередь")
-                            .font(.system(size: 32, weight: .bold))
+                            .font(.system(size: compact ? 25 : 32, weight: .bold))
                             .tracking(-0.7)
                             .foregroundStyle(.white)
                     }
                     Spacer(minLength: 8)
                     Text("\(clock.queue.count)")
-                        .font(.system(size: 17, weight: .medium))
+                        .font(.system(size: compact ? 14 : 17, weight: .medium))
                         .monospacedDigit()
-                        .frame(width: 54, height: 54)
+                        .frame(width: compact ? 40 : 54, height: compact ? 40 : 54)
                         .background(.ultraThinMaterial, in: Circle())
                         .overlay(Circle().strokeBorder(.white.opacity(0.16)))
                         .accessibilityLabel("В очереди \(clock.queue.count) треков")
                     Button { dismiss() } label: {
                         Image(systemName: "xmark")
                             .font(.system(size: 18, weight: .medium))
-                            .frame(width: 54, height: 54)
+                            .frame(width: compact ? 40 : 54, height: compact ? 40 : 54)
                             .background(.ultraThinMaterial, in: Circle())
                             .overlay(Circle().strokeBorder(.white.opacity(0.16)))
                     }
@@ -883,16 +885,18 @@ struct PlaybackQueue: View {
 
                 ScrollViewReader { reader in
                     ScrollView(showsIndicators: false) {
-                        VStack(spacing: 10) {
+                        VStack(spacing: compact ? 4 : 10) {
                             if depthQueue {
                                 if !clock.queue.isEmpty {
                                     NightwellQueueDeck(
                                         queue: clock.queue,
                                         currentIndex: currentIndex,
-                                        origin: store.origin
+                                        origin: store.origin,
+                                        compact: compact,
+                                        availableHeight: viewport.size.height
                                     )
-                                    .padding(.top, 20)
-                                    .padding(.bottom, 24)
+                                    .padding(.top, compact ? 3 : 20)
+                                    .padding(.bottom, compact ? 3 : 24)
                                 } else {
                                     Text("Следующих треков пока нет")
                                         .font(.subheadline)
@@ -952,11 +956,11 @@ struct PlaybackQueue: View {
                             }
                         }
                         .frame(maxWidth: .infinity)
-                        .padding(.horizontal, 12)
-                        .padding(.bottom, 18)
+                        .padding(.horizontal, compact ? 8 : 12)
+                        .padding(.bottom, compact ? 4 : 18)
                     }
                     .background(
-                        RoundedRectangle(cornerRadius: 32, style: .continuous)
+                        RoundedRectangle(cornerRadius: compact ? 22 : 32, style: .continuous)
                             .fill(
                                 LinearGradient(
                                     colors: [Color(white: 0.165), Color(white: 0.12)],
@@ -965,10 +969,10 @@ struct PlaybackQueue: View {
                             )
                     )
                     .overlay {
-                        RoundedRectangle(cornerRadius: 32, style: .continuous)
+                        RoundedRectangle(cornerRadius: compact ? 22 : 32, style: .continuous)
                             .strokeBorder(Color.white.opacity(0.15), lineWidth: 1)
                     }
-                    .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: compact ? 22 : 32, style: .continuous))
                     .onAppear {
                         if !depthQueue && currentIndex >= 0 {
                             reader.scrollTo(currentIndex, anchor: .top)
@@ -976,12 +980,13 @@ struct PlaybackQueue: View {
                     }
                 }
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 30)
-            .padding(.bottom, 18)
+            .padding(.horizontal, compact ? 12 : 20)
+            .padding(.top, compact ? 8 : 30)
+            .padding(.bottom, compact ? 8 : 18)
         }
         .tint(.white)
         .foregroundStyle(nightwellText)
+        }
     }
 }
 

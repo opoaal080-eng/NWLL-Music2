@@ -101,6 +101,9 @@ struct NightwellQueueDeck: View {
     let queue: [Track]
     let currentIndex: Int
     let origin: URL
+    // Layout follows the sheet's actual detent height.
+    let compact: Bool
+    let availableHeight: CGFloat
 
     // -1 means follow the first upcoming track until the user browses.
     @State private var position = -1
@@ -169,35 +172,35 @@ struct NightwellQueueDeck: View {
     private func albumCard(
         _ track: Track, at absoluteIndex: Int, depth: Int, width: CGFloat
     ) -> some View {
-        let height = width * 0.82
+        let height = width * (compact ? 0.76 : 0.82)
         let selected = highlightedID == track.id
         return VStack(spacing: 0) {
-            Cover(track: track, origin: origin, pixelWidth: 680)
+            Cover(track: track, origin: origin, pixelWidth: compact ? 440 : 680)
                 .scaledToFill()
                 .frame(width: width, height: height)
                 .clipped()
                 .overlay(alignment: .topLeading) {
                     Text(section(for: absoluteIndex))
-                        .font(.system(size: 10, weight: .bold))
-                        .tracking(1.1)
+                        .font(.system(size: compact ? 8 : 10, weight: .bold))
+                        .tracking(compact ? 0.8 : 1.1)
                         .foregroundStyle(.white)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
+                        .padding(.horizontal, compact ? 9 : 12)
+                        .padding(.vertical, compact ? 5 : 8)
                         .background(.ultraThinMaterial, in: Capsule())
-                        .padding(14)
+                        .padding(compact ? 9 : 14)
                 }
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: compact ? 2 : 5) {
                 Text(track.title)
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.system(size: compact ? 13 : 16, weight: .semibold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
                 Text(track.artist)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: compact ? 10 : 12, weight: .medium))
                     .foregroundStyle(Color.white.opacity(0.62))
                     .lineLimit(1)
             }
-            .frame(width: width - 32, height: 74, alignment: .leading)
-            .padding(.horizontal, 16)
+            .frame(width: width - (compact ? 24 : 32), height: compact ? 48 : 74, alignment: .leading)
+            .padding(.horizontal, compact ? 12 : 16)
             .background(
                 LinearGradient(
                     colors: [Color(white: 0.075), Color(white: 0.022)],
@@ -205,22 +208,22 @@ struct NightwellQueueDeck: View {
                 )
             )
         }
-        .frame(width: width, height: height + 74)
-        .background(Color(white: 0.04), in: RoundedRectangle(cornerRadius: 22))
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .frame(width: width, height: height + (compact ? 48 : 74))
+        .background(Color(white: 0.04), in: RoundedRectangle(cornerRadius: compact ? 17 : 22))
+        .clipShape(RoundedRectangle(cornerRadius: compact ? 17 : 22, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
+            RoundedRectangle(cornerRadius: compact ? 17 : 22, style: .continuous)
                 .strokeBorder(
                     selected ? Color.white.opacity(0.90) : Color.white.opacity(0.19),
                     lineWidth: selected ? 2 : 1
                 )
         }
-        .shadow(color: .black.opacity(0.48), radius: 18, y: 10)
+        .shadow(color: .black.opacity(0.48), radius: compact ? 10 : 18, y: compact ? 5 : 10)
         .scaleEffect((1 - CGFloat(depth) * 0.048) * (selected ? 1.035 : 1))
         .rotationEffect(.degrees(Double(depth) * 1.3))
-        .offset(x: CGFloat(depth) * 15, y: CGFloat(depth) * 13)
+        .offset(x: CGFloat(depth) * (compact ? 9 : 15), y: CGFloat(depth) * (compact ? 7 : 13))
         .zIndex(Double(3 - depth))
-        .contentShape(RoundedRectangle(cornerRadius: 22))
+        .contentShape(RoundedRectangle(cornerRadius: compact ? 17 : 22))
         .gesture(
             LongPressGesture(minimumDuration: 0.55)
                 .exclusively(before: TapGesture())
@@ -250,7 +253,9 @@ struct NightwellQueueDeck: View {
     var body: some View {
         VStack(spacing: 0) {
             GeometryReader { geometry in
-                let cardWidth = min(max(190, geometry.size.width - 78), 310)
+                let cardWidth = compact
+                    ? min(170, max(112, min(geometry.size.width - 66, (geometry.size.height - 60) / 0.76)))
+                    : min(max(190, geometry.size.width - 78), 310)
                 ZStack {
                     ForEach(Array(upcoming.reversed()), id: \.offset) { item in
                         albumCard(item.element,
@@ -261,51 +266,51 @@ struct NightwellQueueDeck: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(height: 354)
+            .frame(height: compact ? max(145, min(195, availableHeight * 0.445)) : 354)
 
             if queue.count > 1 {
-                HStack(spacing: 20) {
+                HStack(spacing: compact ? 12 : 20) {
                     Button { browse(-1) } label: {
                         Image(systemName: "chevron.left")
-                            .font(.system(size: 18, weight: .medium))
-                            .frame(width: 44, height: 44)
+                            .font(.system(size: compact ? 15 : 18, weight: .medium))
+                            .frame(width: compact ? 34 : 44, height: compact ? 34 : 44)
                     }
                     .disabled(safePosition == 0)
                     .opacity(safePosition == 0 ? 0.35 : 1)
 
                     Text("\(safePosition + 1) из \(queue.count)")
-                        .font(.system(size: 14, weight: .medium))
+                        .font(.system(size: compact ? 12 : 14, weight: .medium))
                         .monospacedDigit()
-                        .frame(minWidth: 84)
+                        .frame(minWidth: compact ? 72 : 84)
 
                     Button { browse(1) } label: {
                         Image(systemName: "chevron.right")
-                            .font(.system(size: 18, weight: .medium))
-                            .frame(width: 44, height: 44)
+                            .font(.system(size: compact ? 15 : 18, weight: .medium))
+                            .frame(width: compact ? 34 : 44, height: compact ? 34 : 44)
                     }
                     .disabled(safePosition >= queue.count - 1)
                     .opacity(safePosition >= queue.count - 1 ? 0.35 : 1)
                 }
                 .foregroundStyle(Color.white.opacity(0.90))
-                .padding(.top, 4)
+                .padding(.top, compact ? 0 : 4)
                 .accessibilityElement(children: .contain)
             }
 
             ZStack {
                 if let notice {
                     Text(notice)
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: compact ? 10 : 12, weight: .semibold))
                         .foregroundStyle(.white)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 7)
+                        .padding(.horizontal, compact ? 10 : 14)
+                        .padding(.vertical, compact ? 4 : 7)
                         .background(.ultraThinMaterial, in: Capsule())
                         .transition(.scale(scale: 0.92).combined(with: .opacity))
                 }
             }
-            .frame(height: 42)
+            .frame(height: compact ? 24 : 42)
 
-            Text("Тап: играть сейчас · удержание: следующая\nСвайп: листать всю очередь")
-                .font(.system(size: 11, weight: .medium))
+            Text(compact ? "Тап: играть · удержание: следующим\nСвайп: листать очередь" : "Тап: играть сейчас · удержание: следующая\nСвайп: листать всю очередь")
+                .font(.system(size: compact ? 9 : 11, weight: .medium))
                 .foregroundStyle(Color.white.opacity(0.53))
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
