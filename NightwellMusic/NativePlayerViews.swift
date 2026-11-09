@@ -910,30 +910,30 @@ struct PlaybackQueue: View {
             )
             .ignoresSafeArea()
 
-            VStack(spacing: compact ? 8 : 22) {
+            VStack(spacing: compact ? 10 : 22) {
                 HStack(alignment: .center, spacing: compact ? 8 : 12) {
-                    VStack(alignment: .leading, spacing: compact ? 3 : 8) {
+                    VStack(alignment: .leading, spacing: compact ? 4 : 8) {
                         Text("ТВОЯ МУЗЫКА")
-                            .font(.system(size: compact ? 8 : 10, weight: .semibold))
-                            .tracking(compact ? 2 : 3.2)
+                            .font(.system(size: compact ? 9 : 10, weight: .semibold))
+                            .tracking(compact ? 1.6 : 3.2)
                             .foregroundStyle(Color.white.opacity(0.78))
                         Text("Очередь")
-                            .font(.system(size: compact ? 25 : 32, weight: .bold))
+                            .font(.system(size: compact ? 28 : 32, weight: .bold))
                             .tracking(-0.7)
                             .foregroundStyle(.white)
                     }
-                    Spacer(minLength: 8)
+                    Spacer(minLength: 4)
                     Text("\(clock.queue.count)")
                         .font(.system(size: compact ? 14 : 17, weight: .medium))
                         .monospacedDigit()
-                        .frame(width: compact ? 40 : 54, height: compact ? 40 : 54)
+                        .frame(width: compact ? 44 : 54, height: compact ? 44 : 54)
                         .background(.ultraThinMaterial, in: Circle())
                         .overlay(Circle().strokeBorder(.white.opacity(0.16)))
                         .accessibilityLabel("В очереди \(clock.queue.count) треков")
                     Button { dismiss() } label: {
                         Image(systemName: "xmark")
                             .font(.system(size: 18, weight: .medium))
-                            .frame(width: compact ? 40 : 54, height: compact ? 40 : 54)
+                            .frame(width: compact ? 44 : 54, height: compact ? 44 : 54)
                             .background(.ultraThinMaterial, in: Circle())
                             .overlay(Circle().strokeBorder(.white.opacity(0.16)))
                     }
@@ -952,8 +952,8 @@ struct PlaybackQueue: View {
                                         compact: compact,
                                         availableHeight: viewport.size.height
                                     )
-                                    .padding(.top, compact ? 3 : 20)
-                                    .padding(.bottom, compact ? 3 : 24)
+                                    .padding(.top, compact ? 8 : 20)
+                                    .padding(.bottom, compact ? 8 : 24)
                                 } else {
                                     Text("Следующих треков пока нет")
                                         .font(.subheadline)
@@ -1037,9 +1037,9 @@ struct PlaybackQueue: View {
                     }
                 }
             }
-            .padding(.horizontal, compact ? 12 : 20)
-            .padding(.top, compact ? 8 : 30)
-            .padding(.bottom, compact ? 8 : 18)
+            .padding(.horizontal, compact ? 16 : 20)
+            .padding(.top, compact ? 18 : 30)
+            .padding(.bottom, compact ? 12 : 18)
         }
         .tint(.white)
         .foregroundStyle(nightwellText)
