@@ -311,6 +311,111 @@ private struct NightwellLibraryScrollTracker: ViewModifier {
     }
 }
 
+// Soft white search illumination tracks the actual UIKit text insertion caret.
+// UIKit supplies precise caret coordinates even when a long query scrolls horizontally.
+private struct NightwellSearchCaretField: UIViewRepresentable {
+    @Binding var text: String
+    @Binding var caretX: CGFloat
+    @Binding var focused: Bool
+
+    func makeUIView(context: Context) -> UITextField {
+        let field = UITextField(frame: .zero)
+        field.delegate = context.coordinator
+        field.addTarget(context.coordinator, action: #selector(Coordinator.changed(_:)), for: .editingChanged)
+        field.textColor = .white
+        field.tintColor = .white
+        field.font = .systemFont(ofSize: 17, weight: .medium)
+        field.attributedPlaceholder = NSAttributedString(
+            string: "Трек или исполнитель",
+            attributes: [.foregroundColor: UIColor.white.withAlphaComponent(0.44)]
+        )
+        field.autocapitalizationType = .none
+        field.autocorrectionType = .no
+        field.spellCheckingType = .no
+        field.keyboardAppearance = .dark
+        field.returnKeyType = .search
+        field.clearButtonMode = .never
+        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return field
+    }
+
+    func updateUIView(_ field: UITextField, context: Context) {
+        context.coordinator.parent = self
+        if field.text != text {
+            field.text = text
+            context.coordinator.reportCaret(field)
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+
+    final class Coordinator: NSObject, UITextFieldDelegate {
+        var parent: NightwellSearchCaretField
+        init(parent: NightwellSearchCaretField) { self.parent = parent }
+
+        @objc func changed(_ field: UITextField) {
+            let value = field.text ?? ""
+            if parent.text != value { parent.text = value }
+            reportCaret(field)
+        }
+
+        func textFieldDidChangeSelection(_ field: UITextField) { reportCaret(field) }
+        func textFieldDidBeginEditing(_ field: UITextField) {
+            DispatchQueue.main.async { self.parent.focused = true }
+            reportCaret(field)
+        }
+        func textFieldDidEndEditing(_ field: UITextField) {
+            DispatchQueue.main.async { self.parent.focused = false }
+        }
+        func textFieldShouldReturn(_ field: UITextField) -> Bool {
+            field.resignFirstResponder()
+            return true
+        }
+        func reportCaret(_ field: UITextField) {
+            guard let range = field.selectedTextRange else { return }
+            // Do not mutate SwiftUI state during a UIViewRepresentable update.
+            DispatchQueue.main.async {
+                guard field.window != nil else { return }
+                let x = field.caretRect(for: range.end).midX
+                if abs(self.parent.caretX - x) > 0.5 { self.parent.caretX = x }
+            }
+        }
+    }
+}
+
+private struct NightwellSearchCaretLight: View {
+    let x: CGFloat
+    let active: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        GeometryReader { geometry in
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !active || reduceMotion)) { timeline in
+                let seconds = timeline.date.timeIntervalSinceReferenceDate
+                let drift = reduceMotion ? 0.0 : sin(seconds * 11) * 4.0
+                let pulse = reduceMotion ? 1.0 : 0.85 + 0.15 * sin(seconds * 14)
+                let center = min(max(28, x + drift), max(28, geometry.size.width - 10))
+                ZStack {
+                    Ellipse()
+                        .fill(RadialGradient(
+                            colors: [.white.opacity(active ? 0.44 * pulse : 0), .white.opacity(active ? 0.19 * pulse : 0), .clear],
+                            center: .center, startRadius: 0, endRadius: 66
+                        ))
+                        .frame(width: 160, height: 112)
+                        .blur(radius: 10)
+                    Capsule()
+                        .fill(.white.opacity(active ? 0.38 * pulse : 0))
+                        .frame(width: 5, height: 35)
+                        .blur(radius: 7)
+                }
+                .position(x: center, y: geometry.size.height / 2)
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
 struct NativeRoot: View {
     @EnvironmentObject var store: MusicStore
     @State private var feature: PremiumFeatureView.Kind?
@@ -337,6 +442,8 @@ struct NativeRoot: View {
     @State private var shareText: String?
     @State private var showShare = false
     @State private var launching = true
+    @State private var searchCaretX: CGFloat = 16
+    @State private var searchFocused = false
     @Environment(\.accessibilityReduceMotion) private var reducedMotion
     @ViewBuilder private var mainScene: some View {
         GeometryReader { viewport in
@@ -715,9 +822,34 @@ struct NativeRoot: View {
         case .search:
             VStack(alignment: .leading, spacing: 14) {
                 Text("Поиск").font(.largeTitle.bold())
-                HStack { Image(systemName: "magnifyingglass"); TextField("Трек или исполнитель", text: $store.query).textInputAutocapitalization(.never).autocorrectionDisabled().onChange(of: store.query) { _ in store.scheduleSearch() }; if !store.query.isEmpty { Button { store.query = "" } label: { Image(systemName: "xmark.circle.fill") } } }.padding(14)
-                    .background { RoundedRectangle(cornerRadius: 18).fill(.ultraThinMaterial).opacity(0.48) }
-                    .overlay(RoundedRectangle(cornerRadius: 18).stroke(.white.opacity(0.28), lineWidth: 1))
+                HStack(spacing: 12) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.white.opacity(0.8))
+                    ZStack(alignment: .leading) {
+                        NightwellSearchCaretLight(x: searchCaretX, active: searchFocused)
+                        NightwellSearchCaretField(
+                            text: $store.query,
+                            caretX: $searchCaretX,
+                            focused: $searchFocused
+                        )
+                        .frame(height: 50)
+                        .onChange(of: store.query) { _ in store.scheduleSearch() }
+                    }
+                    .frame(maxWidth: .infinity)
+                    if !store.query.isEmpty {
+                        Button { store.query = "" } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.white.opacity(0.7))
+                        }
+                    }
+                }
+                .padding(.horizontal, 14)
+                .background {
+                    RoundedRectangle(cornerRadius: 22)
+                        .fill(.ultraThinMaterial).opacity(0.48)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 22))
+                .overlay(RoundedRectangle(cornerRadius: 22).stroke(.white.opacity(0.28), lineWidth: 1))
                 if !store.searchMessage.isEmpty { Text(store.searchMessage).font(.caption).foregroundStyle(.secondary) }
                 // Prepared off the UI thread. Never rescan the whole catalogue while typing.
                 let combinedArtists = store.searchArtistSuggestions
