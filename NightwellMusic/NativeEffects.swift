@@ -49,77 +49,79 @@ struct HomeLyricLine: View {
     @Environment(\.scenePhase) private var scene
     @Environment(\.accessibilityReduceMotion) private var reduced
     @State private var fullscreen = false
-    @State private var sampledPosition: Double?
 
-    private var position: Double { sampledPosition ?? clock.position }
-    private var activeLine: (line: Lyrics.Line, end: Double)? {
-        guard enabled, clock.playing, model.value?.synced == true,
-              let lines = model.value?.lines,
-              let index = lines.lastIndex(where: { $0.time <= position }) else { return nil }
-        let line = lines[index]
-        if position - line.time > 4.5 && index + 1 >= lines.count { return nil }
-        let end = index + 1 < lines.count ? lines[index + 1].time : line.time + 4
-        if position - line.time > 4.5 { return nil }
+    // The position must be re-sampled even if an AVPlayer/KVO notification is
+    // missed. A view-owned TimelineView survives ordinary lyric line changes,
+    // pause/buffering and portrait/landscape layout transitions.
+    private func positionForFrame() -> Double {
+        let fallback = clock.position.isFinite ? max(0, clock.position) : 0
+        guard scene == .active, clock.playing else { return fallback }
+        let live = NativePlayer.shared.lyricPlaybackPosition()
+        guard live.isFinite, live >= 0 else { return fallback }
+        // Some providers briefly report zero while preparing the next item.
+        return live <= 0.01 && fallback > 0.5 ? fallback : live
+    }
+
+    private func activeLine(at position: Double) -> (line: Lyrics.Line, end: Double)? {
+        guard enabled, model.value?.synced == true,
+              let lines = model.value?.lines, !lines.isEmpty else { return nil }
+        // Binary search rather than walking every timestamp six times a second.
+        var lower = 0, upper = lines.count
+        while lower < upper {
+            let middle = (lower + upper) / 2
+            if lines[middle].time <= position { lower = middle + 1 }
+            else { upper = middle }
+        }
+        guard lower > 0 else { return nil }
+        let index = lower - 1, line = lines[index]
+        let end = index + 1 < lines.count
+            ? max(line.time + 0.3, lines[index + 1].time)
+            : line.time + 4
+        // Do not erase a valid line after 4.5s. Long instrumental gaps or
+        // buffering otherwise leave the Home lyric blank until a view rebuild.
         return (line, end)
     }
 
-    var body: some View {
-        Group {
-            if let activeLine {
-                Button { fullscreen = true } label: {
-                    Group {
-                        if kineticEnabled {
-                            NightwellKineticLyricLine(
-                                text: activeLine.line.text,
-                                start: activeLine.line.time,
-                                end: activeLine.end,
-                                position: position,
-                                active: true,
-                                enabled: true,
-                                chorus: false,
-                                timedWords: activeLine.line.words,
-                                fontSize: fontSize
-                            )
-                            .equatable()
-                        } else {
-                            Text(activeLine.line.text)
-                                .font(.system(size: fontSize, weight: .bold, design: .rounded))
-                                .foregroundStyle(.white.opacity(0.92))
-                                .multilineTextAlignment(.center)
-                        }
+    @ViewBuilder private func currentLyric(at position: Double) -> some View {
+        if let current = activeLine(at: position) {
+            Button { fullscreen = true } label: {
+                Group {
+                    if kineticEnabled {
+                        NightwellKineticLyricLine(
+                            text: current.line.text,
+                            start: current.line.time,
+                            end: current.end,
+                            position: position,
+                            active: true,
+                            enabled: true,
+                            chorus: false,
+                            timedWords: current.line.words,
+                            fontSize: fontSize
+                        )
+                        .equatable()
+                    } else {
+                        Text(current.line.text)
+                            .font(.system(size: fontSize, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.92))
+                            .multilineTextAlignment(.center)
                     }
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.72)
-                    .frame(maxWidth: .infinity)
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .id(activeLine.line.time)
-                .transition(reduced ? .opacity : .opacity.combined(with: .offset(y: 6)))
-                .accessibilityLabel(activeLine.line.text)
+                .lineLimit(2)
+                .minimumScaleFactor(0.72)
+                .frame(maxWidth: .infinity)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel(current.line.text)
+            .transition(reduced ? .opacity : .opacity.combined(with: .offset(y: 6)))
+            .animation(reduced ? nil : .easeInOut(duration: 0.20), value: current.line.time)
         }
-        .animation(reduced ? nil : .easeInOut(duration: 0.22),
-                   value: activeLine?.line.time)
-        .task(id: clock.id) {
-            // The normal UI tick is coarser than karaoke. Sample only while a
-            // home lyric exists and playback is active; no audio/network work.
-            while !Task.isCancelled {
-                if enabled && kineticEnabled && scene == .active && clock.playing {
-                    let live = NativePlayer.shared.lyricPlaybackPosition()
-                    if live.isFinite && live >= 0 &&
-                        (sampledPosition == nil || abs(live - (sampledPosition ?? 0)) >= 0.04) {
-                        sampledPosition = live
-                    }
-                } else if sampledPosition != nil {
-                    sampledPosition = nil
-                }
-                do {
-                    try await Task.sleep(nanoseconds:
-                        enabled && kineticEnabled && scene == .active && clock.playing
-                        ? 140_000_000 : 450_000_000)
-                } catch { return }
-            }
+    }
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.15)) { _ in
+            currentLyric(at: positionForFrame())
+                .frame(maxWidth: .infinity)
         }
         .sheet(isPresented: $fullscreen) {
             NavigationStack {
