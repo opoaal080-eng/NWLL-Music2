@@ -14,6 +14,10 @@ import Network
     var onTick: (([String: Any]) -> Void)?
     @Published var position = 0.0
     @Published var duration = 1.0
+    // Visual metadata may lead the actual playhead while the next asset loads.
+    @Published var displayID = ""
+    @Published var displayPosition = 0.0
+    @Published var displayDuration = 1.0
     @Published var playing = false
     @Published var preparing = false
     @Published var bufferFraction = 0.0
@@ -50,6 +54,16 @@ import Network
         let next = value["playing"] as? Bool ?? false
         if playing != next { playing = next; status.playing = next }
         if id != nextID { id = nextID; status.id = nextID }
+        let nextDisplayID = value["displayID"] as? String ?? nextID
+        if displayID != nextDisplayID { displayID = nextDisplayID }
+        let rawDisplayDuration = value["displayDuration"] as? Double ?? duration
+        let nextDisplayDuration = rawDisplayDuration.isFinite && rawDisplayDuration > 0.5
+            ? max(1, min(rawDisplayDuration, 604800)) : duration
+        if displayDuration != nextDisplayDuration { displayDuration = nextDisplayDuration }
+        let rawDisplayPosition = value["displayPosition"] as? Double ?? position
+        let nextDisplayPosition = rawDisplayPosition.isFinite
+            ? min(displayDuration, max(0, rawDisplayPosition)) : 0
+        if displayPosition != nextDisplayPosition { displayPosition = nextDisplayPosition }
         let nextPreparing = value["preparing"] as? Bool ?? false
         let rawBuffered = value["bufferFraction"] as? Double ?? 0
         let nextBuffered = rawBuffered.isFinite ? min(1, max(0, rawBuffered)) : 0
@@ -64,6 +78,9 @@ import Network
         onTick?(value)
     }
     var current: Track? { queue.first { $0.id == id } }
+    var displayCurrent: Track? {
+        queue.first { $0.id == (displayID.isEmpty ? id : displayID) } ?? current
+    }
     func toggle() { playing ? NativePlayer.shared.pause() : NativePlayer.shared.play() }
 }
 
@@ -477,6 +494,38 @@ private struct AudioQualityDecision: Decodable {
     private var hasNetworkPath = true
     private var networkGeneration = UUID()
     private var lastConnectionRefresh = Date.distantPast
+    private var lastConfirmedServerResponse = Date.distantPast
+    private var consecutiveConnectionFailures = 0
+
+    private func markServerReachable() {
+        consecutiveConnectionFailures = 0
+        lastConfirmedServerResponse = Date()
+        connectionStatus = "Онлайн"
+    }
+
+    // HTTP 4xx or a JSON decoding error means the API responded: it is not
+    // evidence that the server is offline. Authentication is a separate state.
+    private func isServerResponse(_ error: Error) -> Bool {
+        if error is DecodingError { return true }
+        if let response = error as? RequestRetry.HTTPFailure {
+            return (400..<500).contains(response.status)
+        }
+        return false
+    }
+
+    private func probeAPIReachability(at server: URL) async -> Bool {
+        guard let url = URL(string: "/api/me", relativeTo: server)?.absoluteURL else { return false }
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData,
+                                 timeoutInterval: 6)
+        request.httpMethod = "HEAD"
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse,
+                  http.url?.host == server.host else { return false }
+            // 401/403/404/405 still prove an origin/server response; 5xx does not.
+            return (200..<500).contains(http.statusCode)
+        } catch { return false }
+    }
 
     private func checkConnection() {
         guard applicationIsActive, sessionReady, !starting, connectionCheck == nil else { return }
@@ -519,7 +568,7 @@ private struct AudioQualityDecision: Decodable {
                         await self.refreshProfile()
                     }
                 }
-                self.connectionStatus = "Онлайн"
+                self.markServerReachable()
                 if (wasOffline || changedAccount) && self.account != nil &&
                     Date().timeIntervalSince(self.lastConnectionRefresh) > 30 {
                     self.lastConnectionRefresh = Date()
@@ -531,7 +580,25 @@ private struct AudioQualityDecision: Decodable {
                     }
                 }
             } catch {
-                if !Task.isCancelled, self.origin == server, self.sessionGeneration == session, self.connectionCheckGeneration == checkID, self.hasNetworkPath { self.connectionStatus = "Ограничен" }
+                let responded: Bool
+                if self.isServerResponse(error) { responded = true }
+                else { responded = await self.probeAPIReachability(at: server) }
+                guard !Task.isCancelled, self.origin == server,
+                      self.sessionGeneration == session,
+                      self.connectionCheckGeneration == checkID,
+                      self.hasNetworkPath else { return }
+                if responded {
+                    self.markServerReachable()
+                } else {
+                    self.consecutiveConnectionFailures += 1
+                    // One timeout must not override a recently healthy API.
+                    if self.consecutiveConnectionFailures >= 3 &&
+                       Date().timeIntervalSince(self.lastConfirmedServerResponse) > 30 {
+                        self.connectionStatus = "Ограничен"
+                    } else if self.connectionStatus != "Онлайн" {
+                        self.connectionStatus = "Загрузка…"
+                    }
+                }
             }
         }
     }
@@ -663,7 +730,7 @@ private struct AudioQualityDecision: Decodable {
                 }
             }
             restoreSessionSnapshot()
-            connectionStatus = "Онлайн"
+            markServerReachable()
             sessionReady = true
             if let id = pendingSharedTrackID { pendingSharedTrackID = nil; await openSharedTrack(id) }
             restorePlayback()
@@ -677,8 +744,10 @@ private struct AudioQualityDecision: Decodable {
             }
         } catch {
             guard generation == sessionGeneration, !Task.isCancelled else { return }
-            connectionStatus = hasNetworkPath ? "Ограничен" : "Оффлайн"
+            connectionStatus = hasNetworkPath ? "Загрузка…" : "Оффлайн"
             sessionReady = true
+            // A failed identity request is not proof that the server is down.
+            // The periodic watcher verifies actual API reachability.
         }
         await localFiles
         guard generation == sessionGeneration else { return }
@@ -868,7 +937,7 @@ private struct AudioQualityDecision: Decodable {
                     self.catalog = value.tracks
                     self.syncFavoriteDownloadsIfEnabled()
                     successes += 1
-                    self.connectionStatus = "Онлайн"
+                    self.markServerReachable()
                     self.saveSessionSnapshot()
                 } catch { if current() { failures.append(error.localizedDescription) } }
             }, likes: {
@@ -879,7 +948,7 @@ private struct AudioQualityDecision: Decodable {
                     self.reconcileFavoriteOrder(value.ids)
                     self.syncFavoriteDownloadsIfEnabled()
                     successes += 1
-                    self.connectionStatus = "Онлайн"
+                    self.markServerReachable()
                     self.saveSessionSnapshot()
                 } catch { if current() { failures.append(error.localizedDescription) } }
             }, playlists: {
@@ -889,13 +958,14 @@ private struct AudioQualityDecision: Decodable {
                     self.playlists = value.playlists
                     self.ensureLibrarySearchIndex()
                     successes += 1
-                    self.connectionStatus = "Онлайн"
+                    self.markServerReachable()
                     self.saveSessionSnapshot()
                 } catch { if current() { failures.append(error.localizedDescription) } }
             })
             guard current() else { return }
             if successes == 0 {
-                self.connectionStatus = self.hasNetworkPath ? "Ограничен" : "Оффлайн"
+                // One failed library refresh does not override a healthy API
+                // ping. The connection watcher is the only outage authority.
                 if self.catalog.isEmpty { self.error = failures.first }
             }
         }
