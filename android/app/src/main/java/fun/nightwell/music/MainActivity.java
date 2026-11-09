@@ -241,6 +241,44 @@ public final class MainActivity extends Activity {
     private ArtworkCache artworkCache;
     private TextView fullTime,homePlay,fullPlay,fullLike,fullDislike,fullAudioOutput,fullShuffle;
     private SeekBar seek;
+    // Search glow renders behind the text and follows its true selection caret.
+    // Its frame clock runs only while the input field has focus.
+    private static final class WhiteSearchCaretGlow extends View {
+        private final android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        private float caretX = 38f, destinationX = 38f;
+        private boolean active;
+        WhiteSearchCaretGlow(android.content.Context context){super(context);setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);}
+        void follow(float x){destinationX=Math.max(0,x);if(active)invalidate();}
+        void running(boolean enabled){active=enabled;caretX=destinationX;invalidate();}
+        @Override protected void onDraw(android.graphics.Canvas canvas){
+            super.onDraw(canvas);
+            if(!active||getWidth()<=0||getHeight()<=0)return;
+            // Fast easing makes the soft trailing highlight catch up to cursor
+            // moves, including cursor taps and horizontal EditText scrolling.
+            caretX+=(destinationX-caretX)*.36f;
+            float radius=getResources().getDisplayMetrics().density*89f;
+            float x=Math.max(0,Math.min(getWidth(),caretX)),y=getHeight()*.5f;
+            float pulse=.89f+.11f*(float)Math.sin(android.os.SystemClock.uptimeMillis()*.014);
+            paint.setShader(new android.graphics.RadialGradient(x,y,radius,
+                new int[]{android.graphics.Color.argb((int)(112*pulse),255,255,255),0x26ffffff,0x00ffffff},
+                new float[]{0f,.38f,1f},android.graphics.Shader.TileMode.CLAMP));
+            canvas.drawCircle(x,y,radius,paint);
+            paint.setShader(null);
+            paint.setColor(android.graphics.Color.argb((int)(62*pulse),255,255,255));
+            canvas.drawRoundRect(x-3*getResources().getDisplayMetrics().density,y-20*getResources().getDisplayMetrics().density,
+                x+3*getResources().getDisplayMetrics().density,y+20*getResources().getDisplayMetrics().density,
+                7*getResources().getDisplayMetrics().density,7*getResources().getDisplayMetrics().density,paint);
+            postInvalidateDelayed(16);
+        }
+    }
+    private static final class CursorAwareSearchField extends EditText {
+        Runnable selectionUpdated;
+        CursorAwareSearchField(android.content.Context context){super(context);}
+        @Override protected void onSelectionChanged(int start,int end){
+            super.onSelectionChanged(start,end);
+            if(selectionUpdated!=null)post(selectionUpdated);
+        }
+    }
     private EditText search;
     private LinearLayout artistStrip;
     private TextView lyricsText;private android.widget.ScrollView lyricsScroll;private JSONArray lyricLines;
@@ -1088,7 +1126,47 @@ public final class MainActivity extends Activity {
             },70);
             return;
         }
-        if(screen.equals("Поиск")){search=new EditText(this);search.setTextColor(Color.WHITE);search.setSingleLine(true);search.setTextSize(16);search.setHintTextColor(0xff999ca8);search.setPadding(dp(16),dp(14),dp(16),dp(14));search.setBackground(touchSurface(0xff202228,24));search.setHint("Трек или исполнитель");body.addView(search);search.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int st,int c,int a){}public void onTextChanged(CharSequence s,int st,int before,int count){query=s.toString();search(query);}public void afterTextChanged(Editable e){}});shown=new JSONArray();artistStrip=column();body.addView(artistStrip);}
+        if(screen.equals("Поиск")){
+            FrameLayout searchBox=new FrameLayout(this);
+            searchBox.setBackground(touchSurface(0xff202228,24));
+            searchBox.setClipToOutline(true);
+            WhiteSearchCaretGlow glow=new WhiteSearchCaretGlow(this);
+            searchBox.addView(glow,new FrameLayout.LayoutParams(-1,-1));
+            CursorAwareSearchField entry=new CursorAwareSearchField(this);
+            search=entry;
+            search.setTextColor(Color.WHITE);
+            search.setSingleLine(true);
+            search.setTextSize(16);
+            search.setHintTextColor(0xff999ca8);
+            search.setPadding(dp(16),dp(14),dp(16),dp(14));
+            search.setBackgroundColor(Color.TRANSPARENT);
+            search.setHint("Трек или исполнитель");
+            search.setSelectAllOnFocus(false);
+            searchBox.addView(search,new FrameLayout.LayoutParams(-1,-2));
+            body.addView(searchBox,new LinearLayout.LayoutParams(-1,-2));
+            Runnable moveGlow=()->{
+                if(search==null||!search.isAttachedToWindow()||search.getLayout()==null)return;
+                int insertion=Math.max(0,search.getSelectionStart());
+                float caret=search.getLayout().getPrimaryHorizontal(insertion)
+                    +search.getTotalPaddingLeft()-search.getScrollX();
+                glow.follow(caret);
+            };
+            entry.selectionUpdated=moveGlow;
+            search.setOnFocusChangeListener((view,focused)->{
+                moveGlow.run();
+                glow.running(focused);
+            });
+            search.addOnLayoutChangeListener((view,left,top,right,bottom,oldLeft,oldTop,oldRight,oldBottom)->moveGlow.run());
+            search.addTextChangedListener(new TextWatcher(){
+                public void beforeTextChanged(CharSequence s,int st,int c,int a){}
+                public void onTextChanged(CharSequence s,int st,int before,int count){
+                    query=s.toString();search(query);search.post(moveGlow);
+                }
+                public void afterTextChanged(Editable e){}
+            });
+            shown=new JSONArray();
+            artistStrip=column();body.addView(artistStrip);
+        }
         else if(screen.equals("Избранное")){shown=new JSONArray();for(int i=0;i<catalog.length();i++)if(likes.contains(catalog.optJSONObject(i).optString("id")))shown.put(catalog.optJSONObject(i));shown=sortedFavorites(shown);LinearLayout actionsRow=column();actionsRow.setGravity(Gravity.RIGHT);TextView sort=iconButton("⇅",()->favoriteSortMenu());actionsRow.addView(sort);TextView more=iconButton("⋯",()->collectionMenu("likes",""));LinearLayout.LayoutParams moreParams=new LinearLayout.LayoutParams(dp(52),dp(48));moreParams.gravity=Gravity.RIGHT;actionsRow.addView(more,moreParams);body.addView(actionsRow);}
         else if(screen.equals("Плейлисты")){
             android.widget.ScrollView scroll=new android.widget.ScrollView(this);
