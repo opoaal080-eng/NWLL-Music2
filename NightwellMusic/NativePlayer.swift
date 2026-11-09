@@ -202,9 +202,11 @@ final class NativePlayer {
     private(set) var premiumSoundStatus = "Запустите трек и выберите пресет."
     // Keep the last real playhead when AVPlayer/AVAudioPlayerNode stop advancing on pause.
     private var playbackPosition: Double {
-        if !wantsPlay && !waitingForReady { return lastPosition }
+        // Never ask a stopped decoder for the visible paused position.
+        // The renderer may briefly report an older sample or zero after pausing.
+        if !wantsPlay { return lastPosition }
         let live = enginePlayback.ready ? enginePlayback.position : player.currentTime().seconds
-        return live.isFinite && live >= 0 ? live : lastPosition
+        return live.isFinite && live >= 0 ? max(lastPosition, live) : lastPosition
     }
     private var audible: Bool { enginePlayback.ready ? enginePlayback.playing : player.timeControlStatus == .playing }
     private let independentMeter = IndependentAudioMeter()
@@ -718,8 +720,9 @@ final class NativePlayer {
         // Some output routes report zero render time immediately after pause.
         if wantsPlay && !waitingForReady {
             let position = enginePlayback.ready ? enginePlayback.position : player.currentTime().seconds
-            if position.isFinite && position >= 0 && (position > 0 || lastPosition == 0) {
-                lastPosition = position
+            if position.isFinite && position >= 0 {
+                // Pausing must not move the UI behind the last published playhead.
+                lastPosition = max(lastPosition, position)
             }
         }
         resumeAfterInterruption = false; recovery.cancel()
@@ -1248,7 +1251,12 @@ final class NativePlayer {
     }
     func snapshot(includeQueue: Bool = true) -> [String: Any] {
         let duration = player.currentItem?.duration.seconds ?? 0
-        let position = enginePlayback.ready ? enginePlayback.position : ((waitingForReady || player.currentItem?.status == .failed) ? requestedPosition : playbackPosition)
+        // Use the frozen playhead while paused, including when the EQ engine
+        // is active. Reading enginePlayback.position here bypasses pause()'s
+        // snapshot and caused the visible slider to jump backward.
+        let position = !wantsPlay ? lastPosition :
+            ((waitingForReady || player.currentItem?.status == .failed)
+                ? requestedPosition : playbackPosition)
         return ["id": current?.id ?? "", "origin": origin?.absoluteString ?? "",
             "position": position.isFinite ? max(0, position) : 0.0,
             "duration": duration.isFinite ? max(0, duration) : (current?.duration ?? 0),
