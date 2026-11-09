@@ -196,7 +196,7 @@ struct NightwellPopup<Content: View>: View {
 
 private enum StableNavigationAction {
     case screen(MusicStore.Screen)
-    case backgroundOnly, statistics, premium, transfer, settings, waveSettings, support, authentication
+    case backgroundOnly, statistics, premium, transfer, settings, waveSettings, support, together, authentication
 }
 
 /// An independently presented, stable scroll view. Playback updates cannot
@@ -249,6 +249,7 @@ private struct StableNavigationSheet: View {
                     if !signedIn {
                         entry("Войти", icon: "person.crop.circle", action: .authentication)
                         entry("Главная", icon: "house", action: .screen(.home))
+                        entry("Слушать вместе", icon: "person.2.wave.2", action: .together)
                         entry("Настройки", icon: "gearshape", action: .settings)
                     } else {
                         entry("Главная", icon: "house", action: .screen(.home))
@@ -258,6 +259,7 @@ private struct StableNavigationSheet: View {
                         Divider().overlay(.white.opacity(0.16)).padding(.vertical, 6)
                         entry("Моя статистика", icon: "chart.bar", action: .statistics)
                         entry("Nightwell Premium", icon: "star", action: .premium)
+                        entry("Слушать вместе", icon: "person.2.wave.2", action: .together)
                         entry("Настройки", icon: "gearshape", action: .settings)
                         entry("Обращения и поддержка", icon: "envelope", action: .support)
                         entry("Выйти", icon: "rectangle.portrait.and.arrow.right", action: .authentication)
@@ -488,6 +490,8 @@ struct NativeRoot: View {
     @State private var supportPresented = false
     @State private var premiumPresented = false
     @State private var transferPresented = false
+    @State private var togetherPresented = false
+    @StateObject private var togetherSession = NightwellTogetherSession()
     @State private var favoriteSort = "recent"
     @State private var collectionScrolled = false
     @StateObject private var artworkPalette = NightwellArtworkPalette()
@@ -642,6 +646,9 @@ struct NativeRoot: View {
             PremiumFeatureView(kind: kind).environmentObject(store)
         }
         .sheet(isPresented: $premiumPresented) { PremiumView(api: store.api) }
+        .sheet(isPresented: $togetherPresented) {
+            NightwellTogetherSheet(session: togetherSession, store: store)
+        }
         .overlay { if launching { MonochromeNightwellLaunch().transition(.opacity) } }
         .task { try? await Task.sleep(nanoseconds: reducedMotion ? 150_000_000 : 1_200_000_000); withAnimation(.easeOut(duration: 0.3)) { launching = false } }
         // Async task is cancelled automatically if the offer disappears or
@@ -661,7 +668,10 @@ struct NativeRoot: View {
         }
         .animation(reducedMotion ? nil : .spring(response: 0.48, dampingFraction: 0.82),
                    value: remoteHomeCollapsed)
-        .onChange(of: store.account?.id) { _ in Task { await store.refreshProfile() } }
+        .onChange(of: store.account?.id) { _ in
+            togetherSession.clearLocalRoom()
+            Task { await store.refreshProfile() }
+        }
         .task { await store.start()
             #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("--native-smoke-focus") { backgroundOnly = true }
@@ -686,7 +696,14 @@ struct NativeRoot: View {
             collectionScrolled = false
             if store.screen != .search { store.leaveSearch() }
         }
-        .onOpenURL { openSharedURL($0) }
+        .onOpenURL { url in
+            if let code = NightwellTogetherSession.invitationCode(from: url.absoluteString, origin: store.origin) {
+                togetherPresented = true
+                Task { await togetherSession.join(code, store: store) }
+            } else {
+                openSharedURL(url)
+            }
+        }
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
             if let url = activity.webpageURL { openSharedURL(url) }
         }
@@ -719,6 +736,7 @@ struct NativeRoot: View {
         case .settings: settings = true
         case .waveSettings: waveSettingsPresented = true
         case .support: supportPresented = true
+        case .together: togetherPresented = true
         case .authentication:
             if store.account == nil { store.authPresented = true }
             else { Task { await store.logout() } }
