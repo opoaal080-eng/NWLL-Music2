@@ -1029,6 +1029,22 @@ struct PlaybackQueue: View {
                         }
                     }
                 }
+
+                // Keep the compact instructions below the scrolling queue,
+                // within the sheet's safe area. They must not be clipped
+                // by the scroll viewport on the medium detent.
+                if compact && depthQueue && !clock.queue.isEmpty {
+                    Text("Тап: играть · удержание: следующим\nСвайп: листать очередь")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(Color.white.opacity(0.62))
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, 10)
+                        .padding(.bottom, 2)
+                        .accessibilityLabel("Тап: играть сейчас. Удержание: следующим. Свайп: листать очередь.")
+                }
             }
             .padding(.horizontal, compact ? 16 : 20)
             .padding(.top, compact ? 18 : 30)
