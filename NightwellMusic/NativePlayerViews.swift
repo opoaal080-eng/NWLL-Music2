@@ -1369,6 +1369,7 @@ struct NativeSettings: View {
     @AppStorage("nw-transition-seconds") private var transition = 1.5
     @AppStorage("nw-stream-buffer-seconds") private var streamBufferSeconds = 4.0
     @AppStorage("nw-equal-volume") private var equalVolume = 0.0
+    @AppStorage("nw-keep-current-until-ready") private var keepCurrentUntilNextReady = true
     @AppStorage("nw-ambient-lyrics") private var ambientLyrics = true
     @AppStorage("nw-ambient-animate-when-paused") private var animatePausedAmbient = true
     @AppStorage("nw-ambient-audio-sensitivity") private var ambientSensitivity = 2.5
@@ -1458,6 +1459,13 @@ struct NativeSettings: View {
         case .playback:
                 VStack(alignment: .leading, spacing: 12) {
                     Label("Воспроизведение", systemImage: "waveform").font(.system(size: 18, weight: .semibold)).foregroundStyle(Color.white)
+                    Toggle("Играть текущий трек до готовности следующего", isOn: $keepCurrentUntilNextReady)
+                        .onChange(of: keepCurrentUntilNextReady) { enabled in
+                            NativePlayer.shared.setKeepCurrentUntilNextReady(enabled)
+                        }
+                    Text("При переключении название, исполнитель и обложка меняются сразу. Пока новый трек готовится, предыдущий продолжает звучать. Если выключить, переключение прервёт его сразу.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.50))
                     Toggle("Автоматически скачивать избранное", isOn: Binding(
                         get: { store.automaticFavoritesDownload },
                         set: { store.setAutomaticFavoritesDownload($0) }
