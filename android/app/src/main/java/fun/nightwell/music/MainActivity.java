@@ -293,7 +293,7 @@ public final class MainActivity extends Activity {
     private TextView status,miniTitle,miniArtist,miniPlay,miniPrev,miniNext,miniLike;
     private android.widget.ImageView miniCover;private CircularProgressRing miniProgressRing;
     private ArtworkCache artworkCache;
-    private TextView fullTime,fullElapsed,homePlay,fullPlay,fullLike,fullDislike,fullAudioOutput,fullShuffle;
+    private TextView fullTime,fullElapsed,fullNetworkNote,homePlay,fullPlay,fullLike,fullDislike,fullAudioOutput,fullShuffle;
     private SeekBar seek;
     private EditText search;
     private LinearLayout artistStrip;
@@ -479,7 +479,7 @@ public final class MainActivity extends Activity {
         styleSheet(dialog);dialog.show();
     }
     void build(){
-        if(ribbon!=null)ribbon.running(false);full=false;lyricsOpen=false;seek=null;fullTime=null;fullPlay=null;fullLike=null;fullDislike=null;fullAudioOutput=null;fullShuffle=null;fullElapsed=null;
+        if(ribbon!=null)ribbon.running(false);full=false;lyricsOpen=false;seek=null;fullTime=null;fullPlay=null;fullLike=null;fullDislike=null;fullAudioOutput=null;fullShuffle=null;fullElapsed=null;fullNetworkNote=null;
         // Render scenery and aura across the window, outside the padded controls.
         android.widget.FrameLayout scene=new android.widget.FrameLayout(this);
         scene.setBackground(new NativeSceneryDrawable(this));
@@ -1227,6 +1227,7 @@ public final class MainActivity extends Activity {
     }
 
     private void restoreLibrarySnapshot(String account) {
+        if(account!=null&&!account.isEmpty())restoreFavoriteDetails();
         try {
             String raw=getSharedPreferences("library-snapshot",MODE_PRIVATE).getString("snapshot",null);
             if(raw==null)return;
@@ -1820,7 +1821,14 @@ public final class MainActivity extends Activity {
     }
 
     void setLabel(TextView view,String value){if(view!=null&&!android.text.TextUtils.equals(view.getText(),value))view.setText(value);}
-    void updatePlayback(){if(smokeMode||playback==null)return;try{JSONObject state=new JSONObject(playback.snapshot(false));String next=state.optString("id");if(!currentID.equals(next)||queue.length()!=state.optInt("queueCount")){queue=new JSONObject(playback.snapshot(true)).optJSONArray("queueTracks");}if(queue==null)queue=new JSONArray();JSONObject t=null;for(int i=0;i<queue.length();i++)if(queue.optJSONObject(i).optString("id").equals(next)){t=queue.optJSONObject(i);break;}rememberFavorite(t);setLabel(miniTitle,t==null?"Выбери трек":t.optString("title"));setLabel(miniArtist,t==null?"Nightwell Music":t.optString("artist"));refreshFavoriteButtons();if(miniProgressRing!=null)miniProgressRing.setProgress(state.optDouble("position")/Math.max(1,state.optDouble("duration")));if(ambient!=null){ambient.setPlaybackActive(state.optBoolean("playing"));updateArtworkReaction();}setLabel(miniPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(homePlay!=null)setLabel(homePlay,state.optBoolean("playing")?"Ⅱ":"▶");if(fullPlay!=null)setLabel(fullPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(ribbon!=null)ribbon.playing(state.optBoolean("playing"));if(!currentID.equals(next)){currentID=next;if(!next.isEmpty()){rememberRecent(next);checkTrackAudioQuality(t);}activeLyrics=null;homeLine="";loadMiniCover(t);fetchLyricsAndPreload();animateTrackTransition();updateList();if(full)openPlayer();}if(seek!=null&&!seek.isPressed()){seek.setMax((int)Math.max(1,state.optDouble("duration")));seek.setProgress((int)state.optDouble("position"));}if(fullElapsed!=null)setLabel(fullElapsed,time(state.optDouble("position")));if(fullTime!=null)setLabel(fullTime,time(state.optDouble("duration")));if(!state.optString("error").isEmpty())status.setText(state.optString("error"));syncLyrics(state.optDouble("position"));syncHomeLyrics(state.optDouble("position"));if(lastPlaying!=state.optBoolean("playing")){lastPlaying=state.optBoolean("playing");updateList();}}catch(Exception ignored){}}
+    void updatePlayback(){if(smokeMode||playback==null)return;try{JSONObject state=new JSONObject(playback.snapshot(false));String next=state.optString("id");if(!currentID.equals(next)||queue.length()!=state.optInt("queueCount")){queue=new JSONObject(playback.snapshot(true)).optJSONArray("queueTracks");}if(queue==null)queue=new JSONArray();JSONObject t=null;for(int i=0;i<queue.length();i++)if(queue.optJSONObject(i).optString("id").equals(next)){t=queue.optJSONObject(i);break;}rememberFavorite(t);setLabel(miniTitle,t==null?"Выбери трек":t.optString("title"));setLabel(miniArtist,t==null?"Nightwell Music":t.optString("artist"));refreshFavoriteButtons();if(miniProgressRing!=null)miniProgressRing.setProgress(state.optDouble("position")/Math.max(1,state.optDouble("duration")));if(ambient!=null){ambient.setPlaybackActive(state.optBoolean("playing"));updateArtworkReaction();}setLabel(miniPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(homePlay!=null)setLabel(homePlay,state.optBoolean("playing")?"Ⅱ":"▶");if(fullPlay!=null)setLabel(fullPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(ribbon!=null)ribbon.playing(state.optBoolean("playing"));if(!currentID.equals(next)){currentID=next;if(!next.isEmpty()){rememberRecent(next);checkTrackAudioQuality(t);}activeLyrics=null;homeLine="";loadMiniCover(t);fetchLyricsAndPreload();animateTrackTransition();updateList();if(full)openPlayer();}if(seek!=null&&!seek.isPressed()){seek.setMax((int)Math.max(1,state.optDouble("duration")));seek.setProgress((int)state.optDouble("position"));}if(fullElapsed!=null)setLabel(fullElapsed,time(state.optDouble("position")));if(fullTime!=null)setLabel(fullTime,time(state.optDouble("duration")));String streamNote=state.optString("error");
+        if(streamNote.isEmpty()&&state.optBoolean("buffering")
+            &&state.optBoolean("playing"))streamNote="Подключаемся к аудиопотоку…";
+        if(fullNetworkNote!=null){
+            setLabel(fullNetworkNote,streamNote);
+            fullNetworkNote.setVisibility(streamNote.isEmpty()?View.GONE:View.VISIBLE);
+        }
+        if(!state.optString("error").isEmpty()&&status!=null)status.setText(state.optString("error"));syncLyrics(state.optDouble("position"));syncHomeLyrics(state.optDouble("position"));if(lastPlaying!=state.optBoolean("playing")){lastPlaying=state.optBoolean("playing");updateList();}}catch(Exception ignored){}}
     void animateTrackTransition(){
         if(dock==null||!dock.isShown())return;
         final float slide=dp(24)*trackTransitionDirection;
@@ -2018,6 +2026,12 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams queueParams=new LinearLayout.LayoutParams(-1,dp(50));
         queueParams.topMargin=dp(5);
         transport.addView(queueButton,queueParams);
+        fullNetworkNote=text("",12);
+        fullNetworkNote.setTextColor(NightwellDesign.SECONDARY);
+        fullNetworkNote.setGravity(Gravity.CENTER);
+        fullNetworkNote.setPadding(dp(8),dp(4),dp(8),dp(7));
+        fullNetworkNote.setVisibility(View.GONE);
+        transport.addView(fullNetworkNote);
         updatePlayback();
     }
 
