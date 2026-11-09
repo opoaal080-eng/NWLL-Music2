@@ -391,13 +391,14 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
 }catch{}}
  async void NextClick(object sender,RoutedEventArgs e){if(nextRequestBusy)return;nextRequestBusy=true;try{await Guard(SafeNext);}finally{nextRequestBusy=false;}}
  async void PreviousClick(object sender,RoutedEventArgs e){if(roomCode.Length>0){await Guard(()=>RoomCommand("previous"));return;}if(Current==null)return;long now=Environment.TickCount64;if(audioTime>3000&&!(previousID==currentID&&now-lastPrevious<3000)){lastPrevious=now;previousID=currentID;_=AudioCommand(()=>player.Time=0);return;}previousID="";index=(index-1+queue.Count)%queue.Count;PlayCurrent();}
- void Advance(){if(nextPreparing||queue.Count==0)return;if(repeat==2){PlayCurrent();return;}if(wave&&index+1>=queue.Count){_=Refill();return;}if(shuffle&&queue.Count>1)index=ChooseShuffleIndex();else if(index+1<queue.Count)index++;else if(repeat==1)index=0;else return;PlayCurrent();}
+ void Advance(){if(nextPreparing||queue.Count==0)return;if(repeat==2){PlayCurrent();return;}if(wave&&index+1>=queue.Count){_=Refill(force:true);return;}if(shuffle&&queue.Count>1)index=ChooseShuffleIndex();else if(index+1<queue.Count)index++;else if(repeat==1)index=0;else return;PlayCurrent();}
  DateTime waveRefillAttempt=DateTime.MinValue;
- async Task Refill(){
+ async Task Refill(bool force=false){
   if(refilling||!wave||account.Length==0)return;
-  // Throttle speculative discovery, not a manual Next at the end of a queue.
+  // Always throttle background polling; explicit Next and EndReached can
+  // request a fresh batch immediately without opening a request loop.
   bool exhausted=index+1>=queue.Count;
-  if(!exhausted&&DateTime.UtcNow-waveRefillAttempt<TimeSpan.FromSeconds(20))return;
+  if(!force&&DateTime.UtcNow-waveRefillAttempt<TimeSpan.FromSeconds(20))return;
   waveRefillAttempt=DateTime.UtcNow;
   refilling=true;
   try{
@@ -414,7 +415,7 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
     queue.AddRange(fresh);
     QueueSavePlayback();
     // A silent player at an exhausted queue can resume from the next item.
-    if(!audioPlaying&&!nextPreparing&&exhausted&&index+1<queue.Count){
+    if(!audioPlaying&&!pauseVisualLocked&&!nextPreparing&&exhausted&&index+1<queue.Count){
      index++;PlayCurrent();
     }
    });
