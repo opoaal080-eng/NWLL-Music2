@@ -501,34 +501,110 @@ public final class MainActivity extends Activity {
     void menu(){
         if(navigationPopup!=null)navigationPopup.dismiss();
         View anchor=head.getChildAt(head.getChildCount()-1);
-        LinearLayout entries=column();entries.setPadding(0,dp(6),0,dp(6));
-        TextView connectionHeading=text("Подключение",11);connectionHeading.setTextColor(0xffa6a4af);connectionHeading.setPadding(dp(14),dp(4),dp(14),dp(2));entries.addView(connectionHeading);
-        TextView connectionState=text(nightwellStatus,15);connectionState.setPadding(dp(14),0,dp(14),dp(6));entries.addView(connectionState);nightwellMenuStatus=connectionState;setNightwellStatus(nightwellStatus);
-        ScrollView scroll=new ScrollView(this);scroll.setFillViewport(false);scroll.setVerticalScrollBarEnabled(false);scroll.addView(entries);
-        android.graphics.Rect frame=new android.graphics.Rect();anchor.getWindowVisibleDisplayFrame(frame);int[] location=new int[2];anchor.getLocationOnScreen(location);
-        int available=Math.max(dp(96),frame.bottom-location[1]-anchor.getHeight()-dp(12));
-        int width=Math.min(dp(278),frame.width()-dp(32));
-        PopupWindow popup=new PopupWindow(scroll,width,WindowManager.LayoutParams.WRAP_CONTENT,true);
-        navigationPopup=popup;popup.setOnDismissListener(()->{if(navigationPopup==popup)navigationPopup=null;});
-        GradientDrawable glass=new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0xf2322b40,0xf222202b});glass.setCornerRadius(dp(22));glass.setStroke(dp(1),0x30ffffff);
-        popup.setBackgroundDrawable(glass);popup.setElevation(dp(24));popup.setOutsideTouchable(true);popup.setInputMethodMode(PopupWindow.INPUT_METHOD_NOT_NEEDED);scroll.setClipToOutline(true);scroll.setBackground(glass);
-        String[] tabs={"Главная","Поиск","Избранное","Плейлисты","Офлайн","Слушать вместе",backgroundOnly?"Показать интерфейс":"Только фон","Моя статистика","Nightwell Premium","Перенести музыку","Настройки","Настройка подборки","Обращения",user.isEmpty()?"Войти":"Выйти"};
-        String[] icons={"home","search","heart","list","download","list","sparkles","stats","star","download","settings","sliders","mail","person"};
+        LinearLayout entries=column();
+        entries.setPadding(dp(10),dp(12),dp(10),dp(12));
+
+        LinearLayout brandRow=row();
+        brandRow.setPadding(dp(8),dp(8),dp(8),dp(14));
+        TextView monogram=text("N",22);
+        monogram.setGravity(Gravity.CENTER);
+        NightwellDesign.headline(monogram);
+        monogram.setBackground(NightwellDesign.surface(this,NightwellDesign.RAISED,14,true));
+        brandRow.addView(monogram,new LinearLayout.LayoutParams(dp(46),dp(46)));
+        LinearLayout brandCopy=column();
+        brandCopy.setPadding(dp(12),0,0,0);
+        TextView brandTitle=text("Nightwell Music",16);
+        NightwellDesign.headline(brandTitle);
+        brandCopy.addView(brandTitle);
+        TextView connectionState=text(nightwellStatus,12);
+        connectionState.setPadding(0,dp(4),0,0);
+        brandCopy.addView(connectionState);
+        nightwellMenuStatus=connectionState;setNightwellStatus(nightwellStatus);
+        brandRow.addView(brandCopy,new LinearLayout.LayoutParams(0,-2,1));
+        entries.addView(brandRow);
+        entries.addView(NightwellDesign.hairline(this),
+            new LinearLayout.LayoutParams(-1,Math.max(1,dp(1))));
+        TextView libraryLabel=sectionLabel("Библиотека");
+        libraryLabel.setPadding(dp(10),dp(15),0,dp(8));
+        entries.addView(libraryLabel);
+
+        String[] tabs={"Главная","Поиск","Избранное","Плейлисты","Офлайн",
+            "Слушать вместе","Моя статистика","Nightwell Premium",
+            "Перенести музыку","Настройки","Настройка подборки",
+            "Обращения",user.isEmpty()?"Войти":"Выйти"};
+        String[] icons={"home","search","heart","list","download",
+            "list","stats","star","download","settings","sliders","mail","person"};
         for(int i=0;i<tabs.length;i++){
-            View divider=new View(this);divider.setBackgroundColor(i==0||i==5||i==12?0x44000000:0x20ffffff);entries.addView(divider,new LinearLayout.LayoutParams(-1,dp(i==0||i==5||i==12?4:1)));
-            final String tab=tabs[i];boolean selected=tab.equals(screen)||(tab.equals("Плейлисты")&&!selectedPlaylist.isEmpty());
-            int color=tab.equals("Выйти")?0xffff6b76:0xfff4f1f7;
-            LinearLayout item=row();item.setPadding(dp(16),0,dp(16),0);item.setMinimumHeight(dp(48));item.setSelected(selected);
-            TextView label=text(tab.equals("Обращения")?"Обращения и поддержка":tab,15);label.setTextColor(color);if(selected)label.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
+            if(i==5||i==8||i==12){
+                TextView title=sectionLabel(i==5?"ВОЗМОЖНОСТИ":i==8?"ПРИЛОЖЕНИЕ":"АККАУНТ");
+                title.setPadding(dp(10),dp(18),0,dp(8));
+                entries.addView(title);
+            }
+            final String tab=tabs[i];
+            boolean selected=tab.equals(screen)||(tab.equals("Плейлисты")&&!selectedPlaylist.isEmpty());
+            int color=tab.equals("Выйти")?NightwellDesign.DANGER:
+                selected?NightwellDesign.PRIMARY:NightwellDesign.SECONDARY;
+            LinearLayout item=row();
+            item.setPadding(dp(11),0,dp(10),0);
+            item.setMinimumHeight(dp(46));
+            item.setBackground(NightwellDesign.ripple(this,
+                selected?NightwellDesign.SELECTED:NightwellDesign.SURFACE,14,false));
+            item.addView(new NavigationMenuIcon(this,icons[i],color),
+                new LinearLayout.LayoutParams(dp(20),dp(20)));
+            TextView label=text(tab.equals("Обращения")?"Поддержка":tab,14);
+            label.setTextColor(color);
+            label.setTypeface(android.graphics.Typeface.create(
+                selected?"sans-serif-medium":"sans-serif",0));
+            label.setSingleLine(true);
+            label.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            label.setPadding(dp(12),0,dp(4),0);
             item.addView(label,new LinearLayout.LayoutParams(0,-2,1));
-            if(selected){TextView mark=text("✓",17);mark.setTextColor(0xffeeeeee);item.addView(mark,new LinearLayout.LayoutParams(dp(26),-2));}
-            item.addView(new NavigationMenuIcon(this,icons[i],color),new LinearLayout.LayoutParams(dp(20),dp(20)));
-            item.setBackground(new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x30ffffff),new android.graphics.drawable.ColorDrawable(selected?0x18ffffff:Color.TRANSPARENT),null));
-            item.setContentDescription(label.getText());item.setOnClickListener(v->{popup.dismiss();selectMenu(tab);});entries.addView(item,new LinearLayout.LayoutParams(-1,-2));
+            if(selected){
+                View dot=new View(this);
+                dot.setBackground(NightwellDesign.surface(this,NightwellDesign.PRIMARY,3,false));
+                item.addView(dot,new LinearLayout.LayoutParams(dp(5),dp(5)));
+            }
+            item.setContentDescription(label.getText());
+            item.setOnClickListener(v->{
+                if(navigationPopup!=null)navigationPopup.dismiss();
+                selectMenu(tab);
+            });
+            LinearLayout.LayoutParams rowParams=new LinearLayout.LayoutParams(-1,-2);
+            rowParams.bottomMargin=dp(3);
+            entries.addView(item,rowParams);
         }
-        entries.measure(View.MeasureSpec.makeMeasureSpec(width,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(0,View.MeasureSpec.UNSPECIFIED));popup.setHeight(Math.min(entries.getMeasuredHeight()+dp(12),available));
-        popup.showAsDropDown(anchor,0,dp(6),Gravity.END);
-        // Network state is refreshed independently while the app is visible.
+        TextView footer=text("Nightwell Music  ·  "+BuildConfig.VERSION_NAME,11);
+        footer.setGravity(Gravity.CENTER);
+        footer.setTextColor(NightwellDesign.MUTED);
+        footer.setPadding(0,dp(14),0,dp(2));
+        entries.addView(footer);
+
+        ScrollView scroll=new ScrollView(this);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.setFillViewport(false);
+        scroll.addView(entries);
+        android.graphics.Rect frame=new android.graphics.Rect();
+        anchor.getWindowVisibleDisplayFrame(frame);
+        int[] location=new int[2];anchor.getLocationOnScreen(location);
+        int available=Math.max(dp(140),frame.bottom-location[1]-anchor.getHeight()-dp(10));
+        int width=Math.min(dp(296),frame.width()-dp(26));
+        PopupWindow popup=new PopupWindow(scroll,width,WindowManager.LayoutParams.WRAP_CONTENT,true);
+        navigationPopup=popup;
+        popup.setOnDismissListener(()->{if(navigationPopup==popup){navigationPopup=null;nightwellMenuStatus=null;}});
+        GradientDrawable panel=NightwellDesign.surface(this,NightwellDesign.SURFACE,22,true);
+        popup.setBackgroundDrawable(panel);
+        popup.setElevation(dp(16));
+        popup.setOutsideTouchable(true);
+        popup.setInputMethodMode(PopupWindow.INPUT_METHOD_NOT_NEEDED);
+        scroll.setBackground(panel);scroll.setClipToOutline(true);
+        entries.measure(View.MeasureSpec.makeMeasureSpec(width,View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0,View.MeasureSpec.UNSPECIFIED));
+        popup.setHeight(Math.min(entries.getMeasuredHeight()+dp(4),available));
+        popup.showAsDropDown(anchor,0,dp(7),Gravity.END);
+        scroll.setAlpha(0f);
+        scroll.setTranslationY(-dp(8));
+        scroll.animate().alpha(1f).translationY(0).setDuration(190)
+            .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
     }
     void selectMenu(String tab){
         if(tab.equals("Слушать вместе")){together.open();return;}
