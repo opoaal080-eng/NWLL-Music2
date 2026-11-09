@@ -904,9 +904,16 @@ struct PlaybackQueue: View {
         GeometryReader { viewport in
             let compact = viewport.size.height < 570
             ZStack {
+            // Unified black-and-white gradient across the queue sheet.
+            // No separate gray slab behind the album deck.
             LinearGradient(
-                colors: [Color(white: 0.065), .black, Color(white: 0.025)],
-                startPoint: .topLeading, endPoint: .bottomTrailing
+                stops: [
+                    .init(color: Color(white: 0.16), location: 0),
+                    .init(color: Color(white: 0.085), location: 0.36),
+                    .init(color: Color(white: 0.025), location: 0.76),
+                    .init(color: .black, location: 1)
+                ],
+                startPoint: .topTrailing, endPoint: .bottomLeading
             )
             .ignoresSafeArea()
 
@@ -1016,20 +1023,6 @@ struct PlaybackQueue: View {
                         .padding(.horizontal, compact ? 8 : 12)
                         .padding(.bottom, compact ? 4 : 18)
                     }
-                    .background(
-                        RoundedRectangle(cornerRadius: compact ? 22 : 32, style: .continuous)
-                            .fill(
-                                LinearGradient(
-                                    colors: [Color(white: 0.165), Color(white: 0.12)],
-                                    startPoint: .topLeading, endPoint: .bottomTrailing
-                                )
-                            )
-                    )
-                    .overlay {
-                        RoundedRectangle(cornerRadius: compact ? 22 : 32, style: .continuous)
-                            .strokeBorder(Color.white.opacity(0.15), lineWidth: 1)
-                    }
-                    .clipShape(RoundedRectangle(cornerRadius: compact ? 22 : 32, style: .continuous))
                     .onAppear {
                         if !depthQueue && currentIndex >= 0 {
                             reader.scrollTo(currentIndex, anchor: .top)
