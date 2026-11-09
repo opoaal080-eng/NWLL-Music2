@@ -439,23 +439,32 @@ public final class MainActivity extends Activity {
         int playing=playback==null?-1:playback.player.getCurrentMediaItemIndex();
         android.widget.ScrollView scroll=new android.widget.ScrollView(this);
         LinearLayout outer=column();
-        outer.setPadding(dp(14),dp(12),dp(14),dp(12));
+        outer.setPadding(dp(14),dp(18),dp(14),dp(14));
         scroll.addView(outer);
 
         TextView eyebrow=text("Т В О Я   М У З Ы К А",10);
         eyebrow.setTextColor(0xffbfc0c8);
         eyebrow.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
         outer.addView(eyebrow);
+        final AlertDialog[] holder={null};
         LinearLayout heading=row();heading.setGravity(Gravity.CENTER_VERTICAL);
         TextView headingTitle=text("Очередь",28);
         headingTitle.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
-        heading.addView(headingTitle,new LinearLayout.LayoutParams(0,dp(70),1));
+        heading.addView(headingTitle,new LinearLayout.LayoutParams(0,dp(56),1));
         TextView count=text(String.valueOf(queue.length()),16);
         count.setGravity(Gravity.CENTER);
         count.setBackground(touchSurface(0x993a3a3f,32));
-        heading.addView(count,new LinearLayout.LayoutParams(dp(58),dp(52)));
+        heading.addView(count,new LinearLayout.LayoutParams(dp(52),dp(52)));
+        TextView closeQueue=text("×",28);
+        closeQueue.setGravity(Gravity.CENTER);
+        closeQueue.setContentDescription("Закрыть очередь");
+        closeQueue.setBackground(touchSurface(0x993a3a3f,32));
+        closeQueue.setOnClickListener(v->{if(holder[0]!=null)holder[0].dismiss();});
+        LinearLayout.LayoutParams closeParams=new LinearLayout.LayoutParams(dp(52),dp(52));
+        closeParams.leftMargin=dp(8);
+        heading.addView(closeQueue,closeParams);
         LinearLayout.LayoutParams headingParams=new LinearLayout.LayoutParams(-1,-2);
-        headingParams.bottomMargin=dp(16);
+        headingParams.bottomMargin=dp(12);
         outer.addView(heading,headingParams);
 
         LinearLayout panel=column();
@@ -467,7 +476,6 @@ public final class MainActivity extends Activity {
         panelSurface.setStroke(dp(1),0x38ffffff);
         panel.setBackground(panelSurface);
         outer.addView(panel,new LinearLayout.LayoutParams(-1,-2));
-        final AlertDialog[] holder={null};
         final int totalTracks=queue.length();
         // Absolute queue cursor: swipe backwards through "Ранее" and the
         // current track, forward through every upcoming track.
@@ -475,8 +483,13 @@ public final class MainActivity extends Activity {
         depthQueuePage=Math.min(Math.max(0,depthQueuePage),lastPosition);
         final int pageStart=depthQueuePage;
         if(totalTracks>0){
+            // Scale the artwork to the available width, while keeping the
+            // deck usable on narrow phones and in landscape.
+            int cardWidthDp=Math.min(312,Math.max(210,
+                getResources().getConfiguration().screenWidthDp-112));
+            int cardHeightDp=Math.round(cardWidthDp*1.20f);
             android.widget.FrameLayout deck=new android.widget.FrameLayout(this);
-            panel.addView(deck,new LinearLayout.LayoutParams(-1,dp(338)));
+            panel.addView(deck,new LinearLayout.LayoutParams(-1,dp(cardHeightDp+34)));
             int available=Math.min(3,Math.max(0,queue.length()-pageStart));
             for(int rank=available-1;rank>=0;rank--){
                 final int from=pageStart+rank;
@@ -491,7 +504,7 @@ public final class MainActivity extends Activity {
                 android.widget.ImageView cover=new android.widget.ImageView(this);
                 cover.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
                 android.widget.FrameLayout.LayoutParams artworkParams=
-                    new android.widget.FrameLayout.LayoutParams(-1,dp(220),Gravity.TOP);
+                    new android.widget.FrameLayout.LayoutParams(-1,dp(cardHeightDp-78),Gravity.TOP);
                 card.addView(cover,artworkParams);
                 String coverPath=track.optString("cover_url");
                 if(coverPath.isEmpty())coverPath="api/covers/"+track.optString("id");
@@ -525,10 +538,10 @@ public final class MainActivity extends Activity {
                 artist.setEllipsize(android.text.TextUtils.TruncateAt.END);
                 infoPanel.addView(title);
                 infoPanel.addView(artist);
-                card.addView(infoPanel,new android.widget.FrameLayout.LayoutParams(-1,dp(74),Gravity.BOTTOM));
+                card.addView(infoPanel,new android.widget.FrameLayout.LayoutParams(-1,dp(78),Gravity.BOTTOM));
 
                 android.widget.FrameLayout.LayoutParams layout=
-                    new android.widget.FrameLayout.LayoutParams(dp(246),dp(294),Gravity.CENTER);
+                    new android.widget.FrameLayout.LayoutParams(dp(cardWidthDp),dp(cardHeightDp),Gravity.CENTER);
                 deck.addView(card,layout);
                 card.setTranslationX(dp(rank*14));
                 card.setTranslationY(dp(rank*12));
@@ -627,7 +640,7 @@ public final class MainActivity extends Activity {
         guide.setPadding(dp(4),dp(14),dp(4),dp(4));
         panel.addView(guide,new LinearLayout.LayoutParams(-1,-2));
         AlertDialog dialog=new AlertDialog.Builder(this)
-            .setView(scroll).setNegativeButton("Закрыть",null).create();
+            .setView(scroll).create();
         holder[0]=dialog;styleSheet(dialog);dialog.show();
     }
     void build(){
@@ -647,9 +660,9 @@ public final class MainActivity extends Activity {
                              dp(isLandscapeLayout()?9:18),bottom);return insets;});root.requestApplyInsets();
         head=row();android.widget.ImageView brand=new android.widget.ImageView(this);brand.setImageResource(R.drawable.nightwell_mark);brand.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);brand.setOnClickListener(v->navigate("Главная"));head.addView(brand,new LinearLayout.LayoutParams(dp(42),dp(42)));LinearLayout wordmark=column();wordmark.setGravity(Gravity.CENTER_VERTICAL);wordmark.setPadding(dp(9),0,0,0);
         TextView brandName=text("Nightwell",27);brandName.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);brandName.setTextColor(0xfff3f3f5);brandName.setIncludeFontPadding(false);brandName.setSingleLine(true);brandName.setAutoSizeTextTypeUniformWithConfiguration(20,27,1,android.util.TypedValue.COMPLEX_UNIT_SP);
-        wordmark.addView(brandName,new LinearLayout.LayoutParams(-1,dp(33)));
+        wordmark.addView(brandName,new LinearLayout.LayoutParams(-1,dp(landscape?27:33)));
         TextView brandCaption=text("M U S I C",12);brandCaption.setIncludeFontPadding(false);brandCaption.setSingleLine(true);brandCaption.setTextColor(0xff92959f);LinearLayout.LayoutParams captionParams=new LinearLayout.LayoutParams(-1,-2);captionParams.topMargin=dp(1);wordmark.addView(brandCaption,captionParams);
-        wordmark.setOnClickListener(v->navigate("Главная"));wordmark.setContentDescription("Nightwell Music, на главный экран");head.addView(wordmark,new LinearLayout.LayoutParams(0,-2,1));if(landscape){brandName.setTextSize(18);brandCaption.setVisibility(View.GONE);}TextView searchButton=iconButton("⌕",()->navigate("Поиск"));searchButton.setBackground(touchSurface(0x40202228,24));head.addView(searchButton,new LinearLayout.LayoutParams(dp(48),dp(48)));android.widget.ImageView menuButton=new android.widget.ImageView(this);menuButton.setImageResource(android.R.drawable.ic_menu_myplaces);menuButton.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);menuButton.setPadding(dp(8),dp(8),dp(8),dp(8));menuButton.setBackground(touchSurface(0x40202228,24));menuButton.setOnClickListener(v->menu());menuButton.setContentDescription("Меню профиля");profileAvatarButton=menuButton;head.addView(menuButton,new LinearLayout.LayoutParams(dp(48),dp(48)));refreshProfileAvatar();LinearLayout.LayoutParams headerParams=new LinearLayout.LayoutParams(-1,dp(landscape?44:58));headerParams.bottomMargin=dp(landscape?2:12);root.addView(head,headerParams);if(backgroundOnly)head.setVisibility(View.GONE);
+        wordmark.setOnClickListener(v->navigate("Главная"));wordmark.setContentDescription("Nightwell Music, на главный экран");head.addView(wordmark,new LinearLayout.LayoutParams(0,-2,1));if(landscape){brandName.setTextSize(20);brandCaption.setTextSize(9);}TextView searchButton=iconButton("⌕",()->navigate("Поиск"));searchButton.setBackground(touchSurface(0x40202228,24));head.addView(searchButton,new LinearLayout.LayoutParams(dp(48),dp(48)));android.widget.ImageView menuButton=new android.widget.ImageView(this);menuButton.setImageResource(android.R.drawable.ic_menu_myplaces);menuButton.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);menuButton.setPadding(dp(8),dp(8),dp(8),dp(8));menuButton.setBackground(touchSurface(0x40202228,24));menuButton.setOnClickListener(v->menu());menuButton.setContentDescription("Меню профиля");profileAvatarButton=menuButton;head.addView(menuButton,new LinearLayout.LayoutParams(dp(48),dp(48)));refreshProfileAvatar();LinearLayout.LayoutParams headerParams=new LinearLayout.LayoutParams(-1,dp(landscape?52:58));headerParams.bottomMargin=dp(landscape?2:12);root.addView(head,headerParams);if(backgroundOnly)head.setVisibility(View.GONE);
         nightwellBadge = text("", 11);
         nightwellBadge.setContentDescription("Состояние подключения Nightwell");
         setNightwellStatus(nightwellStatus);
@@ -663,19 +676,9 @@ public final class MainActivity extends Activity {
         refreshLiveHandoff();
         LinearLayout contentRow=row();
         root.addView(contentRow,new LinearLayout.LayoutParams(-1,0,1));
+        // In landscape, navigation stays in the profile menu. Keep the
+        // full viewport for the actual library and playback controls.
         landscapeRail=null;
-        if(landscape&&!backgroundOnly){
-            landscapeRail=column();
-            landscapeRail.setGravity(Gravity.TOP|Gravity.CENTER_HORIZONTAL);
-            landscapeRail.setPadding(dp(2),dp(4),dp(4),0);
-            contentRow.addView(landscapeRail,
-                new LinearLayout.LayoutParams(dp(58),-1));
-            addLandscapeTab("⌂","Главная","Главная");
-            addLandscapeTab("⌕","Поиск","Поиск");
-            addLandscapeTab("♡","Избранное","Избранное");
-            addLandscapeTab("☷","Плейлисты","Плейлисты");
-            addLandscapeTab("↓","Офлайн","Офлайн");
-        }
         body=column();
         contentRow.addView(body,new LinearLayout.LayoutParams(0,-1,1));
         status=text("",landscape?10:12);
