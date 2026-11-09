@@ -198,11 +198,13 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
   var cancellation=searchCancellation.Token;
   var query=SearchBox.Text.Trim();
   if(query.Length<2){shown=[];Tracks.ItemsSource=shown;return;}
-  // Owned matches are rendered from on-device state before the provider call.
+  // Render known local tracks immediately. Debounce only the remote request,
+  // not the first visual search result.
   try{
-   await Task.Delay(180,cancellation);
    shown=RankSearchResults(catalog.Concat(ownedPlaylistCache.Values.SelectMany(x=>x)),query);
    Tracks.ItemsSource=shown;
+   await Task.Delay(180,cancellation);
+   cancellation.ThrowIfCancellationRequested();
    Status.Text="Ищем полные версии…";
    for(int attempt=0;attempt<25;attempt++){
     var result=await api.Request("api/tracks?q="+Uri.EscapeDataString(query),cancellation:cancellation);
