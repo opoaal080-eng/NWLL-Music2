@@ -45,31 +45,91 @@ struct HomeLyricLine: View {
     @ObservedObject var clock: PlaybackClock
     var fontSize: CGFloat = 22
     @AppStorage("nw-ambient-lyrics") private var enabled = true
-    @State private var fullscreen = false
+    @AppStorage("nw-kinetic-lyrics") private var kineticEnabled = true
+    @Environment(\.scenePhase) private var scene
     @Environment(\.accessibilityReduceMotion) private var reduced
-    private var line: String {
-        guard enabled, clock.playing, model.value?.synced == true else { return "" }
-        return model.value?.lines?.last(where: { $0.time <= clock.position })?.text ?? ""
+    @State private var fullscreen = false
+    @State private var sampledPosition: Double?
+
+    private var position: Double { sampledPosition ?? clock.position }
+    private var activeLine: (line: Lyrics.Line, end: Double)? {
+        guard enabled, clock.playing, model.value?.synced == true,
+              let lines = model.value?.lines,
+              let index = lines.lastIndex(where: { $0.time <= position }) else { return nil }
+        let line = lines[index]
+        if position - line.time > 4.5 && index + 1 >= lines.count { return nil }
+        let end = index + 1 < lines.count ? lines[index + 1].time : line.time + 4
+        if position - line.time > 4.5 { return nil }
+        return (line, end)
     }
+
     var body: some View {
         Group {
-            if !line.isEmpty {
+            if let activeLine {
                 Button { fullscreen = true } label: {
-                    TimelineView(.animation(minimumInterval: 0.1, paused: reduced || !clock.playing)) { timeline in
-                    Text(line).font(.system(size: fontSize, weight: .bold, design: .rounded)).tracking(-0.4).multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.72).frame(maxWidth: .infinity)
-                        .opacity(reduced ? 1 : 0.88 + 0.12 * sin(timeline.date.timeIntervalSinceReferenceDate * 1.6))
-                        .foregroundStyle(LinearGradient(stops: [
-                            .init(color: nightwellText.opacity(0.85), location: 0),
-                            .init(color: .white, location: max(0, min(1, 0.5 + 0.48 * sin(timeline.date.timeIntervalSinceReferenceDate * 0.65)))),
-                            .init(color: Color(red: 0.75, green: 0.62, blue: 0.88), location: 1)
-                        ], startPoint: .leading, endPoint: .trailing))
-                        .shadow(color: nightwellText.opacity(0.22), radius: 9).shadow(color: nightwellViolet.opacity(0.72), radius: 19).id(line)
-                        .transition(.opacity.combined(with: .offset(y: reduced ? 0 : 10)))
+                    Group {
+                        if kineticEnabled {
+                            NightwellKineticLyricLine(
+                                text: activeLine.line.text,
+                                start: activeLine.line.time,
+                                end: activeLine.end,
+                                position: position,
+                                active: true,
+                                enabled: true,
+                                chorus: false,
+                                timedWords: activeLine.line.words,
+                                fontSize: fontSize
+                            )
+                            .equatable()
+                        } else {
+                            Text(activeLine.line.text)
+                                .font(.system(size: fontSize, weight: .bold, design: .rounded))
+                                .foregroundStyle(.white.opacity(0.92))
+                                .multilineTextAlignment(.center)
+                        }
                     }
-                }.buttonStyle(.plain).animation(reduced ? nil : .easeInOut(duration: 0.35), value: line)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.72)
+                    .frame(maxWidth: .infinity)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .id(activeLine.line.time)
+                .transition(reduced ? .opacity : .opacity.combined(with: .offset(y: 6)))
+                .accessibilityLabel(activeLine.line.text)
             }
-        }.sheet(isPresented: $fullscreen) {
-            NavigationStack { ZStack { SeasonBackground(); SharedLyricsPanel(model: model, clock: clock).padding() }.navigationTitle("Текст песни").toolbar { Button("Закрыть") { fullscreen = false } } }
+        }
+        .animation(reduced ? nil : .easeInOut(duration: 0.22),
+                   value: activeLine?.line.time)
+        .task(id: clock.id) {
+            // The normal UI tick is coarser than karaoke. Sample only while a
+            // home lyric exists and playback is active; no audio/network work.
+            while !Task.isCancelled {
+                if enabled && kineticEnabled && scene == .active && clock.playing {
+                    let live = NativePlayer.shared.lyricPlaybackPosition()
+                    if live.isFinite && live >= 0 &&
+                        (sampledPosition == nil || abs(live - (sampledPosition ?? 0)) >= 0.04) {
+                        sampledPosition = live
+                    }
+                } else if sampledPosition != nil {
+                    sampledPosition = nil
+                }
+                do {
+                    try await Task.sleep(nanoseconds:
+                        enabled && kineticEnabled && scene == .active && clock.playing
+                        ? 140_000_000 : 450_000_000)
+                } catch { return }
+            }
+        }
+        .sheet(isPresented: $fullscreen) {
+            NavigationStack {
+                ZStack {
+                    SeasonBackground()
+                    SharedLyricsPanel(model: model, clock: clock).padding()
+                }
+                .navigationTitle("Текст песни")
+                .toolbar { Button("Закрыть") { fullscreen = false } }
+            }
         }
     }
 }

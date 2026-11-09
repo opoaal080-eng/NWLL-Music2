@@ -333,7 +333,10 @@ struct NativeRoot: View {
     @State private var launching = true
     @Environment(\.accessibilityReduceMotion) private var reducedMotion
     @ViewBuilder private var mainScene: some View {
-        ZStack {
+        GeometryReader { viewport in
+            let landscape = viewport.size.width > viewport.size.height * 1.12 &&
+                viewport.size.height < 650
+            ZStack {
             // Shared monochrome background for Home, Search, Favorites, Playlists and Offline.
             LinearGradient(
                 colors: [Color(red: 0.055, green: 0.062, blue: 0.074), Color(white: 0.025), .black],
@@ -353,7 +356,7 @@ struct NativeRoot: View {
             if backgroundOnly {
                 VStack { HStack { Button { backgroundOnly = false } label: { Image(systemName: "xmark").padding().glass() }; Spacer() }; Spacer() }.padding()
             } else {
-                VStack(spacing: 18) {
+                VStack(spacing: landscape ? 7 : 18) {
                     header
                     HStack(spacing: 6) {
                         Circle()
@@ -388,9 +391,9 @@ struct NativeRoot: View {
                     content
                     MiniPlayer(clock: store.clock, open: { fullPlayer = true })
                         .padding(.horizontal, 16)
-                        .padding(.bottom, 18)
+                        .padding(.bottom, landscape ? 4 : 18)
                         .overlay(alignment: .bottom) {
-                            if store.screen == .home {
+                            if store.screen == .home && !landscape {
                                 HomeLyricLine(model: store.lyrics, clock: store.clock)
                                     .saturation(0)
                                     .frame(height: 60)
@@ -401,6 +404,7 @@ struct NativeRoot: View {
                 }
                 .ignoresSafeArea(.container, edges: .bottom)
             }
+        }
         }
     }
 

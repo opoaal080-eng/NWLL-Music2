@@ -130,65 +130,89 @@ struct NativeHome: View {
     @EnvironmentObject var store: MusicStore
     @ObservedObject var clock: PlaybackClock
 
+    private func homeTitle(_ compact: Bool) -> some View {
+        Text("Твой ритм")
+            .font(.system(size: compact ? 29 : 44, weight: .bold))
+            .tracking(-1.2)
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
+            .foregroundStyle(.white)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+            .accessibilityAddTraits(.isHeader)
+    }
+
+    private func playButton(_ compact: Bool) -> some View {
+        Button {
+            if clock.current == nil { Task { await store.wave() } }
+            else { clock.toggle() }
+        } label: {
+            Image(systemName: clock.playing ? "pause.fill" : "play.fill")
+                .font(.system(size: compact ? 25 : 31, weight: .light))
+                .foregroundStyle(.white)
+                .frame(width: compact ? 68 : 88, height: compact ? 68 : 88)
+                .frostedGlass(compact ? 34 : 44, bordered: false, intensity: 0.20)
+                .contentShape(Circle())
+        }
+        .accessibilityLabel(clock.playing ? "Пауза" : "Воспроизвести")
+        .buttonStyle(.plain)
+    }
+
+    private func waveButton(_ compact: Bool) -> some View {
+        Button {
+            if Date() >= suppressMixTapUntil { Task { await store.wave() } }
+        } label: {
+            HStack(spacing: 7) {
+                if store.loading { ProgressView().tint(.white) }
+                Text(store.loading ? "Подбираем…" : "Новая подборка")
+                    .lineLimit(1).minimumScaleFactor(0.8)
+            }
+            .font(.system(size: compact ? 11 : 13, weight: .semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, compact ? 12 : 18)
+            .frame(height: compact ? 34 : 40)
+            .frostedGlass(22, bordered: false, intensity: 0.20)
+        }
+        .disabled(store.loading)
+        .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in
+            suppressMixTapUntil = Date().addingTimeInterval(1)
+            configureWave()
+        })
+        .buttonStyle(.plain)
+        .accessibilityHint("Удерживай, чтобы настроить подборку")
+        .accessibilityAction(named: "Настроить подборку") { configureWave() }
+    }
+
     var body: some View {
         GeometryReader { box in
-            VStack(alignment: .center, spacing: 0) {
-                VStack(spacing: 22) {
-                    Text("Твой ритм")
-                        .font(.system(size: min(46, box.size.width * 0.125), weight: .bold))
-                        .tracking(-1.2)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-                        .foregroundStyle(.white)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .accessibilityAddTraits(.isHeader)
-                    Button {
-                        if clock.current == nil { Task { await store.wave() } }
-                        else { clock.toggle() }
-                    } label: {
-                        Image(systemName: clock.playing ? "pause.fill" : "play.fill")
-                            .font(.system(size: 31, weight: .light))
-                            .foregroundStyle(Color.white)
-                            .frame(width: 88, height: 88)
-                            .frostedGlass(44, bordered: false, intensity: 0.20)
-                            .contentShape(Circle())
-                    }
-                    .accessibilityLabel(clock.playing ? "Пауза" : "Воспроизвести")
-                    .buttonStyle(.plain)
-
-
-                    HStack(spacing: 10) {
-                        Button { if Date() >= suppressMixTapUntil { Task { await store.wave() } } } label: {
-                            HStack(spacing: 7) {
-                                if store.loading { ProgressView().tint(Color.white) }
-                                Text(store.loading ? "Подбираем…" : "Новая подборка")
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.8)
-                            }
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(Color.white)
-                            .padding(.horizontal, 18)
-                            .frame(height: 40)
-                            .frostedGlass(22, bordered: false, intensity: 0.20)
+            let landscape = box.size.width > box.size.height * 1.12 &&
+                box.size.height < 450
+            Group {
+                if landscape {
+                    // iPhone landscape: controls on the left, karaoke on the
+                    // right. Nothing is layered over the playback button.
+                    HStack(alignment: .center, spacing: 18) {
+                        VStack(spacing: 13) {
+                            homeTitle(true)
+                            waveButton(true)
                         }
-                        .disabled(store.loading)
-                        .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in
-                            suppressMixTapUntil = Date().addingTimeInterval(1)
-                            configureWave()
-                        })
-                        .accessibilityHint("Удерживай, чтобы настроить подборку")
-                        .accessibilityAction(named: "Настроить подборку") { configureWave() }
-
-
+                        .frame(maxWidth: .infinity)
+                        playButton(true)
+                        HomeLyricLine(model: store.lyrics, clock: clock, fontSize: 20)
+                            .frame(maxWidth: .infinity, minHeight: 70)
                     }
-                    .buttonStyle(.plain)
+                    .padding(.horizontal, 18)
+                } else {
+                    VStack(spacing: 22) {
+                        homeTitle(false)
+                        playButton(false)
+                        waveButton(false)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(.bottom, max(24, box.size.height * 0.07))
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding(.bottom, max(24, box.size.height * 0.07))
             }
-            .padding(.horizontal, 24)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background { HomeSparkles() }
         }
     }

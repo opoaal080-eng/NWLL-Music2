@@ -12,6 +12,8 @@ struct NightwellKineticLyricLine: View, Equatable {
     let enabled: Bool
     let chorus: Bool
     let timedWords: [Lyrics.Line.Word]?
+    // Home and full lyrics share timing but use different typography.
+    var fontSize: CGFloat = 28
 
     private var exactWords: [Lyrics.Line.Word]? {
         guard let words = timedWords, !words.isEmpty,
@@ -71,6 +73,7 @@ struct NightwellKineticLyricLine: View, Equatable {
         lhs.text == rhs.text && lhs.start == rhs.start && lhs.end == rhs.end &&
         lhs.active == rhs.active && lhs.enabled == rhs.enabled &&
         lhs.chorus == rhs.chorus && lhs.timedWords == rhs.timedWords &&
+        lhs.fontSize == rhs.fontSize &&
         lhs.highlightedWord == rhs.highlightedWord
     }
 
@@ -85,7 +88,7 @@ struct NightwellKineticLyricLine: View, Equatable {
 
     var body: some View {
         lineText
-            .font(.system(size: 28, weight: .bold, design: .rounded))
+            .font(.system(size: fontSize, weight: .bold, design: .rounded))
             .multilineTextAlignment(.center)
             .lineSpacing(4)
             .shadow(color: active && enabled ? .white.opacity(chorus ? 0.29 : 0.19) : .clear,
