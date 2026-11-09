@@ -239,20 +239,27 @@ private struct StableNavigationSheet: View {
     var body: some View {
         VStack(spacing: 14) {
             HStack(spacing: 12) {
-                if showingAdditional {
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            showingAdditional = false
-                        }
-                    } label: {
-                        Image(systemName: "chevron.left")
-                            .frame(width: 36, height: 42)
-                    }
-                    .accessibilityLabel("Назад в меню")
-                }
                 Text(showingAdditional ? "Дополнительно" : "Меню")
                     .font(.system(size: 24, weight: .bold))
-                Spacer()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.76)
+                Spacer(minLength: 8)
+                // Always one tap from the menu header, immediately to the
+                // left of the profile avatar. Tapping again returns to Menu.
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showingAdditional.toggle()
+                    }
+                } label: {
+                    Image(systemName: showingAdditional ? "square.grid.2x2.fill" : "square.grid.2x2")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundStyle(.white)
+                        .frame(width: 42, height: 42)
+                        .background(.white.opacity(showingAdditional ? 0.17 : 0.08), in: Circle())
+                        .overlay(Circle().strokeBorder(.white.opacity(showingAdditional ? 0.38 : 0.19), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(showingAdditional ? "Назад в меню" : "Дополнительно")
                 // Avatar replaces the close icon in the menu header.
                 // Its identity comes from the existing cached user profile.
                 Button {
@@ -317,17 +324,6 @@ private struct StableNavigationSheet: View {
                             entry("Nightwell Premium", icon: "star", action: .premium)
                         }
                         entry("Настройки", icon: "gearshape", action: .settings)
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                showingAdditional = true
-                            }
-                        } label: {
-                            rowContent("Дополнительно", icon: "square.grid.2x2")
-                        }
-                        .buttonStyle(.plain)
-                        if signedIn {
-                            entry("Выйти", icon: "rectangle.portrait.and.arrow.right", action: .authentication)
-                        }
                     }
                 }
                 .padding(.horizontal, 20).padding(.bottom, 24)
@@ -551,6 +547,7 @@ struct NativeRoot: View {
     @State private var settings = false
     @State private var navigationMenuPresented = false
     @State private var profilePresented = false
+    @State private var profileSigningOut = false
     @State private var pendingNavigation: StableNavigationAction?
     @State private var waveSettingsPresented = false
     @State private var supportPresented = false
@@ -714,10 +711,44 @@ struct NativeRoot: View {
         .sheet(isPresented: $profilePresented) {
             NavigationStack {
                 ScrollView(showsIndicators: false) {
-                    ProfileSettingsView()
-                        .environmentObject(store)
-                        .padding(.horizontal, 18)
-                        .padding(.top, 16)
+                    VStack(spacing: 16) {
+                        ProfileSettingsView()
+                            .environmentObject(store)
+                        if store.account != nil {
+                            Button {
+                                guard !profileSigningOut else { return }
+                                profileSigningOut = true
+                                Task {
+                                    await store.logout()
+                                    profileSigningOut = false
+                                    // Keep the profile open on a network error
+                                    // so the existing Nightwell error remains visible.
+                                    if store.account == nil {
+                                        profilePresented = false
+                                    }
+                                }
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "rectangle.portrait.and.arrow.right")
+                                    Text("Выйти из аккаунта")
+                                    Spacer()
+                                    if profileSigningOut {
+                                        ProgressView().tint(.white)
+                                    }
+                                }
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundStyle(.white)
+                                .padding(16)
+                                .frame(maxWidth: .infinity)
+                                .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 18))
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(profileSigningOut)
+                        }
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.top, 16)
+                    .padding(.bottom, 28)
                 }
                 .background {
                     LinearGradient(
