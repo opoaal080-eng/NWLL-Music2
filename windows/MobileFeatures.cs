@@ -107,7 +107,7 @@ public partial class MainWindow {
  }
  void QualityMenu(UIElement owner){var menu=new ContextMenu();foreach(var option in new[]{("Авто","auto"),("Низкое","economy"),("Среднее","standard"),("Высокое","high")}){var item=new MenuItem{Header=option.Item1};item.Click+=(_,_)=>{quality=option.Item2;SaveMobileSettings();Status.Text="Качество: "+option.Item1+". Применится к следующему треку.";};menu.Items.Add(item);}menu.PlacementTarget=owner;menu.IsOpen=true;}
  async void TasteClick(object sender,RoutedEventArgs e)=>await Guard(TasteSettings);
- void CloseLyricsClick(object sender,RoutedEventArgs e){LyricsPanel.Visibility=Visibility.Collapsed;Cover.Visibility=Visibility.Visible;}
+ void CloseLyricsClick(object sender,RoutedEventArgs e){StopLyricClock();LyricsPanel.Visibility=Visibility.Collapsed;Cover.Visibility=Visibility.Visible;}
  async void CoverLyricsClick(object sender,System.Windows.Input.MouseButtonEventArgs e){if(Current!=null)await Guard(()=>Lyrics(Current));}
  async void FullArtistClick(object sender,System.Windows.Input.MouseButtonEventArgs e){if(Current!=null)await Guard(()=>ArtistProfile(Current.artist));}
  async void SearchPlaylistsClick(object sender,RoutedEventArgs e)=>await Guard(()=>BrowsePlaylists(false,SearchBox.Text));

@@ -408,7 +408,7 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
  async void LikeClick(object sender,RoutedEventArgs e){if(Current!=null)await Guard(()=>Like(Current));}
  async Task Like(Track t){if(account.Length==0){Login();return;}bool remove=likes.Contains(t.id);await api.Request("api/likes/"+t.id,remove?"DELETE":"POST");if(remove)likes.Remove(t.id);else {likes.Add(t.id);if(autoDownload)_=Download([t]);}UpdatePlaybackChrome();}
  async Task Lyrics(Track t){
-  Home.Visibility=Library.Visibility=Dock.Visibility=Visibility.Collapsed;PlayerPage.Visibility=LyricsPanel.Visibility=Visibility.Visible;Ribbon.Visibility=Visibility.Visible;Ribbon.Focused=true;Cover.Visibility=Visibility.Collapsed;
+  Home.Visibility=Library.Visibility=Dock.Visibility=Visibility.Collapsed;PlayerPage.Visibility=LyricsPanel.Visibility=Visibility.Visible;Ribbon.Visibility=Visibility.Visible;Ribbon.Focused=true;Cover.Visibility=Visibility.Collapsed;StartLyricClock();
   if(lyricsID==t.id&&currentLyrics.HasValue){SyncLyrics();return;}
   lyricsCancellation?.Cancel();lyricsCancellation=new();var token=lyricsCancellation.Token;lyricsID=t.id;currentLyrics=null;renderedLyric=int.MinValue;SyncedLyricsLines.Visibility=Visibility.Collapsed;LyricsText.Visibility=Visibility.Visible;LyricsText.Text="Ищем подходящий текст…";
   string folder=Path.Combine(NativeAPI.Storage,"lyrics");Directory.CreateDirectory(folder);string cache=Path.Combine(folder,t.id+".json");
@@ -429,15 +429,8 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
   if(syncLyrics&&result.TryGetProperty("synced",out var synced)&&synced.GetBoolean()&&result.TryGetProperty("lines",out var lines)){
    var all=lines.EnumerateArray().ToArray();
    int activeIndex=Array.FindLastIndex(all,line=>line.GetProperty("time").GetDouble()<=audioTime/1000.0);
-   int activeWord=-1;
-   if(kineticLyrics&&activeIndex>=0){
-    string line=all[activeIndex].GetProperty("text").GetString()??"";
-    int count=line.Split(' ',StringSplitOptions.RemoveEmptyEntries).Length;
-    double start=all[activeIndex].GetProperty("time").GetDouble();
-    double end=activeIndex+1<all.Length?all[activeIndex+1].GetProperty("time").GetDouble():start+4;
-    double ratio=Math.Clamp((audioTime/1000.0-start)/Math.Max(.4,end-start),0,.999);
-    if(count>0)activeWord=Math.Min(count-1,(int)(ratio*count));
-   }
+   int activeWord=kineticLyrics&&activeIndex>=0
+    ?KineticWordAt(all,activeIndex,audioTime/1000.0):-1;
    if(renderedLyric==activeIndex&&renderedKineticWord==activeWord&&displayedLyricsTrack==currentID&&syncedLyricButtons.Count==all.Length)return;
    renderedLyric=activeIndex;renderedKineticWord=activeWord;
    DisplaySyncedLyrics(all,activeIndex,activeWord);
