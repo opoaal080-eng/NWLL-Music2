@@ -112,7 +112,22 @@ struct ArtistDirectoryProfile: Codable {
 struct LikeResult: Codable { let ids: [String] }
 struct PlaylistResult: Codable { let playlists: [Playlist] }
 struct Lyrics: Codable, Equatable {
-    struct Line: Codable, Equatable { let time: Double; let text: String }
+    struct Line: Codable, Equatable {
+        // Optional word-level timestamps are forward-compatible with the
+        // richer server payload. Legacy {time,text} lines still decode.
+        struct Word: Codable, Equatable {
+            let text: String
+            var start: Double?
+            var time: Double?
+            var start_ms: Double?
+            var end: Double?
+            var end_ms: Double?
+            var seconds: Double? { start ?? time ?? start_ms.map { $0 / 1000 } }
+        }
+        let time: Double
+        let text: String
+        var words: [Word]? = nil
+    }
     var status: String?
     var plain: String?
     var lines: [Line]?

@@ -1002,10 +1002,16 @@ struct LyricsView: View {
     var body: some View {
         ScrollViewReader { reader in
             ScrollView(showsIndicators: true) {
-                VStack(alignment: .center, spacing: 25) {
+                LazyVStack(alignment: .center, spacing: 25) {
                     if let lyrics {
                         if lyrics.synced == true, let lines = lyrics.lines {
-                            ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+                            // Compute repetitions in one pass. Filtering the whole
+                            // song for every line was O(n²) on each playback tick.
+                            let chorusCounts = Dictionary(
+                                lines.map { ($0.text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), 1) },
+                                uniquingKeysWith: +
+                            )
+                            ForEach(Array(lines.enumerated()), id: .offset) { index, line in
                                 Button {
                                     // Seeking is explicitly tied to a timestamped line,
                                     // never to a background tap that could close lyrics.
@@ -1022,12 +1028,10 @@ struct LyricsView: View {
                                         position: position,
                                         active: index == active,
                                         enabled: kineticLyrics,
-                                        chorus: lines.filter {
-                                            $0.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                                                .localizedCaseInsensitiveCompare(
-                                                    line.text.trimmingCharacters(in: .whitespacesAndNewlines)) == .orderedSame
-                                        }.count >= 2
+                                        chorus: (chorusCounts[line.text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()] ?? 0) >= 2,
+                                        timedWords: line.words
                                     )
+                                    .equatable()
                                     .frame(maxWidth: .infinity, minHeight: 44)
                                     .contentShape(Rectangle())
                                 }
