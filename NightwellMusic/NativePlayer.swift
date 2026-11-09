@@ -41,6 +41,23 @@ final class NativePlayer {
     private var pendingNextIndex: Int?
     private var pendingManualSelection = false
     private var pendingNextGeneration = UUID()
+    // Enabled by default, including for existing installations. Only new
+    // playback selection commands consult this; no second decoder is created.
+    private var keepCurrentUntilNextReady: Bool {
+        UserDefaults.standard.object(forKey: "nw-keep-current-until-ready") as? Bool ?? true
+    }
+
+    func setKeepCurrentUntilNextReady(_ enabled: Bool) {
+        UserDefaults.standard.set(enabled, forKey: "nw-keep-current-until-ready")
+        if !enabled, let destination = pendingNextIndex {
+            // If the user disables this while a track is preparing, immediately
+            // release the pending handoff and load that requested track instead.
+            cancelPendingNext()
+            switchDirectly(to: destination)
+        } else {
+            publish()
+        }
+    }
     // Failed candidates stay excluded until audio from a working track starts.
     private var unavailableIDs = Set<String>()
     private let maxConsecutiveUnavailable = 12
@@ -65,8 +82,11 @@ final class NativePlayer {
         guard tracks.indices.contains(failed) else { return false }
         unavailableIDs.insert(tracks[failed].id)
         if let target = nextAvailableIndex(after: failed) {
-            if whileCurrentPlays { beginPreparedNext(at: target) }
-            else { switchDirectly(to: target) }
+            if whileCurrentPlays && keepCurrentUntilNextReady {
+                beginPreparedNext(at: target)
+            } else {
+                switchDirectly(to: target)
+            }
             return true
         }
         if waveActive && wantsPlay &&
@@ -882,7 +902,7 @@ final class NativePlayer {
         // Keep the existing audio stream alive while the selected song is
         // prepared. UI metadata advances now; the decoder switches later.
         waveWaiting = false
-        if wantsPlay && !ended && audible {
+        if keepCurrentUntilNextReady && wantsPlay && !ended && audible {
             beginPreparedNext(at: destination, manual: true)
             return pendingNextIndex == destination
         }
@@ -944,13 +964,16 @@ final class NativePlayer {
             } else { target = (index + 1) % tracks.count }
             // When the previous song has already ended, start the next
             // item directly instead of creating a second loading pipeline.
-            if ended { switchDirectly(to: target) }
-            else { beginPreparedNext(at: target, manual: true) }
+            if ended || !keepCurrentUntilNextReady {
+                switchDirectly(to: target)
+            } else {
+                beginPreparedNext(at: target, manual: true)
+            }
             return
         }
         cancelPendingNext()
         let destination = (index + direction + tracks.count) % tracks.count
-        if wantsPlay && !ended && audible {
+        if keepCurrentUntilNextReady && wantsPlay && !ended && audible {
             beginPreparedNext(at: destination, manual: true)
         } else {
             switchDirectly(to: destination)
