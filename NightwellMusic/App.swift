@@ -619,7 +619,7 @@ struct NativeRoot: View {
                     .accessibilityLabel("Подключение Nightwell: \(store.connectionStatus)")
                     .padding(.horizontal, 22)
                     }
-                    if !landscape && store.hasRemotePlayback && compactCollectionTitle == nil && !(store.screen == .home && remoteHomeCollapsed) {
+                    if !landscape && store.hasRemotePlayback && !remoteHomeCollapsed && compactCollectionTitle == nil {
                         Button {
                             Task { await store.continuePlaybackHere() }
                         } label: {
@@ -745,17 +745,18 @@ struct NativeRoot: View {
         }
         .overlay { if launching { MonochromeNightwellLaunch().transition(.opacity) } }
         .task { try? await Task.sleep(nanoseconds: reducedMotion ? 150_000_000 : 1_200_000_000); withAnimation(.easeOut(duration: 0.3)) { launching = false } }
-        // Async task is cancelled automatically if the offer disappears or
-        // the user changes screens. No timers survive when the Home page closes.
-        .task(id: store.hasRemotePlayback && store.screen == .home) {
-            guard store.hasRemotePlayback, store.screen == .home else {
+        // Collapse the remote-playback banner once per remote session, not
+        // once per Home visit. Switching tabs must never expand it again.
+        // Only losing remote playback resets the banner for the next session.
+        .task(id: store.hasRemotePlayback) {
+            guard store.hasRemotePlayback else {
                 remoteHomeCollapsed = false
                 return
             }
             remoteHomeCollapsed = false
             do { try await Task.sleep(nanoseconds: 8_000_000_000) }
             catch { return }
-            guard !Task.isCancelled, store.hasRemotePlayback, store.screen == .home else { return }
+            guard !Task.isCancelled, store.hasRemotePlayback else { return }
             withAnimation(reducedMotion ? nil : .spring(response: 0.48, dampingFraction: 0.82)) {
                 remoteHomeCollapsed = true
             }
@@ -924,7 +925,7 @@ struct NativeRoot: View {
             Button { if store.screen == .search { store.screen = .home } else { store.screen = .search } } label: { Image(systemName: store.screen == .search ? "xmark" : "magnifyingglass").font(.system(size: 19, weight: .medium)).foregroundStyle(.white).frame(width: 44, height: 44).frostedGlass(22, bordered: false, intensity: 0.20) }.accessibilityLabel(store.screen == .search ? "Закрыть поиск" : "Поиск")
             // On Home the full resume banner becomes a small action next to Search
             // after eight seconds; scrolling collections hide the banner so the title stays clear.
-            if store.hasRemotePlayback && store.screen == .home && (remoteHomeCollapsed || landscape) {
+            if store.hasRemotePlayback && (remoteHomeCollapsed || landscape) {
                 Button {
                     Task { await store.continuePlaybackHere() }
                 } label: {
