@@ -38,7 +38,22 @@ public final class FirstRunActivity extends Activity {
         return v;
     }
     @Override public void onCreate(Bundle state){
-        super.onCreate(state);getWindow().setStatusBarColor(BLACK);getWindow().setNavigationBarColor(BLACK);draw();
+        super.onCreate(state);
+        if(state!=null){
+            page=Math.max(0,Math.min(3,state.getInt("welcome.page",0)));
+            mood=state.getString("welcome.mood","any");
+            String[] selected=state.getStringArray("welcome.artists");
+            if(selected!=null)java.util.Collections.addAll(artists,selected);
+        }
+        getWindow().setStatusBarColor(BLACK);
+        getWindow().setNavigationBarColor(BLACK);
+        draw();
+    }
+    @Override protected void onSaveInstanceState(Bundle state){
+        state.putInt("welcome.page",page);
+        state.putString("welcome.mood",mood);
+        state.putStringArray("welcome.artists",artists.toArray(new String[0]));
+        super.onSaveInstanceState(state);
     }
     private void draw(){
         boolean landscape=getResources().getConfiguration().orientation==
