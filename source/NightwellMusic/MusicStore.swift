@@ -15,6 +15,8 @@ import Network
     @Published var position = 0.0
     @Published var duration = 1.0
     @Published var playing = false
+    @Published var preparing = false
+    @Published var bufferFraction = 0.0
     @Published var id = ""
     @Published var queue: [Track] = []
     @Published var failure = ""
@@ -48,6 +50,11 @@ import Network
         let next = value["playing"] as? Bool ?? false
         if playing != next { playing = next; status.playing = next }
         if id != nextID { id = nextID; status.id = nextID }
+        let nextPreparing = value["preparing"] as? Bool ?? false
+        let rawBuffered = value["bufferFraction"] as? Double ?? 0
+        let nextBuffered = rawBuffered.isFinite ? min(1, max(0, rawBuffered)) : 0
+        if preparing != nextPreparing { preparing = nextPreparing }
+        if abs(bufferFraction - nextBuffered) > 0.002 { bufferFraction = nextBuffered }
         failure = value["error"] as? String ?? ""
         let revision = value["queueRevision"] as? Int ?? 0
         if revision != queueRevision {
