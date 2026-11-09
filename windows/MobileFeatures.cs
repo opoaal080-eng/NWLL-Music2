@@ -72,6 +72,10 @@ public partial class MainWindow {
   try{
    // Let the current decoder receive its first bytes before speculative work.
    await Task.Delay(850,lifetime.Token);
+   for(int attempt=0;attempt<12&&!audioPlaying;attempt++){
+    if(currentID!=playingID||lifetime.IsCancellationRequested)return;
+    await Task.Delay(250,lifetime.Token);
+   }
    if(currentID!=playingID||!audioPlaying||lifetime.IsCancellationRequested)return;
    lastWarmSignature=signature;lastWarmAt=DateTime.UtcNow;
    await api.Request("api/preload","POST",new{ids,current_id=playingID},lifetime.Token);
