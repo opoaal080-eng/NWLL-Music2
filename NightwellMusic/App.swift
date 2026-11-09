@@ -392,7 +392,7 @@ private struct NightwellSearchCaretLight: View {
         GeometryReader { geometry in
             TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !active || reduceMotion)) { timeline in
                 let seconds = timeline.date.timeIntervalSinceReferenceDate
-                let drift = reduceMotion ? 0.0 : sin(seconds * 11) * 4.0
+                let drift: CGFloat = reduceMotion ? 0 : CGFloat(sin(seconds * 11) * 4.0)
                 let pulse = reduceMotion ? 1.0 : 0.85 + 0.15 * sin(seconds * 14)
                 let center = min(max(28, x + drift), max(28, geometry.size.width - 10))
                 ZStack {
