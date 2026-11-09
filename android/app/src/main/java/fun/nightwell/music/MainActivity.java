@@ -1100,7 +1100,7 @@ public final class MainActivity extends Activity {
                 JSONObject value=client.request("api/playlists");
                 JSONArray items=value.optJSONArray("playlists");
                 ui.post(()->{if(!isDestroyed()&&client==api&&revision==libraryGeneration&&account.equals(user)&&items!=null){
-                    playlists=items;saveLibrarySnapshot();warmPlaylistSearchIndex(items,account,revision);if(!full&&screen.equals("Плейлисты"))showScreen();
+                    playlists=items;ownedSearchIndex=null;saveLibrarySnapshot();warmPlaylistSearchIndex(items,account,revision);if(!full&&screen.equals("Плейлисты"))showScreen();
                 }});
             }catch(Exception ignored){}
         });
@@ -1132,6 +1132,7 @@ public final class MainActivity extends Activity {
                         JSONArray songs=payload.optJSONArray("tracks");
                         if(songs==null||songs.toString().length()>=750000)continue;
                         prefs.edit().putString(key,songs.toString()).apply();
+                        ownedSearchIndex=null;
                         ui.post(()->{
                             if(isDestroyed()||!owner.equals(user)||!screen.equals("Поиск")
                                ||query.trim().length()<2)return;
@@ -1158,7 +1159,16 @@ public final class MainActivity extends Activity {
             }
         return combined;
     }
+    // Flatten saved playlist tracks at most once per short search session.
+    // Without this, typing each character re-parsed up to 65 large JSON lists.
+    private volatile JSONArray ownedSearchIndex;
+    private volatile String ownedSearchScope="";
+    private volatile long ownedSearchExpires;
     private JSONArray cachedOwnedTracks(){
+        String scope=origin+"|"+user+"|"+playlists.length();
+        JSONArray memo=ownedSearchIndex;
+        if(memo!=null&&scope.equals(ownedSearchScope)&&
+            android.os.SystemClock.elapsedRealtime()<ownedSearchExpires)return memo;
         JSONArray result=new JSONArray();
         android.content.SharedPreferences pref=getSharedPreferences("playlist-snapshots",MODE_PRIVATE);
         for(int i=0;i<Math.min(65,playlists.length());i++){
@@ -1174,6 +1184,9 @@ public final class MainActivity extends Activity {
                 }
             }catch(JSONException ignored){}
         }
+        ownedSearchScope=scope;
+        ownedSearchExpires=android.os.SystemClock.elapsedRealtime()+90000;
+        ownedSearchIndex=result;
         return result;
     }
     private JSONArray rankOwnedSearch(JSONArray input,String query,JSONArray library){
@@ -1190,12 +1203,18 @@ public final class MainActivity extends Activity {
             if(!id.isEmpty()&&!unique.containsKey(id))unique.put(id,t);
         }
         java.util.List<JSONObject> ranked=new java.util.ArrayList<>(unique.values());
+        // Sorting used to normalize titles and artists on every comparator
+        // invocation (O(n log n)). Calculate each relevance score only once.
+        java.util.HashMap<String,Integer> scores=new java.util.HashMap<>(ranked.size());
+        for(JSONObject item:ranked){
+            scores.put(item.optString("id"),RecommendationOrder.searchScore(
+                query,item.optString("title"),item.optString("artist")));
+        }
         ranked.sort((x,y)->{
-            int owner=Boolean.compare(own.contains(y.optString("id")),own.contains(x.optString("id")));
-            if(owner!=0)return owner;
-            return Integer.compare(
-                RecommendationOrder.searchScore(query,y.optString("title"),y.optString("artist")),
-                RecommendationOrder.searchScore(query,x.optString("title"),x.optString("artist")));
+            String a=x.optString("id"),b=y.optString("id");
+            int owned=Boolean.compare(own.contains(b),own.contains(a));
+            if(owned!=0)return owned;
+            return Integer.compare(scores.getOrDefault(b,0),scores.getOrDefault(a,0));
         });
         JSONArray out=new JSONArray();
         for(int i=0;i<Math.min(200,ranked.size());i++)out.put(ranked.get(i));
@@ -2264,8 +2283,11 @@ public final class MainActivity extends Activity {
             if(gen!=generation||!id.equals(selectedPlaylist))return;
             JSONArray tracks=v.optJSONArray("tracks");if(tracks==null)return;
             shown=tracks;updateList();
-            if(tracks.toString().length()<750000)getSharedPreferences("playlist-snapshots",MODE_PRIVATE)
-                .edit().putString(playlistSnapshotKey(id),tracks.toString()).apply();
+            if(tracks.toString().length()<750000){
+                getSharedPreferences("playlist-snapshots",MODE_PRIVATE)
+                    .edit().putString(playlistSnapshotKey(id),tracks.toString()).apply();
+                ownedSearchIndex=null;
+            }
         });
     }
     void nightwellOptions(String title,String[] options,java.util.function.IntConsumer selected){
