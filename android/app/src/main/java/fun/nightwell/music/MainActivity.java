@@ -416,7 +416,64 @@ public final class MainActivity extends Activity {
     TextView action(String label,Runnable run){TextView v=NativeIconButton.isIcon(label)?new NativeIconButton(this):text(label,16);v.setText(label);v.setTextColor(NightwellDesign.PRIMARY);v.setTextSize(NativeIconButton.isIcon(label)?20:16);if(NativeIconButton.isIcon(label))v.setContentDescription(iconLabel(label));v.setGravity(Gravity.CENTER);v.setPadding(dp(13),dp(11),dp(13),dp(11));v.setMinHeight(dp(48));v.setOnClickListener(x->run.run());return v;}
     TextView iconButton(String label,Runnable run){TextView v=action(label,run);v.setPadding(0,0,0,0);v.setTextSize(20);v.setTextColor(NightwellDesign.PRIMARY);v.setBackground(NightwellDesign.ripple(this,0xb0212326,16,true));return v;}
     void toggleBackgroundOnly(){backgroundOnly=!backgroundOnly;build();}
-    void showQueue(){AlertDialog d=new AlertDialog.Builder(this).setTitle("Очередь воспроизведения").setItems(trackNames(queue),(dialog,index)->play(queue.optJSONObject(index),queue,false)).setNegativeButton("Закрыть",null).create();styleSheet(d);d.show();}
+    void showQueue(){
+        final JSONArray snapshot=queue==null?new JSONArray():queue;
+        LinearLayout content=column();
+        content.setPadding(dp(13),dp(8),dp(13),dp(7));
+        TextView intro=text("Очередь воспроизведения",22);
+        NightwellDesign.headline(intro);
+        intro.setPadding(dp(5),dp(12),dp(5),dp(7));
+        content.addView(intro);
+        TextView count=text(snapshot.length()+" треков",13);
+        count.setTextColor(NightwellDesign.MUTED);
+        count.setPadding(dp(5),0,dp(5),dp(12));
+        content.addView(count);
+        ListView items=new ListView(this);
+        items.setDivider(new android.graphics.drawable.ColorDrawable(NightwellDesign.SURFACE));
+        items.setDividerHeight(dp(5));
+        items.setSelector(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
+        items.setVerticalScrollBarEnabled(false);
+        final String playingId=currentID;
+        BaseAdapter adapter=new BaseAdapter(){
+            @Override public int getCount(){return snapshot.length();}
+            @Override public Object getItem(int position){return snapshot.optJSONObject(position);}
+            @Override public long getItemId(int position){return position;}
+            @Override public View getView(int position,View convertView,ViewGroup parent){
+                JSONObject t=snapshot.optJSONObject(position);
+                if(t==null)t=new JSONObject();
+                LinearLayout row=row();
+                row.setPadding(dp(11),dp(11),dp(11),dp(11));
+                boolean current=playingId.equals(t.optString("id"));
+                row.setBackground(NightwellDesign.ripple(MainActivity.this,
+                    current?NightwellDesign.SELECTED:NightwellDesign.RAISED,15,false));
+                TextView order=text(current?"▶":String.valueOf(position+1),13);
+                order.setTextColor(current?NightwellDesign.PRIMARY:NightwellDesign.MUTED);
+                order.setGravity(Gravity.CENTER);
+                row.addView(order,new LinearLayout.LayoutParams(dp(31),dp(46)));
+                LinearLayout name=column();
+                name.setPadding(dp(9),0,0,0);
+                TextView title=text(t.optString("title","Без названия"),14);
+                NightwellDesign.headline(title);title.setSingleLine(true);
+                title.setEllipsize(android.text.TextUtils.TruncateAt.END);name.addView(title);
+                TextView artist=text(t.optString("artist",""),12);
+                NightwellDesign.detail(artist);artist.setSingleLine(true);
+                artist.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                artist.setPadding(0,dp(5),0,0);name.addView(artist);
+                row.addView(name,new LinearLayout.LayoutParams(0,-2,1));
+                return row;
+            }
+        };
+        items.setAdapter(adapter);
+        content.addView(items,new LinearLayout.LayoutParams(-1,
+            Math.min(dp(480),Math.max(dp(100),dp(68)*Math.min(7,snapshot.length())))));
+        AlertDialog dialog=new AlertDialog.Builder(this).setView(content)
+            .setNegativeButton("Закрыть",null).create();
+        items.setOnItemClickListener((p,v,index,id)->{
+            JSONObject track=snapshot.optJSONObject(index);
+            if(track!=null){dialog.dismiss();play(track,snapshot,false);}
+        });
+        styleSheet(dialog);dialog.show();
+    }
     void build(){
         if(ribbon!=null)ribbon.running(false);full=false;lyricsOpen=false;seek=null;fullTime=null;fullPlay=null;fullLike=null;fullDislike=null;fullAudioOutput=null;fullShuffle=null;
         // Render scenery and aura across the window, outside the padded controls.
