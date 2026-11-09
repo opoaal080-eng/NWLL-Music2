@@ -656,6 +656,7 @@ public final class PlaybackService extends MediaSessionService {
             state.put("duration",player.getDuration()==C.TIME_UNSET?0:player.getDuration()/1000.0);
             state.put("playing",player.getPlayWhenReady() && player.getPlaybackState()!=Player.STATE_ENDED);
             state.put("ended",player.getPlaybackState()==Player.STATE_ENDED);
+            state.put("buffering",player.getPlaybackState()==Player.STATE_BUFFERING);
             state.put("repeat",player.getRepeatMode()==Player.REPEAT_MODE_ALL?1:player.getRepeatMode()==Player.REPEAT_MODE_ONE?2:0);state.put("shuffle",player.getShuffleModeEnabled());
             state.put("error",error);state.put("volume",baseVolume);state.put("smoothTransitions",true);state.put("transitionSeconds",transitionSeconds);
             state.put("wave_preferences",waveSettings.json());state.put("wave",waveActive);state.put("waveSupported",true);
