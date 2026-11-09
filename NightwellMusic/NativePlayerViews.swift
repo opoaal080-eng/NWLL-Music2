@@ -266,21 +266,40 @@ struct MiniPlayer: View {
                             Circle()
                                 .stroke(Color.white.opacity(0.22), lineWidth: 2.2)
                                 .frame(width: 44, height: 44)
+                            // During initial buffering this same ring shows
+                            // loaded audio; once audible it shows play position.
                             Circle()
-                                .trim(from: 0, to: playbackFraction)
+                                .trim(from: 0, to: clock.preparing ? CGFloat(clock.bufferFraction) : playbackFraction)
                                 .stroke(Color.white.opacity(0.96),
                                         style: StrokeStyle(lineWidth: 2.7, lineCap: .round))
                                 .rotationEffect(.degrees(-90))
                                 .frame(width: 44, height: 44)
+                            if clock.preparing && clock.bufferFraction < 0.01 {
+                                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: reduced)) { time in
+                                    let phase = time.date.timeIntervalSinceReferenceDate
+                                        .truncatingRemainder(dividingBy: 1.4) / 1.4
+                                    Circle()
+                                        .trim(from: 0, to: 0.22)
+                                        .stroke(.white.opacity(0.92),
+                                                style: StrokeStyle(lineWidth: 2.7, lineCap: .round))
+                                        .rotationEffect(.degrees(phase * 360 - 90))
+                                        .frame(width: 44, height: 44)
+                                }
+                                .allowsHitTesting(false)
+                            }
                             Image(systemName: clock.playing ? "pause" : "play.fill")
                                 .font(.system(size: 17, weight: .light))
                         }
                         .frame(width: compactHeight ? 42 : 48, height: compactHeight ? 42 : 48)
                     }
                     .accessibilityLabel(clock.playing ? "Пауза" : "Воспроизвести")
-                    .accessibilityValue(clock.duration > 0
-                                        ? "\(Int((playbackFraction * 100).rounded()))% трека"
-                                        : "Прогресс неизвестен")
+                    .accessibilityValue(clock.preparing
+                        ? (clock.bufferFraction > 0
+                           ? "Загружено \(Int((clock.bufferFraction * 100).rounded()))%"
+                           : "Подготовка аудио")
+                        : (clock.duration > 0
+                           ? "\(Int((playbackFraction * 100).rounded()))% трека"
+                           : "Прогресс неизвестен"))
                     Button { changeTrack(1) } label: { Image(systemName: "forward.end").font(.system(size: 15)).frame(width: compact ? 24 : 28, height: 44) }.accessibilityLabel("Следующий трек")
                 }.buttonStyle(.plain)
             }.foregroundStyle(.white) .padding(.horizontal, 14).frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -319,6 +338,10 @@ struct GlassSlider: View {
     var accessibilityStep: Double = 1
     let label: String
     let valueText: String
+    // Optional backing layer on the same track as the playhead. Other sliders
+    // keep their existing appearance with the default 0 fraction.
+    var bufferedFraction: CGFloat = 0
+    var preparing: Bool = false
     var onEditingChanged: (Bool) -> Void = { _ in }
     @State private var dragging = false
     @Environment(\.accessibilityReduceMotion) private var reducedMotion
@@ -338,6 +361,31 @@ struct GlassSlider: View {
             let width = max(0, proxy.size.width - 22)
             ZStack(alignment: .leading) {
                 Capsule().fill(.white.opacity(0.13)).frame(height: dragging ? 6 : 4)
+                // Actual AVPlayer cached audio, drawn BEHIND the white
+                // playback progress on exactly the same horizontal track.
+                if bufferedFraction > 0 {
+                    Capsule()
+                        .fill(.white.opacity(0.36))
+                        .frame(width: width * min(1, max(0, bufferedFraction)),
+                               height: dragging ? 6 : 4)
+                } else if preparing {
+                    // The server cannot always report how much of the first
+                    // audio is ready. Show movement rather than a fake percent.
+                    TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: reducedMotion)) { time in
+                        let phase = time.date.timeIntervalSinceReferenceDate
+                            .truncatingRemainder(dividingBy: 1.45) / 1.45
+                        Capsule()
+                            .fill(LinearGradient(
+                                colors: [.clear, .white.opacity(0.48), .clear],
+                                startPoint: .leading, endPoint: .trailing
+                            ))
+                            .frame(width: min(94, width * 0.38), height: 4)
+                            .offset(x: -94 + (width + 188) * CGFloat(phase))
+                            .frame(width: width, height: 4, alignment: .leading)
+                            .clipped()
+                    }
+                    .allowsHitTesting(false)
+                }
                 Capsule().fill(LinearGradient(colors: [Color.white.opacity(0.65), Color.white], startPoint: .leading, endPoint: .trailing))
                     .frame(width: width * fraction, height: dragging ? 6 : 4)
                 Circle()
@@ -812,7 +860,7 @@ struct FullPlayer: View {
     @ViewBuilder private var playerTransport: some View {
                 VStack(spacing: 16) {
                     VStack(spacing: 8) {
-                        GlassSlider(value: Binding(get: { seeking ? scrub : min(clock.position, clock.duration) }, set: { scrub = $0 }), range: 0...clock.duration, accessibilityStep: 5, label: "Позиция трека", valueText: formatTime(seeking ? scrub : clock.position)) { editing in if editing { scrub = clock.position; seeking = true } else { NativePlayer.shared.seek(scrub); seeking = false } }
+                        GlassSlider(value: Binding(get: { seeking ? scrub : min(clock.position, clock.duration) }, set: { scrub = $0 }), range: 0...clock.duration, accessibilityStep: 5, label: "Позиция трека", valueText: formatTime(seeking ? scrub : clock.position), bufferedFraction: CGFloat(clock.bufferFraction), preparing: clock.preparing) { editing in if editing { scrub = clock.position; seeking = true } else { NativePlayer.shared.seek(scrub); seeking = false } }
                         HStack { Text(formatTime(seeking ? scrub : clock.position)); Spacer(); Text("−" + formatTime(max(0, clock.duration - (seeking ? scrub : clock.position)))) }.font(.caption).foregroundStyle(.secondary).monospacedDigit()
                     }
                     HStack {
