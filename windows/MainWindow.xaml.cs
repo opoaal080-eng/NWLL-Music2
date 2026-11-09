@@ -143,10 +143,15 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
      _=WarmOwnedPlaylistsAsync(owner);
     }catch(OperationCanceledException){}catch(Exception e){if(account==owner)Status.Text="Плейлисты: "+e.Message;}
    }
-   // Each section becomes visible immediately, independent of slow endpoints.
-   await Task.WhenAll(FetchTracks(),Likes(),Playlists());
-   if(account!=owner||lifetime.IsCancellationRequested)return;
-   if(successful>0){Status.Text="";SaveLibraryCacheAsync(owner);}
+   // Do not hold startup and playback restoration behind slow library APIs.
+   // Start all sections after the authenticated cache is shown, then publish
+   // each independently. The refresh owns its errors and account checks.
+   async Task RefreshSections(){
+    await Task.WhenAll(FetchTracks(),Likes(),Playlists());
+    if(account!=owner||lifetime.IsCancellationRequested)return;
+    if(successful>0){Status.Text="";SaveLibraryCacheAsync(owner);}
+   }
+   _=RefreshSections();
   });
  }
  void Show(string next){
@@ -448,7 +453,10 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
   UpdatePlaybackChrome();
   if(!scrubbing){FullSeek.Maximum=duration;FullSeek.Value=Math.Min(duration,position);}
   FullTime.Text=$"{Time(position)}    /    {Time(duration)}";
-  _=AudioCommand(ApplyVolume);
+  // Volume callbacks already apply direct changes. Only poll the engine
+  // during a timed fade: otherwise this was a redundant background job
+  // on every 400ms playback tick.
+  if(transition>0&&playing) _=AudioCommand(ApplyVolume);
   // Start replenishment before only a handful of tracks remain.
   if(wave&&queue.Count-index<18&&!refilling)_=Refill();
   UpdateListening();
