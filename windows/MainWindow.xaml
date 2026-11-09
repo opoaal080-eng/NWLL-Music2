@@ -87,7 +87,7 @@
     <local:RibbonScene x:Name="Ribbon" Grid.Column="1" IsHitTestVisible="False"/>
     <Grid x:Name="Home" Grid.Column="1">
 
-     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
 
      <Border x:Name="PlaybackBadge" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="24,28" Background="#801F1F1F" BorderBrush="#404040" BorderThickness="1" CornerRadius="14" Padding="12,8">
       <StackPanel Orientation="Horizontal"><Ellipse x:Name="PlaybackDot" Width="5" Height="5" Fill="#B6B6B6" Opacity="0.4" Margin="0,0,8,0"/><TextBlock x:Name="PlaybackBadgeText" Text="ТВОЙ ПОТОК" FontSize="9" Foreground="#BFBFBF" FontWeight="SemiBold"/></StackPanel>
@@ -108,6 +108,12 @@
       </StackPanel>
       <Button Content="&#xE8A7;  Продолжить с телефона" FontFamily="Segoe UI" FontSize="14" Width="252" Height="46" Margin="0,18,0,0" Click="ContinueOnDesktopClick" Style="{StaticResource PrimaryButton}" ToolTip="Продолжить прослушивание с телефона"/>
      </StackPanel></Viewbox>
+     <TextBlock x:Name="HomeKineticText" Grid.Row="2"
+       TextWrapping="Wrap" TextAlignment="Center"
+       FontSize="24" FontWeight="SemiBold"
+       Foreground="#FFFFFF" MaxWidth="680" MaxHeight="95"
+       HorizontalAlignment="Center" VerticalAlignment="Bottom"
+       Margin="28,0,28,16"/>
     </Grid>
 
     <Grid x:Name="PlayerPage" Grid.Column="1" Visibility="Collapsed" Margin="24">

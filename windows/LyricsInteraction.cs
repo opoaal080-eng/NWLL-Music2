@@ -26,8 +26,13 @@ public partial class MainWindow {
  void StartLyricClock(){
   if(!lyricClockStarted){
    lyricClock.Tick+=(_,_)=>{
-    if(!LyricsPanel.IsVisible||player==null||!player.IsPlaying)return;
-    try{audioTime=Math.Max(0,player.Time);SyncLyrics();}catch{}
+    if(player==null||!player.IsPlaying)return;
+    if(!LyricsPanel.IsVisible&&!Home.IsVisible)return;
+    try{
+     audioTime=Math.Max(0,player.Time);
+     if(LyricsPanel.IsVisible)SyncLyrics();
+     if(Home.IsVisible)UpdateHomeLyrics();
+    }catch{}
    };
    lyricClockStarted=true;
   }
