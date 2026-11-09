@@ -662,7 +662,7 @@ struct NativeRoot: View {
             Button { if store.screen == .search { store.screen = .home } else { store.screen = .search } } label: { Image(systemName: store.screen == .search ? "xmark" : "magnifyingglass").font(.system(size: 19, weight: .medium)).foregroundStyle(.white).frame(width: 44, height: 44).frostedGlass(22, bordered: false, intensity: 0.20) }.accessibilityLabel(store.screen == .search ? "Закрыть поиск" : "Поиск")
             // On Home the full resume banner becomes a small action next to Search
             // after eight seconds; scrolling collections hide the banner so the title stays clear.
-            if store.hasRemotePlayback && store.screen == .home && remoteHomeCollapsed {
+            if store.hasRemotePlayback && store.screen == .home && (remoteHomeCollapsed || landscape) {
                 Button {
                     Task { await store.continuePlaybackHere() }
                 } label: {
