@@ -164,7 +164,9 @@ public final class PlaybackService extends MediaSessionService {
             positionTrack = track.mediaId; lastGoodPositionMs = 0;
         }
         long current = Math.max(0, player.getCurrentPosition());
-        if (current > 0 || lastGoodPositionMs == 0) lastGoodPositionMs = current;
+        // ExoPlayer can report an earlier sample during the pause handoff.
+        // Capture the newest known playhead before stopping the decoder.
+        lastGoodPositionMs = Math.max(lastGoodPositionMs,current);
         pausedPositionMs = lastGoodPositionMs;
     }
     // Prefetch a small cacheable FILE prefix only. Signed HLS playlists remain fresh.
@@ -760,8 +762,14 @@ public final class PlaybackService extends MediaSessionService {
             if(item!=null && !item.mediaId.equals(positionTrack)) {
                 positionTrack=item.mediaId; lastGoodPositionMs=position; pausedPositionMs=-1;
             }
-            if(player.getPlayWhenReady() && position>0) lastGoodPositionMs=position;
-            if(item!=null && !player.getPlayWhenReady() && pausedPositionMs>=0) position=pausedPositionMs;
+            if(item!=null && player.getPlayWhenReady()) {
+                lastGoodPositionMs=Math.max(lastGoodPositionMs,position);
+                // Manual seek() resets the anchor, so ordinary backwards seeking
+                // is still honored while stale decoder ticks cannot rewind the UI.
+                position=Math.max(position,lastGoodPositionMs);
+            } else if(item!=null && pausedPositionMs>=0) {
+                position=pausedPositionMs;
+            }
             state.put("position",position/1000.0);
             state.put("duration",player.getDuration()==C.TIME_UNSET?0:player.getDuration()/1000.0);
             state.put("playing",player.getPlayWhenReady() && player.getPlaybackState()!=Player.STATE_ENDED);
