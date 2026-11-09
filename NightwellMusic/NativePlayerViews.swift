@@ -342,6 +342,8 @@ struct GlassSlider: View {
     // keep their existing appearance with the default 0 fraction.
     var bufferedFraction: CGFloat = 0
     var preparing: Bool = false
+    // Keep settings sliders unchanged, but use an unobtrusive handle on the player.
+    var knobDiameter: CGFloat = 18
     var onEditingChanged: (Bool) -> Void = { _ in }
     @State private var dragging = false
     @Environment(\.accessibilityReduceMotion) private var reducedMotion
@@ -390,11 +392,11 @@ struct GlassSlider: View {
                     .frame(width: width * fraction, height: dragging ? 6 : 4)
                 Circle()
                     .fill(LinearGradient(colors: [.white.opacity(0.95), Color.white], startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .frame(width: 18, height: 18)
-                    .overlay(Circle().stroke(.white.opacity(0.5), lineWidth: 0.7))
-                    .shadow(color: Color.white.opacity(dragging ? 0.55 : 0.18), radius: dragging ? 12 : 4)
-                    .scaleEffect(dragging ? 1.22 : 1)
-                    .offset(x: width * fraction - 9)
+                    .frame(width: knobDiameter, height: knobDiameter)
+                    .overlay(Circle().stroke(.white.opacity(0.45), lineWidth: 0.5))
+                    .shadow(color: Color.white.opacity(dragging ? 0.35 : 0.12), radius: dragging ? 5 : 2)
+                    .scaleEffect(dragging ? 1.15 : 1)
+                    .offset(x: width * fraction - knobDiameter / 2)
             }
             .padding(.horizontal, 11)
             .frame(height: 40)
@@ -860,7 +862,7 @@ struct FullPlayer: View {
     @ViewBuilder private var playerTransport: some View {
                 VStack(spacing: 16) {
                     VStack(spacing: 8) {
-                        GlassSlider(value: Binding(get: { seeking ? scrub : min(clock.position, clock.duration) }, set: { scrub = $0 }), range: 0...clock.duration, accessibilityStep: 5, label: "Позиция трека", valueText: formatTime(seeking ? scrub : clock.position), bufferedFraction: CGFloat(clock.bufferFraction), preparing: clock.preparing) { editing in if editing { scrub = clock.position; seeking = true } else { NativePlayer.shared.seek(scrub); seeking = false } }
+                        GlassSlider(value: Binding(get: { seeking ? scrub : min(clock.position, clock.duration) }, set: { scrub = $0 }), range: 0...clock.duration, accessibilityStep: 5, label: "Позиция трека", valueText: formatTime(seeking ? scrub : clock.position), bufferedFraction: CGFloat(clock.bufferFraction), preparing: clock.preparing, knobDiameter: 8) { editing in if editing { scrub = clock.position; seeking = true } else { NativePlayer.shared.seek(scrub); seeking = false } }
                         HStack { Text(formatTime(seeking ? scrub : clock.position)); Spacer(); Text("−" + formatTime(max(0, clock.duration - (seeking ? scrub : clock.position)))) }.font(.caption).foregroundStyle(.secondary).monospacedDigit()
                     }
                     HStack {
