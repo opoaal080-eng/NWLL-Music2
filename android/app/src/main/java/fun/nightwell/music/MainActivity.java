@@ -292,7 +292,7 @@ public final class MainActivity extends Activity {
     private TextView status,miniTitle,miniArtist,miniPlay,miniPrev,miniNext,miniLike;
     private android.widget.ImageView miniCover;private CircularProgressRing miniProgressRing;
     private ArtworkCache artworkCache;
-    private TextView fullTime,homePlay,fullPlay,fullLike,fullDislike,fullAudioOutput,fullShuffle;
+    private TextView fullTime,fullElapsed,homePlay,fullPlay,fullLike,fullDislike,fullAudioOutput,fullShuffle;
     private SeekBar seek;
     private EditText search;
     private LinearLayout artistStrip;
@@ -478,7 +478,7 @@ public final class MainActivity extends Activity {
         styleSheet(dialog);dialog.show();
     }
     void build(){
-        if(ribbon!=null)ribbon.running(false);full=false;lyricsOpen=false;seek=null;fullTime=null;fullPlay=null;fullLike=null;fullDislike=null;fullAudioOutput=null;fullShuffle=null;
+        if(ribbon!=null)ribbon.running(false);full=false;lyricsOpen=false;seek=null;fullTime=null;fullPlay=null;fullLike=null;fullDislike=null;fullAudioOutput=null;fullShuffle=null;fullElapsed=null;
         // Render scenery and aura across the window, outside the padded controls.
         android.widget.FrameLayout scene=new android.widget.FrameLayout(this);
         scene.setBackground(new NativeSceneryDrawable(this));
@@ -1819,7 +1819,7 @@ public final class MainActivity extends Activity {
     }
 
     void setLabel(TextView view,String value){if(view!=null&&!android.text.TextUtils.equals(view.getText(),value))view.setText(value);}
-    void updatePlayback(){if(smokeMode||playback==null)return;try{JSONObject state=new JSONObject(playback.snapshot(false));String next=state.optString("id");if(!currentID.equals(next)||queue.length()!=state.optInt("queueCount")){queue=new JSONObject(playback.snapshot(true)).optJSONArray("queueTracks");}if(queue==null)queue=new JSONArray();JSONObject t=null;for(int i=0;i<queue.length();i++)if(queue.optJSONObject(i).optString("id").equals(next)){t=queue.optJSONObject(i);break;}rememberFavorite(t);setLabel(miniTitle,t==null?"Выбери трек":t.optString("title"));setLabel(miniArtist,t==null?"Nightwell Music":t.optString("artist"));refreshFavoriteButtons();if(miniProgressRing!=null)miniProgressRing.setProgress(state.optDouble("position")/Math.max(1,state.optDouble("duration")));if(ambient!=null){ambient.setPlaybackActive(state.optBoolean("playing"));updateArtworkReaction();}setLabel(miniPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(homePlay!=null)setLabel(homePlay,state.optBoolean("playing")?"Ⅱ":"▶");if(fullPlay!=null)setLabel(fullPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(ribbon!=null)ribbon.playing(state.optBoolean("playing"));if(!currentID.equals(next)){currentID=next;if(!next.isEmpty()){rememberRecent(next);checkTrackAudioQuality(t);}activeLyrics=null;homeLine="";loadMiniCover(t);fetchLyricsAndPreload();animateTrackTransition();updateList();if(full)openPlayer();}if(seek!=null&&!seek.isPressed()){seek.setMax((int)Math.max(1,state.optDouble("duration")));seek.setProgress((int)state.optDouble("position"));}if(fullTime!=null)setLabel(fullTime,time(state.optDouble("position"))+"     /     "+time(state.optDouble("duration")));if(!state.optString("error").isEmpty())status.setText(state.optString("error"));syncLyrics(state.optDouble("position"));syncHomeLyrics(state.optDouble("position"));if(lastPlaying!=state.optBoolean("playing")){lastPlaying=state.optBoolean("playing");updateList();}}catch(Exception ignored){}}
+    void updatePlayback(){if(smokeMode||playback==null)return;try{JSONObject state=new JSONObject(playback.snapshot(false));String next=state.optString("id");if(!currentID.equals(next)||queue.length()!=state.optInt("queueCount")){queue=new JSONObject(playback.snapshot(true)).optJSONArray("queueTracks");}if(queue==null)queue=new JSONArray();JSONObject t=null;for(int i=0;i<queue.length();i++)if(queue.optJSONObject(i).optString("id").equals(next)){t=queue.optJSONObject(i);break;}rememberFavorite(t);setLabel(miniTitle,t==null?"Выбери трек":t.optString("title"));setLabel(miniArtist,t==null?"Nightwell Music":t.optString("artist"));refreshFavoriteButtons();if(miniProgressRing!=null)miniProgressRing.setProgress(state.optDouble("position")/Math.max(1,state.optDouble("duration")));if(ambient!=null){ambient.setPlaybackActive(state.optBoolean("playing"));updateArtworkReaction();}setLabel(miniPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(homePlay!=null)setLabel(homePlay,state.optBoolean("playing")?"Ⅱ":"▶");if(fullPlay!=null)setLabel(fullPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(ribbon!=null)ribbon.playing(state.optBoolean("playing"));if(!currentID.equals(next)){currentID=next;if(!next.isEmpty()){rememberRecent(next);checkTrackAudioQuality(t);}activeLyrics=null;homeLine="";loadMiniCover(t);fetchLyricsAndPreload();animateTrackTransition();updateList();if(full)openPlayer();}if(seek!=null&&!seek.isPressed()){seek.setMax((int)Math.max(1,state.optDouble("duration")));seek.setProgress((int)state.optDouble("position"));}if(fullElapsed!=null)setLabel(fullElapsed,time(state.optDouble("position")));if(fullTime!=null)setLabel(fullTime,time(state.optDouble("duration")));if(!state.optString("error").isEmpty())status.setText(state.optString("error"));syncLyrics(state.optDouble("position"));syncHomeLyrics(state.optDouble("position"));if(lastPlaying!=state.optBoolean("playing")){lastPlaying=state.optBoolean("playing");updateList();}}catch(Exception ignored){}}
     void animateTrackTransition(){
         if(dock==null||!dock.isShown())return;
         final float slide=dp(24)*trackTransitionDirection;
@@ -1836,83 +1836,190 @@ public final class MainActivity extends Activity {
     JSONObject current(){for(int i=0;i<queue.length();i++)if(queue.optJSONObject(i).optString("id").equals(currentID))return queue.optJSONObject(i);return null;}
     String iconLabel(String icon){switch(icon){case "⌕":return "Поиск музыки";case "☰":return "Открыть меню";case "⋯":return "Действия с треком";case "⌄":return "Свернуть плеер";case "×":return "Закрыть";case "|‹":return "Предыдущий трек";case "›|":return "Следующий трек";case "♡":case "♥":return "Избранное";case "⇄":return "Перемешать";case "↻":return "Повтор";default:return "Воспроизведение";}}
     void openPlayer(){
-        JSONObject track=current();if(track==null)return;full=true;updateArtworkAppearance();dock.setVisibility(View.GONE);head.setVisibility(View.GONE);body.removeAllViews();
+        JSONObject track=current();
+        if(track==null)return;
+        full=true;
+        updateArtworkAppearance();
+        refreshLiveHandoff();
+        if(status!=null){status.setText("");status.setVisibility(View.GONE);}
+        if(nightwellBadge!=null)nightwellBadge.setVisibility(View.GONE);
+        if(dock!=null)dock.setVisibility(View.GONE);
+        if(head!=null)head.setVisibility(View.GONE);
+        body.removeAllViews();
+
         LinearLayout top=row();
+        top.setPadding(dp(2),dp(5),dp(2),dp(3));
         TextView close=iconButton("⌄",()->{full=false;build();});
+        close.setContentDescription("Свернуть плеер");
         top.addView(close,new LinearLayout.LayoutParams(dp(48),dp(48)));
-        LinearLayout center=column();center.setGravity(Gravity.CENTER);
+        LinearLayout header=column();
+        header.setGravity(Gravity.CENTER);
+        TextView caption=text("СЕЙЧАС ИГРАЕТ",11);
+        caption.setLetterSpacing(.2f);
+        caption.setTextColor(NightwellDesign.SECONDARY);
+        caption.setGravity(Gravity.CENTER);
+        header.addView(caption);
+        TextView brand=text("NIGHTWELL MUSIC",10);
+        brand.setLetterSpacing(.12f);
+        brand.setGravity(Gravity.CENTER);
+        brand.setTextColor(NightwellDesign.MUTED);
+        brand.setPadding(0,dp(5),0,0);
+        header.addView(brand);
+        top.addView(header,new LinearLayout.LayoutParams(0,dp(48),1));
+        TextView more=iconButton("⋯",()->fullPlayerMenu(current()));
+        more.setContentDescription("Меню плеера");
+        top.addView(more,new LinearLayout.LayoutParams(dp(48),dp(48)));
+        body.addView(top);
+
+        ScrollView scroll=new ScrollView(this);
+        scroll.setFillViewport(false);
+        scroll.setClipToPadding(false);
+        scroll.setVerticalScrollBarEnabled(false);
+        LinearLayout content=column();
+        content.setPadding(dp(3),dp(7),dp(3),dp(24));
+        scroll.addView(content);
+        body.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+
+        // System audio route stays accessible, but doesn't steal space in the header.
         fullAudioOutput=text("♫  "+audioOutputName()+"  ⌄",12);
         fullAudioOutput.setGravity(Gravity.CENTER);
         fullAudioOutput.setSingleLine(true);
         fullAudioOutput.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        fullAudioOutput.setPadding(dp(10),0,dp(10),0);
-        fullAudioOutput.setMinHeight(0);
-        fullAudioOutput.setBackground(NightwellDesign.ripple(this,0x99202226,13,true));
+        fullAudioOutput.setTextColor(NightwellDesign.SECONDARY);
+        fullAudioOutput.setPadding(dp(15),0,dp(15),0);
+        fullAudioOutput.setBackground(NightwellDesign.ripple(this,0x9c1b1e22,15,true));
         fullAudioOutput.setContentDescription("Устройство вывода: "+audioOutputName()+". Изменить");
         fullAudioOutput.setOnClickListener(v->chooseAudioOutput());
-        LinearLayout.LayoutParams routeParams=new LinearLayout.LayoutParams(-2,dp(30));
+        LinearLayout.LayoutParams routeParams=new LinearLayout.LayoutParams(-2,dp(34));
         routeParams.gravity=Gravity.CENTER_HORIZONTAL;
-        center.addView(fullAudioOutput,routeParams);
-        TextView caption=text("СЕЙЧАС ИГРАЕТ",11);caption.setLetterSpacing(.16f);caption.setTextColor(NightwellDesign.SECONDARY);
-        caption.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams captionParams=new LinearLayout.LayoutParams(-1,dp(24));
-        center.addView(caption,captionParams);
-        top.addView(center,new LinearLayout.LayoutParams(0,dp(60),1));
-        top.addView(iconButton("⋯",()->fullPlayerMenu(track)),new LinearLayout.LayoutParams(dp(48),dp(48)));
-        body.addView(top);
-        android.widget.ScrollView scroll=new android.widget.ScrollView(this);scroll.setFillViewport(true);scroll.setClipToPadding(false);LinearLayout content=column();content.setPadding(0,dp(16),0,dp(16));scroll.addView(content);body.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+        routeParams.bottomMargin=dp(19);
+        content.addView(fullAudioOutput,routeParams);
+
         addCover(track,content);
-        LinearLayout metadata=row();metadata.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout names=column();
-        TextView title=text(track.optString("title"),25);title.setMaxLines(2);title.setLetterSpacing(-.025f);title.setLineSpacing(dp(2),1f);title.setAutoSizeTextTypeUniformWithConfiguration(19,25,1,android.util.TypedValue.COMPLEX_UNIT_SP);title.setEllipsize(android.text.TextUtils.TruncateAt.END);title.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);title.setPadding(dp(8),dp(18),dp(8),dp(6));names.addView(title);
-        TextView artist=text(track.optString("artist")+"  ›",12);artist.setTextColor(0xffd3d3da);artist.setMaxLines(2);artist.setEllipsize(android.text.TextUtils.TruncateAt.END);artist.setPadding(dp(10),dp(6),dp(10),dp(6));artist.setBackground(NightwellDesign.ripple(this,0x99202226,14,true));artist.setOnClickListener(v->chooseArtist(track.optString("artist")));artist.setContentDescription("Открыть исполнителя");names.addView(artist);
-        metadata.addView(names,new LinearLayout.LayoutParams(0,-2,1));
-        fullLike=iconButton(likes.contains(track.optString("id"))?"♥":"♡",()->toggleFavorite(current()));
-        fullLike.setContentDescription(likes.contains(track.optString("id"))?"Убрать из избранного":"Добавить в избранное");
-        fullLike.setTextColor(likes.contains(track.optString("id"))?0xffeeeeee:0xffa4a6b1);
-        LinearLayout.LayoutParams likeParams=new LinearLayout.LayoutParams(dp(48),dp(48));
-        likeParams.setMargins(dp(4),0,dp(0),0);
-        fullDislike=iconButton("👎",()->{
+
+        TextView title=text(track.optString("title"),26);
+        NightwellDesign.headline(title);
+        title.setMaxLines(2);
+        title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        title.setAutoSizeTextTypeUniformWithConfiguration(19,26,1,
+            android.util.TypedValue.COMPLEX_UNIT_SP);
+        title.setLetterSpacing(-.026f);
+        LinearLayout.LayoutParams titleParams=new LinearLayout.LayoutParams(-1,-2);
+        titleParams.topMargin=dp(19);
+        titleParams.bottomMargin=dp(9);
+        content.addView(title,titleParams);
+
+        LinearLayout artistActions=row();
+        artistActions.setGravity(Gravity.CENTER_VERTICAL);
+        TextView artist=text(track.optString("artist")+"  ›",14);
+        artist.setSingleLine(true);
+        artist.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        artist.setTextColor(NightwellDesign.SECONDARY);
+        artist.setPadding(0,dp(8),dp(6),dp(8));
+        artist.setContentDescription("Открыть исполнителя");
+        artist.setOnClickListener(v->chooseArtist(track.optString("artist")));
+        artistActions.addView(artist,new LinearLayout.LayoutParams(0,-2,1));
+
+        fullDislike=iconButton("⊖",()->{
             JSONObject selected=current();
             if(selected==null)return;
             toggleRecommendationHidden(selected);
-            if(fullDislike!=null){
-                boolean hidden=hiddenRecommendations().contains(selected.optString("id"));
-                fullDislike.setAlpha(hidden?1f:.55f);
-                fullDislike.setContentDescription(hidden?"Вернуть в рекомендации":"Не рекомендовать");
-            }
+            boolean hidden=hiddenRecommendations().contains(selected.optString("id"));
+            fullDislike.setAlpha(hidden?1f:.65f);
+            fullDislike.setContentDescription(hidden?"Вернуть в рекомендации":"Не рекомендовать");
         });
         boolean hidden=hiddenRecommendations().contains(track.optString("id"));
-        fullDislike.setAlpha(hidden?1f:.55f);
+        fullDislike.setAlpha(hidden?1f:.65f);
         fullDislike.setContentDescription(hidden?"Вернуть в рекомендации":"Не рекомендовать");
-        metadata.addView(fullDislike,new LinearLayout.LayoutParams(dp(44),dp(48)));
-        metadata.addView(fullLike,likeParams);
-        content.addView(metadata);
-        LinearLayout transport=column();transport.setPadding(dp(16),dp(14),dp(16),dp(9));transport.setBackground(NightwellDesign.surface(this,0xa71c1e22,24,true));content.addView(transport);
-        seek=new SeekBar(this);styleSeekBar(seek);seek.setMinimumHeight(dp(44));seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar b,int p,boolean user){}public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){cancelMix();if(playback!=null)playback.seek(b.getProgress());}});transport.addView(seek);fullTime=text("",12);fullTime.setPadding(dp(8),0,dp(8),dp(12));fullTime.setTextColor(NightwellDesign.SECONDARY);transport.addView(fullTime);
-        LinearLayout controls=row();controls.setGravity(Gravity.CENTER);
-        TextView shuffleButton=iconButton("⇄",this::cycleShuffleMode);fullShuffle=shuffleButton;refreshShuffleButton();
-        TextView backward=iconButton("|‹",this::previous);
+        LinearLayout.LayoutParams dislikeParams=new LinearLayout.LayoutParams(dp(46),dp(46));
+        dislikeParams.rightMargin=dp(7);
+        artistActions.addView(fullDislike,dislikeParams);
+
+        fullLike=iconButton(likes.contains(track.optString("id"))?"♥":"♡",
+            ()->toggleFavorite(current()));
+        fullLike.setContentDescription(likes.contains(track.optString("id"))?
+            "Убрать из избранного":"Добавить в избранное");
+        fullLike.setTextColor(likes.contains(track.optString("id"))?
+            NightwellDesign.PRIMARY:NightwellDesign.SECONDARY);
+        artistActions.addView(fullLike,new LinearLayout.LayoutParams(dp(46),dp(46)));
+        LinearLayout.LayoutParams artistParams=new LinearLayout.LayoutParams(-1,dp(50));
+        artistParams.bottomMargin=dp(20);
+        content.addView(artistActions,artistParams);
+
+        LinearLayout transport=column();
+        transport.setPadding(dp(15),dp(12),dp(15),dp(12));
+        transport.setBackground(NightwellDesign.surface(this,0xa51a1d21,23,true));
+        content.addView(transport);
+
+        seek=new SeekBar(this);styleSeekBar(seek);
+        seek.setMinimumHeight(dp(37));
+        seek.setPadding(0,0,0,0);
+        seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
+            public void onProgressChanged(SeekBar bar,int value,boolean user){}
+            public void onStartTrackingTouch(SeekBar bar){}
+            public void onStopTrackingTouch(SeekBar bar){
+                cancelMix();
+                if(playback!=null)playback.seek(bar.getProgress());
+            }
+        });
+        transport.addView(seek,new LinearLayout.LayoutParams(-1,dp(39)));
+        LinearLayout times=row();
+        fullElapsed=text("0:00",12);
+        fullElapsed.setTextColor(NightwellDesign.MUTED);
+        fullElapsed.setGravity(Gravity.LEFT);
+        times.addView(fullElapsed,new LinearLayout.LayoutParams(0,-2,1));
+        fullTime=text("0:00",12);
+        fullTime.setTextColor(NightwellDesign.MUTED);
+        fullTime.setGravity(Gravity.RIGHT);
+        times.addView(fullTime,new LinearLayout.LayoutParams(0,-2,1));
+        transport.addView(times);
+
+        LinearLayout controls=row();
+        controls.setGravity(Gravity.CENTER_VERTICAL);
+        controls.setPadding(0,dp(12),0,dp(8));
+        TextView shuffleButton=iconButton("⇄",this::cycleShuffleMode);
+        fullShuffle=shuffleButton;
+        refreshShuffleButton();
+        TextView previousButton=iconButton("|‹",this::previous);
         fullPlay=iconButton(playback!=null&&playback.player.getPlayWhenReady()?"Ⅱ":"▶",this::toggle);
-        TextView forward=iconButton("›|",this::nextTrack);
-        TextView repeatButton=iconButton("↻",()->{if(playback!=null)playback.modes((playback.player.getRepeatMode()+1)%3,playback.player.getShuffleModeEnabled());});
-        for(TextView button:new TextView[]{shuffleButton,backward,forward,repeatButton}){
-            button.setBackground(null);button.setPadding(0,0,0,0);button.setTextSize(25);
+        TextView nextButton=iconButton("›|",this::nextTrack);
+        TextView repeatButton=iconButton("↻",()->{
+            if(playback!=null)playback.modes((playback.player.getRepeatMode()+1)%3,
+                playback.player.getShuffleModeEnabled());
+        });
+        for(TextView button:new TextView[]{shuffleButton,previousButton,nextButton,repeatButton}){
+            button.setBackground(null);
+            button.setPadding(0,0,0,0);
+            button.setTextColor(NightwellDesign.PRIMARY);
         }
-        backward.setTextSize(31);forward.setTextSize(31);
-        fullPlay.setTextColor(NightwellDesign.BACKGROUND);fullPlay.setTextSize(30);
-        fullPlay.setBackground(NightwellDesign.ripple(this,0xfff5f6f7,38,false));
+        fullPlay.setTextSize(30);
+        fullPlay.setTextColor(NightwellDesign.BACKGROUND);
+        fullPlay.setBackground(NightwellDesign.ripple(this,NightwellDesign.PRIMARY,38,false));
         fullPlay.setPadding(0,0,0,0);
-        controls.addView(shuffleButton,new LinearLayout.LayoutParams(0,dp(56),1));
-        controls.addView(backward,new LinearLayout.LayoutParams(0,dp(64),1));
-        LinearLayout.LayoutParams centerPlay=new LinearLayout.LayoutParams(dp(76),dp(76));
-        centerPlay.leftMargin=dp(2);centerPlay.rightMargin=dp(2);
-        controls.addView(fullPlay,centerPlay);
-        controls.addView(forward,new LinearLayout.LayoutParams(0,dp(64),1));
-        controls.addView(repeatButton,new LinearLayout.LayoutParams(0,dp(56),1));
+        controls.addView(shuffleButton,new LinearLayout.LayoutParams(0,dp(52),1));
+        controls.addView(previousButton,new LinearLayout.LayoutParams(0,dp(54),1));
+        LinearLayout.LayoutParams primary=new LinearLayout.LayoutParams(dp(74),dp(74));
+        primary.leftMargin=dp(5);primary.rightMargin=dp(5);
+        controls.addView(fullPlay,primary);
+        controls.addView(nextButton,new LinearLayout.LayoutParams(0,dp(54),1));
+        controls.addView(repeatButton,new LinearLayout.LayoutParams(0,dp(52),1));
         transport.addView(controls);
-        TextView queueButton=action("Дальше в очереди  ·  "+queue.length(),this::showQueue);queueButton.setTextSize(14);queueButton.setTextColor(0xffc8c8c8);transport.addView(queueButton);updatePlayback();
+
+        View divider=NightwellDesign.hairline(this);
+        LinearLayout.LayoutParams dividerParams=new LinearLayout.LayoutParams(-1,dp(1));
+        dividerParams.topMargin=dp(4);
+        transport.addView(divider,dividerParams);
+        TextView queueButton=sheetAction("☷   Очередь воспроизведения  ·  "+queue.length()+" треков",
+            this::showQueue);
+        queueButton.setTextColor(NightwellDesign.SECONDARY);
+        queueButton.setGravity(Gravity.CENTER);
+        queueButton.setBackgroundColor(Color.TRANSPARENT);
+        LinearLayout.LayoutParams queueParams=new LinearLayout.LayoutParams(-1,dp(50));
+        queueParams.topMargin=dp(5);
+        transport.addView(queueButton,queueParams);
+        updatePlayback();
     }
+
     void loadMiniCover(JSONObject track) {
         if (miniCover == null || artworkCache == null) return;
         artworkCache.load(miniCover,origin,track==null?"":track.optString("cover_url"),bitmap->{
