@@ -2247,31 +2247,47 @@ public final class MainActivity extends Activity {
         if(best!=index+1)player.moveMediaItem(best,index+1);
     }
 
+    void styleSeekBar(SeekBar seek){
+        seek.setProgressTintList(android.content.res.ColorStateList.valueOf(NightwellDesign.PRIMARY));
+        seek.setThumbTintList(android.content.res.ColorStateList.valueOf(NightwellDesign.PRIMARY));
+        seek.setProgressBackgroundTintList(android.content.res.ColorStateList.valueOf(NightwellDesign.BORDER));
+        seek.setPadding(dp(4),dp(6),dp(4),dp(6));
+        seek.setMinimumHeight(dp(44));
+    }
+
     void settings(){
         LinearLayout panel=column();
-        panel.setPadding(dp(20),dp(16),dp(20),dp(16));
+        panel.setPadding(dp(16),dp(12),dp(16),dp(16));
         android.widget.ScrollView scroll=new android.widget.ScrollView(this);
         scroll.setFillViewport(false);
         scroll.addView(panel);
         TextView subtitle=text("Оформи приложение под себя и настрой поведение плеера.",14);
-        subtitle.setTextColor(0xff9fa6b8);
-        subtitle.setPadding(0,0,0,dp(10));panel.addView(subtitle);
+        subtitle.setTextColor(NightwellDesign.MUTED);
+        subtitle.setPadding(0,0,0,dp(12));panel.addView(subtitle);
         panel.addView(sectionLabel("Оформление"));
-        panel.addView(sheetAction("Темы и движение фона · Premium",()->feature("appearance")));
-        panel.addView(sheetAction("Эквалайзер · Premium",()->feature("sound")));
-        addArtworkToggle(panel,"Цветной фон на главной","home-artwork-background",true);
-        addArtworkToggle(panel,"Фон плеера под цвета обложки","player-artwork-background",true);
-        addArtworkToggle(panel,"Фоновый градиент","artwork-gradient-enabled",true);
-        addArtworkToggle(panel,"Лёгкая реакция фона на музыку","artwork-reactive",true);
-        addArtworkToggle(panel,"Текст песни на главной","ambient-lyrics",true);
-        addArtworkChoice(panel,"Сила реакции фона",new String[]{"Очень слабая","Мягкая","Заметная"},"artwork-reactive-strength",1);
-        addArtworkChoice(panel,"Скорость движения цвета",new String[]{"Медленно","Обычно","Побыстрее"},"artwork-motion-speed",0);
-        addArtworkChoice(panel,"Стиль обложек",new String[]{"На всю ширину","Классический, с округлением"},"cover-style",0);
-        addArtworkToggle(panel,"Автосворачивание продолжения","handoff-auto-collapse",true);
+        LinearLayout appearanceGroup=column();
+        appearanceGroup.setBackground(NightwellDesign.surface(this,NightwellDesign.SURFACE,20,true));
+        appearanceGroup.setPadding(dp(14),dp(11),dp(14),dp(13));
+        panel.addView(appearanceGroup);
+        appearanceGroup.addView(sheetAction("Темы и движение фона · Premium",()->feature("appearance")));
+        appearanceGroup.addView(sheetAction("Эквалайзер · Premium",()->feature("sound")));
+        addArtworkToggle(appearanceGroup,"Цветной фон на главной","home-artwork-background",true);
+        addArtworkToggle(appearanceGroup,"Фон плеера под цвета обложки","player-artwork-background",true);
+        addArtworkToggle(appearanceGroup,"Фоновый градиент","artwork-gradient-enabled",true);
+        addArtworkToggle(appearanceGroup,"Лёгкая реакция фона на музыку","artwork-reactive",true);
+        addArtworkToggle(appearanceGroup,"Текст песни на главной","ambient-lyrics",true);
+        addArtworkChoice(appearanceGroup,"Сила реакции фона",new String[]{"Очень слабая","Мягкая","Заметная"},"artwork-reactive-strength",1);
+        addArtworkChoice(appearanceGroup,"Скорость движения цвета",new String[]{"Медленно","Обычно","Побыстрее"},"artwork-motion-speed",0);
+        addArtworkChoice(appearanceGroup,"Стиль обложек",new String[]{"На всю ширину","Классический, с округлением"},"cover-style",0);
+        addArtworkToggle(appearanceGroup,"Автосворачивание продолжения","handoff-auto-collapse",true);
         panel.addView(sectionLabel("Воспроизведение"));
-        panel.addView(sheetAction("Качество звука",this::qualityPlayerMenu));
-        panel.addView(sheetAction("Настройка подборки",this::waveSettings));
-        addArtworkChoice(panel,"Перемешивание",new String[]{"Выключено","Обычное","Умное"},"shuffle-mode",shuffleMode());
+        LinearLayout playbackGroup=column();
+        playbackGroup.setBackground(NightwellDesign.surface(this,NightwellDesign.SURFACE,20,true));
+        playbackGroup.setPadding(dp(14),dp(12),dp(14),dp(14));
+        panel.addView(playbackGroup);
+        playbackGroup.addView(sheetAction("Качество звука",this::qualityPlayerMenu));
+        playbackGroup.addView(sheetAction("Настройка подборки",this::waveSettings));
+        addArtworkChoice(playbackGroup,"Перемешивание",new String[]{"Выключено","Обычное","Умное"},"shuffle-mode",shuffleMode());
 
         android.widget.Switch autoFavorites=new android.widget.Switch(this);
         autoFavorites.setText("Автоматически скачивать избранное · Premium");
@@ -2279,11 +2295,11 @@ public final class MainActivity extends Activity {
         autoFavorites.setChecked(autoFavoritesEnabled());
         autoFavorites.setEnabled(!user.isEmpty());
         autoFavorites.setOnCheckedChangeListener((b,enabled)->setAutoFavoritesEnabled(enabled));
-        panel.addView(autoFavorites);
+        playbackGroup.addView(autoFavorites);
         float savedFade=getSharedPreferences("playback",MODE_PRIVATE).getFloat("nw-transition-seconds",1.5f);TextView label=text(String.format(Locale.ROOT,"Переход между треками · %.1f с",savedFade),15);
-        label.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
-        panel.addView(label);
-        SeekBar duration=new SeekBar(this);duration.setMax(50);
+        label.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));
+        playbackGroup.addView(label);
+        SeekBar duration=new SeekBar(this);styleSeekBar(duration);duration.setMax(50);
         duration.setProgress((int)(getSharedPreferences("playback",MODE_PRIVATE).getFloat("nw-transition-seconds",1.5f)*10));
         duration.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
             public void onProgressChanged(SeekBar b,int p,boolean fromUser){
@@ -2293,15 +2309,15 @@ public final class MainActivity extends Activity {
             public void onStartTrackingTouch(SeekBar b){}
             public void onStopTrackingTouch(SeekBar b){}
         });
-        panel.addView(duration);
+        playbackGroup.addView(duration);
         final int[] values={0,4,8,12};
         int selected=getSharedPreferences("playback",MODE_PRIVATE).getInt("nw-stream-buffer-seconds",0);
         int selectedIndex=0;
         for(int i=0;i<values.length;i++)if(values[i]==selected)selectedIndex=i;
         TextView bufferLabel=text("Буфер потока · "+(selected==0?"Быстрый (1 с)":selected+" с"),15);
-        bufferLabel.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
-        panel.addView(bufferLabel);
-        SeekBar buffer=new SeekBar(this);buffer.setMax(values.length-1);buffer.setProgress(selectedIndex);
+        bufferLabel.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));
+        playbackGroup.addView(bufferLabel);
+        SeekBar buffer=new SeekBar(this);styleSeekBar(buffer);buffer.setMax(values.length-1);buffer.setProgress(selectedIndex);
         buffer.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
             public void onProgressChanged(SeekBar bar,int progress,boolean fromUser){
                 int seconds=values[Math.min(values.length-1,Math.max(0,progress))];
@@ -2311,11 +2327,11 @@ public final class MainActivity extends Activity {
             public void onStartTrackingTouch(SeekBar bar){}
             public void onStopTrackingTouch(SeekBar bar){}
         });
-        panel.addView(buffer);
+        playbackGroup.addView(buffer);
         TextView equalLabel=text("Одинаковая громкость · Выкл.",15);
-        equalLabel.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
-        panel.addView(equalLabel);
-        SeekBar equalVolume=new SeekBar(this);equalVolume.setMax(10);
+        equalLabel.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));
+        playbackGroup.addView(equalLabel);
+        SeekBar equalVolume=new SeekBar(this);styleSeekBar(equalVolume);equalVolume.setMax(10);
         int equalPreset=Math.max(0,Math.min(100,getSharedPreferences("playback",MODE_PRIVATE).getInt("nw-equal-volume",0)));
         equalVolume.setProgress(equalPreset/10);
         equalLabel.setText(equalPreset==0?"Одинаковая громкость · Выкл.":"Одинаковая громкость · "+equalPreset+"%");
@@ -2331,17 +2347,17 @@ public final class MainActivity extends Activity {
             public void onStartTrackingTouch(SeekBar b){}
             public void onStopTrackingTouch(SeekBar b){}
         });
-        panel.addView(equalVolume);
+        playbackGroup.addView(equalVolume);
         TextView loudnessHint=text("Выравнивает громкие записи по измеренному звуку без дополнительных сетевых запросов.",12);
-        loudnessHint.setTextColor(0xffa3a3ae);panel.addView(loudnessHint);
+        loudnessHint.setTextColor(NightwellDesign.MUTED);playbackGroup.addView(loudnessHint);
         TextView hint=text("Быстрый режим уменьшает ожидание звука, 8–12 с помогают при нестабильной сети. Изменение применяется после полного перезапуска Nightwell Music.",12);
-        hint.setTextColor(0xffa3a3ae);hint.setPadding(0,0,0,dp(12));panel.addView(hint);
+        hint.setTextColor(NightwellDesign.MUTED);hint.setPadding(0,0,0,dp(12));playbackGroup.addView(hint);
         TextView metrics=text("Диагностика: "+(playback==null?"Плеер запускается":playback.playbackDiagnostics()),12);
-        metrics.setTextColor(0xffbcbcc3);panel.addView(metrics);
+        metrics.setTextColor(NightwellDesign.MUTED);playbackGroup.addView(metrics);
         // Lyrics control lives in the appearance section.
         TextView version=text("Nightwell Music "+BuildConfig.VERSION_NAME+" ("+BuildConfig.VERSION_CODE+")",12);
-        version.setTextColor(0xff9696a1);version.setPadding(0,dp(12),0,0);panel.addView(version);
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Настройки").setView(scroll).setPositiveButton("Готово",null).create();
+        version.setTextColor(NightwellDesign.MUTED);version.setPadding(0,dp(12),0,0);panel.addView(version);
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Настройки Nightwell Music").setView(scroll).setPositiveButton("Готово",null).create();
         Runnable diagnosticsTick=new Runnable(){
             public void run(){
                 if(!dialog.isShowing())return;
