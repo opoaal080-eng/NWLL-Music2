@@ -858,21 +858,32 @@ final class NativePlayer {
         moveUpcomingTrack(from: source, to: index + 1)
     }
 
-    // Manual selection from the artwork deck keeps the existing queue intact.
-    // The previous song keeps playing until the chosen stream is prepared.
-    func playQueueTrackNow(at source: Int) {
-        guard tracks.indices.contains(source) else { return }
-        if source == index {
+    // Explicit selection from the cover deck is an immediate playback command.
+    // Use the track ID rather than a potentially stale cover-stack index; the
+    // queue can be expanded or rearranged while the user browses its cards.
+    // Unlike the Next button this must not silently wait behind a wave refill.
+    @discardableResult
+    func playQueueTrackNow(trackID: String) -> Bool {
+        guard let destination = tracks.firstIndex(where: { $0.id == trackID }) else { return false }
+        if destination == index {
             if !wantsPlay { play() }
-            return
+            return wantsPlay && current?.id == trackID
         }
+
         cancelPendingNext()
         unavailableIDs.removeAll()
-        if wantsPlay && !ended {
-            beginPreparedNext(at: source)
-        } else {
-            switchDirectly(to: source)
-        }
+        // A waiting recommendation refill previously blocked beginPreparedNext
+        // entirely, leaving the old song playing after a successful tap toast.
+        waveWaiting = false
+        switchDirectly(to: destination)
+        return current?.id == trackID && wantsPlay
+    }
+
+    // Preserve the original index-based API for other native callers.
+    @discardableResult
+    func playQueueTrackNow(at source: Int) -> Bool {
+        guard tracks.indices.contains(source) else { return false }
+        return playQueueTrackNow(trackID: tracks[source].id)
     }
 
     func modes(repeatMode: Int, shuffle: Bool) {
@@ -1269,10 +1280,26 @@ final class NativePlayer {
         let position = !wantsPlay ? lastPosition :
             ((waitingForReady || player.currentItem?.status == .failed)
                 ? requestedPosition : playbackPosition)
+        // loadedTimeRanges reports bytes/time actually buffered by AVPlayer.
+        // Never pretend to know server-side preparation percent before media
+        // ranges become available. The UI shows an indeterminate animation then.
+        let loadedEnd = (player.currentItem?.loadedTimeRanges ?? [])
+            .map { $0.timeRangeValue }
+            .compactMap { span -> Double? in
+                let begin = span.start.seconds
+                let length = span.duration.seconds
+                guard begin.isFinite, length.isFinite, begin >= 0, length >= 0 else { return nil }
+                return begin + length
+            }
+            .max() ?? 0
+        let bufferFraction = duration.isFinite && duration > 0
+            ? min(1.0, max(0.0, loadedEnd / duration)) : 0.0
+        let preparing = current != nil && wantsPlay && !audible
         return ["id": current?.id ?? "", "origin": origin?.absoluteString ?? "",
             "position": position.isFinite ? max(0, position) : 0.0,
             "duration": duration.isFinite ? max(0, duration) : (current?.duration ?? 0),
-            "playing": wantsPlay, "audible": audible, "nextPreparing": pendingNextIndex != nil || waveWaiting, "account": offlineAccount, "ended": ended, "repeat": repeatMode, "shuffle": shuffle, "shuffleMode": shuffleStyle,
+            "playing": wantsPlay, "audible": audible, "preparing": preparing, "bufferFraction": bufferFraction,
+            "nextPreparing": pendingNextIndex != nil || waveWaiting, "account": offlineAccount, "ended": ended, "repeat": repeatMode, "shuffle": shuffle, "shuffleMode": shuffleStyle,
             "volume": baseVolume, "smoothTransitions": true, "transitionSeconds": transitionSeconds, "queueRevision": queueRevision, "queueIds": includeQueue ? tracks.map { $0.id } : [], "error": error,
             "wave": waveActive, "waveSupported": true,
             "audioOutput": AVAudioSession.sharedInstance().currentRoute.outputs.map { ["type": $0.portType.rawValue, "name": $0.portName] },
