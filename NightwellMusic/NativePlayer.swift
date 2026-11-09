@@ -858,21 +858,32 @@ final class NativePlayer {
         moveUpcomingTrack(from: source, to: index + 1)
     }
 
-    // Manual selection from the artwork deck keeps the existing queue intact.
-    // The previous song keeps playing until the chosen stream is prepared.
-    func playQueueTrackNow(at source: Int) {
-        guard tracks.indices.contains(source) else { return }
-        if source == index {
+    // Explicit selection from the cover deck is an immediate playback command.
+    // Use the track ID rather than a potentially stale cover-stack index; the
+    // queue can be expanded or rearranged while the user browses its cards.
+    // Unlike the Next button this must not silently wait behind a wave refill.
+    @discardableResult
+    func playQueueTrackNow(trackID: String) -> Bool {
+        guard let destination = tracks.firstIndex(where: { $0.id == trackID }) else { return false }
+        if destination == index {
             if !wantsPlay { play() }
-            return
+            return wantsPlay && current?.id == trackID
         }
+
         cancelPendingNext()
         unavailableIDs.removeAll()
-        if wantsPlay && !ended {
-            beginPreparedNext(at: source)
-        } else {
-            switchDirectly(to: source)
-        }
+        // A waiting recommendation refill previously blocked beginPreparedNext
+        // entirely, leaving the old song playing after a successful tap toast.
+        waveWaiting = false
+        switchDirectly(to: destination)
+        return current?.id == trackID && wantsPlay
+    }
+
+    // Preserve the original index-based API for other native callers.
+    @discardableResult
+    func playQueueTrackNow(at source: Int) -> Bool {
+        guard tracks.indices.contains(source) else { return false }
+        return playQueueTrackNow(trackID: tracks[source].id)
     }
 
     func modes(repeatMode: Int, shuffle: Bool) {
