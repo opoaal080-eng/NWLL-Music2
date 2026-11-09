@@ -222,16 +222,18 @@ struct MiniPlayer: View {
     @EnvironmentObject var store: MusicStore
     @ObservedObject var clock: PlaybackClock
     let open: () -> Void
+    var compactHeight = false
     @State private var glow = false
     @State private var slideDirection: CGFloat = 1
     @Environment(\.accessibilityReduceMotion) private var reduced
     var body: some View {
         GeometryReader { box in
-            let compact = box.size.width < 350
+            let compact = box.size.width < 350 || compactHeight
             HStack(spacing: compact ? 8 : 12) {
                 Button(action: open) {
                     HStack(spacing: 7) {
-                        Cover(track: clock.current, origin: store.origin).frame(width: compact ? 42 : 42, height: compact ? 42 : 42).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        Cover(track: clock.current, origin: store.origin)
+                            .frame(width: compactHeight ? 34 : 42, height: compactHeight ? 34 : 42).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                         VStack(alignment: .leading, spacing: 4) {
                             Text(clock.current?.title ?? "Выбери трек").font(.system(size: compact ? 12 : 14, weight: .semibold)).lineLimit(1)
                             Text(clock.current?.artist ?? "Nightwell Music").font(.system(size: compact ? 10 : 12)).foregroundStyle(.white.opacity(0.65)).lineLimit(1)
@@ -273,7 +275,7 @@ struct MiniPlayer: View {
                             Image(systemName: clock.playing ? "pause" : "play.fill")
                                 .font(.system(size: 17, weight: .light))
                         }
-                        .frame(width: 48, height: 48)
+                        .frame(width: compactHeight ? 42 : 48, height: compactHeight ? 42 : 48)
                     }
                     .accessibilityLabel(clock.playing ? "Пауза" : "Воспроизвести")
                     .accessibilityValue(clock.duration > 0
@@ -290,7 +292,7 @@ struct MiniPlayer: View {
             .overlay(RoundedRectangle(cornerRadius: 34, style: .continuous).stroke(LinearGradient(colors: [.white.opacity(0.34), Color.white.opacity(0.34), .white.opacity(0.14)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.1))
             .clipShape(RoundedRectangle(cornerRadius: 34, style: .continuous))
             .shadow(color: Color.white.opacity(glow ? 0.4 : 0), radius: 18)
-        }.frame(height: 68)
+        }.frame(height: compactHeight ? 54 : 68)
         .animation(reduced ? nil : .spring(response: 0.32, dampingFraction: 0.82), value: clock.id)
         .task(id: clock.id) { guard !reduced else { return }; glow = true; try? await Task.sleep(nanoseconds: 80_000_000); guard !Task.isCancelled else { return }; withAnimation(.easeOut(duration: 0.9)) { glow = false } }
         // Swipe wins over the artwork/title tap, so it never opens the full player.

@@ -167,8 +167,14 @@ struct NightwellPopup<Content: View>: View {
                 Color.black.opacity(dimsBackground ? 0.18 : 0.001).ignoresSafeArea()
                     .onTapGesture(perform: close)
                 content
-                    .frame(width: max(0, proxy.size.width - 40))
-                    .frame(height: min(maxHeight, proxy.size.height * 0.88))
+                    .frame(width: min(
+                        max(0, proxy.size.width - (proxy.size.width > proxy.size.height ? 28 : 40)),
+                        proxy.size.width > proxy.size.height ? 760 : 600
+                    ))
+                    .frame(height: min(
+                        maxHeight,
+                        proxy.size.height * (proxy.size.width > proxy.size.height ? 0.94 : 0.88)
+                    ))
                     .frostedGlass(32, bordered: !transparentSettings, intensity: transparentSettings ? 0.28 : 1)
                     .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
                     .overlay {
@@ -332,6 +338,41 @@ struct NativeRoot: View {
     @State private var showShare = false
     @State private var launching = true
     @Environment(\.accessibilityReduceMotion) private var reducedMotion
+    private func landscapeTab(_ destination: MusicStore.Screen, icon: String, label: String) -> some View {
+        Button {
+            withAnimation(reducedMotion ? nil : .easeInOut(duration: 0.18)) {
+                store.screen = destination
+            }
+        } label: {
+            Image(systemName: icon)
+                .font(.system(size: 19, weight: .medium))
+                .foregroundStyle(store.screen == destination ? Color.white : Color.white.opacity(0.50))
+                .frame(width: 45, height: 42)
+                .background(
+                    store.screen == destination ? Color.white.opacity(0.16) : .clear,
+                    in: RoundedRectangle(cornerRadius: 13)
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+
+    private var landscapeNavigation: some View {
+        VStack(spacing: 4) {
+            landscapeTab(.home, icon: "house", label: "Главная")
+            landscapeTab(.search, icon: "magnifyingglass", label: "Поиск")
+            landscapeTab(.likes, icon: "heart", label: "Избранное")
+            landscapeTab(.playlists, icon: "music.note.list", label: "Плейлисты")
+            landscapeTab(.offline, icon: "arrow.down.circle", label: "Офлайн")
+            Spacer(minLength: 0)
+        }
+        .padding(.top, 5)
+        .frame(width: 54, maxHeight: .infinity, alignment: .top)
+        .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 17))
+        .padding(.leading, 7)
+        .padding(.bottom, 7)
+    }
+
     @ViewBuilder private var mainScene: some View {
         GeometryReader { viewport in
             let landscape = viewport.size.width > viewport.size.height * 1.12 &&
@@ -356,8 +397,11 @@ struct NativeRoot: View {
             if backgroundOnly {
                 VStack { HStack { Button { backgroundOnly = false } label: { Image(systemName: "xmark").padding().glass() }; Spacer() }; Spacer() }.padding()
             } else {
-                VStack(spacing: landscape ? 7 : 18) {
-                    header
+                HStack(alignment: .top, spacing: landscape ? 8 : 0) {
+                if landscape { landscapeNavigation }
+                VStack(spacing: landscape ? 6 : 18) {
+                    header(landscape: landscape)
+                    if !landscape {
                     HStack(spacing: 6) {
                         Circle()
                             .fill(store.connectionStatus == "Онлайн" ? Color.green :
@@ -370,7 +414,8 @@ struct NativeRoot: View {
                     }
                     .accessibilityLabel("Подключение Nightwell: \(store.connectionStatus)")
                     .padding(.horizontal, 22)
-                    if store.hasRemotePlayback && compactCollectionTitle == nil && !(store.screen == .home && remoteHomeCollapsed) {
+                    }
+                    if !landscape && store.hasRemotePlayback && compactCollectionTitle == nil && !(store.screen == .home && remoteHomeCollapsed) {
                         Button {
                             Task { await store.continuePlaybackHere() }
                         } label: {
@@ -389,8 +434,9 @@ struct NativeRoot: View {
                         .transition(.move(edge: .top).combined(with: .opacity))
                     }
                     content
-                    MiniPlayer(clock: store.clock, open: { fullPlayer = true })
-                        .padding(.horizontal, 16)
+                    MiniPlayer(clock: store.clock, open: { fullPlayer = true },
+                               compactHeight: landscape)
+                        .padding(.horizontal, landscape ? 8 : 16)
                         .padding(.bottom, landscape ? 4 : 18)
                         .overlay(alignment: .bottom) {
                             if store.screen == .home && !landscape {
@@ -403,6 +449,9 @@ struct NativeRoot: View {
                         }
                 }
                 .ignoresSafeArea(.container, edges: .bottom)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                }
             }
         }
         }
@@ -584,8 +633,8 @@ struct NativeRoot: View {
         }
     }
 
-    private var header: some View {
-        HStack(spacing: 7) {
+    private func header(landscape: Bool) -> some View {
+        HStack(spacing: landscape ? 5 : 7) {
             Button {
                 withAnimation(reducedMotion ? nil : .easeInOut(duration: 0.22)) {
                     store.screen = .home
@@ -598,7 +647,7 @@ struct NativeRoot: View {
                         .frame(width: 42, height: 42)
                         .background(Color(white: 0.07), in: RoundedRectangle(cornerRadius: 12))
                         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.white.opacity(0.20), lineWidth: 0.8))
-                    if compactCollectionTitle == nil {
+                    if compactCollectionTitle == nil && !landscape {
                         VStack(alignment: .leading, spacing: 1) {
                             Text("Nightwell").font(.system(size: 25, weight: .bold))
                             Text("M U S I C").font(.caption).foregroundStyle(.secondary)
@@ -644,8 +693,8 @@ struct NativeRoot: View {
             }
             .accessibilityLabel("Меню")
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 8)
+        .padding(.horizontal, landscape ? 10 : 20)
+        .padding(.top, landscape ? 0 : 8)
         .overlay(alignment: .center) {
             if let title = compactCollectionTitle {
                 Text(title)
