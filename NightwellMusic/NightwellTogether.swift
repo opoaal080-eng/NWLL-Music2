@@ -216,7 +216,7 @@ private struct TogetherRoomResponse: Decodable {
                 "/api/together/rooms/" + oldCode + "/leave", method: "POST", timeout: 8
             )
         } catch {
-            error = "Не удалось уведомить сервер о выходе: " + error.localizedDescription
+            self.error = "Не удалось уведомить сервер о выходе: " + error.localizedDescription
         }
     }
 
