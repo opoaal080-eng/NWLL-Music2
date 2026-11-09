@@ -1343,7 +1343,6 @@ struct NativeSettings: View {
             }.padding(.top, 12)
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 18) {
-                    if store.account != nil { ProfileSettingsView().environmentObject(store) }
                     VStack(alignment: .leading, spacing: 12) {
                         Label("Кастомизация", systemImage: "slider.horizontal.3")
                             .font(.system(size: 18, weight: .semibold))
