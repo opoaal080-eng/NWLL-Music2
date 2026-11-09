@@ -39,6 +39,7 @@ final class NativePlayer {
     private var pendingNextTask: Task<Void, Never>?
     private var pendingNextTimeout: DispatchWorkItem?
     private var pendingNextIndex: Int?
+    private var pendingManualSelection = false
     private var pendingNextGeneration = UUID()
     // Failed candidates stay excluded until audio from a working track starts.
     private var unavailableIDs = Set<String>()
@@ -87,11 +88,13 @@ final class NativePlayer {
         pendingNextTask?.cancel(); pendingNextTask = nil
         pendingNextTimeout?.cancel(); pendingNextTimeout = nil
         pendingNextIndex = nil
+        pendingManualSelection = false
     }
 
-    private func beginPreparedNext(at destination: Int) {
+    private func beginPreparedNext(at destination: Int, manual: Bool = false) {
         guard pendingNextIndex == nil, !waveWaiting,
               tracks.indices.contains(destination), let origin else { return }
+        pendingManualSelection = manual
         let track = tracks[destination]
         let saved = OfflineStore.audio(origin: origin,
             account: track.offlineAccount.isEmpty ? offlineAccount : track.offlineAccount,
@@ -139,11 +142,15 @@ final class NativePlayer {
     private func handleNextFailure(ticket: UUID, reason: String) {
         guard pendingNextGeneration == ticket else { return }
         let destination = pendingNextIndex
+        let manuallySelected = pendingManualSelection
         let length = player.currentItem?.duration.seconds ?? .nan
         let reachedEnd = ended || (length.isFinite && length > 0 &&
             playbackPosition >= length - 0.25)
         cancelPendingNext()
-        if let destination, skipUnavailable(at: destination, whileCurrentPlays: !reachedEnd) {
+        // A tapped song is an explicit selection: on timeout keep the old
+        // stream instead of silently jumping to a third track.
+        if !manuallySelected,
+           let destination, skipUnavailable(at: destination, whileCurrentPlays: !reachedEnd) {
             return
         }
         endBackgroundHandoff()
@@ -872,9 +879,13 @@ final class NativePlayer {
 
         cancelPendingNext()
         unavailableIDs.removeAll()
-        // A waiting recommendation refill previously blocked beginPreparedNext
-        // entirely, leaving the old song playing after a successful tap toast.
+        // Keep the existing audio stream alive while the selected song is
+        // prepared. UI metadata advances now; the decoder switches later.
         waveWaiting = false
+        if wantsPlay && !ended && audible {
+            beginPreparedNext(at: destination, manual: true)
+            return pendingNextIndex == destination
+        }
         switchDirectly(to: destination)
         return current?.id == trackID && wantsPlay
     }
@@ -934,12 +945,16 @@ final class NativePlayer {
             // When the previous song has already ended, start the next
             // item directly instead of creating a second loading pipeline.
             if ended { switchDirectly(to: target) }
-            else { beginPreparedNext(at: target) }
+            else { beginPreparedNext(at: target, manual: true) }
             return
         }
         cancelPendingNext()
-        index = (index + direction + tracks.count) % tracks.count
-        load(); play()
+        let destination = (index + direction + tracks.count) % tracks.count
+        if wantsPlay && !ended && audible {
+            beginPreparedNext(at: destination, manual: true)
+        } else {
+            switchDirectly(to: destination)
+        }
     }
     private func restartSmoothly() {
         if enginePlayback.ready { seek(0); return }
@@ -1294,11 +1309,20 @@ final class NativePlayer {
             .max() ?? 0
         let bufferFraction = duration.isFinite && duration > 0
             ? min(1.0, max(0.0, loadedEnd / duration)) : 0.0
-        let preparing = current != nil && wantsPlay && !audible
-        return ["id": current?.id ?? "", "origin": origin?.absoluteString ?? "",
+        // Keep the actual-playing ID and playhead stable for analytics,
+        // remote controls and persistence. The SwiftUI player can show the
+        // incoming metadata immediately during a background handoff.
+        let preview = pendingNextIndex.flatMap { tracks.indices.contains($0) ? tracks[$0] : nil }
+        let preparing = preview != nil || (current != nil && wantsPlay && !audible)
+        return ["id": current?.id ?? "",
+            "displayID": preview?.id ?? current?.id ?? "",
+            "displayPosition": preview == nil ? (position.isFinite ? max(0, position) : 0.0) : 0.0,
+            "displayDuration": preview?.duration ?? duration,
+            "origin": origin?.absoluteString ?? "",
             "position": position.isFinite ? max(0, position) : 0.0,
             "duration": duration.isFinite ? max(0, duration) : (current?.duration ?? 0),
-            "playing": wantsPlay, "audible": audible, "preparing": preparing, "bufferFraction": bufferFraction,
+            "playing": wantsPlay, "audible": audible, "preparing": preparing,
+            "bufferFraction": preview != nil ? 0.0 : bufferFraction,
             "nextPreparing": pendingNextIndex != nil || waveWaiting, "account": offlineAccount, "ended": ended, "repeat": repeatMode, "shuffle": shuffle, "shuffleMode": shuffleStyle,
             "volume": baseVolume, "smoothTransitions": true, "transitionSeconds": transitionSeconds, "queueRevision": queueRevision, "queueIds": includeQueue ? tracks.map { $0.id } : [], "error": error,
             "wave": waveActive, "waveSupported": true,
