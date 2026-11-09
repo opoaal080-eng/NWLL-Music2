@@ -790,7 +790,7 @@ private struct AudioQualityDecision: Decodable {
                     preloadTask = Task(priority: .utility) {
                         // Don't start server-side preloads alongside the first stream request.
                         // Speculative downloads previously competed with audio for bandwidth.
-                        do { try await Task.sleep(nanoseconds: 1_000_000_000) } catch { return }
+                        do { try await Task.sleep(nanoseconds: 650_000_000) } catch { return }
                         guard !Task.isCancelled, clock.id == playingID else { return }
                         lastPreloadIDs = ids
                         lastPreloadAt = Date()
@@ -802,21 +802,28 @@ private struct AudioQualityDecision: Decodable {
                         let coverTask = Task(priority: .utility) {
                             await CoverImagePipeline.shared.prefetch(covers)
                         }
-                        defer { coverTask.cancel() }
+                        // Lyrics and small artwork are independent of the server's
+                        // audio warmup. Fetch them early, while the current stream
+                        // is starting, instead of waiting for a potentially slow
+                        // preload endpoint.
+                        let lyricTask = Task(priority: .utility) {
+                            await lyrics.preload(Array(upcoming.prefix(2)), api: api, origin: origin)
+                        }
+                        defer { coverTask.cancel(); lyricTask.cancel() }
                         guard !Task.isCancelled, clock.id == playingID else { return }
                         // Only warm new audio after the current track is actually audible.
                         // Give slower mobile networks a short grace period.
-                        for _ in 0..<12 {
+                        for _ in 0..<24 {
                             guard !Task.isCancelled, clock.id == playingID else { return }
                             if NativePlayer.shared.snapshot(includeQueue: false)["audible"] as? Bool == true { break }
-                            do { try await Task.sleep(nanoseconds: 500_000_000) } catch { return }
+                            do { try await Task.sleep(nanoseconds: 250_000_000) } catch { return }
                         }
                         guard !Task.isCancelled, clock.id == playingID,
                               NativePlayer.shared.snapshot(includeQueue: false)["audible"] as? Bool == true else { return }
                         let _: OK? = try? await api.request("/api/preload", method: "POST", body: ["ids": ids, "current_id": playingID], timeout: 10)
                         guard !Task.isCancelled, clock.id == playingID else { return }
-                        await lyrics.preload(Array(upcoming.prefix(2)), api: api, origin: origin)
                         await coverTask.value
+                        await lyricTask.value
                     }
                 }
             }
