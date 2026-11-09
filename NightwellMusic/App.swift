@@ -825,17 +825,23 @@ struct NativeRoot: View {
                 HStack(spacing: 12) {
                     Image(systemName: "magnifyingglass")
                         .foregroundStyle(.white.opacity(0.8))
-                    ZStack(alignment: .leading) {
-                        NightwellSearchCaretLight(x: searchCaretX, active: searchFocused)
-                        NightwellSearchCaretField(
-                            text: $store.query,
-                            caretX: $searchCaretX,
-                            focused: $searchFocused
-                        )
-                        .frame(height: 50)
-                        .onChange(of: store.query) { _ in store.scheduleSearch() }
-                    }
+                    // The search light must be a background, not a layout
+                    // child: GeometryReader otherwise expands the HStack
+                    // vertically to fill the remaining screen on iPhone.
+                    NightwellSearchCaretField(
+                        text: $store.query,
+                        caretX: $searchCaretX,
+                        focused: $searchFocused
+                    )
                     .frame(maxWidth: .infinity)
+                    .frame(height: 50)
+                    .background {
+                        NightwellSearchCaretLight(x: searchCaretX, active: searchFocused)
+                            .frame(height: 50)
+                            .clipped()
+                            .animation(.easeOut(duration: 0.10), value: searchCaretX)
+                    }
+                    .onChange(of: store.query) { _ in store.scheduleSearch() }
                     if !store.query.isEmpty {
                         Button { store.query = "" } label: {
                             Image(systemName: "xmark.circle.fill")
@@ -843,6 +849,7 @@ struct NativeRoot: View {
                         }
                     }
                 }
+                .frame(height: 54)
                 .padding(.horizontal, 14)
                 .background {
                     RoundedRectangle(cornerRadius: 22)
