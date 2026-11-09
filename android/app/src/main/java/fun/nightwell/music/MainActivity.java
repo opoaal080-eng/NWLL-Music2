@@ -18,6 +18,7 @@ public final class MainActivity extends Activity {
     private boolean redirectedToFirstRun;
     private final Handler ui=new Handler(Looper.getMainLooper());
     private final ExecutorService io=Executors.newFixedThreadPool(3);
+    private final ExecutorService waveIO=Executors.newSingleThreadExecutor();
     private final ExecutorService prefetch=Executors.newSingleThreadExecutor();
     private final ExecutorService playlistIndexer=Executors.newSingleThreadExecutor();
     private TextView liveHandoff;
@@ -313,7 +314,7 @@ public final class MainActivity extends Activity {
 
     @Override protected void onResume(){super.onResume();if(redirectedToFirstRun)return;restoreRecent();visible=true;ui.removeCallbacks(nightwellProbe);ui.post(nightwellProbe);if(!smokeMode&&sessionReady&&SystemClock.elapsedRealtime()-lastResumeRefresh>30000)load();if(premiumRefresh!=null)premiumRefresh.run();BackgroundDownloads.reconcile(this);if(ribbon!=null)ribbon.running(!smokeMode&&!full&&screen.equals("Главная"));ui.removeCallbacks(tick);if(!smokeMode)ui.post(tick);}
     @Override protected void onPause(){super.onPause();if(redirectedToFirstRun)return;ui.removeCallbacks(nightwellProbe);ui.removeCallbacks(connectionRecovery);if(navigationPopup!=null)navigationPopup.dismiss();if(playback!=null)playback.persistPlayback(true);visible=false;if(ribbon!=null)ribbon.running(false);ui.removeCallbacks(tick);}
-    @Override protected void onDestroy(){if(redirectedToFirstRun){super.onDestroy();return;}ui.removeCallbacks(nightwellProbe);generation++;cancelMix();accountRequest.cancel();if(api!=null)api.close();ui.removeCallbacksAndMessages(null);if(artworkCache!=null)artworkCache.close();io.shutdownNow();prefetch.shutdownNow();playlistIndexer.shutdownNow();if(playback!=null)playback.player.removeListener(playbackIntentObserver);if(bindingRegistered){unbindService(connection);bindingRegistered=false;}super.onDestroy();}
+    @Override protected void onDestroy(){if(redirectedToFirstRun){super.onDestroy();return;}ui.removeCallbacks(nightwellProbe);generation++;cancelMix();accountRequest.cancel();if(api!=null)api.close();ui.removeCallbacksAndMessages(null);if(artworkCache!=null)artworkCache.close();io.shutdownNow();waveIO.shutdownNow();prefetch.shutdownNow();playlistIndexer.shutdownNow();if(playback!=null)playback.player.removeListener(playbackIntentObserver);if(bindingRegistered){unbindService(connection);bindingRegistered=false;}super.onDestroy();}
     int dp(float n){return (int)(n*getResources().getDisplayMetrics().density+.5f);}
     LinearLayout column(){LinearLayout v=new LinearLayout(this);v.setOrientation(LinearLayout.VERTICAL);return v;}
     LinearLayout row(){LinearLayout v=new LinearLayout(this);v.setGravity(Gravity.CENTER_VERTICAL);return v;}
@@ -978,20 +979,33 @@ public final class MainActivity extends Activity {
             if(savedLikes!=null){likes.clear();for(int i=0;i<savedLikes.length();i++)likes.add(savedLikes.optString(i));}
         }catch(Exception ignored){}
     }
+    private final Runnable pendingLibrarySave=this::persistLibrarySnapshot;
     private void saveLibrarySnapshot(){
         if(user.isEmpty()||smokeMode)return;
-        try {
-            JSONObject snapshot=new JSONObject();
-            snapshot.put("account",user);
-            JSONArray tracks=new JSONArray();
-            for(int i=0;i<Math.min(catalog.length(),1500);i++)tracks.put(catalog.opt(i));
-            snapshot.put("tracks",tracks);
-            snapshot.put("playlists",playlists);
-            snapshot.put("likes",new JSONArray(likes));
-            String value=snapshot.toString();
-            if(value.length()>750000)return;
-            getSharedPreferences("library-snapshot",MODE_PRIVATE).edit().putString("snapshot",value).apply();
-        }catch(Exception ignored){}
+        // Batch the three section responses instead of serializing the
+        // complete catalogue three times on the main thread.
+        ui.removeCallbacks(pendingLibrarySave);
+        ui.postDelayed(pendingLibrarySave,650);
+    }
+    private void persistLibrarySnapshot(){
+        if(user.isEmpty()||smokeMode||isDestroyed())return;
+        final String owner=user;
+        final JSONArray tracks=catalog,lists=playlists,ids=new JSONArray(likes);
+        io.execute(()->{
+            try{
+                JSONObject snapshot=new JSONObject();
+                snapshot.put("account",owner);
+                JSONArray trimmed=new JSONArray();
+                for(int i=0;i<Math.min(tracks.length(),1500);i++)trimmed.put(tracks.opt(i));
+                snapshot.put("tracks",trimmed);
+                snapshot.put("playlists",lists);
+                snapshot.put("likes",ids);
+                String value=snapshot.toString();
+                if(value.length()>1250000||!owner.equals(user))return;
+                getSharedPreferences("library-snapshot",MODE_PRIVATE)
+                    .edit().putString("snapshot",value).apply();
+            }catch(Exception ignored){}
+        });
     }
     private void clearLibrarySnapshot(){
         getSharedPreferences("library-snapshot",MODE_PRIVATE).edit().remove("snapshot").apply();
@@ -1613,7 +1627,8 @@ public final class MainActivity extends Activity {
         java.util.List<String> hiddenForServer=new java.util.ArrayList<>(hidden);
         java.util.Collections.sort(hiddenForServer);
         for(int i=0;i<Math.min(hiddenForServer.size(),80);i++)excluded.add(hiddenForServer.get(i));
-        io.execute(()->{
+        final java.util.Set<String> recentForRank=new java.util.HashSet<>(mixRecent);
+        waveIO.execute(()->{
             try{
                 if(!waveRequest.pending(ticket))return;
                 String nonce=UUID.randomUUID().toString();
@@ -1622,17 +1637,25 @@ public final class MainActivity extends Activity {
                 if((raw==null||raw.length()==0)&&!playingID.isEmpty())raw=client.search("api/wave?mix="+nonce+settings.query()+"&exclude="+playingID).optJSONArray("tracks");
                 final JSONArray fresh=new JSONArray();
                 if(raw!=null)for(int i=0;i<raw.length();i++)if(!playingID.equals(raw.optJSONObject(i).optString("id"))&&!hidden.contains(raw.optJSONObject(i).optString("id")))fresh.put(raw.optJSONObject(i));
+                // Sort and deduplicate on the recommendation worker.
+                final JSONArray ordered=new JSONArray();
+                if(fresh.length()>0){
+                    java.util.List<JSONObject> candidates=new java.util.ArrayList<>();
+                    for(int i=0;i<fresh.length();i++)candidates.add(fresh.optJSONObject(i));
+                    for(JSONObject track:RecommendationOrder.arrange(
+                            candidates,recentForRank,hidden,blockedArtists,playingID,
+                            t->t.optString("id"),t->t.optString("title"),t->t.optString("artist")))
+                        ordered.put(track);
+                }
                 ui.post(()->{
                     if(isDestroyed()||!waveRequest.complete(ticket))return;
                     mixing=false;
                     if(!account.equals(user))return;
-                    if(fresh.length()>0){
-                        java.util.List<JSONObject> candidates=new java.util.ArrayList<>();for(int i=0;i<fresh.length();i++)candidates.add(fresh.optJSONObject(i));
-                        JSONArray ordered=new JSONArray();
-                        for(JSONObject t:RecommendationOrder.arrange(candidates,new java.util.HashSet<>(mixRecent),hidden,blockedArtists,playingID,t->t.optString("id"),t->t.optString("title"),t->t.optString("artist")))ordered.put(t);
-                        if(ordered.length()==0){status.setText("Все найденные треки скрыты фильтрами рекомендаций.");return;}
+                    if(ordered.length()>0){
                         status.setText("");play(ordered.optJSONObject(0),ordered,true);
-                    }else status.setText("Новых треков пока нет. Попробуй чуть позже.");
+                    }else status.setText(fresh.length()>0
+                        ?"Все найденные треки скрыты фильтрами рекомендаций."
+                        :"Новых треков пока нет. Попробуй чуть позже.");
                 });
             }catch(Exception e){ui.post(()->{if(isDestroyed()||!waveRequest.complete(ticket))return;mixing=false;status.setText(friendly(e));});}
             finally{client.close();}
@@ -1640,7 +1663,7 @@ public final class MainActivity extends Activity {
     }
 
     void setLabel(TextView view,String value){if(view!=null&&!android.text.TextUtils.equals(view.getText(),value))view.setText(value);}
-    void updatePlayback(){if(smokeMode||playback==null)return;try{JSONObject state=new JSONObject(playback.snapshot(false));String next=state.optString("id");if(!currentID.equals(next)||queue.length()!=state.optInt("queueCount")){queue=new JSONObject(playback.snapshot(true)).optJSONArray("queueTracks");}if(queue==null)queue=new JSONArray();JSONObject t=null;for(int i=0;i<queue.length();i++)if(queue.optJSONObject(i).optString("id").equals(next)){t=queue.optJSONObject(i);break;}setLabel(miniTitle,t==null?"Выбери трек":t.optString("title"));setLabel(miniArtist,t==null?"Nightwell Music":t.optString("artist"));refreshFavoriteButtons();if(miniProgress!=null)miniProgress.setLevel((int)Math.max(0,Math.min(10000,10000*state.optDouble("position")/Math.max(1,state.optDouble("duration")))));setLabel(miniPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(homePlay!=null)setLabel(homePlay,state.optBoolean("playing")?"Ⅱ":"▶");if(fullPlay!=null)setLabel(fullPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(ribbon!=null)ribbon.playing(state.optBoolean("playing"));if(!currentID.equals(next)){currentID=next;if(!next.isEmpty()){rememberRecent(next);checkTrackAudioQuality(t);prefetchClip(t);}activeLyrics=null;homeLine="";loadMiniCover(t);fetchLyricsAndPreload();animateTrackTransition();updateList();if(full)openPlayer();}if(seek!=null&&!seek.isPressed()){seek.setMax((int)Math.max(1,state.optDouble("duration")));seek.setProgress((int)state.optDouble("position"));}if(fullTime!=null)setLabel(fullTime,time(state.optDouble("position"))+"     /     "+time(state.optDouble("duration")));if(!state.optString("error").isEmpty())status.setText(state.optString("error"));syncLyrics(state.optDouble("position"));syncHomeLyrics(state.optDouble("position"));if(lastPlaying!=state.optBoolean("playing")){lastPlaying=state.optBoolean("playing");updateList();}}catch(Exception ignored){}}
+    void updatePlayback(){if(smokeMode||playback==null)return;try{JSONObject state=new JSONObject(playback.snapshot(false));String next=state.optString("id");boolean trackChanged=!currentID.equals(next);boolean queueChanged=trackChanged||queue==null||queue.length()!=state.optInt("queueCount");if(queueChanged){queue=new JSONObject(playback.snapshot(true)).optJSONArray("queueTracks");}if(queue==null)queue=new JSONArray();JSONObject t=null;if(queueChanged){for(int i=0;i<queue.length();i++){JSONObject item=queue.optJSONObject(i);if(item!=null&&next.equals(item.optString("id"))){t=item;break;}}setLabel(miniTitle,t==null?"Выбери трек":t.optString("title"));setLabel(miniArtist,t==null?"Nightwell Music":t.optString("artist"));}if(miniProgress!=null)miniProgress.setLevel((int)Math.max(0,Math.min(10000,10000*state.optDouble("position")/Math.max(1,state.optDouble("duration")))));setLabel(miniPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(homePlay!=null)setLabel(homePlay,state.optBoolean("playing")?"Ⅱ":"▶");if(fullPlay!=null)setLabel(fullPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(ribbon!=null)ribbon.playing(state.optBoolean("playing"));if(trackChanged){currentID=next;refreshFavoriteButtons();if(!next.isEmpty()){rememberRecent(next);checkTrackAudioQuality(t);prefetchClip(t);}activeLyrics=null;homeLine="";loadMiniCover(t);fetchLyricsAndPreload();animateTrackTransition();updateList();if(full)openPlayer();}if(seek!=null&&!seek.isPressed()){seek.setMax((int)Math.max(1,state.optDouble("duration")));seek.setProgress((int)state.optDouble("position"));}if(fullTime!=null)setLabel(fullTime,time(state.optDouble("position"))+"     /     "+time(state.optDouble("duration")));if(!state.optString("error").isEmpty())status.setText(state.optString("error"));syncLyrics(state.optDouble("position"));syncHomeLyrics(state.optDouble("position"));if(lastPlaying!=state.optBoolean("playing")){lastPlaying=state.optBoolean("playing");updateList();}}catch(Exception ignored){}}
     void animateTrackTransition(){
         if(dock==null||!dock.isShown())return;
         final float slide=dp(24)*trackTransitionDirection;
