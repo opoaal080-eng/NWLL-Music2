@@ -115,7 +115,7 @@ public final class PlaybackService extends MediaSessionService {
     }
     private float baseVolume=1f;
     private boolean fadeInActive=false;
-    private double transitionSeconds=.8;
+    private double transitionSeconds=1.5;
     private int volumeLevelingStrength;
     private double loudnessAverage=0, loudnessGain=1;
     private volatile String cacheScope="guest";
@@ -173,7 +173,7 @@ public final class PlaybackService extends MediaSessionService {
 
     @Override public void onCreate() {
         super.onCreate();
-        transitionSeconds=getSharedPreferences("playback",MODE_PRIVATE).getFloat("nw-transition-seconds",.8f);
+        transitionSeconds=getSharedPreferences("playback",MODE_PRIVATE).getFloat("nw-transition-seconds",1.5f);
         volumeLevelingStrength=Math.max(0,Math.min(100,getSharedPreferences("playback",MODE_PRIVATE).getInt("nw-equal-volume",0)));
         bufferChoiceSeconds=getSharedPreferences("playback",MODE_PRIVATE).getInt("nw-stream-buffer-seconds",0);
         if(bufferChoiceSeconds!=0 && bufferChoiceSeconds!=4 && bufferChoiceSeconds!=8 && bufferChoiceSeconds!=12) bufferChoiceSeconds=0;
