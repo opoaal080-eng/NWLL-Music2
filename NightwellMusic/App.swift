@@ -201,68 +201,112 @@ private enum StableNavigationAction {
 
 /// An independently presented, stable scroll view. Playback updates cannot
 /// re-create the menu or send it back to its first item.
+/// A stable two-level navigation sheet. Feature tools are grouped under
+/// "Дополнительно"; core library screens stay one tap away.
 private struct StableNavigationSheet: View {
     let status: String
     let signedIn: Bool
     let select: (StableNavigationAction) -> Void
     @Environment(\.dismiss) private var dismiss
+    @State private var showingAdditional = false
 
     private func choose(_ action: StableNavigationAction) {
-        // Parent will dismiss and deliver the navigation event in onDismiss.
+        // Parent dismisses this sheet and presents the destination afterward.
         select(action)
     }
-    private func entry(_ title: String, icon: String, action: StableNavigationAction) -> some View {
-        Button { choose(action) } label: {
-            HStack(spacing: 15) {
-                Image(systemName: icon).font(.system(size: 18)).frame(width: 25)
-                Text(title).font(.system(size: 16, weight: .medium))
-                Spacer()
-                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.white.opacity(0.35))
-            }
-            .foregroundStyle(.white)
-            .frame(minHeight: 48)
-            .padding(.horizontal, 16)
-            .background(.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 18))
+
+    private func rowContent(_ title: String, icon: String) -> some View {
+        HStack(spacing: 15) {
+            Image(systemName: icon).font(.system(size: 18)).frame(width: 25)
+            Text(title).font(.system(size: 16, weight: .medium))
+            Spacer()
+            Image(systemName: "chevron.right")
+                .font(.caption)
+                .foregroundStyle(.white.opacity(0.35))
         }
-        .buttonStyle(.plain)
+        .foregroundStyle(.white)
+        .frame(minHeight: 48)
+        .padding(.horizontal, 16)
+        .background(.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 18))
     }
+
+    private func entry(_ title: String, icon: String, action: StableNavigationAction) -> some View {
+        Button { choose(action) } label: { rowContent(title, icon: icon) }
+            .buttonStyle(.plain)
+    }
+
     var body: some View {
         VStack(spacing: 14) {
-            HStack {
-                Text("Меню").font(.system(size: 24, weight: .bold))
+            HStack(spacing: 12) {
+                if showingAdditional {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            showingAdditional = false
+                        }
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .frame(width: 36, height: 42)
+                    }
+                    .accessibilityLabel("Назад в меню")
+                }
+                Text(showingAdditional ? "Дополнительно" : "Меню")
+                    .font(.system(size: 24, weight: .bold))
                 Spacer()
                 Button { dismiss() } label: {
-                    Image(systemName: "xmark").frame(width: 42, height: 42)
+                    Image(systemName: "xmark")
+                        .frame(width: 42, height: 42)
                         .background(.white.opacity(0.07), in: Circle())
                 }
                 .accessibilityLabel("Закрыть меню")
             }
             .padding(.horizontal, 20).padding(.top, 24)
+
             ScrollView(.vertical, showsIndicators: false) {
                 LazyVStack(alignment: .leading, spacing: 8) {
-                    Label("Nightwell · " + status, systemImage: status == "Онлайн" ? "wifi" :
-                          status == "Загрузка…" ? "arrow.triangle.2.circlepath" : "wifi.slash")
-                        .font(.system(size: 13))
-                        .foregroundStyle(status == "Онлайн" ? .green :
-                                         status == "Ограничен" ? .orange : .white.opacity(0.65))
-                        .padding(.horizontal, 18).padding(.vertical, 8)
-                    if !signedIn {
-                        entry("Войти", icon: "person.crop.circle", action: .authentication)
-                        entry("Главная", icon: "house", action: .screen(.home))
+                    if showingAdditional {
+                        Text("Совместное прослушивание и другие возможности Nightwell")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.white.opacity(0.65))
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 8)
                         entry("Слушать вместе", icon: "person.2.wave.2", action: .together)
-                        entry("Настройки", icon: "gearshape", action: .settings)
-                    } else {
-                        entry("Главная", icon: "house", action: .screen(.home))
-                        entry("Избранное", icon: "heart", action: .screen(.likes))
-                        entry("Плейлисты", icon: "music.note.list", action: .screen(.playlists))
-                        entry("Офлайн", icon: "arrow.down.to.line", action: .screen(.offline))
-                        Divider().overlay(.white.opacity(0.16)).padding(.vertical, 6)
-                        entry("Моя статистика", icon: "chart.bar", action: .statistics)
-                        entry("Nightwell Premium", icon: "star", action: .premium)
-                        entry("Слушать вместе", icon: "person.2.wave.2", action: .together)
-                        entry("Настройки", icon: "gearshape", action: .settings)
+                        if signedIn {
+                            entry("Моя статистика", icon: "chart.bar", action: .statistics)
+                            entry("Перенос плейлистов", icon: "square.and.arrow.down", action: .transfer)
+                        }
                         entry("Обращения и поддержка", icon: "envelope", action: .support)
-                        entry("Выйти", icon: "rectangle.portrait.and.arrow.right", action: .authentication)
+                    } else {
+                        Label("Nightwell · " + status, systemImage: status == "Онлайн" ? "wifi" :
+                              status == "Загрузка…" ? "arrow.triangle.2.circlepath" : "wifi.slash")
+                            .font(.system(size: 13))
+                            .foregroundStyle(status == "Онлайн" ? .green :
+                                             status == "Ограничен" ? .orange : .white.opacity(0.65))
+                            .padding(.horizontal, 18).padding(.vertical, 8)
+                        if !signedIn {
+                            entry("Войти", icon: "person.crop.circle", action: .authentication)
+                            entry("Главная", icon: "house", action: .screen(.home))
+                        } else {
+                            entry("Главная", icon: "house", action: .screen(.home))
+                            entry("Избранное", icon: "heart", action: .screen(.likes))
+                            entry("Плейлисты", icon: "music.note.list", action: .screen(.playlists))
+                            entry("Офлайн", icon: "arrow.down.to.line", action: .screen(.offline))
+                        }
+                        Divider().overlay(.white.opacity(0.16)).padding(.vertical, 6)
+                        if signedIn {
+                            entry("Nightwell Premium", icon: "star", action: .premium)
+                        }
+                        entry("Настройки", icon: "gearshape", action: .settings)
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                showingAdditional = true
+                            }
+                        } label: {
+                            rowContent("Дополнительно", icon: "square.grid.2x2")
+                        }
+                        .buttonStyle(.plain)
+                        if signedIn {
+                            entry("Выйти", icon: "rectangle.portrait.and.arrow.right", action: .authentication)
+                        }
                     }
                 }
                 .padding(.horizontal, 20).padding(.bottom, 24)
