@@ -26,7 +26,32 @@ final class ArtworkCache {
     };
     private final ExecutorService io = Executors.newFixedThreadPool(3);
     private final ConcurrentHashMap<String, CompletableFuture<Bitmap>> inFlight = new ConcurrentHashMap<>();
+    // A missing provider cover must not be re-downloaded whenever a ListView
+    // recycles its row. Use monotonic time so clock changes cannot extend it.
+    private final ConcurrentHashMap<String,Long> retryAfter = new ConcurrentHashMap<>();
+    private static final long FAILURE_BACKOFF_MS = 25000;
     private int savedCount;
+
+    private boolean temporarilyUnavailable(String identity) {
+        Long until = retryAfter.get(identity);
+        if (until == null) return false;
+        if (until > android.os.SystemClock.elapsedRealtime()) return true;
+        retryAfter.remove(identity,until);
+        return false;
+    }
+    private void markUnavailable(String identity) {
+        long now = android.os.SystemClock.elapsedRealtime();
+        retryAfter.put(identity,now+FAILURE_BACKOFF_MS);
+        if (retryAfter.size()>256) {
+            for (java.util.Map.Entry<String,Long> item:retryAfter.entrySet())
+                if (item.getValue()<=now) retryAfter.remove(item.getKey(),item.getValue());
+            int extra=retryAfter.size()-224;
+            if(extra>0)for(String old:retryAfter.keySet()) {
+                retryAfter.remove(old);
+                if(--extra<=0)break;
+            }
+        }
+    }
 
     ArtworkCache(Context context) { this.context = context.getApplicationContext(); }
     private boolean valid(String path) { return path != null && path.startsWith("/api/covers/"); }
@@ -38,6 +63,7 @@ final class ArtworkCache {
         target.setTag(identity);
         Bitmap cached = memory.get(identity);
         if (cached != null) { target.setImageBitmap(cached); return; }
+        if (temporarilyUnavailable(identity)) return;
         CompletableFuture<Bitmap> job = request(origin,path);
         job.thenAccept(bitmap -> {
             if (bitmap == null) return;
@@ -52,9 +78,14 @@ final class ArtworkCache {
     }
     private CompletableFuture<Bitmap> request(String origin, String path) {
         String identity = key(origin,path);
+        if (temporarilyUnavailable(identity)) return CompletableFuture.completedFuture(null);
         CompletableFuture<Bitmap> job = inFlight.computeIfAbsent(identity,
             k -> CompletableFuture.supplyAsync(() -> decodeAndFetch(origin,path,identity),io));
-        job.whenComplete((result,error) -> inFlight.remove(identity,job));
+        job.whenComplete((result,error) -> {
+            inFlight.remove(identity,job);
+            if (error != null || result == null) markUnavailable(identity);
+            else retryAfter.remove(identity);
+        });
         return job;
     }
     private Bitmap decodeAndFetch(String origin, String path, String identity) {
@@ -139,11 +170,16 @@ final class ArtworkCache {
             target.setImageBitmap(cached);
             return;
         }
+        if (temporarilyUnavailable(identity)) return;
         CompletableFuture<Bitmap> job = inFlight.computeIfAbsent(identity,
             key -> CompletableFuture.supplyAsync(() -> fetchArtistImage(imageUrl), io));
         job.whenComplete((bitmap, error) -> {
             inFlight.remove(identity, job);
-            if (bitmap == null || error != null) return;
+            if (bitmap == null || error != null) {
+                markUnavailable(identity);
+                return;
+            }
+            retryAfter.remove(identity);
             target.post(() -> {
                 if (identity.equals(target.getTag()) && target.isAttachedToWindow())
                     target.setImageBitmap(bitmap);
@@ -169,5 +205,5 @@ final class ArtworkCache {
         } catch (Exception ignored) { return null; }
         finally { if (connection != null) connection.disconnect(); }
     }
-    void close() { io.shutdownNow(); inFlight.clear(); memory.evictAll(); }
+    void close() { io.shutdownNow(); inFlight.clear(); retryAfter.clear(); memory.evictAll(); }
 }
