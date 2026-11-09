@@ -18,6 +18,9 @@ public partial class MainWindow:Window {
  int normalization=0;
  double userVolume=1.0;
  long pausedAtMs;
+ // Keep the displayed scrubber pinned while LibVLC settles on pause.
+ // Reset on explicit track changes and seeks, never on a stale timer tick.
+ bool pauseVisualLocked;
  bool volumeSettingReady;
  CancellationTokenSource? searchCancellation;List<Track> catalog=[],shown=[],queue=[];List<Playlist> playlists=[];HashSet<string> likes=[];
  readonly Dictionary<string,List<Track>> ownedPlaylistCache=new();
@@ -28,7 +31,7 @@ public partial class MainWindow:Window {
  CancellationTokenSource? lyricsCancellation;JsonElement? currentLyrics;string lyricsID="";int renderedLyric=int.MinValue;long savedAt;double? pendingSeek;bool restorePaused;
  sealed record PlaybackState(string Origin,string Account,List<Track> Queue,string ID,double Position,int Repeat,bool Shuffle,bool Wave,int ShuffleMode=0);
  string ResumeFile=>Path.Combine(NativeAPI.Storage,"resume.json");
- PlaybackState? CapturePlayback()=>Current==null?null:new PlaybackState(origin,account,queue.ToList(),currentID,Math.Max(0,audioTime/1000.0),repeat,shuffle,wave,shuffleMode);
+ PlaybackState? CapturePlayback()=>Current==null?null:new PlaybackState(origin,account,queue.ToList(),currentID,Math.Max(0,(pauseVisualLocked?pausedAtMs:audioTime)/1000.0),repeat,shuffle,wave,shuffleMode);
  void WritePlayback(PlaybackState state){try{
    var directory=Path.GetDirectoryName(ResumeFile)!;
    Directory.CreateDirectory(directory);
@@ -276,7 +279,27 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
     var volume=(int)Math.Round(100*Math.Clamp(userVolume*gain,0,1));
     if(player.Volume!=volume)player.Volume=volume;
  }
- async void ToggleClick(object sender,RoutedEventArgs e){if(Current==null){await NewWave();return;}if(roomCode.Length>0){await Guard(()=>RoomCommand(audioPlaying?"pause":"play"));return;}TakePlaybackHere();await AudioCommand(()=>{if(player.IsPlaying){pausedAtMs=Math.Max(0,player.Time);player.Pause();}else player.Play();});}
+ async void ToggleClick(object sender,RoutedEventArgs e){
+  if(Current==null){await NewWave();return;}
+  if(roomCode.Length>0){await Guard(()=>RoomCommand(audioPlaying?"pause":"play"));return;}
+  TakePlaybackHere();
+  bool pausing=player.IsPlaying;
+  if(pausing){
+   pausedAtMs=Math.Max(pausedAtMs,Math.Max(0,audioTime));
+   pauseVisualLocked=true;
+  }else pauseVisualLocked=false;
+  await AudioCommand(()=>{
+   if(pausing){
+    pausedAtMs=Math.Max(pausedAtMs,Math.Max(0,player.Time));
+    player.Pause();
+   }else player.Play();
+  });
+  if(pausing){
+   audioTime=pausedAtMs;
+   audioPlaying=false;
+  }
+  RefreshPlaybackUI();
+ }
  async void TrackRowClick(object sender,MouseButtonEventArgs e){
   if(e.ChangedButton!=MouseButton.Left)return;
   // Preview catches clicks on artwork, artist, text and blank space, but
@@ -299,7 +322,7 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
   if(index<0)return;
   wave=false;PlayCurrent();
  }
- void PlayCurrent(){nextCancellation?.Cancel();var t=Current;if(t==null)return;_=PrefetchClipAsync(t);pausedAtMs=0;if(t.LocalPath==null&&account.Length==0){Login();return;}string path=StreamPath(t);_=AudioCommand(()=>{using var media=new Media(vlc,path,t.LocalPath==null?FromType.FromLocation:FromType.FromPath);player.Play(media);});lyricsCancellation?.Cancel();currentLyrics=null;lyricsID="";renderedLyric=int.MinValue;currentID=t.id;ActiveArtwork=null;Ribbon.ResetPalette();PlayerPage.Background=Brushes.Transparent;PlayingTrackId=t.id;UpdatePlaybackChrome();mixRecent.Enqueue(t.id);while(mixRecent.Count>120)mixRecent.Dequeue();MiniTitle.Text=FullTitle.Text=t.title;MiniArtist.Text=FullArtist.Text=t.artist;LyricsText.Text="";LyricsPanel.Visibility=Visibility.Collapsed;Cover.Visibility=Visibility.Visible;if(Uri.TryCreate(api.Origin,t.cover_url??("api/covers/"+t.id),out var coverURI)&&coverURI.Scheme=="https")_=LoadCover(coverURI,t.id);else Cover.Source=MiniCover.Source=null;RecordTrackStart();Dock.BeginAnimation(OpacityProperty,new System.Windows.Media.Animation.DoubleAnimation(.6,1,TimeSpan.FromSeconds(.7)));}
+ void PlayCurrent(){nextCancellation?.Cancel();var t=Current;if(t==null)return;_=PrefetchClipAsync(t);pausedAtMs=0;pauseVisualLocked=false;if(t.LocalPath==null&&account.Length==0){Login();return;}string path=StreamPath(t);_=AudioCommand(()=>{using var media=new Media(vlc,path,t.LocalPath==null?FromType.FromLocation:FromType.FromPath);player.Play(media);});lyricsCancellation?.Cancel();currentLyrics=null;lyricsID="";renderedLyric=int.MinValue;currentID=t.id;ActiveArtwork=null;Ribbon.ResetPalette();PlayerPage.Background=Brushes.Transparent;PlayingTrackId=t.id;UpdatePlaybackChrome();mixRecent.Enqueue(t.id);while(mixRecent.Count>120)mixRecent.Dequeue();MiniTitle.Text=FullTitle.Text=t.title;MiniArtist.Text=FullArtist.Text=t.artist;LyricsText.Text="";LyricsPanel.Visibility=Visibility.Collapsed;Cover.Visibility=Visibility.Visible;if(Uri.TryCreate(api.Origin,t.cover_url??("api/covers/"+t.id),out var coverURI)&&coverURI.Scheme=="https")_=LoadCover(coverURI,t.id);else Cover.Source=MiniCover.Source=null;RecordTrackStart();Dock.BeginAnimation(OpacityProperty,new System.Windows.Media.Animation.DoubleAnimation(.6,1,TimeSpan.FromSeconds(.7)));}
  async Task LoadCover(Uri uri,string id){try{
  var bytes=await (uri.Authority==api.Origin.Authority?api.HTTP:artworkHTTP).GetByteArrayAsync(uri,lifetime.Token);
  if(bytes.Length>5*1024*1024||currentID!=id)return;
@@ -328,8 +351,10 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
   }
   bool playing=audioPlaying;
   long positionMs=Math.Max(0,audioTime);
-  if(playing&&positionMs>0)pausedAtMs=positionMs;
-  if(!playing&&positionMs==0&&pausedAtMs>0&&audioLength>0)positionMs=pausedAtMs;
+  if(playing&&!pauseVisualLocked&&positionMs>0)pausedAtMs=positionMs;
+  // Freeze even when LibVLC reports a nonzero but older timestamp.
+  if(pauseVisualLocked||(!playing&&pausedAtMs>0&&audioLength>0))
+   positionMs=Math.Max(0,pausedAtMs);
   double duration=Math.Max(1,audioLength/1000.0),position=positionMs/1000.0;
   SyncLyrics();
   MiniLike.Content=likes.Contains(currentID)?"♥":"♡";
@@ -345,7 +370,17 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
  }
  string Time(double s)=>$"{(int)s/60}:{(int)s%60:00}";
  void SeekStart(object sender,MouseButtonEventArgs e)=>scrubbing=true;
- async void SeekEnd(object sender,MouseButtonEventArgs e){if(roomCode.Length>0){scrubbing=false;await Guard(()=>RoomCommand("seek",position:FullSeek.Value));return;}long position=(long)(FullSeek.Value*1000);_=AudioCommand(()=>player.Time=position);scrubbing=false;}
+ async void SeekEnd(object sender,MouseButtonEventArgs e){
+  if(roomCode.Length>0){scrubbing=false;await Guard(()=>RoomCommand("seek",position:FullSeek.Value));return;}
+  long target=Math.Max(0,(long)(FullSeek.Value*1000));
+  // A deliberate backwards seek replaces the frozen pause anchor.
+  pausedAtMs=target;
+  audioTime=target;
+  pauseVisualLocked=!player.IsPlaying;
+  _=AudioCommand(()=>player.Time=target);
+  scrubbing=false;
+  RefreshPlaybackUI();
+ }
  void ShuffleClick(object sender,RoutedEventArgs e){
   shuffleMode=(shuffleMode+1)%3;shuffle=shuffleMode!=0;
   Status.Text=new[]{"Перемешивание выключено","Обычное перемешивание","Умное перемешивание"}[shuffleMode];
