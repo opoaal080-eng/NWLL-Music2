@@ -102,21 +102,27 @@ struct NightwellQueueDeck: View {
     let currentIndex: Int
     let origin: URL
 
-    @State private var position = 0
+    // -1 means follow the first upcoming track until the user browses.
+    @State private var position = -1
     @State private var notice: String?
     @State private var highlightedID: String?
     @State private var noticeRevision = 0
 
-    private var firstUpcoming: Int { max(0, currentIndex + 1) }
-    private var totalUpcoming: Int { max(0, queue.count - firstUpcoming) }
-    private var safePosition: Int { min(max(0, position), max(0, totalUpcoming - 1)) }
-    private var windowStart: Int { firstUpcoming + safePosition }
+    private var safePosition: Int {
+        guard !queue.isEmpty else { return 0 }
+        let requested = position < 0 ? max(0, currentIndex + 1) : position
+        return min(max(0, requested), queue.count - 1)
+    }
+    private var windowStart: Int { safePosition }
     private var upcoming: [(offset: Int, element: Track)] {
         Array(queue.enumerated().dropFirst(windowStart).prefix(3))
     }
+    private func section(for index: Int) -> String {
+        index < currentIndex ? "РАНЕЕ" : index == currentIndex ? "СЕЙЧАС ИГРАЕТ" : "ДАЛЕЕ"
+    }
 
     private func browse(_ direction: Int) {
-        let target = min(max(0, safePosition + direction), max(0, totalUpcoming - 1))
+        let target = min(max(0, safePosition + direction), max(0, queue.count - 1))
         guard target != safePosition else { return }
         withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
             position = target
@@ -156,7 +162,7 @@ struct NightwellQueueDeck: View {
             return
         }
         NativePlayer.shared.playNextFromQueue(at: index)
-        position = 0
+        position = -1
         feedback("Следующий в очереди ✓", for: track.id)
     }
 
@@ -170,6 +176,16 @@ struct NightwellQueueDeck: View {
                 .scaledToFill()
                 .frame(width: width, height: height)
                 .clipped()
+                .overlay(alignment: .topLeading) {
+                    Text(section(for: absoluteIndex))
+                        .font(.system(size: 10, weight: .bold))
+                        .tracking(1.1)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .padding(14)
+                }
             VStack(alignment: .leading, spacing: 5) {
                 Text(track.title)
                     .font(.system(size: 16, weight: .semibold))
@@ -247,7 +263,7 @@ struct NightwellQueueDeck: View {
             }
             .frame(height: 354)
 
-            if totalUpcoming > 1 {
+            if queue.count > 1 {
                 HStack(spacing: 20) {
                     Button { browse(-1) } label: {
                         Image(systemName: "chevron.left")
@@ -257,7 +273,7 @@ struct NightwellQueueDeck: View {
                     .disabled(safePosition == 0)
                     .opacity(safePosition == 0 ? 0.35 : 1)
 
-                    Text("\(safePosition + 1) из \(totalUpcoming)")
+                    Text("\(safePosition + 1) из \(queue.count)")
                         .font(.system(size: 14, weight: .medium))
                         .monospacedDigit()
                         .frame(minWidth: 84)
@@ -267,8 +283,8 @@ struct NightwellQueueDeck: View {
                             .font(.system(size: 18, weight: .medium))
                             .frame(width: 44, height: 44)
                     }
-                    .disabled(safePosition >= totalUpcoming - 1)
-                    .opacity(safePosition >= totalUpcoming - 1 ? 0.35 : 1)
+                    .disabled(safePosition >= queue.count - 1)
+                    .opacity(safePosition >= queue.count - 1 ? 0.35 : 1)
                 }
                 .foregroundStyle(Color.white.opacity(0.90))
                 .padding(.top, 4)
@@ -298,6 +314,6 @@ struct NightwellQueueDeck: View {
         }
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .contain)
-        .onChange(of: currentIndex) { _ in position = 0 }
+        .onChange(of: currentIndex) { _ in position = -1 }
     }
 }

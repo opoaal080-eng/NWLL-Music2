@@ -966,7 +966,7 @@ final class NativePlayer {
     }
     private func refillWave(force: Bool = false) {
         guard waveActive, wantsPlay, waveTask == nil, let origin, current != nil,
-              Date() >= waveRetryAt, force || tracks.count - index - 1 <= 8 else { return }
+              Date() >= waveRetryAt, force || tracks.count - index - 1 <= 16 else { return }
         let hiddenKey = "nw-hidden-recommendations|" + origin.absoluteString + "|" + offlineAccount
         let artistKey = "nw-hidden-artists|" + origin.absoluteString + "|" + offlineAccount
         let hiddenArtists = Set(UserDefaults.standard.stringArray(forKey: artistKey) ?? [])

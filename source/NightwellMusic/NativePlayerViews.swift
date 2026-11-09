@@ -885,7 +885,7 @@ struct PlaybackQueue: View {
                     ScrollView(showsIndicators: false) {
                         VStack(spacing: 10) {
                             if depthQueue {
-                                if currentIndex + 1 < clock.queue.count {
+                                if !clock.queue.isEmpty {
                                     NightwellQueueDeck(
                                         queue: clock.queue,
                                         currentIndex: currentIndex,
