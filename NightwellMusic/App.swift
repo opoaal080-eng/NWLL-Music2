@@ -383,6 +383,15 @@ private struct NightwellSearchCaretField: UIViewRepresentable {
     }
 }
 
+// The caret's soft white halo is drawn across the *whole* search pill.
+// Keeping it behind the text prevents clipping at the UITextField's left edge.
+private struct NightwellSearchFieldOriginPreference: PreferenceKey {
+    static var defaultValue: CGFloat = 50
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
 private struct NightwellSearchCaretLight: View {
     let x: CGFloat
     let active: Bool
@@ -392,29 +401,21 @@ private struct NightwellSearchCaretLight: View {
         GeometryReader { geometry in
             TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !active || reduceMotion)) { timeline in
                 let seconds = timeline.date.timeIntervalSinceReferenceDate
-                let drift: CGFloat = reduceMotion ? 0 : CGFloat(sin(seconds * 10) * 1.8)
-                let pulse = reduceMotion ? 1.0 : 0.92 + 0.08 * sin(seconds * 12)
-                let center = min(max(24, x + drift), max(24, geometry.size.width - 24))
+                let pulse = reduceMotion ? 1.0 : 0.94 + 0.06 * sin(seconds * 10)
+                let center = min(max(14, x), geometry.size.width - 14)
 
-                ZStack {
-                    Ellipse()
-                        .fill(RadialGradient(
-                            colors: [
-                                .white.opacity(active ? 0.26 * pulse : 0),
-                                .white.opacity(active ? 0.10 * pulse : 0),
-                                .clear
-                            ],
-                            center: .center, startRadius: 0, endRadius: 38
-                        ))
-                        .frame(width: 92, height: 64)
-                        .blur(radius: 6)
-
-                    Capsule()
-                        .fill(.white.opacity(active ? 0.30 * pulse : 0))
-                        .frame(width: 3, height: 26)
-                        .blur(radius: 3)
-                }
-                .position(x: center, y: geometry.size.height / 2)
+                Circle()
+                    .fill(RadialGradient(
+                        colors: [
+                            .white.opacity(active ? 0.23 * pulse : 0),
+                            .white.opacity(active ? 0.09 * pulse : 0),
+                            .clear
+                        ],
+                        center: .center, startRadius: 0, endRadius: 42
+                    ))
+                    .frame(width: 84, height: 84)
+                    .blur(radius: 4)
+                    .position(x: center, y: geometry.size.height / 2)
             }
         }
         .allowsHitTesting(false)
@@ -504,6 +505,7 @@ struct NativeRoot: View {
     @State private var showShare = false
     @State private var launching = true
     @State private var searchCaretX: CGFloat = 16
+    @State private var searchFieldOriginX: CGFloat = 50
     @State private var searchFocused = false
     @Environment(\.accessibilityReduceMotion) private var reducedMotion
     @ViewBuilder private var mainScene: some View {
@@ -896,10 +898,14 @@ struct NativeRoot: View {
                     .frame(maxWidth: .infinity)
                     .frame(height: 50)
                     .background {
-                        NightwellSearchCaretLight(x: searchCaretX, active: searchFocused)
-                            .frame(height: 50)
-                            .clipped()
-                            .animation(.easeOut(duration: 0.11), value: searchCaretX)
+                        // Measure the text field's actual origin in the pill.
+                        // A hard-coded offset drifts across devices and fonts.
+                        GeometryReader { field in
+                            Color.clear.preference(
+                                key: NightwellSearchFieldOriginPreference.self,
+                                value: field.frame(in: .named("nightwellSearchPill")).minX
+                            )
+                        }
                     }
                     .onChange(of: store.query) { _ in store.scheduleSearch() }
 
@@ -915,10 +921,24 @@ struct NativeRoot: View {
                 // showing the keyboard, or animating either highlight.
                 .frame(height: 54)
                 .padding(.horizontal, 18)
+                .coordinateSpace(name: "nightwellSearchPill")
                 .background {
                     RoundedRectangle(cornerRadius: 28, style: .continuous)
                         .fill(.ultraThinMaterial)
                         .opacity(0.48)
+                        .overlay {
+                            NightwellSearchCaretLight(
+                                x: searchFieldOriginX + searchCaretX,
+                                active: searchFocused
+                            )
+                            .animation(.easeOut(duration: 0.10), value: searchCaretX)
+                            .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                        }
+                }
+                .onPreferenceChange(NightwellSearchFieldOriginPreference.self) { origin in
+                    if abs(searchFieldOriginX - origin) > 0.5 {
+                        searchFieldOriginX = origin
+                    }
                 }
                 .overlay {
                     RoundedRectangle(cornerRadius: 28, style: .continuous)
