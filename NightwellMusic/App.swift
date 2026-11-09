@@ -196,7 +196,7 @@ struct NightwellPopup<Content: View>: View {
 
 private enum StableNavigationAction {
     case screen(MusicStore.Screen)
-    case backgroundOnly, statistics, premium, transfer, settings, waveSettings, support, together, authentication
+    case backgroundOnly, statistics, premium, transfer, settings, waveSettings, support, together, profile, authentication
 }
 
 /// An independently presented, stable scroll view. Playback updates cannot
@@ -208,6 +208,7 @@ private struct StableNavigationSheet: View {
     let signedIn: Bool
     let select: (StableNavigationAction) -> Void
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var store: MusicStore
     @State private var showingAdditional = false
 
     private func choose(_ action: StableNavigationAction) {
@@ -252,12 +253,32 @@ private struct StableNavigationSheet: View {
                 Text(showingAdditional ? "Дополнительно" : "Меню")
                     .font(.system(size: 24, weight: .bold))
                 Spacer()
-                Button { dismiss() } label: {
-                    Image(systemName: "xmark")
-                        .frame(width: 42, height: 42)
-                        .background(.white.opacity(0.07), in: Circle())
+                // Avatar replaces the close icon in the menu header.
+                // Its identity comes from the existing cached user profile.
+                Button {
+                    choose(signedIn ? .profile : .authentication)
+                } label: {
+                    Group {
+                        if let image = store.profileAvatar, signedIn {
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFill()
+                        } else {
+                            Image(systemName: "person.crop.circle.fill")
+                                .resizable()
+                                .scaledToFit()
+                                .foregroundStyle(.white.opacity(0.78))
+                                .padding(5)
+                        }
+                    }
+                    .frame(width: 38, height: 38)
+                    .clipShape(Circle())
+                    .frame(width: 42, height: 42)
+                    .background(.white.opacity(0.08), in: Circle())
+                    .overlay(Circle().strokeBorder(.white.opacity(0.24), lineWidth: 1))
                 }
-                .accessibilityLabel("Закрыть меню")
+                .buttonStyle(.plain)
+                .accessibilityLabel(signedIn ? "Открыть профиль" : "Войти в аккаунт")
             }
             .padding(.horizontal, 20).padding(.top, 24)
 
@@ -529,6 +550,7 @@ struct NativeRoot: View {
     @State private var feature: PremiumFeatureView.Kind?
     @State private var settings = false
     @State private var navigationMenuPresented = false
+    @State private var profilePresented = false
     @State private var pendingNavigation: StableNavigationAction?
     @State private var waveSettingsPresented = false
     @State private var supportPresented = false
@@ -689,6 +711,34 @@ struct NativeRoot: View {
         .sheet(item: $feature) { kind in
             PremiumFeatureView(kind: kind).environmentObject(store)
         }
+        .sheet(isPresented: $profilePresented) {
+            NavigationStack {
+                ScrollView(showsIndicators: false) {
+                    ProfileSettingsView()
+                        .environmentObject(store)
+                        .padding(.horizontal, 18)
+                        .padding(.top, 16)
+                }
+                .background {
+                    LinearGradient(
+                        colors: [Color(white: 0.12), Color(white: 0.03), .black],
+                        startPoint: .topLeading, endPoint: .bottomTrailing
+                    )
+                    .ignoresSafeArea()
+                }
+                .navigationTitle("Профиль")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Готово") { profilePresented = false }
+                            .foregroundStyle(.white)
+                    }
+                }
+            }
+            .preferredColorScheme(.dark)
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
         .sheet(isPresented: $premiumPresented) { PremiumView(api: store.api) }
         .sheet(isPresented: $togetherPresented) {
             NightwellTogetherSheet(session: togetherSession, store: store)
@@ -778,6 +828,7 @@ struct NativeRoot: View {
         case .premium: premiumPresented = true
         case .transfer: transferPresented = true
         case .settings: settings = true
+        case .profile: profilePresented = true
         case .waveSettings: waveSettingsPresented = true
         case .support: supportPresented = true
         case .together: togetherPresented = true
