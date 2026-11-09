@@ -243,6 +243,16 @@ private struct StableNavigationSheet: View {
                     .font(.system(size: 24, weight: .bold))
                     .lineLimit(1)
                     .minimumScaleFactor(0.76)
+                // Compact connectivity indicator on the same baseline as
+                // "Меню", without using a separate row in navigation.
+                Image(systemName: status == "Онлайн" ? "wifi" :
+                      status == "Ограничен" ? "wifi.exclamationmark" :
+                      status == "Загрузка…" ? "arrow.triangle.2.circlepath" : "wifi.slash")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(status == "Онлайн" ? Color.green :
+                                     status == "Ограничен" ? Color.orange : Color.gray)
+                    .frame(width: 22, height: 28)
+                    .accessibilityLabel("Подключение Nightwell: " + status)
                 Spacer(minLength: 8)
                 // Always one tap from the menu header, immediately to the
                 // left of the profile avatar. Tapping again returns to Menu.
@@ -304,12 +314,6 @@ private struct StableNavigationSheet: View {
                         }
                         entry("Обращения и поддержка", icon: "envelope", action: .support)
                     } else {
-                        Label("Nightwell · " + status, systemImage: status == "Онлайн" ? "wifi" :
-                              status == "Загрузка…" ? "arrow.triangle.2.circlepath" : "wifi.slash")
-                            .font(.system(size: 13))
-                            .foregroundStyle(status == "Онлайн" ? .green :
-                                             status == "Ограничен" ? .orange : .white.opacity(0.65))
-                            .padding(.horizontal, 18).padding(.vertical, 8)
                         if !signedIn {
                             entry("Войти", icon: "person.crop.circle", action: .authentication)
                             entry("Главная", icon: "house", action: .screen(.home))
