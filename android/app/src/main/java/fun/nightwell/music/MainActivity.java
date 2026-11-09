@@ -239,8 +239,10 @@ public final class MainActivity extends Activity {
     private final Runnable lyricTicker=new Runnable(){
         @Override public void run(){
             if(lyricsText==null||playback==null)return;
-            if(playback.player.getPlayWhenReady())syncLyrics(playback.player.getCurrentPosition()/1000.0);
-            ui.postDelayed(this,160);
+            if(!visible){ui.postDelayed(this,450);return;}
+            boolean playing=playback.player.getPlayWhenReady();
+            if(playing)syncLyrics(playback.player.getCurrentPosition()/1000.0);
+            ui.postDelayed(this,playing?160:450);
         }
     };
     private ListView list;
@@ -1915,7 +1917,12 @@ public final class MainActivity extends Activity {
                 if(start<=position)selected=j;
                 prior=start;
             }
-            if(valid&&combined.toString().trim().equals(text.trim()))return selected;
+            // Highlight indices must match the visible whitespace tokens.
+            java.util.regex.Matcher matched=KINETIC_TOKENS.matcher(text);
+            int visibleWords=0;
+            while(matched.find())visibleWords++;
+            if(valid&&exact.length()==visibleWords&&
+                combined.toString().trim().equals(text.trim()))return selected;
         }
         java.util.regex.Matcher matcher=KINETIC_TOKENS.matcher(text);
         java.util.ArrayList<Double> weights=new java.util.ArrayList<>();
