@@ -57,6 +57,32 @@ final class FavoriteTracks {
         }
     }
 
+    boolean hasMetadata(String id) {
+        return validId(id) && useful(details.get(id));
+    }
+
+    int missingCount(Set<String> liked) {
+        if(liked==null)return 0;
+        int count=0;
+        for(String id:liked)if(!hasMetadata(id))count++;
+        return count;
+    }
+
+    int rememberLikedAndCount(JSONArray items,Set<String> likes) {
+        if(items==null||likes==null)return 0;
+        int added=0;
+        for(int i=0;i<items.length();i++){
+            JSONObject item=items.optJSONObject(i);
+            if(item==null)continue;
+            String id=item.optString("id");
+            if(!likes.contains(id)||!useful(item))continue;
+            boolean missing=!hasMetadata(id);
+            remember(item);
+            if(missing)added++;
+        }
+        return added;
+    }
+
     void remove(String id) {
         if(!validId(id))return;
         order.remove(id);
