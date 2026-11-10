@@ -1601,13 +1601,96 @@ public final class MainActivity extends Activity {
         if(missing.length()>0)download(missing);
     }
     void toggleFavorite(JSONObject track){
-        if(user.isEmpty()){auth();return;}if(track==null)return;
-        final String id=track.optString("id");final boolean remove=likes.contains(id);
-        task(()->api.request("api/likes/"+id,remove?"DELETE":"POST",null),v->{
-            if(remove)likes.remove(id);else{likes.add(id);if(ribbon!=null)ribbon.flash();}
-            refreshFavoriteButtons();updatePlayback();updateList();
-            if(!remove&&autoFavoritesEnabled())download(new JSONArray().put(track));
-            Toast.makeText(this,remove?"Убрано из избранного":"Добавлено в избранное",Toast.LENGTH_SHORT).show();
+        if(user.isEmpty()){auth();return;}
+        if(track==null||track.optBoolean("_favoriteMissing"))return;
+        final String id=track.optString("id");
+        if(id.isEmpty()||favoritePending.contains(id))return;
+        final String owner=user,server=origin;
+        final NativeAPI client=api;
+        final boolean wanted=!likes.contains(id);
+        final long revision=++favoriteRevision;
+        favoritePending.add(id);
+
+        // The UI responds immediately, even when the server takes seconds.
+        if(wanted){
+            likes.add(id);
+            favoriteTracks.remember(track);
+            favoriteTracks.promote(id);
+            if(ribbon!=null)ribbon.flash();
+        }else{
+            likes.remove(id);
+            favoriteTracks.remove(id);
+        }
+        saveFavoriteIndex();
+        saveLibrarySnapshot();
+        refreshFavoriteButtons();
+        if(!full&&"Избранное".equals(screen))showScreen();
+        else updateList();
+
+        io.execute(()->{
+            Exception requestFailure=null;
+            boolean requestAccepted=false;
+            try{
+                // A server may return an empty/non-JSON body even after saving.
+                // Always read back /api/likes before deciding what succeeded.
+                client.request("api/likes/"+id,wanted?"POST":"DELETE",null);
+                requestAccepted=true;
+            }catch(Exception ex){requestFailure=ex;}
+            JSONArray canonical=null;
+            try{canonical=client.request("api/likes").optJSONArray("ids");}
+            catch(Exception ignored){}
+            final boolean accepted=requestAccepted;
+            final JSONArray serverIds=canonical;
+            final Exception failure=requestFailure;
+            ui.post(()->{
+                if(isDestroyed()||!owner.equals(user)||!server.equals(origin)||client!=api)return;
+                favoritePending.remove(id);
+                boolean confirmed=false,verified=serverIds!=null;
+                if(verified){
+                    HashSet<String> actual=new HashSet<>();
+                    for(int i=0;i<serverIds.length();i++){
+                        String entry=serverIds.optString(i);
+                        if(!entry.isEmpty())actual.add(entry);
+                    }
+                    confirmed=actual.contains(id)==wanted;
+                    if(revision==favoriteRevision){
+                        // Retain optimistic edits still awaiting their own readback.
+                        for(String pending:favoritePending){
+                            if(likes.contains(pending))actual.add(pending);
+                            else actual.remove(pending);
+                        }
+                        likes.clear();likes.addAll(actual);
+                        favoriteTracks.reconcile(likes,serverIds,
+                            wanted&&confirmed?id:null);
+                    }else{
+                        // An older response must not clobber newer user taps.
+                        if(actual.contains(id))likes.add(id);else likes.remove(id);
+                        favoriteTracks.reconcile(likes,null,
+                            wanted&&confirmed?id:null);
+                    }
+                    if(!likes.contains(id))favoriteTracks.remove(id);
+                    else if(wanted)favoriteTracks.remember(track);
+                }else if(!accepted){
+                    // Neither POST/DELETE nor confirmation succeeded.
+                    if(wanted){likes.remove(id);favoriteTracks.remove(id);}
+                    else{likes.add(id);favoriteTracks.remember(track);favoriteTracks.promote(id);}
+                }
+                saveFavoriteIndex();
+                saveLibrarySnapshot();
+                refreshFavoriteButtons();
+                if(!full&&"Избранное".equals(screen))showScreen();
+                else updateList();
+                if(verified&&confirmed){
+                    if(wanted&&autoFavoritesEnabled())download(new JSONArray().put(track));
+                }else{
+                    String message=verified?
+                        "Сервер не подтвердил изменение избранного":
+                        accepted?"Изменение отправлено, подтверждение пока недоступно":
+                        "Не удалось обновить избранное: "+friendly(failure);
+                    if(status!=null)status.setText(message);
+                    Toast.makeText(this,message,Toast.LENGTH_SHORT).show();
+                }
+            });
         });
     }
     void refreshFavoriteButtons(){
