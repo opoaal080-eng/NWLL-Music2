@@ -87,6 +87,19 @@ final class FavoriteTracks {
         }
     }
 
+    JSONArray orderIds(Set<String> liked){
+        JSONArray array=new JSONArray();
+        HashSet<String> seen=new HashSet<>();
+        for(String id:order){
+            if(liked.contains(id)&&seen.add(id))array.put(id);
+        }
+        ArrayList<String> extras=new ArrayList<>();
+        for(String id:liked)if(seen.add(id))extras.add(id);
+        Collections.sort(extras);
+        for(String id:extras)array.put(id);
+        return array;
+    }
+
     JSONObject snapshot(int maxTracks) {
         JSONObject result=new JSONObject();
         JSONArray ids=new JSONArray();
