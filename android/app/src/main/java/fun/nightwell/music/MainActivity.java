@@ -3192,22 +3192,41 @@ public final class MainActivity extends Activity {
     }
 
     void settings(){
+        LinearLayout list=column();list.setPadding(dp(18),dp(12),dp(18),dp(16));
+        TextView introduction=text("Все параметры по отдельным разделам.",13);
+        introduction.setTextColor(0xffb3b6bd);
+        introduction.setPadding(dp(6),0,dp(6),dp(14));list.addView(introduction);
+        final String[] pages={"Кастомизация","Воспроизведение","Оформление","О приложении"};
+        final String[] descriptions={
+            "Обложка, очередь, текст и анимации",
+            "Переключение, загрузка, громкость и буфер",
+            "Темы, ленты и внешний вид",
+            "Версия и сведения о сборке"
+        };
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Настройки")
+            .setView(list).setPositiveButton("Готово",null).create();
+        for(int i=0;i<pages.length;i++){
+            final String selected=pages[i];
+            LinearLayout item=column();item.setPadding(dp(16),dp(12),dp(16),dp(12));
+            TextView title=text(selected+"   ›",16);title.setTypeface(null,android.graphics.Typeface.BOLD);
+            TextView subtitle=text(descriptions[i],12);subtitle.setTextColor(0xffb4b7c0);
+            item.addView(title);item.addView(subtitle);
+            item.setBackground(touchSurface(0x8a2e3138,18));
+            LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,dp(72));
+            params.bottomMargin=dp(10);list.addView(item,params);
+            item.setOnClickListener(v->{dialog.dismiss();settingsPage(selected);});
+        }
+        styleSheet(dialog);dialog.show();
+    }
+
+    void settingsPage(String page){
         LinearLayout panel=column();
         panel.setPadding(dp(20),dp(16),dp(20),dp(16));
-        android.widget.ScrollView scroll=new android.widget.ScrollView(this);
+        ScrollView scroll=new ScrollView(this);
         scroll.setFillViewport(false);
+        scroll.setVerticalScrollBarEnabled(false);
         scroll.addView(panel);
-        TextView subtitle=text("Оформи приложение под себя и настрой поведение плеера.",14);
-        subtitle.setTextColor(0xff9fa6b8);
-        subtitle.setPadding(0,0,0,dp(10));panel.addView(subtitle);
-        if(!user.isEmpty()){
-            panel.addView(sectionLabel("Аккаунт"));
-            panel.addView(sheetAction("Изменить ник",this::editProfileNickname));
-            panel.addView(sheetAction("Изменить аватар",this::selectProfileAvatar));
-        }
-        panel.addView(sectionLabel("Перенос музыки"));
-        panel.addView(sheetAction("Импорт плейлистов",this::nativeTransfer));
-        panel.addView(sectionLabel("Кастомизация"));
+        if("Кастомизация".equals(page)){
         final String currentCoverStyle=getSharedPreferences("appearance",MODE_PRIVATE)
             .getString("nw-cover-style","immersive");
         TextView coverStyleButton=sheetAction(
@@ -3244,10 +3263,33 @@ public final class MainActivity extends Activity {
             getSharedPreferences("appearance",MODE_PRIVATE).edit()
                 .putBoolean("nw-kinetic-lyrics",enabled).apply());
         panel.addView(kineticText);
-        panel.addView(sectionLabel("Оформление"));
-        panel.addView(sheetAction("Темы и ленты · Premium",()->feature("appearance")));
-        panel.addView(sectionLabel("Воспроизведение"));
-
+            android.widget.Switch animatedCover=new android.widget.Switch(this);
+            animatedCover.setText("Анимация полноэкранной обложки");
+            styleSwitch(animatedCover);
+            animatedCover.setChecked(getSharedPreferences("appearance",MODE_PRIVATE)
+                .getBoolean("nw-animated-album-artwork",true));
+            animatedCover.setEnabled(!"classic".equals(getSharedPreferences("appearance",MODE_PRIVATE)
+                .getString("nw-cover-style","immersive")));
+            animatedCover.setOnCheckedChangeListener((button,enabled)->{
+                getSharedPreferences("appearance",MODE_PRIVATE).edit()
+                    .putBoolean("nw-animated-album-artwork",enabled).apply();
+                if(full)openPlayer();
+            });
+            panel.addView(animatedCover);
+        }else if("Воспроизведение".equals(page)){
+            android.widget.Switch keepPlaying=new android.widget.Switch(this);
+            keepPlaying.setText("Играть текущий трек до готовности следующего");
+            styleSwitch(keepPlaying);
+            keepPlaying.setChecked(getSharedPreferences("playback",MODE_PRIVATE)
+                .getBoolean("nw-keep-current-until-ready",true));
+            keepPlaying.setOnCheckedChangeListener((button,enabled)->{
+                getSharedPreferences("playback",MODE_PRIVATE).edit()
+                    .putBoolean("nw-keep-current-until-ready",enabled).apply();
+                if(playback!=null)playback.settingKeepCurrentUntilReady(enabled);
+            });
+            panel.addView(keepPlaying);
+            TextView keepHint=text("Название и обложка следующего трека появляются во время подготовки. Предыдущий продолжает звучать до готовности нового.",12);
+            keepHint.setTextColor(0xffaeb2ba);panel.addView(keepHint);
         android.widget.Switch autoFavorites=new android.widget.Switch(this);
         autoFavorites.setText("Автоматически скачивать избранное · Premium");
         styleSwitch(autoFavorites);
@@ -3319,19 +3361,19 @@ public final class MainActivity extends Activity {
         ambient.setChecked(getSharedPreferences("appearance",MODE_PRIVATE).getBoolean("ambient-lyrics",true));
         ambient.setOnCheckedChangeListener((button,checked)->getSharedPreferences("appearance",MODE_PRIVATE).edit().putBoolean("ambient-lyrics",checked).apply());
         panel.addView(ambient);
+        }else if("Оформление".equals(page)){
+        panel.addView(sheetAction("Темы и ленты · Premium",()->feature("appearance")));
+
+        }else{
         TextView version=text("Nightwell Music "+BuildConfig.VERSION_NAME+" ("+BuildConfig.VERSION_CODE+")",12);
         version.setTextColor(0xff9696a1);version.setPadding(0,dp(12),0,0);panel.addView(version);
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Настройки").setView(scroll).setPositiveButton("Готово",null).create();
-        Runnable diagnosticsTick=new Runnable(){
-            public void run(){
-                if(!dialog.isShowing())return;
-                metrics.setText("Диагностика: "+(playback==null?"Нет данных":playback.playbackDiagnostics()));
-                ui.postDelayed(this,1000);
-            }
-        };
-        dialog.setOnDismissListener(d->ui.removeCallbacks(diagnosticsTick));
-        styleSheet(dialog);dialog.show();ui.post(diagnosticsTick);
+        }
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle(page).setView(scroll)
+            .setPositiveButton("Назад",(d,w)->settings())
+            .setNegativeButton("Закрыть",null).create();
+        styleSheet(dialog);dialog.show();
     }
+
     private JSONObject premiumPrefs=new JSONObject();private String premiumOwner="";private long premiumUntil,premiumChecked;private boolean premiumLoading;
     boolean premiumAllowed(){return !user.isEmpty()&&user.equals(premiumOwner)&&System.currentTimeMillis()<premiumUntil;}
     void applyPremium(){
