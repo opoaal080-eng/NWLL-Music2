@@ -133,10 +133,24 @@ actor LyricsDisk {
         task?.cancel(); value = nil; trackID = track?.id ?? ""
         guard let track else { return }
         task = Task {
-            if let embedded = track._offline_lyrics, embedded.status == "found" || embedded.status == "instrumental" {
-                value = embedded; if cacheEnabled { await LyricsDisk.shared.set(embedded, origin, track.id) }; return
+            // Read saved lyrics before reaching the server. If an offline
+            // download includes a different representation, merge it so
+            // timed rows and normal text are both retained on the device.
+            let cached = cacheEnabled ? await LyricsDisk.shared.get(origin, track.id) : nil
+            guard !Task.isCancelled, trackID == track.id else { return }
+            if let embedded = track._offline_lyrics,
+               embedded.status == "found" || embedded.status == "instrumental" {
+                if cacheEnabled {
+                    await LyricsDisk.shared.set(embedded, origin, track.id)
+                    let combined = await LyricsDisk.shared.get(origin, track.id)
+                    guard !Task.isCancelled, trackID == track.id else { return }
+                    value = combined ?? embedded
+                } else {
+                    value = embedded
+                }
+                return
             }
-            if cacheEnabled, let cached = await LyricsDisk.shared.get(origin, track.id) { if !Task.isCancelled { value = cached }; return }
+            if let cached { value = cached; return }
             guard online, !track.id.hasPrefix("local_") else { value = Lyrics(status: "not_found", message: "Текст не сохранён на устройстве"); return }
             do {
                 for _ in 0..<20 {
