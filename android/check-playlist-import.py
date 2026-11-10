@@ -59,6 +59,13 @@ try:
             for screen in ['profile','settings','settings-playback','player','queue']:
                 launch(screen)
                 capture('android-'+screen+'-'+str(width))
+    # Verify main player and sheets in horizontal orientation as well.
+    adb('shell','wm','size','1280x720')
+    adb('shell','wm','density','320')
+    for screen in ['player','queue','settings','settings-playback']:
+        launch(screen)
+        values=capture('landscape-'+screen+'-1280')
+        assert values, f'{screen} rendered no accessibility nodes in landscape'
     adb('shell','wm','size','reset');adb('shell','wm','density','reset')
     fixture=out/'nightwell-playlist.csv';fixture.write_text('artist,title\nNightwell,Import Test',encoding='utf-8')
     adb('push',str(fixture),'/sdcard/Download/nightwell-playlist.csv')

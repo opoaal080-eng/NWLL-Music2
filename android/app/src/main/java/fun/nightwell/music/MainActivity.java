@@ -461,15 +461,46 @@ public final class MainActivity extends Activity {
         fill.setCornerRadius(dp(corners));fill.setStroke(dp(1),0x24ffffff);return fill;
     }
     android.graphics.drawable.Drawable touchSurface(int color,int corners){GradientDrawable fill=fieldSurface(color,corners);GradientDrawable mask=new GradientDrawable();mask.setColor(Color.WHITE);mask.setCornerRadius(dp(corners));return new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x30ffffff),fill,mask);}
-    TextView sectionLabel(String label){TextView v=text(label.toUpperCase(java.util.Locale.ROOT),11);v.setLetterSpacing(0.08f);v.setTextColor(0xffadb0b8);v.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);v.setPadding(dp(6),dp(8),dp(6),dp(6));return v;}
-    void styleField(EditText view){view.setTextColor(0xfff4f4f7);view.setHintTextColor(0xff8f95a5);view.setTextSize(15);view.setBackground(fieldSurface(0x88262a33,18));view.setPadding(dp(16),dp(14),dp(16),dp(14));}
+    TextView sectionLabel(String label){TextView v=text(label.toUpperCase(java.util.Locale.ROOT),11);v.setLetterSpacing(.095f);v.setTextColor(0xffadb0b8);v.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));v.setPadding(dp(5),dp(12),dp(5),dp(7));return v;}
+    void styleField(EditText view){view.setTextColor(0xfff4f4f7);view.setHintTextColor(0xff8f95a5);view.setTextSize(15);view.setMinHeight(dp(50));view.setBackground(fieldSurface(0x88262a33,16));view.setPadding(dp(14),dp(10),dp(14),dp(10));}
     void styleSwitch(android.widget.Switch view){view.setTextColor(0xfff0f1f6);view.setTextSize(15);view.setPadding(dp(2),dp(10),dp(2),dp(10));}
-    void styleSheet(AlertDialog dialog){dialog.setOnShowListener(ignored->{android.view.Window window=dialog.getWindow();if(window!=null){window.setBackgroundDrawable(surface());window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);WindowManager.LayoutParams params=window.getAttributes();params.dimAmount=.72f;window.setAttributes(params);int width=Math.min(dp(isLandscapeLayout()?740:540),
-                getResources().getDisplayMetrics().widthPixels-dp(isLandscapeLayout()?20:28));
-            window.setLayout(width,WindowManager.LayoutParams.WRAP_CONTENT);window.getDecorView().setPadding(dp(6),dp(6),dp(6),dp(8));window.getDecorView().post(()->{int limit=getResources().getDisplayMetrics().heightPixels-dp(isLandscapeLayout()?26:64);
-                if(window.getDecorView().getHeight()>limit)window.setLayout(width,limit);});}
-        for(int which:new int[]{AlertDialog.BUTTON_POSITIVE,AlertDialog.BUTTON_NEGATIVE,AlertDialog.BUTTON_NEUTRAL}){Button b=dialog.getButton(which);if(b==null)continue;b.setAllCaps(false);b.setTextColor(which==AlertDialog.BUTTON_NEGATIVE?0xffb6bac7:0xffeeeeee);b.setTextSize(15);}
-    });}
+    void styleSheet(AlertDialog dialog){
+        dialog.setOnShowListener(ignored->{
+            Window window=dialog.getWindow();
+            if(window==null)return;
+            window.setBackgroundDrawable(surface());
+            window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            WindowManager.LayoutParams params=window.getAttributes();
+            params.dimAmount=.76f;
+            window.setAttributes(params);
+            int width=Math.min(dp(isLandscapeLayout()?650:480),
+                getResources().getDisplayMetrics().widthPixels-dp(isLandscapeLayout()?22:28));
+            window.setLayout(width,WindowManager.LayoutParams.WRAP_CONTENT);
+            View decor=window.getDecorView();
+            decor.setPadding(dp(7),dp(7),dp(7),dp(10));
+            decor.post(()->{
+                int limit=getResources().getDisplayMetrics().heightPixels-
+                    dp(isLandscapeLayout()?24:54);
+                if(decor.getHeight()>limit)window.setLayout(width,limit);
+            });
+            for(int which:new int[]{AlertDialog.BUTTON_POSITIVE,
+                    AlertDialog.BUTTON_NEGATIVE,AlertDialog.BUTTON_NEUTRAL}){
+                Button button=dialog.getButton(which);
+                if(button==null)continue;
+                button.setAllCaps(false);
+                button.setTextSize(14);
+                button.setTextColor(which==AlertDialog.BUTTON_NEGATIVE?
+                    0xffb6bac7:0xffeeeeee);
+                button.setMinHeight(dp(44));
+            }
+            if(android.animation.ValueAnimator.areAnimatorsEnabled()){
+                decor.setAlpha(0f);
+                decor.setScaleX(.97f);decor.setScaleY(.97f);
+                decor.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(200)
+                    .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
+            }
+        });
+    }
     // Use a wide bottom sheet for the major navigation screens; keep generic
     // one-off confirmation dialogs as small floating windows.
     void styleNavigationSheet(AlertDialog dialog){
@@ -480,25 +511,32 @@ public final class MainActivity extends Activity {
             window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
             WindowManager.LayoutParams attrs=window.getAttributes();
             attrs.gravity=Gravity.BOTTOM;
-            attrs.dimAmount=.84f;
+            attrs.dimAmount=.80f;
             window.setAttributes(attrs);
-            int width=getResources().getDisplayMetrics().widthPixels-dp(isLandscapeLayout()?32:12);
-            int maxHeight=(int)(getResources().getDisplayMetrics().heightPixels*(isLandscapeLayout()?.90f:.83f));
+            int width=getResources().getDisplayMetrics().widthPixels-
+                dp(isLandscapeLayout()?30:16);
+            int maxHeight=(int)(getResources().getDisplayMetrics().heightPixels*
+                (isLandscapeLayout()?.91f:.83f));
             window.setLayout(width,WindowManager.LayoutParams.WRAP_CONTENT);
-            window.getDecorView().setPadding(dp(3),dp(5),dp(3),dp(8));
-            window.getDecorView().post(()->{
-                if(window.getDecorView().getHeight()>maxHeight)window.setLayout(width,maxHeight);
+            View decor=window.getDecorView();
+            decor.setPadding(dp(6),dp(5),dp(6),dp(9));
+            decor.post(()->{
+                if(decor.getHeight()>maxHeight)window.setLayout(width,maxHeight);
             });
             window.setNavigationBarColor(0xff0d0e11);
             for(int which:new int[]{AlertDialog.BUTTON_POSITIVE,AlertDialog.BUTTON_NEGATIVE}){
                 Button button=dialog.getButton(which);
-                if(button!=null){
-                    button.setAllCaps(false);
-                    button.setTextSize(14);
-                    button.setTextColor(0xfff1f2f5);
-                    button.setBackground(touchSurface(0xff33353b,17));
-                    button.setPadding(dp(16),dp(9),dp(16),dp(9));
-                }
+                if(button==null)continue;
+                button.setAllCaps(false);
+                button.setTextSize(14);
+                button.setTextColor(0xfff1f2f5);
+                button.setBackground(touchSurface(0xff33353b,14));
+                button.setPadding(dp(14),dp(9),dp(14),dp(9));
+            }
+            if(android.animation.ValueAnimator.areAnimatorsEnabled()){
+                decor.setAlpha(0f);decor.setTranslationY(dp(15));
+                decor.animate().alpha(1f).translationY(0f).setDuration(240)
+                    .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
             }
         });
     }
@@ -512,8 +550,7 @@ public final class MainActivity extends Activity {
         for(int i=0;i<old.size();i++){
             View v=old.get(i);
             LinearLayout card=column();
-            card.setPadding(dp(14),dp(10),dp(14),dp(10));
-            card.setBackground(fieldSurface(0xff26282d,19));
+            card.setPadding(dp(12),dp(9),dp(12),dp(9));card.setBackground(fieldSurface(0xff26282d,16));
             card.addView(v,new LinearLayout.LayoutParams(-1,-2));
             if(i+1<old.size()){
                 View next=old.get(i+1);
@@ -529,14 +566,13 @@ public final class MainActivity extends Activity {
                 }
             }
             LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);
-            lp.bottomMargin=dp(10);
-            panel.addView(card,lp);
+            lp.bottomMargin=dp(8);panel.addView(card,lp);
         }
     }
 
-    TextView sheetAction(String label,Runnable run){TextView v=action(label,run);v.setTextSize(15);v.setMaxLines(2);v.setEllipsize(android.text.TextUtils.TruncateAt.END);v.setGravity(Gravity.CENTER_VERTICAL);v.setTextColor(0xfff4f4f6);v.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));v.setPadding(dp(17),dp(13),dp(17),dp(13));v.setBackground(touchSurface(0xff292b30,18));return v;}
-    TextView action(String label,Runnable run){TextView v=NativeIconButton.isIcon(label)?new NativeIconButton(this):text(label,16);v.setText(label);v.setTextColor(0xfff3f3f5);v.setTextSize(NativeIconButton.isIcon(label)?20:16);if(NativeIconButton.isIcon(label))v.setContentDescription(iconLabel(label));v.setGravity(Gravity.CENTER);v.setPadding(dp(14),dp(12),dp(14),dp(12));v.setMinHeight(dp(50));v.setOnClickListener(x->run.run());return v;}
-    TextView iconButton(String label,Runnable run){TextView v=action(label,run);v.setPadding(0,0,0,0);v.setTextSize(20);v.setTextColor(0xfff1f1f6);v.setBackground(touchSurface(0xa52b2e34,23));return v;}
+    TextView sheetAction(String label,Runnable run){TextView v=action(label,run);v.setTextSize(14);v.setMaxLines(2);v.setEllipsize(android.text.TextUtils.TruncateAt.END);v.setGravity(Gravity.CENTER_VERTICAL);v.setTextColor(0xfff4f4f6);v.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));v.setPadding(dp(14),dp(10),dp(14),dp(10));v.setMinHeight(dp(46));v.setBackground(touchSurface(0xff292b30,15));return v;}
+    TextView action(String label,Runnable run){TextView v=NativeIconButton.isIcon(label)?new NativeIconButton(this):text(label,16);v.setText(label);v.setTextColor(0xfff3f3f5);v.setTextSize(NativeIconButton.isIcon(label)?20:16);if(NativeIconButton.isIcon(label))v.setContentDescription(iconLabel(label));v.setGravity(Gravity.CENTER);v.setPadding(dp(12),dp(9),dp(12),dp(9));v.setMinHeight(dp(48));v.setOnClickListener(x->run.run());return v;}
+    TextView iconButton(String label,Runnable run){TextView v=action(label,run);v.setPadding(0,0,0,0);v.setTextSize(19);v.setTextColor(0xfff1f1f6);v.setBackground(touchSurface(0xa52b2e34,16));return v;}
     void toggleBackgroundOnly(){backgroundOnly=!backgroundOnly;build();}
     private int depthQueuePage = 0;
 
@@ -544,7 +580,7 @@ public final class MainActivity extends Activity {
         int current=playback==null?-1:playback.player.getCurrentMediaItemIndex();
         depthQueuePage=queue.length()==0?0:Math.min(queue.length()-1,Math.max(0,current+1));
         boolean depth=getSharedPreferences("appearance",MODE_PRIVATE)
-            .getBoolean("nw-depth-queue",false);
+            .getBoolean("nw-depth-queue",true);
         if(depth){showDepthQueue();return;}
         ScrollView scroll=new ScrollView(this);
         scroll.setFillViewport(false);
@@ -646,214 +682,252 @@ public final class MainActivity extends Activity {
             .withEndAction(()->card.animate().scaleX(sx).scaleY(sy).setDuration(160).start()).start();
     }
 
+    // A single in-place carousel. Page changes never recreate the dialog.
+    // Previously switching between cards closed and reopened AlertDialog, which
+    // looked like flickering and lost swipe/long-press gesture continuity.
     void showDepthQueue(){
-        int playing=playback==null?-1:playback.player.getCurrentMediaItemIndex();
-        android.widget.ScrollView scroll=new android.widget.ScrollView(this);
-        LinearLayout outer=column();
-        outer.setPadding(dp(14),dp(18),dp(14),dp(14));
-        scroll.addView(outer);
-
-        TextView eyebrow=text("Т В О Я   М У З Ы К А",10);
-        eyebrow.setTextColor(0xffbfc0c8);
-        eyebrow.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
-        outer.addView(eyebrow);
-        final AlertDialog[] holder={null};
-        LinearLayout heading=row();heading.setGravity(Gravity.CENTER_VERTICAL);
-        TextView headingTitle=text("Очередь",28);
-        headingTitle.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
-        heading.addView(headingTitle,new LinearLayout.LayoutParams(0,dp(56),1));
-        TextView count=text(String.valueOf(queue.length()),16);
-        count.setGravity(Gravity.CENTER);
-        count.setBackground(touchSurface(0x993a3a3f,32));
-        heading.addView(count,new LinearLayout.LayoutParams(dp(52),dp(52)));
-        TextView closeQueue=text("×",28);
-        closeQueue.setGravity(Gravity.CENTER);
-        closeQueue.setContentDescription("Закрыть очередь");
-        closeQueue.setBackground(touchSurface(0x993a3a3f,32));
-        closeQueue.setOnClickListener(v->{if(holder[0]!=null)holder[0].dismiss();});
-        LinearLayout.LayoutParams closeParams=new LinearLayout.LayoutParams(dp(52),dp(52));
-        closeParams.leftMargin=dp(8);
-        heading.addView(closeQueue,closeParams);
-        LinearLayout.LayoutParams headingParams=new LinearLayout.LayoutParams(-1,-2);
-        headingParams.bottomMargin=dp(12);
-        outer.addView(heading,headingParams);
+        final int playing=playback==null?-1:playback.player.getCurrentMediaItemIndex();
+        final int total=queue==null?0:queue.length();
+        depthQueuePage=total==0?0:Math.min(total-1,Math.max(0,depthQueuePage));
+        final boolean motion=android.animation.ValueAnimator.areAnimatorsEnabled();
+        final android.content.res.Configuration configuration=getResources().getConfiguration();
+        final boolean landscape=isLandscapeLayout();
 
         LinearLayout panel=column();
-        panel.setGravity(Gravity.CENTER_HORIZONTAL);
-        panel.setPadding(dp(14),dp(24),dp(14),dp(24));
-        GradientDrawable panelSurface=new GradientDrawable(
-            GradientDrawable.Orientation.TL_BR,new int[]{0xff303034,0xff1d1d21});
-        panelSurface.setCornerRadius(dp(30));
-        panelSurface.setStroke(dp(1),0x38ffffff);
-        panel.setBackground(panelSurface);
-        outer.addView(panel,new LinearLayout.LayoutParams(-1,-2));
-        final int totalTracks=queue.length();
-        // Absolute queue cursor: swipe backwards through "Ранее" and the
-        // current track, forward through every upcoming track.
-        final int lastPosition=Math.max(0,totalTracks-1);
-        depthQueuePage=Math.min(Math.max(0,depthQueuePage),lastPosition);
-        final int pageStart=depthQueuePage;
-        if(totalTracks>0){
-            // Scale the artwork to the available width, while keeping the
-            // deck usable on narrow phones and in landscape.
-            int cardWidthDp=Math.min(312,Math.max(210,
-                getResources().getConfiguration().screenWidthDp-112));
-            int cardHeightDp=Math.round(cardWidthDp*1.20f);
-            android.widget.FrameLayout deck=new android.widget.FrameLayout(this);
-            panel.addView(deck,new LinearLayout.LayoutParams(-1,dp(cardHeightDp+34)));
-            int available=Math.min(3,Math.max(0,queue.length()-pageStart));
-            for(int rank=available-1;rank>=0;rank--){
-                final int from=pageStart+rank;
-                JSONObject track=queue.optJSONObject(from);
-                if(track==null)continue;
-                android.widget.FrameLayout card=new android.widget.FrameLayout(this);
-                GradientDrawable plate=new GradientDrawable();
-                plate.setColor(0xff131317);plate.setCornerRadius(dp(21));
-                plate.setStroke(dp(1),0x4effffff);
-                card.setBackground(plate);card.setClipToOutline(true);
-                card.setElevation(dp(7+available-rank));
-                android.widget.ImageView cover=new android.widget.ImageView(this);
-                cover.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
-                android.widget.FrameLayout.LayoutParams artworkParams=
-                    new android.widget.FrameLayout.LayoutParams(-1,dp(cardHeightDp-78),Gravity.TOP);
-                card.addView(cover,artworkParams);
-                String coverPath=track.optString("cover_url");
-                if(coverPath.isEmpty())coverPath="api/covers/"+track.optString("id");
-                if(artworkCache!=null)artworkCache.load(cover,origin,coverPath);
-                TextView sectionBadge=text(from<playing?"РАНЕЕ":
-                    from==playing?"СЕЙЧАС ИГРАЕТ":"ДАЛЕЕ",10);
-                sectionBadge.setTypeface(android.graphics.Typeface.DEFAULT,
-                    android.graphics.Typeface.BOLD);
-                sectionBadge.setTextColor(0xfffafafa);
-                sectionBadge.setPadding(dp(12),dp(6),dp(12),dp(6));
-                sectionBadge.setBackground(touchSurface(0xdf29292e,16));
-                android.widget.FrameLayout.LayoutParams badgeLayout=
-                    new android.widget.FrameLayout.LayoutParams(-2,-2,Gravity.TOP|Gravity.START);
-                badgeLayout.setMargins(dp(12),dp(12),0,0);
-                card.addView(sectionBadge,badgeLayout);
+        panel.setPadding(dp(14),dp(14),dp(14),dp(12));
+        ScrollView scroll=new ScrollView(this);
+        scroll.setFillViewport(false);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.addView(panel);
+        TextView eyebrow=text("Т В О Я   М У З Ы К А",10);
+        eyebrow.setLetterSpacing(.1f);
+        eyebrow.setTextColor(0xffaeb1bb);
+        panel.addView(eyebrow);
 
-                LinearLayout infoPanel=column();
-                infoPanel.setGravity(Gravity.CENTER_VERTICAL);
-                infoPanel.setPadding(dp(14),dp(5),dp(14),dp(5));
-                GradientDrawable textSurface=new GradientDrawable(
-                    GradientDrawable.Orientation.TOP_BOTTOM,
-                    new int[]{0xff1b1a1f,0xff0b0b0f});
-                infoPanel.setBackground(textSurface);
-                TextView title=text(track.optString("title"),16);
-                title.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
+        LinearLayout heading=row();
+        heading.setPadding(0,dp(4),0,dp(10));
+        TextView headingTitle=text("Объёмная очередь",22);
+        headingTitle.setTypeface(android.graphics.Typeface.create("sans-serif",android.graphics.Typeface.BOLD));
+        headingTitle.setSingleLine(true);
+        headingTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        heading.addView(headingTitle,new LinearLayout.LayoutParams(0,dp(42),1));
+        TextView close=iconButton("×",()->{});
+        close.setContentDescription("Закрыть очередь");
+        close.setBackground(touchSurface(0xff303238,15));
+        heading.addView(close,new LinearLayout.LayoutParams(dp(43),dp(43)));
+        panel.addView(heading);
+
+        int maxWidth=Math.max(190,configuration.screenWidthDp-(landscape?140:80));
+        final int cardWidthDp=Math.min(280,maxWidth);
+        final int cardHeightDp=Math.min(Math.round(cardWidthDp*1.08f),
+            Math.max(180,Math.round(configuration.screenHeightDp*(landscape?.56f:.50f))));
+        final FrameLayout deck=new FrameLayout(this);
+        deck.setClipChildren(false);
+        deck.setClipToPadding(false);
+        panel.addView(deck,new LinearLayout.LayoutParams(-1,dp(cardHeightDp+33)));
+
+        final LinearLayout pager=row();
+        pager.setGravity(Gravity.CENTER_VERTICAL);
+        pager.setPadding(dp(4),dp(4),dp(4),dp(3));
+        TextView previous=iconButton("‹",()->{});
+        previous.setContentDescription("Предыдущая карточка в очереди");
+        TextView counter=text("",13);
+        counter.setGravity(Gravity.CENTER);
+        counter.setTextColor(0xffc8cbd2);
+        TextView next=iconButton("›",()->{});
+        next.setContentDescription("Следующая карточка в очереди");
+        pager.addView(previous,new LinearLayout.LayoutParams(dp(46),dp(44)));
+        pager.addView(counter,new LinearLayout.LayoutParams(0,dp(44),1));
+        pager.addView(next,new LinearLayout.LayoutParams(dp(46),dp(44)));
+        panel.addView(pager);
+
+        TextView help=text("Нажатие: воспроизвести   ·   Удержание: следующим\nЛистай влево и вправо, чтобы увидеть всю очередь",11);
+        help.setGravity(Gravity.CENTER);
+        help.setMaxLines(3);
+        help.setLineSpacing(dp(2),1f);
+        help.setTextColor(0xffadb1bb);
+        help.setPadding(dp(3),dp(10),dp(3),dp(3));
+        panel.addView(help);
+
+        AlertDialog dialog=new AlertDialog.Builder(this).setView(scroll).create();
+        close.setOnClickListener(v->dialog.dismiss());
+
+        final Runnable[] render=new Runnable[1];
+        final boolean[] transitioning={false};
+        final java.util.function.IntConsumer changePage=direction->{
+            int nextPosition=Math.max(0,Math.min(total-1,depthQueuePage+direction));
+            if(total==0||nextPosition==depthQueuePage||transitioning[0])return;
+            transitioning[0]=true;
+            depthQueuePage=nextPosition;
+            if(!motion){
+                render[0].run();
+                transitioning[0]=false;
+                return;
+            }
+            deck.animate().cancel();
+            deck.animate().alpha(.25f).translationX(dp(-direction*24))
+                .setDuration(125).withEndAction(()->{
+                    if(!dialog.isShowing()){transitioning[0]=false;return;}
+                    deck.setTranslationX(dp(direction*26));
+                    render[0].run();
+                    deck.animate().alpha(1f).translationX(0f)
+                        .setDuration(225)
+                        .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                        .withEndAction(()->transitioning[0]=false).start();
+                }).start();
+        };
+        previous.setOnClickListener(v->changePage.accept(-1));
+        next.setOnClickListener(v->changePage.accept(1));
+        render[0]=()->{
+            deck.removeAllViews();
+            deck.setClipChildren(false);
+            counter.setText(total==0?"Очередь пуста":(depthQueuePage+1)+" / "+total);
+            previous.setEnabled(total>0&&depthQueuePage>0);
+            next.setEnabled(total>0&&depthQueuePage<total-1);
+            previous.setAlpha(previous.isEnabled()?1f:.28f);
+            next.setAlpha(next.isEnabled()?1f:.28f);
+            if(total==0){
+                TextView empty=text("Добавь музыку, чтобы появилась очередь",14);
+                empty.setTextColor(0xffc5c7d0);
+                empty.setGravity(Gravity.CENTER);
+                deck.addView(empty,new FrameLayout.LayoutParams(-1,-1));
+                return;
+            }
+            int available=Math.min(3,total-depthQueuePage);
+            for(int rank=available-1;rank>=0;rank--){
+                final int position=depthQueuePage+rank;
+                final JSONObject track=queue.optJSONObject(position);
+                if(track==null)continue;
+                final FrameLayout card=new FrameLayout(this);
+                card.setClickable(rank==0);
+                card.setFocusable(rank==0);
+                card.setContentDescription(
+                    (position<playing?"Ранее. ":position==playing?"Сейчас играет. ":"Далее. ")+
+                    track.optString("title")+", "+track.optString("artist")+
+                    ". Нажми для воспроизведения, удерживай чтобы поставить следующим");
+                GradientDrawable plate=new GradientDrawable();
+                plate.setColor(rank==0?0xff17181d:rank==1?0xff2a2b30:0xff34353b);
+                plate.setCornerRadius(dp(18));
+                plate.setStroke(dp(1),rank==0?0x77ffffff:0x2cffffff);
+                card.setBackground(plate);
+                card.setClipToOutline(true);
+                card.setElevation(dp(8+available-rank*2));
+
+                ImageView artwork=new ImageView(this);
+                artwork.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                FrameLayout.LayoutParams coverLayout=new FrameLayout.LayoutParams(
+                    -1,dp(cardHeightDp-72),Gravity.TOP);
+                card.addView(artwork,coverLayout);
+                String coverPath=track.optString("cover_url");
+                if(coverPath.isEmpty())coverPath="/api/covers/"+track.optString("id");
+                if(artworkCache!=null)artworkCache.load(artwork,origin,coverPath);
+
+                TextView section=text(position<playing?"РАНЕЕ":
+                    position==playing?"СЕЙЧАС ИГРАЕТ":"ДАЛЕЕ",10);
+                section.setTextColor(0xfff4f5f7);
+                section.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));
+                section.setPadding(dp(10),dp(6),dp(10),dp(6));
+                section.setBackground(touchSurface(0xff282a2f,13));
+                FrameLayout.LayoutParams labelParams=new FrameLayout.LayoutParams(
+                    -2,-2,Gravity.TOP|Gravity.START);
+                labelParams.leftMargin=dp(11);labelParams.topMargin=dp(11);
+                card.addView(section,labelParams);
+
+                LinearLayout description=column();
+                description.setGravity(Gravity.CENTER_VERTICAL);
+                description.setPadding(dp(13),dp(9),dp(13),dp(9));
+                description.setBackgroundColor(0xff191a1e);
+                TextView title=text(track.optString("title","Без названия"),15);
+                title.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));
                 title.setMaxLines(1);
                 title.setEllipsize(android.text.TextUtils.TruncateAt.END);
-                TextView artist=text(track.optString("artist"),12);
-                artist.setTextColor(0xffa8a8b1);
+                description.addView(title);
+                TextView artist=text(track.optString("artist","Nightwell Music"),12);
+                artist.setTextColor(0xffaaadb7);
                 artist.setMaxLines(1);
                 artist.setEllipsize(android.text.TextUtils.TruncateAt.END);
-                infoPanel.addView(title);
-                infoPanel.addView(artist);
-                card.addView(infoPanel,new android.widget.FrameLayout.LayoutParams(-1,dp(78),Gravity.BOTTOM));
+                artist.setPadding(0,dp(4),0,0);
+                description.addView(artist);
+                card.addView(description,new FrameLayout.LayoutParams(
+                    -1,dp(72),Gravity.BOTTOM));
 
-                android.widget.FrameLayout.LayoutParams layout=
-                    new android.widget.FrameLayout.LayoutParams(dp(cardWidthDp),dp(cardHeightDp),Gravity.CENTER);
+                FrameLayout.LayoutParams layout=new FrameLayout.LayoutParams(
+                    dp(cardWidthDp),dp(cardHeightDp),Gravity.CENTER_HORIZONTAL|Gravity.TOP);
+                layout.topMargin=dp(6);
                 deck.addView(card,layout);
-                card.setTranslationX(dp(rank*14));
-                card.setTranslationY(dp(rank*12));
-                card.setScaleX(1-rank*.048f);card.setScaleY(1-rank*.048f);
-                card.setRotation(rank*1.3f);
-                card.setOnClickListener(v->{
-                    if(from==playing){
-                        depthQueueFeedback(v,"Сейчас играет");
+                float targetScale=1f-rank*.062f;
+                float targetY=dp(rank*18);
+                float targetX=dp(rank*20);
+                float yaw=rank*8.0f;
+                card.setCameraDistance(dp(3500));
+                card.setPivotX(dp(cardWidthDp)/2f);
+                card.setPivotY(dp(cardHeightDp)/2f);
+                card.setTranslationX(targetX);
+                card.setRotationX(rank*1.9f);
+                card.setRotationY(yaw);
+                if(motion){
+                    card.setAlpha(0f);
+                    card.setScaleX(targetScale*.94f);
+                    card.setScaleY(targetScale*.94f);
+                    card.setTranslationY(targetY+dp(15));
+                    card.animate().alpha(1f).scaleX(targetScale).scaleY(targetScale)
+                        .translationY(targetY).setStartDelay((available-1-rank)*38L)
+                        .setDuration(265)
+                        .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                        .start();
+                }else{
+                    card.setAlpha(1f);card.setScaleX(targetScale);
+                    card.setScaleY(targetScale);card.setTranslationY(targetY);
+                }
+
+                if(rank!=0)continue;
+                Runnable playCard=()->{
+                    if(position==playing){depthQueueFeedback(card,"Уже играет");return;}
+                    if(dialog.isShowing())dialog.dismiss();
+                    play(track,queue,false);
+                };
+                Runnable playNext=()->{
+                    if(position<=playing+1){
+                        depthQueueFeedback(card,position<playing?
+                            "Этот трек уже звучал":position==playing?
+                            "Сейчас играет":"Уже следующий в очереди");
                         return;
                     }
-                    if(holder[0]!=null)holder[0].dismiss();
-                    play(track,queue,false);
-                });
-                card.setOnLongClickListener(v->{
-                    if(from<=playing+1){
-                        depthQueueFeedback(v,from<playing
-                            ?"Этот трек уже был в очереди"
-                            :from==playing?"Сейчас играет":"Уже следующий в очереди");
-                        return true;
-                    }
-                    reorderUpcoming(from,playing+1);
-                    depthQueueFeedback(v,"Следующий в очереди ✓");
-                    depthQueuePage=queue.length()==0?0:
-                        Math.min(queue.length()-1,Math.max(0,playing+1));
-                    ui.postDelayed(()->{
-                        if(holder[0]!=null)holder[0].dismiss();
-                        showQueue();
-                    },370);
-                    return true;
-                });
-                if(rank==0){
-                    final float[] start={0f};
-                    card.setOnTouchListener((v,event)->{
-                        if(event.getActionMasked()==android.view.MotionEvent.ACTION_DOWN){
-                            start[0]=event.getX();
-                            // Let Android schedule the normal long-press callback.
-                            return false;
+                    reorderUpcoming(position,playing+1);
+                    depthQueueFeedback(card,"Добавлено следующим");
+                    depthQueuePage=Math.min(queue.length()-1,Math.max(0,playing+1));
+                    render[0].run();
+                };
+                card.setOnClickListener(v->playCard.run());
+                card.setOnLongClickListener(v->{playNext.run();return true;});
+                android.view.GestureDetector gestures=new android.view.GestureDetector(
+                    this,new android.view.GestureDetector.SimpleOnGestureListener(){
+                        @Override public boolean onDown(MotionEvent event){return true;}
+                        @Override public boolean onSingleTapUp(MotionEvent event){
+                            card.performClick();return true;
                         }
-                        if(event.getActionMasked()==android.view.MotionEvent.ACTION_UP){
-                            float delta=event.getX()-start[0];
-                            if(Math.abs(delta)>dp(48)){
-                                v.cancelLongPress();
-                                int direction=delta<0?1:-1;
-                                int newPosition=Math.max(0,Math.min(lastPosition,
-                                    depthQueuePage+direction));
-                                if(newPosition!=depthQueuePage){
-                                    depthQueuePage=newPosition;
-                                    v.animate().translationXBy(delta<0?-dp(34):dp(34))
-                                        .alpha(0.78f).setDuration(105).withEndAction(()->{
-                                            if(holder[0]!=null)holder[0].dismiss();
-                                            showDepthQueue();
-                                        }).start();
-                                }
-                                // A swipe must never also trigger click-to-play.
-                                return true;
-                            }
+                        @Override public void onLongPress(MotionEvent event){
+                            card.performLongClick();
                         }
-                        // Preserve the default click and long-press gestures.
-                        return false;
+                        @Override public boolean onFling(MotionEvent first,MotionEvent last,
+                            float velocityX,float velocityY){
+                            if(first==null||last==null)return false;
+                            float dx=last.getX()-first.getX();
+                            if(Math.abs(dx)<dp(48)||
+                                Math.abs(dx)<Math.abs(last.getY()-first.getY())*1.2f||
+                                Math.abs(velocityX)<dp(140))return false;
+                            changePage.accept(dx<0?1:-1);
+                            return true;
+                        }
                     });
-                }
+                card.setOnTouchListener((v,event)->gestures.onTouchEvent(event));
             }
-        }
-        // One-card steps make the entire queue reachable without changing playback order.
-        if(totalTracks>1){
-            LinearLayout pager=row();pager.setGravity(Gravity.CENTER);
-            TextView previous=action("‹",()->{
-                if(depthQueuePage==0)return;
-                depthQueuePage--;
-                if(holder[0]!=null)holder[0].dismiss();
-                ui.post(this::showDepthQueue);
-            });
-            previous.setEnabled(depthQueuePage>0);
-            pager.addView(previous,new LinearLayout.LayoutParams(dp(52),dp(48)));
-            TextView counter=text((depthQueuePage+1)+" из "+totalTracks,14);
-            counter.setGravity(Gravity.CENTER);counter.setTextColor(0xffbfc1ca);
-            pager.addView(counter,new LinearLayout.LayoutParams(0,dp(48),1));
-            TextView nextPage=action("›",()->{
-                if(depthQueuePage>=lastPosition)return;
-                depthQueuePage++;
-                if(holder[0]!=null)holder[0].dismiss();
-                ui.post(this::showDepthQueue);
-            });
-            nextPage.setEnabled(depthQueuePage<lastPosition);
-            pager.addView(nextPage,new LinearLayout.LayoutParams(dp(52),dp(48)));
-            panel.addView(pager);
-        }else if(totalTracks==0){
-            TextView empty=text("Очередь пока пуста",14);
-            empty.setGravity(Gravity.CENTER);empty.setPadding(0,dp(18),0,dp(18));
-            panel.addView(empty);
-        }
-        TextView guide=text("Тап: играть сейчас · удержание: следующая\nСвайп: листать всю очередь",11);
-        guide.setTextColor(0xffaeb2c1);
-        guide.setGravity(Gravity.CENTER);
-        guide.setMaxLines(3);
-        guide.setPadding(dp(4),dp(14),dp(4),dp(4));
-        panel.addView(guide,new LinearLayout.LayoutParams(-1,-2));
-        AlertDialog dialog=new AlertDialog.Builder(this)
-            .setView(scroll).create();
-        holder[0]=dialog;styleSheet(dialog);dialog.show();
+        };
+        styleSheet(dialog);
+        dialog.show();
+        render[0].run();
     }
+
     void build(){
         if(ribbon!=null)ribbon.running(false);full=false;lyricsOpen=false;seek=null;fullTime=null;fullPlay=null;fullLike=null;fullDislike=null;fullAudioOutput=null;
         // Render scenery and aura across the window, outside the padded controls.
@@ -864,11 +938,9 @@ public final class MainActivity extends Activity {
         ribbon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         scene.addView(ribbon,new android.widget.FrameLayout.LayoutParams(-1,-1));
         boolean landscape=isLandscapeLayout();
-        root=column();root.setPadding(dp(landscape?9:18),dp(landscape?4:10),
-                                     dp(landscape?9:18),0);
+        root=column();root.setPadding(dp(landscape?10:16),dp(landscape?5:9),dp(landscape?10:16),0);
         scene.addView(root,new android.widget.FrameLayout.LayoutParams(-1,-1));setContentView(scene);
-        root.setOnApplyWindowInsetsListener((v,insets)->{int top,bottom;if(Build.VERSION.SDK_INT>=30){android.graphics.Insets bars=insets.getInsets(WindowInsets.Type.systemBars());top=bars.top;bottom=Math.max(bars.bottom,insets.getInsets(WindowInsets.Type.ime()).bottom);}else{top=insets.getSystemWindowInsetTop();bottom=insets.getSystemWindowInsetBottom();}v.setPadding(dp(isLandscapeLayout()?9:18),dp(isLandscapeLayout()?4:10)+top,
-                             dp(isLandscapeLayout()?9:18),bottom);return insets;});root.requestApplyInsets();
+        root.setOnApplyWindowInsetsListener((v,insets)->{int top,bottom;if(Build.VERSION.SDK_INT>=30){android.graphics.Insets bars=insets.getInsets(WindowInsets.Type.systemBars());top=bars.top;bottom=Math.max(bars.bottom,insets.getInsets(WindowInsets.Type.ime()).bottom);}else{top=insets.getSystemWindowInsetTop();bottom=insets.getSystemWindowInsetBottom();}v.setPadding(dp(isLandscapeLayout()?10:16),dp(isLandscapeLayout()?5:9)+top,dp(isLandscapeLayout()?10:16),bottom);return insets;});root.requestApplyInsets();
         head=row();android.widget.ImageView brand=new android.widget.ImageView(this);brand.setImageResource(R.drawable.nightwell_mark);brand.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);brand.setOnClickListener(v->navigate("Главная"));head.addView(brand,new LinearLayout.LayoutParams(dp(42),dp(42)));LinearLayout wordmark=column();wordmark.setGravity(Gravity.CENTER_VERTICAL);wordmark.setPadding(dp(9),0,0,0);
         TextView brandName=text("Nightwell",27);brandName.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);brandName.setTextColor(0xfff3f3f5);brandName.setIncludeFontPadding(false);brandName.setSingleLine(true);brandName.setAutoSizeTextTypeUniformWithConfiguration(20,27,1,android.util.TypedValue.COMPLEX_UNIT_SP);
         wordmark.addView(brandName,new LinearLayout.LayoutParams(-1,dp(landscape?27:33)));
@@ -880,7 +952,7 @@ public final class MainActivity extends Activity {
         head.addView(compactHandoff,new LinearLayout.LayoutParams(dp(44),dp(48)));
         android.widget.ImageView menuButton=new android.widget.ImageView(this);menuButton.setImageResource(android.R.drawable.ic_menu_myplaces);menuButton.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);menuButton.setPadding(dp(8),dp(8),dp(8),dp(8));menuButton.setBackground(touchSurface(0x40202228,24));menuButton.setOnClickListener(v->menu());menuButton.setContentDescription("Меню профиля");profileAvatarButton=menuButton;
         head.setLayoutTransition(new android.animation.LayoutTransition());
-        head.addView(menuButton,new LinearLayout.LayoutParams(dp(48),dp(48)));refreshProfileAvatar();LinearLayout.LayoutParams headerParams=new LinearLayout.LayoutParams(-1,dp(landscape?52:58));headerParams.bottomMargin=dp(landscape?2:12);root.addView(head,headerParams);if(backgroundOnly)head.setVisibility(View.GONE);
+        head.addView(menuButton,new LinearLayout.LayoutParams(dp(48),dp(48)));refreshProfileAvatar();LinearLayout.LayoutParams headerParams=new LinearLayout.LayoutParams(-1,dp(landscape?52:58));headerParams.bottomMargin=dp(landscape?3:8);root.addView(head,headerParams);if(backgroundOnly)head.setVisibility(View.GONE);
         nightwellBadge = text("", 11);
         nightwellBadge.setContentDescription("Состояние подключения Nightwell");
         setNightwellStatus(nightwellStatus);
@@ -971,24 +1043,24 @@ public final class MainActivity extends Activity {
         if(navigationPopup!=null)navigationPopup.dismiss();
         final android.widget.ImageView opener=profileAvatarButton;
         LinearLayout shell=column();
-        shell.setPadding(dp(17),dp(17),dp(17),dp(15));
-        shell.setBackground(glass(29));
-        LinearLayout top=row();top.setPadding(dp(3),0,dp(1),dp(13));
-        TextView title=text("Меню",23);title.setTypeface(null,android.graphics.Typeface.BOLD);
+        shell.setPadding(dp(12),dp(12),dp(12),dp(11));
+        shell.setBackground(glass(22));
+        LinearLayout top=row();top.setPadding(dp(2),0,dp(1),dp(8));
+        TextView title=text("Меню",19);title.setTypeface(null,android.graphics.Typeface.BOLD);
         title.setSingleLine(true);
-        top.addView(title,new LinearLayout.LayoutParams(0,dp(44),1));
-        nightwellMenuStatus=text("●",18);
+        top.addView(title,new LinearLayout.LayoutParams(0,dp(40),1));
+        nightwellMenuStatus=text("●",14);
         nightwellMenuStatus.setGravity(Gravity.CENTER);
-        top.addView(nightwellMenuStatus,new LinearLayout.LayoutParams(dp(24),dp(40)));
+        top.addView(nightwellMenuStatus,new LinearLayout.LayoutParams(dp(21),dp(36)));
         nightwellMenuSpinner=new ProgressBar(this);
         nightwellMenuSpinner.setIndeterminate(true);
         nightwellMenuSpinner.setIndeterminateTintList(
             android.content.res.ColorStateList.valueOf(0xff67a8ff));
-        top.addView(nightwellMenuSpinner,new LinearLayout.LayoutParams(dp(20),dp(28)));
+        top.addView(nightwellMenuSpinner,new LinearLayout.LayoutParams(dp(17),dp(24)));
         TextView additional=iconButton("⊞",()->{});
-        additional.setTextSize(22);
+        additional.setTextSize(18);
         additional.setContentDescription("Дополнительно");
-        LinearLayout.LayoutParams moreParams=new LinearLayout.LayoutParams(dp(43),dp(43));
+        LinearLayout.LayoutParams moreParams=new LinearLayout.LayoutParams(dp(38),dp(38));
         moreParams.leftMargin=dp(7);top.addView(additional,moreParams);
         android.widget.ImageView avatar=new android.widget.ImageView(this);
         if(cachedProfileAvatar!=null&&!user.isEmpty()){
@@ -999,13 +1071,13 @@ public final class MainActivity extends Activity {
         avatar.setPadding(dp(6),dp(6),dp(6),dp(6));
         avatar.setBackground(touchSurface(0x9d303237,22));
         avatar.setContentDescription(user.isEmpty()?"Войти":"Открыть профиль");
-        LinearLayout.LayoutParams avatarParams=new LinearLayout.LayoutParams(dp(43),dp(43));
+        LinearLayout.LayoutParams avatarParams=new LinearLayout.LayoutParams(dp(38),dp(38));
         avatarParams.leftMargin=dp(7);top.addView(avatar,avatarParams);
         shell.addView(top);
         View headerDivider=new View(this);
         headerDivider.setBackgroundColor(0x26ffffff);
         LinearLayout.LayoutParams dividerParams=new LinearLayout.LayoutParams(-1,dp(1));
-        dividerParams.bottomMargin=dp(12);
+        dividerParams.bottomMargin=dp(8);
         shell.addView(headerDivider,dividerParams);
         ScrollView scroll=new ScrollView(this);
         scroll.setFillViewport(false);
@@ -1013,11 +1085,11 @@ public final class MainActivity extends Activity {
         LinearLayout entries=column();
         scroll.addView(entries);
         shell.addView(scroll);
-        int width=Math.min(dp(368),getResources().getDisplayMetrics().widthPixels-dp(20));
-        int maxHeight=getResources().getDisplayMetrics().heightPixels-dp(isLandscapeLayout()?65:110);
+        int width=Math.min(dp(302),getResources().getDisplayMetrics().widthPixels-dp(24));
+        int maxHeight=getResources().getDisplayMetrics().heightPixels-dp(isLandscapeLayout()?55:95);
         PopupWindow popup=new PopupWindow(shell,width,WindowManager.LayoutParams.WRAP_CONTENT,true);
         navigationPopup=popup;
-        popup.setBackgroundDrawable(glass(28));
+        popup.setBackgroundDrawable(glass(22));
         popup.setElevation(dp(22));
         popup.setOutsideTouchable(true);
         popup.setInputMethodMode(PopupWindow.INPUT_METHOD_NOT_NEEDED);
@@ -1054,30 +1126,30 @@ public final class MainActivity extends Activity {
                 }
                 boolean active=tab.equals(screen);
                 LinearLayout item=row();
-                item.setPadding(dp(13),0,dp(12),0);
-                item.setBackground(touchSurface(active?0xff3b3d43:0xff25272c,16));
-                TextView symbol=text(glyph,21);
+                item.setPadding(dp(10),0,dp(9),0);
+                item.setBackground(touchSurface(active?0xff3b3d43:0xff25272c,13));
+                TextView symbol=text(glyph,18);
                 symbol.setGravity(Gravity.CENTER);
                 symbol.setTextColor(active?0xffffffff:0xffaeb3bd);
-                item.addView(symbol,new LinearLayout.LayoutParams(dp(31),dp(51)));
-                TextView name=text(tab,15);
+                item.addView(symbol,new LinearLayout.LayoutParams(dp(27),dp(44)));
+                TextView name=text(tab,13);
                 name.setTypeface(android.graphics.Typeface.create(active?"sans-serif-medium":"sans-serif",0));
                 name.setSingleLine(true);
                 name.setEllipsize(android.text.TextUtils.TruncateAt.END);
                 LinearLayout.LayoutParams textParams=new LinearLayout.LayoutParams(0,-2,1);
-                textParams.leftMargin=dp(12);
+                textParams.leftMargin=dp(9);
                 item.addView(name,textParams);
-                TextView chevron=text("›",22);
+                TextView chevron=text("›",18);
                 chevron.setTextColor(0xff777b85);
                 item.addView(chevron);
                 item.setOnClickListener(v->{popup.dismiss();selectMenu(tab);});
-                LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(53));
-                p.bottomMargin=dp(6);
+                LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(44));
+                p.bottomMargin=dp(4);
                 entries.addView(item,p);
             }
-            entries.measure(View.MeasureSpec.makeMeasureSpec(width-dp(34),View.MeasureSpec.EXACTLY),
+            entries.measure(View.MeasureSpec.makeMeasureSpec(width-dp(24),View.MeasureSpec.EXACTLY),
                             View.MeasureSpec.makeMeasureSpec(0,View.MeasureSpec.UNSPECIFIED));
-            popup.setHeight(Math.min(maxHeight,entries.getMeasuredHeight()+dp(104)));
+            popup.setHeight(Math.min(maxHeight,entries.getMeasuredHeight()+dp(78)));
         };
         additional.setOnClickListener(v->{
             extra[0]=!extra[0];
@@ -1096,6 +1168,11 @@ public final class MainActivity extends Activity {
         popup.showAtLocation(head,Gravity.TOP|Gravity.RIGHT,dp(12),
             Math.max(dp(58),getWindow().getDecorView().getRootWindowInsets()==null?
                 dp(65):dp(80)));
+        if(android.animation.ValueAnimator.areAnimatorsEnabled()){
+            shell.setAlpha(0f);shell.setTranslationY(-dp(9));
+            shell.animate().alpha(1f).translationY(0).setDuration(220)
+                .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
+        }
         if(opener!=null){
             opener.animate().alpha(0f).setDuration(150).withEndAction(()->{
                 if(navigationPopup==popup)opener.setVisibility(View.GONE);
@@ -1548,7 +1625,7 @@ public final class MainActivity extends Activity {
             TextView title=text(screen,isLandscapeLayout()?21:30);
             title.setMaxLines(1);title.setEllipsize(android.text.TextUtils.TruncateAt.END);
             LinearLayout.LayoutParams titleLayout=new LinearLayout.LayoutParams(-1,-2);
-            titleLayout.bottomMargin=dp(isLandscapeLayout()?5:10);
+            titleLayout.bottomMargin=dp(isLandscapeLayout()?7:13);
             body.addView(title,titleLayout);
         }
         if(screen.equals("Главная")){
@@ -1623,7 +1700,7 @@ public final class MainActivity extends Activity {
         }
         if(screen.equals("Поиск")){
             FrameLayout searchBox=new FrameLayout(this);
-            searchBox.setBackground(touchSurface(0xff202228,24));
+            searchBox.setBackground(touchSurface(0xff202228,18));
             searchBox.setClipToOutline(true);
             WhiteSearchCaretGlow glow=new WhiteSearchCaretGlow(this);
             searchBox.addView(glow,new FrameLayout.LayoutParams(-1,-1));
@@ -1633,12 +1710,14 @@ public final class MainActivity extends Activity {
             search.setSingleLine(true);
             search.setTextSize(16);
             search.setHintTextColor(0xff999ca8);
-            search.setPadding(dp(16),dp(14),dp(16),dp(14));
+            search.setPadding(dp(14),dp(11),dp(14),dp(11));
             search.setBackgroundColor(Color.TRANSPARENT);
             search.setHint("Трек или исполнитель");
             search.setSelectAllOnFocus(false);
             searchBox.addView(search,new FrameLayout.LayoutParams(-1,-2));
-            body.addView(searchBox,new LinearLayout.LayoutParams(-1,-2));
+            LinearLayout.LayoutParams searchParams=new LinearLayout.LayoutParams(-1,-2);
+            searchParams.bottomMargin=dp(11);
+            body.addView(searchBox,searchParams);
             Runnable moveGlow=()->{
                 if(search==null||!search.isAttachedToWindow()||search.getLayout()==null)return;
                 int insertion=Math.max(0,search.getSelectionStart());
@@ -1662,17 +1741,25 @@ public final class MainActivity extends Activity {
             shown=new JSONArray();
             artistStrip=column();body.addView(artistStrip);
         }
-        else if(screen.equals("Избранное")){shown=new JSONArray();for(int i=0;i<catalog.length();i++)if(likes.contains(catalog.optJSONObject(i).optString("id")))shown.put(catalog.optJSONObject(i));shown=sortedFavorites(shown);LinearLayout actionsRow=row();actionsRow.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);TextView sort=iconButton("⇅",()->favoriteSortMenu());sort.setContentDescription("Сортировка избранного");TextView more=iconButton("⋯",()->collectionMenu("likes",""));LinearLayout.LayoutParams sortParams=new LinearLayout.LayoutParams(dp(47),dp(46));actionsRow.addView(sort,sortParams);LinearLayout.LayoutParams moreParams=new LinearLayout.LayoutParams(dp(47),dp(46));moreParams.leftMargin=dp(7);actionsRow.addView(more,moreParams);body.addView(actionsRow);}
+        else if(screen.equals("Избранное")){shown=new JSONArray();for(int i=0;i<catalog.length();i++)if(likes.contains(catalog.optJSONObject(i).optString("id")))shown.put(catalog.optJSONObject(i));shown=sortedFavorites(shown);LinearLayout actionsRow=row();actionsRow.setGravity(Gravity.CENTER_VERTICAL);
+            TextView count=text(shown.length()+" треков",12);
+            count.setTextColor(0xffaeb2bc);
+            actionsRow.addView(count,new LinearLayout.LayoutParams(0,-2,1));
+            TextView sort=iconButton("⇅",()->favoriteSortMenu());sort.setContentDescription("Сортировка избранного");TextView more=iconButton("⋯",()->collectionMenu("likes",""));LinearLayout.LayoutParams sortParams=new LinearLayout.LayoutParams(dp(47),dp(46));actionsRow.addView(sort,sortParams);LinearLayout.LayoutParams moreParams=new LinearLayout.LayoutParams(dp(47),dp(46));moreParams.leftMargin=dp(7);actionsRow.addView(more,moreParams);LinearLayout.LayoutParams controlsParams=new LinearLayout.LayoutParams(-1,dp(47));
+            controlsParams.bottomMargin=dp(8);
+            body.addView(actionsRow,controlsParams);}
         else if(screen.equals("Плейлисты")){
             android.widget.ScrollView scroll=new android.widget.ScrollView(this);
             LinearLayout entries=column();
             scroll.addView(entries);
             body.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
-            entries.addView(sheetAction("Умные плейлисты · Premium",()->feature("smart")));
-            entries.addView(sheetAction("Подборки дня · обновляются ежедневно",this::dailyPublicPlaylists));
-            entries.addView(action("＋ Создать плейлист",()->input("Новый плейлист",
+            addSpacedAction(entries,sheetAction("Умные плейлисты · Premium",()->feature("smart")),8);
+            addSpacedAction(entries,sheetAction("Подборки дня · обновляются ежедневно",this::dailyPublicPlaylists),8);
+            TextView newPlaylist=sheetAction("＋  Создать плейлист",()->input("Новый плейлист",
                 name->task(()->api.request("api/playlists","POST",
-                    new JSONObject().put("name",name)),v->load()))));
+                    new JSONObject().put("name",name)),v->load())));
+            newPlaylist.setGravity(Gravity.CENTER);
+            addSpacedAction(entries,newPlaylist,12);
             boolean wide=isLandscapeLayout();
             LinearLayout left=column(),right=column();
             if(wide){
@@ -1686,7 +1773,7 @@ public final class MainActivity extends Activity {
             for(int i=0;i<playlists.length();i++){
                 JSONObject p=playlists.optJSONObject(i);
                 if(p==null)continue;
-                LinearLayout item=row();item.setBackground(surface());
+                LinearLayout item=row();item.setBackground(fieldSurface(0xff25272b,16));item.setMinimumHeight(dp(58));item.setPadding(dp(8),dp(4),dp(4),dp(4));
                 TextView title=action(p.optString("name"),()->openPlaylist(p));
                 title.setGravity(Gravity.CENTER_VERTICAL|Gravity.LEFT);
                 title.setMaxLines(2);
@@ -1695,13 +1782,13 @@ public final class MainActivity extends Activity {
                 item.addView(action("⋯",()->collectionMenu("playlist",p.optString("id"))),
                     new LinearLayout.LayoutParams(dp(48),dp(48)));
                 LinearLayout.LayoutParams gap=new LinearLayout.LayoutParams(-1,-2);
-                gap.bottomMargin=dp(wide?6:10);
+                gap.bottomMargin=dp(wide?8:9);
                 (wide?(i%2==0?left:right):entries).addView(item,gap);
             }
             return;
         }
         else if(screen.equals("Офлайн")){
-            body.addView(action("Добавить аудиофайлы",this::importFiles));
+            addSpacedAction(body,sheetAction("＋  Добавить аудиофайлы",this::importFiles),10);
             TextView repairNotice=text("",13);
             body.addView(repairNotice);
             task(()->new JSONObject(OfflineStore.operation(this,origin,"{\"op\":\"listAll\"}")),v->{
@@ -1723,7 +1810,21 @@ public final class MainActivity extends Activity {
             });
             shown=new JSONArray();
         }
-        list=new ListView(this);list.setDivider(null);list.setCacheColorHint(Color.TRANSPARENT);adapter=new TrackAdapter();list.setAdapter(adapter);body.addView(list,new LinearLayout.LayoutParams(-1,0,1));list.setOnItemClickListener((p,v,pos,id)->play(shown.optJSONObject(pos),shown,false));list.setOnItemLongClickListener((p,v,pos,id)->{trackMenu(shown.optJSONObject(pos));return true;});
+        list=new ListView(this);
+        list.setDivider(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
+        list.setDividerHeight(dp(6));
+        list.setVerticalScrollBarEnabled(false);
+        list.setSelector(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
+        list.setClipToPadding(false);
+        list.setPadding(0,dp(2),0,dp(12));
+        list.setCacheColorHint(Color.TRANSPARENT);
+        adapter=new TrackAdapter();list.setAdapter(adapter);
+        body.addView(list,new LinearLayout.LayoutParams(-1,0,1));list.setOnItemClickListener((p,v,pos,id)->play(shown.optJSONObject(pos),shown,false));list.setOnItemLongClickListener((p,v,pos,id)->{trackMenu(shown.optJSONObject(pos));return true;});
+    }
+    private void addSpacedAction(LinearLayout parent,TextView button,int bottomMarginDp){
+        LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,-2);
+        params.bottomMargin=dp(bottomMarginDp);
+        parent.addView(button,params);
     }
     void updateList(){
         if(shown==null)shown=new JSONArray();
@@ -2488,14 +2589,14 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams routeParams=new LinearLayout.LayoutParams(-2,dp(30));
         routeParams.gravity=Gravity.CENTER_HORIZONTAL;
         center.addView(fullAudioOutput,routeParams);
-        TextView caption=text("Играет сейчас",16);
+        TextView caption=text("СЕЙЧАС ИГРАЕТ",11);caption.setLetterSpacing(.16f);caption.setTextColor(0xffc4c5cc);
         caption.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams captionParams=new LinearLayout.LayoutParams(-1,dp(24));
         center.addView(caption,captionParams);
-        top.addView(center,new LinearLayout.LayoutParams(0,dp(60),1));
+        top.addView(center,new LinearLayout.LayoutParams(0,dp(50),1));
         top.addView(iconButton("⋯",()->fullPlayerMenu(track)),new LinearLayout.LayoutParams(dp(48),dp(48)));
         body.addView(top);
-        android.widget.ScrollView scroll=new android.widget.ScrollView(this);scroll.setFillViewport(true);scroll.setClipToPadding(false);LinearLayout content=column();content.setPadding(0,dp(4),0,dp(10));scroll.addView(content);body.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+        android.widget.ScrollView scroll=new android.widget.ScrollView(this);scroll.setFillViewport(true);scroll.setClipToPadding(false);LinearLayout content=column();content.setPadding(dp(2),dp(6),dp(2),dp(18));scroll.addView(content);body.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
         boolean landscapePlayer=getResources().getConfiguration().orientation==
             android.content.res.Configuration.ORIENTATION_LANDSCAPE;
         LinearLayout details=content;
@@ -2511,7 +2612,7 @@ public final class MainActivity extends Activity {
         }else addCover(track,content);
         LinearLayout metadata=row();metadata.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout names=column();
-        TextView title=text(track.optString("title"),23);title.setMaxLines(2);title.setLetterSpacing(-.025f);title.setLineSpacing(dp(2),1f);title.setAutoSizeTextTypeUniformWithConfiguration(18,23,1,android.util.TypedValue.COMPLEX_UNIT_SP);title.setEllipsize(android.text.TextUtils.TruncateAt.END);title.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);title.setPadding(dp(4),dp(4),dp(4),dp(5));names.addView(title);
+        TextView title=text(track.optString("title"),23);title.setMaxLines(2);title.setLetterSpacing(-.025f);title.setLineSpacing(dp(2),1f);title.setAutoSizeTextTypeUniformWithConfiguration(18,23,1,android.util.TypedValue.COMPLEX_UNIT_SP);title.setEllipsize(android.text.TextUtils.TruncateAt.END);title.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);title.setPadding(dp(2),dp(12),dp(4),dp(6));names.addView(title);
         TextView artist=text(track.optString("artist")+"  ›",14);artist.setTextColor(0xffd3d3da);artist.setMaxLines(2);artist.setEllipsize(android.text.TextUtils.TruncateAt.END);artist.setPadding(dp(6),dp(4),dp(6),dp(4));artist.setBackground(null);artist.setOnClickListener(v->chooseArtist(track.optString("artist")));artist.setContentDescription("Открыть исполнителя");names.addView(artist);
         metadata.addView(names,new LinearLayout.LayoutParams(0,-2,1));
         fullLike=iconButton(likes.contains(track.optString("id"))?"♥":"♡",()->toggleFavorite(current()));
@@ -2536,9 +2637,18 @@ public final class MainActivity extends Activity {
         fullDislike.setContentDescription(hidden?"Вернуть в рекомендации":"Не рекомендовать");
         metadata.addView(fullDislike,new LinearLayout.LayoutParams(dp(44),dp(48)));
         metadata.addView(fullLike,likeParams);
-        details.addView(metadata);
-        LinearLayout transport=column();transport.setPadding(dp(10),dp(8),dp(10),dp(4));transport.setBackground(glass(23));details.addView(transport);
-        seek=new SeekBar(this);seek.setMinimumHeight(dp(44));seek.setProgressTintList(android.content.res.ColorStateList.valueOf(0xfff0f0f0));seek.setSecondaryProgressTintList(android.content.res.ColorStateList.valueOf(0x88c6c9d0));seek.setProgressBackgroundTintList(android.content.res.ColorStateList.valueOf(0x333b3d43));android.graphics.drawable.GradientDrawable tinyThumb=new android.graphics.drawable.GradientDrawable();tinyThumb.setShape(android.graphics.drawable.GradientDrawable.OVAL);tinyThumb.setColor(0xfff8f8f8);tinyThumb.setStroke(dp(1),0x88ffffff);tinyThumb.setSize(dp(8),dp(8));seek.setThumb(tinyThumb);seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar b,int p,boolean user){}public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){cancelMix();if(playback!=null)playback.seek(b.getProgress());}});transport.addView(seek);fullTime=text("",12);fullTime.setPadding(dp(8),0,dp(8),dp(12));fullTime.setTextColor(0xffc8c8c8);transport.addView(fullTime);
+        LinearLayout.LayoutParams metadataParams=new LinearLayout.LayoutParams(-1,-2);
+        metadataParams.bottomMargin=dp(4);
+        details.addView(metadata,metadataParams);
+        LinearLayout transport=column();
+        transport.setPadding(dp(4),dp(6),dp(4),dp(5));
+        transport.setBackground(null);
+        transport.setClipChildren(false);
+        transport.setClipToPadding(false);
+        LinearLayout.LayoutParams transportParams=new LinearLayout.LayoutParams(-1,-2);
+        transportParams.topMargin=dp(isLandscapeLayout()?5:13);
+        details.addView(transport,transportParams);
+        seek=new SeekBar(this);seek.setMinimumHeight(dp(44));seek.setProgressTintList(android.content.res.ColorStateList.valueOf(0xfff0f0f0));seek.setSecondaryProgressTintList(android.content.res.ColorStateList.valueOf(0x88c6c9d0));seek.setProgressBackgroundTintList(android.content.res.ColorStateList.valueOf(0x333b3d43));android.graphics.drawable.GradientDrawable tinyThumb=new android.graphics.drawable.GradientDrawable();tinyThumb.setShape(android.graphics.drawable.GradientDrawable.OVAL);tinyThumb.setColor(0xfff8f8f8);tinyThumb.setStroke(dp(1),0x88ffffff);tinyThumb.setSize(dp(8),dp(8));seek.setThumb(tinyThumb);seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar b,int p,boolean user){}public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){cancelMix();if(playback!=null)playback.seek(b.getProgress());}});transport.addView(seek);fullTime=text("",12);fullTime.setPadding(dp(5),0,dp(5),dp(5));fullTime.setTextColor(0xffc8c8c8);transport.addView(fullTime);
         LinearLayout controls=row();controls.setGravity(Gravity.CENTER);
         TextView shuffleButton=iconButton("⇄",()->{
             if(playback==null)return;
@@ -2582,7 +2692,22 @@ public final class MainActivity extends Activity {
         controls.addView(forward,new LinearLayout.LayoutParams(0,dp(59),1));
         controls.addView(repeatButton,new LinearLayout.LayoutParams(0,dp(56),1));
         transport.addView(controls);
-        TextView queueButton=action("Очередь  ·  "+queue.length()+"    ›",this::showQueue);queueButton.setTextSize(13);queueButton.setTextColor(0xffbfc2ca);queueButton.setMinHeight(dp(39));transport.addView(queueButton);updatePlayback();
+        TextView queueButton=action("Объёмная очередь  ·  "+queue.length()+"   ›",this::showQueue);
+        queueButton.setTextSize(13);
+        queueButton.setTextColor(0xffc1c4ce);
+        queueButton.setMinHeight(dp(43));
+        queueButton.setPadding(dp(8),dp(9),dp(8),dp(7));
+        queueButton.setBackground(null);
+        LinearLayout.LayoutParams queueParams=new LinearLayout.LayoutParams(-1,dp(46));
+        queueParams.topMargin=dp(10);
+        transport.addView(queueButton,queueParams);
+        if(android.animation.ValueAnimator.areAnimatorsEnabled()){
+            content.setAlpha(0f);
+            content.setTranslationY(dp(10));
+            content.animate().alpha(1f).translationY(0f).setDuration(270)
+                .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
+        }
+        updatePlayback();
     }
     void loadMiniCover(JSONObject track) {
         if (miniCover == null || artworkCache == null) return;
@@ -3212,13 +3337,13 @@ public final class MainActivity extends Activity {
         });
     }
     void nightwellOptions(String title,String[] options,java.util.function.IntConsumer selected){
-        LinearLayout panel=column();panel.setPadding(dp(18),dp(14),dp(18),dp(16));
-        TextView heading=text(title,21);heading.setTextColor(0xffeeeeee);heading.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);heading.setPadding(dp(8),dp(4),dp(8),dp(16));panel.addView(heading);
+        LinearLayout panel=column();panel.setPadding(dp(12),dp(10),dp(12),dp(12));
+        TextView heading=text(title,19);heading.setTextColor(0xffeeeeee);heading.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);heading.setPadding(dp(6),dp(4),dp(6),dp(10));panel.addView(heading);
         AlertDialog dialog=new AlertDialog.Builder(this).setView(panel).create();
         for(int index=0;index<options.length;index++){
             final int choice=index;
             TextView entry=sheetAction(options[index],()->{dialog.dismiss();selected.accept(choice);});
-            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(54));lp.setMargins(0,dp(4),0,dp(4));panel.addView(entry,lp);
+            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(47));lp.setMargins(0,dp(3),0,dp(3));panel.addView(entry,lp);
         }
         styleSheet(dialog);dialog.show();
     }
@@ -3496,23 +3621,23 @@ public final class MainActivity extends Activity {
         for(int i=0;i<pages.length;i++){
             final String selected=pages[i];
             LinearLayout item=row();
-            item.setPadding(dp(15),0,dp(12),0);
-            item.setBackground(touchSurface(0xff282a30,18));
-            TextView symbol=text(symbols[i],23);
+            item.setPadding(dp(12),0,dp(10),0);
+            item.setBackground(touchSurface(0xff282a30,15));
+            TextView symbol=text(symbols[i],20);
             symbol.setTextColor(0xffd5d6dc);symbol.setGravity(Gravity.CENTER);
-            symbol.setBackground(fieldSurface(0xff33353a,14));
-            item.addView(symbol,new LinearLayout.LayoutParams(dp(45),dp(45)));
-            LinearLayout names=column();names.setPadding(dp(13),0,0,0);
-            TextView title=text(selected,16);
+            symbol.setBackground(fieldSurface(0xff33353a,12));
+            item.addView(symbol,new LinearLayout.LayoutParams(dp(40),dp(40)));
+            LinearLayout names=column();names.setPadding(dp(11),0,0,0);
+            TextView title=text(selected,15);
             title.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));
-            TextView subtitle=text(captions[i],12);
+            TextView subtitle=text(captions[i],11);
             subtitle.setTextColor(0xffa7aab4);subtitle.setPadding(0,dp(4),0,0);
             names.addView(title);names.addView(subtitle);
             item.addView(names,new LinearLayout.LayoutParams(0,-2,1));
-            TextView chevron=text("›",25);chevron.setTextColor(0xff9b9da6);
+            TextView chevron=text("›",21);chevron.setTextColor(0xff9b9da6);
             item.addView(chevron,new LinearLayout.LayoutParams(dp(18),-2));
-            LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,dp(78));
-            params.bottomMargin=dp(9);
+            LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,dp(68));
+            params.bottomMargin=dp(7);
             list.addView(item,params);
             item.setOnClickListener(v->{dialog.dismiss();settingsPage(selected);});
         }
@@ -3521,7 +3646,7 @@ public final class MainActivity extends Activity {
 
     void settingsPage(String page){
         LinearLayout panel=column();
-        panel.setPadding(dp(20),dp(16),dp(20),dp(16));
+        panel.setPadding(dp(14),dp(12),dp(14),dp(14));
         ScrollView scroll=new ScrollView(this);
         scroll.setFillViewport(false);
         scroll.setVerticalScrollBarEnabled(false);
@@ -3547,7 +3672,7 @@ public final class MainActivity extends Activity {
         depthQueue.setText("Объёмная очередь");
         styleSwitch(depthQueue);
         depthQueue.setChecked(getSharedPreferences("appearance",MODE_PRIVATE)
-            .getBoolean("nw-depth-queue",false));
+            .getBoolean("nw-depth-queue",true));
         depthQueue.setOnCheckedChangeListener((view,enabled)->
             getSharedPreferences("appearance",MODE_PRIVATE).edit()
                 .putBoolean("nw-depth-queue",enabled).apply());
@@ -3913,7 +4038,7 @@ public final class MainActivity extends Activity {
     void handleAudioImportResult(int request,int result,Intent data){if(request!=72||result!=RESULT_OK||data==null)return;ArrayList<Uri> uris=new ArrayList<>();if(data.getClipData()!=null)for(int i=0;i<data.getClipData().getItemCount();i++)uris.add(data.getClipData().getItemAt(i).getUri());else if(data.getData()!=null)uris.add(data.getData());io.execute(()->{for(Uri uri:uris)try{OfflineStore.importFile(this,origin,uri);}catch(Exception ex){ui.post(()->status.setText("Не удалось импортировать файл"));}ui.post(()->navigate("Офлайн"));});}
     final class TrackAdapter extends BaseAdapter {
         public int getCount(){return shown.length();}public Object getItem(int p){return shown.optJSONObject(p);}public long getItemId(int p){return p;}
-        public View getView(int position,View recycled,ViewGroup parent){LinearLayout r;TextView title,artist,more;if(recycled==null){r=row();r.setPadding(dp(12),dp(12),dp(8),dp(12));LinearLayout labels=column();title=text("",16);title.setMaxLines(2);artist=text("",12);artist.setMaxLines(1);labels.addView(title);labels.addView(artist);r.addView(labels,new LinearLayout.LayoutParams(0,-2,1));r.addView(new PlayingIndicator(MainActivity.this),new LinearLayout.LayoutParams(dp(20),dp(20)));more=action("⋯",()->{});r.addView(more);r.setTag(new TextView[]{title,artist,more});}else r=(LinearLayout)recycled;TextView[] holder=(TextView[])r.getTag();JSONObject t=shown.optJSONObject(position);holder[0].setText(t.optString("title"));PlayingIndicator indicator=(PlayingIndicator)r.getChildAt(1);indicator.setVisibility(currentID.equals(t.optString("id"))?View.VISIBLE:View.GONE);indicator.playing(lastPlaying);holder[1].setText(t.optString("artist"));holder[1].setOnClickListener(v->play(t,shown,false));holder[1].setContentDescription("Воспроизвести "+t.optString("title"));holder[2].setOnClickListener(v->trackMenu(t));r.setOnClickListener(v->play(t,shown,false));r.setContentDescription("Воспроизвести "+t.optString("title"));r.setBackgroundColor(currentID.equals(t.optString("id"))?0x22ffb260:Color.TRANSPARENT);return r;}
+        public View getView(int position,View recycled,ViewGroup parent){LinearLayout r;TextView title,artist,more;if(recycled==null){r=row();r.setPadding(dp(12),dp(9),dp(7),dp(9));r.setMinimumHeight(dp(62));LinearLayout labels=column();title=text("",16);title.setMaxLines(2);artist=text("",12);artist.setMaxLines(1);labels.addView(title);labels.addView(artist);r.addView(labels,new LinearLayout.LayoutParams(0,-2,1));r.addView(new PlayingIndicator(MainActivity.this),new LinearLayout.LayoutParams(dp(20),dp(20)));more=action("⋯",()->{});r.addView(more);r.setTag(new TextView[]{title,artist,more});}else r=(LinearLayout)recycled;TextView[] holder=(TextView[])r.getTag();JSONObject t=shown.optJSONObject(position);holder[0].setText(t.optString("title"));PlayingIndicator indicator=(PlayingIndicator)r.getChildAt(1);indicator.setVisibility(currentID.equals(t.optString("id"))?View.VISIBLE:View.GONE);indicator.playing(lastPlaying);holder[1].setText(t.optString("artist"));holder[1].setOnClickListener(v->play(t,shown,false));holder[1].setContentDescription("Воспроизвести "+t.optString("title"));holder[2].setOnClickListener(v->trackMenu(t));r.setOnClickListener(v->play(t,shown,false));r.setContentDescription("Воспроизвести "+t.optString("title"));r.setBackground(fieldSurface(currentID.equals(t.optString("id"))?0xff33363c:0xff23252a,15));return r;}
     }
     private String favoriteOrder="recent";
     private void favoriteSortMenu(){
