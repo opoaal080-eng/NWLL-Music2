@@ -608,36 +608,50 @@ struct FullPlayer: View {
         }
     }
 
+    // Grouping unrelated SwiftUI onChange chains in one expression makes
+    // Swift 6's constraint solver hit its type-check timeout. Keep short
+    // subtrees, with simple precomputed keys for the collection observers.
+    private var clipLookupKey: String {
+        (clock.displayCurrent?.id ?? "") + "|" + (store.account?.id ?? "")
+    }
+
+    private var playlistRevision: String {
+        store.playlists.map(\.id).joined(separator: "|")
+    }
+
+    private var offlineRevision: String {
+        store.offline.map(\.id).sorted().joined(separator: "|")
+    }
+
     private var playerSearchAndUpdates: some View {
+        playerClipUpdates
+            .onChange(of: coverStyle) { _ in refreshNativeMenu() }
+    }
+
+    private var playerClipUpdates: some View {
+        playerLibraryUpdates
+            .task(id: clipLookupKey) {
+                availableClipURL = nil
+                guard let selected = clock.displayCurrent else { return }
+                let result = await NightwellClipAvailabilityCache.shared.lookup(
+                    track: selected, api: store.api, origin: store.origin,
+                    accountID: store.account?.id)
+                guard !Task.isCancelled, clock.displayCurrent?.id == selected.id else { return }
+                availableClipURL = result
+            }
+            .onChange(of: availableClipURL) { _ in refreshNativeMenu() }
+    }
+
+    private var playerLibraryUpdates: some View {
+        playerPlaybackUpdates
+            .onChange(of: playlistRevision) { _ in refreshNativeMenu() }
+            .onChange(of: offlineRevision) { _ in refreshNativeMenu() }
+    }
+
+    private var playerPlaybackUpdates: some View {
         playerWithSheets
-        .task(id: (clock.displayCurrent?.id ?? "") + "|" + (store.account?.id ?? "")) {
-            // Prefetch for the selected song. The ⋯ button never starts a request.
-            availableClipURL = nil
-            guard let selected = clock.displayCurrent else { return }
-            let result = await NightwellClipAvailabilityCache.shared.lookup(
-                track: selected, api: store.api, origin: store.origin,
-                accountID: store.account?.id)
-            guard !Task.isCancelled, clock.displayCurrent?.id == selected.id else { return }
-            availableClipURL = result
-        }
-        .onChange(of: clock.displayCurrent?.id) { _ in
-            refreshNativeMenu()
-        }
-        .onChange(of: availableClipURL) { _ in
-            refreshNativeMenu()
-        }
-        .onChange(of: store.playlists.map(\.id).joined(separator: "|")) { _ in
-            refreshNativeMenu()
-        }
-        .onChange(of: store.likes) { _ in
-            refreshNativeMenu()
-        }
-        .onChange(of: store.offline.map(\.id).sorted().joined(separator: "|")) { _ in
-            refreshNativeMenu()
-        }
-        .onChange(of: coverStyle) { _ in
-            refreshNativeMenu()
-        }
+            .onChange(of: clock.displayCurrent?.id) { _ in refreshNativeMenu() }
+            .onChange(of: store.likes) { _ in refreshNativeMenu() }
     }
 
     private var playerWithSheets: some View {
