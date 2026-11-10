@@ -62,6 +62,19 @@ public final class PlaybackService extends MediaSessionService {
     private int pendingNextIndex = C.INDEX_UNSET;
     private String pendingNextId = "";
     private Runnable pendingNextTimeout;
+    private final FailedNextSkipPolicy failedNext=new FailedNextSkipPolicy();
+
+    private String activeMediaId(){
+        MediaItem item=player==null?null:player.getCurrentMediaItem();
+        return item==null?"":item.mediaId;
+    }
+
+    private void reportNextLoadFailure(String activeId,String unavailableId){
+        if(activeId.isEmpty()||unavailableId.isEmpty())return;
+        error=FailedNextSkipPolicy.FAILURE_MESSAGE+
+            ". Нажми «Далее» ещё раз, чтобы пропустить его. Текущий трек продолжает играть.";
+        failedNext.reportFailed(activeId,unavailableId,error);
+    }
     private boolean keepCurrentUntilReady() {
         return getSharedPreferences("playback",MODE_PRIVATE)
             .getBoolean("nw-keep-current-until-ready",true);
@@ -70,6 +83,7 @@ public final class PlaybackService extends MediaSessionService {
     // deck's index which may have moved while recommendations were appended.
     void selectTrack(String id) {
         if(player==null||id==null||id.isEmpty())return;
+        failedNext.clear();
         for(int i=0;i<player.getMediaItemCount();i++) {
             if(id.equals(player.getMediaItemAt(i).mediaId)) {
                 if(i==player.getCurrentMediaItemIndex()){
@@ -114,13 +128,32 @@ public final class PlaybackService extends MediaSessionService {
         }
     }
     void requestPreparedNext() {
+        // The first Next always attempts normal preparation. Extra presses
+        // during preparation are ignored, not interpreted as skip requests.
         if(player == null || nextPreparing || pendingWaveNext) return;
-        int destination = player.getNextMediaItemIndex();
+        int destination=player.getNextMediaItemIndex();
+        final String currentId=activeMediaId();
+        if(destination!=C.INDEX_UNSET&&failedNext.maySkip(currentId,error)){
+            androidx.media3.common.Timeline timeline=player.getCurrentTimeline();
+            int attempts=0;
+            while(destination!=C.INDEX_UNSET&&attempts++<player.getMediaItemCount()&&
+                failedNext.wasFailed(currentId,player.getMediaItemAt(destination).mediaId)){
+                destination=timeline.getNextWindowIndex(destination,
+                    Player.REPEAT_MODE_OFF,player.getShuffleModeEnabled());
+            }
+            if(destination==C.INDEX_UNSET||destination==player.getCurrentMediaItemIndex()){
+                error=FailedNextSkipPolicy.FAILURE_MESSAGE+
+                    ". Других треков для пропуска пока нет.";
+                if(waveActive){pendingWaveNext=true;refillWave();}
+                return;
+            }
+        }
         if(destination == C.INDEX_UNSET) {
             if(waveActive) { pendingWaveNext = true; refillWave(); }
             return;
         }
         if(!keepCurrentUntilReady()) {
+            failedNext.clear();
             player.seekTo(destination,0);
             if(player.getPlaybackState()==Player.STATE_IDLE)player.prepare();
             player.play();
@@ -132,7 +165,10 @@ public final class PlaybackService extends MediaSessionService {
         if(player==null || destination<0 || destination>=player.getMediaItemCount())return;
         cancelPreparedNext();
         MediaItem candidate = player.getMediaItemAt(destination);
-        if(candidate.localConfiguration == null) return;
+        if(candidate.localConfiguration == null){
+            reportNextLoadFailure(activeMediaId(),candidate.mediaId);
+            return;
+        }
         nextPreparing = true; pendingNextIndex = destination;
         pendingNextId = candidate.mediaId; error = "";
         int ticket = ++pendingNextGeneration;
@@ -154,21 +190,24 @@ public final class PlaybackService extends MediaSessionService {
                 }
                 @Override public void onPlayerError(androidx.media3.common.PlaybackException failure) {
                     if(ticket != pendingNextGeneration) return;
+                    final String missed=pendingNextId,active=activeMediaId();
                     cancelPreparedNext();
-                    error = "Не удалось подготовить следующий трек. Текущий продолжает играть.";
+                    reportNextLoadFailure(active,missed);
                 }
             });
             stage.setMediaSource(mediaSource(candidate));
             stage.prepare();
             pendingNextTimeout = () -> {
                 if(ticket != pendingNextGeneration || !nextPreparing) return;
+                final String missed=pendingNextId,active=activeMediaId();
                 cancelPreparedNext();
-                error = "Следующий трек не загрузился за 30 секунд. Текущий продолжает играть.";
+                reportNextLoadFailure(active,missed);
             };
             waveHandler.postDelayed(pendingNextTimeout, 30000);
         } catch(Exception ex) {
+            final String missed=pendingNextId,active=activeMediaId();
             cancelPreparedNext();
-            error = "Следующий трек недоступен. Текущий продолжает играть.";
+            reportNextLoadFailure(active,missed);
         }
     }
     private void commitPreparedNext(int ticket) {
@@ -183,6 +222,8 @@ public final class PlaybackService extends MediaSessionService {
         }
         // The preview has already read and cached initial audio bytes.
         // Real ExoPlayer/MediaSession remain the only audible player.
+        failedNext.clear();
+        error="";
         player.seekTo(position,0);
         if(player.getPlaybackState() == Player.STATE_IDLE) player.prepare();
         player.play();
@@ -374,6 +415,7 @@ public final class PlaybackService extends MediaSessionService {
         player.addListener(new Player.Listener() {
             @Override public void onMediaItemTransition(MediaItem item,int reason) {
                 cancelPreparedNext();
+                failedNext.clear();
                 loudnessAverage=0; loudnessGain=1;
                 beginTrackTiming(item);
                 cancelStreamRetry();
@@ -506,11 +548,13 @@ public final class PlaybackService extends MediaSessionService {
         if(from<=current||to<=current||from<0||to<0||
            from>=count||to>=count||from==to)return;
         cancelPreparedNext();
+        failedNext.clear();
         player.moveMediaItem(from,to);
         persistPlayback(true);
     }
     void prepare(String json) {
         cancelPreparedNext();
+        failedNext.clear();
         cancelStreamRetry();
         retriedTrackId = "";
         streamRetryCount = 0;

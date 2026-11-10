@@ -258,6 +258,8 @@ public final class MainActivity extends Activity {
     private long favoriteRevision;
     private long favoriteLastRecovery;
     private int favoriteRecoveryGeneration;
+    private boolean favoriteRecoveryRunning;
+    private TextView favoriteCount;
     private final java.util.LinkedHashMap<String,JSONArray> searchCache =
         new java.util.LinkedHashMap<String,JSONArray>(24,0.75f,true) {
             @Override protected boolean removeEldestEntry(java.util.Map.Entry<String,JSONArray> entry) {
@@ -266,6 +268,7 @@ public final class MainActivity extends Activity {
         };
     private LinearLayout root,body,dock,head,landscapeRail;
     private TextView status,miniTitle,miniArtist,miniPlay,miniPrev,miniNext,miniLike;
+    private String lastNextLoadNotice="";
     private android.widget.ImageView miniCover;private CircularProgressRing miniProgressRing;
     private ArtworkCache artworkCache;
     private TextView fullTime,homePlay,fullPlay,fullLike,fullDislike,fullAudioOutput,fullShuffle;
@@ -1704,7 +1707,7 @@ public final class MainActivity extends Activity {
     void showScreen(){
         if(atmosphere!=null)atmosphere.setVisibility(screen.equals("Главная")?View.VISIBLE:View.GONE);
         if(android.animation.ValueAnimator.areAnimatorsEnabled()){body.setAlpha(.5f);body.animate().alpha(1).setDuration(180);}
-        if(ribbon!=null){ribbon.running(false);ribbon.setVisibility(View.GONE);}body.removeAllViews();list=null;search=null;artistStrip=null;adapter=null;
+        if(ribbon!=null){ribbon.running(false);ribbon.setVisibility(View.GONE);}body.removeAllViews();list=null;search=null;artistStrip=null;adapter=null;favoriteCount=null;
         if(!screen.equals("Главная")){
             TextView title=text(screen,isLandscapeLayout()?21:30);
             title.setMaxLines(1);title.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -1831,7 +1834,12 @@ public final class MainActivity extends Activity {
             favoriteTracks.rememberLiked(shown,likes);
             recoverMissingFavoriteTracks();
             LinearLayout actionsRow=row();actionsRow.setGravity(Gravity.CENTER_VERTICAL);
-            TextView count=text(shown.length()+" треков",12);
+            int unavailable=favoriteTracks.unresolved(likes,catalog,queue,2000).size();
+            TextView count=text(shown.length()+" треков"+
+                (unavailable>0?" · "+unavailable+" без сведений":""),12);
+            count.setSingleLine(true);
+            count.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            favoriteCount=count;
             count.setTextColor(0xffaeb2bc);
             actionsRow.addView(count,new LinearLayout.LayoutParams(0,-2,1));
             TextView sort=iconButton("⇅",()->favoriteSortMenu());sort.setContentDescription("Сортировка избранного");TextView more=iconButton("⋯",()->collectionMenu("likes",""));LinearLayout.LayoutParams sortParams=new LinearLayout.LayoutParams(dp(47),dp(46));actionsRow.addView(sort,sortParams);LinearLayout.LayoutParams moreParams=new LinearLayout.LayoutParams(dp(47),dp(46));moreParams.leftMargin=dp(7);actionsRow.addView(more,moreParams);LinearLayout.LayoutParams controlsParams=new LinearLayout.LayoutParams(-1,dp(47));
@@ -1883,6 +1891,7 @@ public final class MainActivity extends Activity {
             task(()->new JSONObject(OfflineStore.operation(this,origin,"{\"op\":\"listAll\"}")),v->{
                 if(!screen.equals("Офлайн"))return;
                 shown=v.optJSONArray("tracks");
+                if(favoriteTracks.rememberLikedAndCount(shown,likes)>0)saveFavoriteIndex();
                 JSONArray damaged=v.optJSONArray("damaged"),retryable=new JSONArray();
                 if(damaged!=null&&damaged.length()>0){
                     repairNotice.setText("Не воспроизводятся: "+damaged.length()+". Названия и обложки сохранились, но аудиофайлы повреждены.");
@@ -1930,6 +1939,10 @@ public final class MainActivity extends Activity {
         if(!screen.equals("Поиск")){
             for(int i=0;i<shown.length();i++)NativeAPI.normalizeTrack(shown.optJSONObject(i));
         }
+        if(!user.isEmpty()&&!smokeMode){
+            int recovered=favoriteTracks.rememberLikedAndCount(shown,likes);
+            if(recovered>0)saveFavoriteIndex();
+        }
         if(adapter!=null)adapter.notifyDataSetChanged();
     }
     private String favoriteIndexKey(String owner) {
@@ -1940,11 +1953,20 @@ public final class MainActivity extends Activity {
         favoriteTracks.clear();
         favoriteRecoveryAttempts.clear();
         favoriteRecoveryGeneration++;
+        favoriteRecoveryRunning=false;
         if(owner==null||owner.isEmpty())return;
         try{
             String saved=getSharedPreferences("favorite-tracks-v1",MODE_PRIVATE)
                 .getString(favoriteIndexKey(owner),"");
             if(!saved.isEmpty())favoriteTracks.restore(new JSONObject(saved));
+            // Migrate metadata preserved by the older v48 Android client.
+            String legacy=getSharedPreferences("favorite-track-cache",MODE_PRIVATE)
+                .getString(favoriteIndexKey(owner),"");
+            if(!legacy.isEmpty()){
+                JSONArray entries=new JSONArray(legacy);
+                for(int i=0;i<entries.length();i++)
+                    favoriteTracks.remember(entries.optJSONObject(i));
+            }
         }catch(Exception ignored){}
     }
 
@@ -1956,56 +1978,165 @@ public final class MainActivity extends Activity {
             .putString(favoriteIndexKey(user),payload).apply();
     }
 
-    private void recoverMissingFavoriteTracks() {
-        if(user.isEmpty()||smokeMode||likes.isEmpty())return;
-        final long now=SystemClock.elapsedRealtime();
-        if(now-favoriteLastRecovery<6000)return;
-        java.util.List<String> missing=favoriteTracks.unresolved(likes,catalog,queue,120);
-        java.util.ArrayList<String> chosen=new java.util.ArrayList<>();
-        for(String id:missing){
-            long previous=favoriteRecoveryAttempts.containsKey(id)?
-                favoriteRecoveryAttempts.get(id):0L;
-            if(previous>0&&now-previous<180000)continue;
-            chosen.add(id);
-            favoriteRecoveryAttempts.put(id,now);
-            if(chosen.size()>=5)break;
+    // Fill missing titles/artists from local playlists, offline files and
+    // prior searches before querying the server. The server's /api/likes
+    // contains IDs on legacy installations, not complete track metadata.
+    private static void appendFavoriteMetadata(java.util.List<JSONObject> output,
+                                               JSONObject response){
+        if(response==null)return;
+        for(String field:new String[]{"tracks","items","favorites","results"}){
+            JSONArray items=response.optJSONArray(field);
+            if(items==null)continue;
+            for(int i=0;i<items.length();i++){
+                JSONObject item=items.optJSONObject(i);
+                if(item==null)continue;
+                JSONObject track=item.optJSONObject("track");
+                if(track==null)track=item;
+                if(!track.optString("id").isEmpty()&&!track.optString("title").isEmpty())
+                    output.add(track);
+            }
         }
-        if(chosen.isEmpty())return;
+        JSONObject single=response.optJSONObject("track");
+        if(single!=null&&!single.optString("id").isEmpty())output.add(single);
+    }
+
+    private void applyFavoriteMetadata(String owner,String server,int generation,
+                                      java.util.List<JSONObject> tracks) {
+        if(isDestroyed()||generation!=favoriteRecoveryGeneration||
+            !owner.equals(user)||!server.equals(origin))return;
+        int restored=0;
+        for(JSONObject track:tracks){
+            if(track==null||!likes.contains(track.optString("id")))continue;
+            NativeAPI.normalizeTrack(track);
+            if(!favoriteTracks.hasMetadata(track.optString("id")))restored++;
+            favoriteTracks.remember(track);
+        }
+        if(restored==0)return;
+        saveFavoriteIndex();
+        if(!full&&"Избранное".equals(screen)){
+            shown=sortedFavorites(favoriteTracks.visible(likes,catalog,queue,shown));
+            updateList();
+            if(favoriteCount!=null){
+                int pending=favoriteTracks.unresolved(likes,catalog,queue,2000).size();
+                favoriteCount.setText(shown.length()+" треков"+
+                    (pending>0?" · "+pending+" без сведений":""));
+            }
+        }
+    }
+
+    private void recoverMissingFavoriteTracks() {
+        if(user.isEmpty()||smokeMode||likes.isEmpty()||favoriteRecoveryRunning)return;
+        favoriteTracks.rememberLiked(catalog,likes);
+        favoriteTracks.rememberLiked(queue,likes);
+        for(JSONArray entries:searchCache.values())favoriteTracks.rememberLiked(entries,likes);
+
+        final long now=SystemClock.elapsedRealtime();
+        if(now-favoriteLastRecovery<1400)return;
+        final java.util.List<String> unresolved=
+            favoriteTracks.unresolved(likes,catalog,queue,1200);
+        if(unresolved.isEmpty())return;
+
+        final java.util.ArrayList<String> pending=new java.util.ArrayList<>();
+        for(String id:unresolved){
+            Long previous=favoriteRecoveryAttempts.get(id);
+            if(previous!=null&&now-previous<180000)continue;
+            pending.add(id);
+            favoriteRecoveryAttempts.put(id,now);
+            if(pending.size()>=10)break;
+        }
+        if(pending.isEmpty())return;
         favoriteLastRecovery=now;
-        final int ticket=++favoriteRecoveryGeneration;
+        favoriteRecoveryRunning=true;
+
         final String owner=user,server=origin;
+        final int generation=favoriteRecoveryGeneration;
+        final JSONArray savedPlaylists=playlists;
+        final java.util.HashSet<String> wanted=new java.util.HashSet<>(likes);
+        final java.util.ArrayList<JSONArray> cachedSearches=
+            new java.util.ArrayList<>(searchCache.values());
         favoriteLookup.execute(()->{
-            java.util.ArrayList<JSONObject> found=new java.util.ArrayList<>();
-            NativeAPI lookup=new NativeAPI(this,server);
+            java.util.ArrayList<JSONObject> candidates=new java.util.ArrayList<>();
             try{
-                for(String id:chosen){
-                    if(Thread.currentThread().isInterrupted())break;
+                // Metadata saved when the user downloaded a track.
+                try{
+                    String request=new JSONObject().put("op","list")
+                        .put("account",owner).toString();
+                    appendFavoriteMetadata(candidates,new JSONObject(
+                        OfflineStore.operation(this,server,request)));
+                }catch(Exception ignored){}
+
+                // Personal playlists already cached on this device.
+                android.content.SharedPreferences prefs=
+                    getSharedPreferences("playlist-snapshots",MODE_PRIVATE);
+                for(int i=0;i<Math.min(100,savedPlaylists.length());i++){
+                    JSONObject playlist=savedPlaylists.optJSONObject(i);
+                    if(playlist==null)continue;
+                    String id=playlist.optString("id");
+                    if(id.isEmpty())continue;
                     try{
-                        JSONArray entries=lookup.request("api/shared-track/"+id)
-                            .optJSONArray("tracks");
-                        if(entries==null)continue;
-                        for(int i=0;i<entries.length();i++){
-                            JSONObject item=entries.optJSONObject(i);
-                            if(item!=null&&id.equalsIgnoreCase(item.optString("id"))){
-                                found.add(item);break;
-                            }
+                        String json=prefs.getString("playlist|"+server+"|"+owner+"|"+id,"");
+                        if(json.isEmpty())continue;
+                        JSONArray items=new JSONArray(json);
+                        for(int k=0;k<Math.min(3000,items.length());k++){
+                            JSONObject t=items.optJSONObject(k);
+                            if(t!=null&&wanted.contains(t.optString("id")))
+                                candidates.add(t);
                         }
-                    }catch(Exception ignored){
-                        // Older servers may not expose a particular ID.
-                        // Leave a visible placeholder instead of hiding the like.
+                    }catch(Exception ignored){}
+                }
+                for(JSONArray array:cachedSearches){
+                    for(int i=0;i<array.length();i++){
+                        JSONObject t=array.optJSONObject(i);
+                        if(t!=null&&wanted.contains(t.optString("id")))
+                            candidates.add(t);
                     }
                 }
-            }finally{lookup.close();}
-            if(found.isEmpty())return;
-            ui.post(()->{
-                if(isDestroyed()||ticket!=favoriteRecoveryGeneration||
-                    !owner.equals(user)||!server.equals(origin))return;
-                for(JSONObject item:found){
-                    if(likes.contains(item.optString("id")))
-                        favoriteTracks.remember(item);
+
+                java.util.HashSet<String> resolved=new java.util.HashSet<>();
+                for(JSONObject item:candidates)resolved.add(item.optString("id"));
+                if(!candidates.isEmpty()){
+                    final java.util.ArrayList<JSONObject> local=
+                        new java.util.ArrayList<>(candidates);
+                    ui.post(()->applyFavoriteMetadata(owner,server,generation,local));
                 }
-                saveFavoriteIndex();
-                if(!full&&"Избранное".equals(screen))showScreen();
+
+                NativeAPI client=new NativeAPI(this,server);
+                try{
+                    // Newer API versions may include liked track records.
+                    try{
+                        JSONObject likesResponse=client.request("api/likes");
+                        appendFavoriteMetadata(candidates,likesResponse);
+                        for(JSONObject item:candidates)resolved.add(item.optString("id"));
+                    }catch(Exception ignored){}
+
+                    // Legacy fallback. Keep a bounded batch to avoid flooding
+                    // SoundCloud/Audius/Cloud APIs behind the Nightwell server.
+                    for(String id:pending){
+                        if(resolved.contains(id)||Thread.currentThread().isInterrupted())continue;
+                        try{
+                            JSONObject response=client.request("api/shared-track/"+
+                                java.net.URLEncoder.encode(id,"UTF-8"));
+                            java.util.ArrayList<JSONObject> matches=new java.util.ArrayList<>();
+                            appendFavoriteMetadata(matches,response);
+                            for(JSONObject item:matches)if(id.equals(item.optString("id"))){
+                                candidates.add(item);
+                                resolved.add(id);
+                                break;
+                            }
+                        }catch(Exception ignored){}
+                    }
+                }finally{client.close();}
+            }catch(Exception ignored){
+                // Preserve the visible list of liked IDs on network failures.
+            }
+            ui.post(()->{
+                if(isDestroyed()||generation!=favoriteRecoveryGeneration||
+                   !owner.equals(user)||!server.equals(origin))return;
+                favoriteRecoveryRunning=false;
+                applyFavoriteMetadata(owner,server,generation,candidates);
+                // Continue in batches, not only when the user reopens Favorites.
+                if(!full&&"Избранное".equals(screen))
+                    ui.postDelayed(this::recoverMissingFavoriteTracks,1700);
             });
         });
     }
@@ -2155,6 +2286,8 @@ public final class MainActivity extends Activity {
                     favoriteTracks.rememberLiked(catalog,likes);
                     favoriteTracks.rememberLiked(queue,likes);
                     favoriteTracks.rememberLiked(value.optJSONArray("tracks"),likes);
+                    favoriteTracks.rememberLiked(value.optJSONArray("items"),likes);
+                    favoriteTracks.rememberLiked(value.optJSONArray("favorites"),likes);
                     saveFavoriteIndex();saveLibrarySnapshot();checkAutoFavoriteDownloads();
                     if(!full&&screen.equals("Избранное"))showScreen();
                 }});
@@ -2173,6 +2306,14 @@ public final class MainActivity extends Activity {
     void smokeFixture(String page){try{user="smoke";catalog=new JSONArray();for(int i=0;i<24;i++)catalog.put(new JSONObject().put("id",String.format(java.util.Locale.ROOT,"%032x",i+1)).put("title",i==0?"Очень длинное название трека, которое должно аккуратно поместиться":"Трек "+(i+1)).put("artist","Nightwell Music · Исполнитель"));queue=catalog;playlists=new JSONArray();for(int i=0;i<16;i++)playlists.put(new JSONObject().put("id","fixture"+i).put("name","Мой плейлист "+(i+1)));for(int i=0;i<catalog.length();i++)likes.add(catalog.getJSONObject(i).getString("id"));currentID=catalog.getJSONObject(0).getString("id");miniTitle.setText(catalog.getJSONObject(0).getString("title"));miniArtist.setText("Nightwell Music");if("transfer".equals(page)){nativeTransfer();}else if("menu".equals(page)){head.post(this::menu);}else if("profile".equals(page))profile();else if("player".equals(page))openPlayer();else if("settings".equals(page))settings();else if("settings-playback".equals(page))settingsPage("Воспроизведение");else if("premium-sound".equals(page)||"premium-appearance".equals(page)){premiumOwner=user;premiumUntil=System.currentTimeMillis()+3600000;premiumChecked=System.currentTimeMillis();premiumPrefs=new JSONObject().put("bands",new JSONArray("[0,0,0,0,0]")).put("presets",new JSONObject()).put("theme","nightwell").put("ribbon_speed",1).put("ribbon_intensity",1);if("premium-sound".equals(page))equalizerPanel();else appearancePanel();}else if("wave-settings".equals(page))waveSettings();else if("auth".equals(page))auth();else if("queue".equals(page))showQueue();else if("favorites-outside-catalog".equals(page)){
                 JSONObject external=new JSONObject().put("id","external_test_9999").put("title","Трек из поиска, которого нет в каталоге").put("artist","Nightwell QA");
                 likes.add(external.optString("id"));favoriteTracks.remember(external);favoriteTracks.promote(external.optString("id"));
+                navigate("Избранное");
+            }else if("favorites-metadata-recovered".equals(page)){
+                String id="old_favorite_id_981";
+                likes.add(id);
+                favoriteTracks.reconcile(likes,new JSONArray().put(id),null);
+                favoriteTracks.remember(new JSONObject().put("id",id)
+                    .put("title","Восстановленное название песни")
+                    .put("artist","Восстановленный исполнитель"));
                 navigate("Избранное");
             }else if(page!=null)navigate(page);}catch(JSONException e){throw new IllegalStateException(e);}}
     String friendly(Exception error){if(error instanceof java.net.UnknownHostException||error instanceof java.net.ConnectException||error instanceof java.net.SocketTimeoutException)return "Нет соединения. Офлайн-файлы доступны в меню.";String message=error.getMessage();return message!=null&&!message.startsWith("Unable")&&message.length()<180?message:"Не удалось выполнить действие. Повтори попытку.";}
@@ -2203,8 +2344,16 @@ public final class MainActivity extends Activity {
                         prefs.edit().putString(key,songs.toString()).apply();
                         ownedSearchIndex=null;
                         ui.post(()->{
-                            if(isDestroyed()||!owner.equals(user)||!screen.equals("Поиск")
-                               ||query.trim().length()<2)return;
+                            if(isDestroyed()||!owner.equals(user)||!server.equals(origin))return;
+                            int found=favoriteTracks.rememberLikedAndCount(songs,likes);
+                            if(found>0){
+                                saveFavoriteIndex();
+                                if(!full&&"Избранное".equals(screen)){
+                                    shown=sortedFavorites(favoriteTracks.visible(likes,catalog,queue,shown));
+                                    updateList();
+                                }
+                            }
+                            if(!"Поиск".equals(screen)||query.trim().length()<2)return;
                             String text=query.trim();
                             JSONArray owned=cachedOwnedTracks();
                             JSONArray local=matchingOwnTracks(text,owned);
@@ -2751,7 +2900,11 @@ public final class MainActivity extends Activity {
     }
 
     void setLabel(TextView view,String value){if(view!=null&&!android.text.TextUtils.equals(view.getText(),value))view.setText(value);}
-    void updatePlayback(){if(smokeMode||playback==null)return;try{JSONObject state=new JSONObject(playback.snapshot(false));String next=state.optString("id");boolean trackChanged=!currentID.equals(next);boolean queueChanged=trackChanged||queue==null||queue.length()!=state.optInt("queueCount");if(queueChanged){queue=new JSONObject(playback.snapshot(true)).optJSONArray("queueTracks");}if(queue==null)queue=new JSONArray();JSONObject t=null;if(queueChanged){for(int i=0;i<queue.length();i++){JSONObject item=queue.optJSONObject(i);if(item!=null&&next.equals(item.optString("id"))){t=item;break;}}setLabel(miniTitle,t==null?"Выбери трек":t.optString("title"));setLabel(miniArtist,t==null?"Nightwell Music":t.optString("artist"));}if(miniProgressRing!=null){
+    void updatePlayback(){if(smokeMode||playback==null)return;try{JSONObject state=new JSONObject(playback.snapshot(false));String next=state.optString("id");boolean trackChanged=!currentID.equals(next);boolean queueChanged=trackChanged||queue==null||queue.length()!=state.optInt("queueCount");if(queueChanged){queue=new JSONObject(playback.snapshot(true)).optJSONArray("queueTracks");}if(queue==null)queue=new JSONArray();
+        if(queueChanged&&!user.isEmpty()&&!smokeMode){
+            if(favoriteTracks.rememberLikedAndCount(queue,likes)>0)saveFavoriteIndex();
+        }
+        JSONObject t=null;if(queueChanged){for(int i=0;i<queue.length();i++){JSONObject item=queue.optJSONObject(i);if(item!=null&&next.equals(item.optString("id"))){t=item;break;}}setLabel(miniTitle,t==null?"Выбери трек":t.optString("title"));setLabel(miniArtist,t==null?"Nightwell Music":t.optString("artist"));}if(miniProgressRing!=null){
         boolean pending=state.optBoolean("nextPreparing");
         boolean buffering=state.optBoolean("buffering");
         miniProgressRing.setPlaybackState(
@@ -2765,7 +2918,16 @@ public final class MainActivity extends Activity {
                 "Подготовка следующего трека"):
             buffering?"Подготовка аудио":
                 (state.optBoolean("playing")?"Пауза":"Воспроизвести"));
-    }setLabel(miniPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(homePlay!=null)setLabel(homePlay,state.optBoolean("playing")?"Ⅱ":"▶");if(fullPlay!=null)setLabel(fullPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(ribbon!=null)ribbon.playing(state.optBoolean("playing"));if(trackChanged){currentID=next;refreshFavoriteButtons();if(!next.isEmpty()){rememberRecent(next);checkTrackAudioQuality(t);prefetchClip(t);}activeLyrics=null;homeLine="";homeWord=-2;homeKineticSpans.clear();if(homeLyric!=null)homeLyric.setText("");loadMiniCover(t);fetchLyricsAndPreload();animateTrackTransition();updateList();if(full)openPlayer();}if(seek!=null&&!seek.isPressed()){int duration=(int)Math.max(1,state.optDouble("duration"));seek.setMax(duration);seek.setProgress((int)state.optDouble("position"));seek.setSecondaryProgress((int)(duration*state.optDouble("bufferFraction")));if(seek instanceof PreparingSeekBar)((PreparingSeekBar)seek).setPreparation(state.optBoolean("nextPreparing")||state.optBoolean("buffering"),state.optBoolean("nextPreparing")?state.optDouble("preparationFraction"):state.optDouble("bufferFraction"));}if(fullTime!=null)setLabel(fullTime,time(state.optDouble("position"))+"     /     "+time(state.optDouble("duration")));if(!state.optString("error").isEmpty())status.setText(state.optString("error"));syncLyrics(state.optDouble("position"));syncHomeLyrics(state.optDouble("position"));if(lastPlaying!=state.optBoolean("playing")){lastPlaying=state.optBoolean("playing");updateList();}}catch(Exception ignored){}}
+    }setLabel(miniPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(homePlay!=null)setLabel(homePlay,state.optBoolean("playing")?"Ⅱ":"▶");if(fullPlay!=null)setLabel(fullPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(ribbon!=null)ribbon.playing(state.optBoolean("playing"));if(trackChanged){currentID=next;refreshFavoriteButtons();if(!next.isEmpty()){rememberRecent(next);checkTrackAudioQuality(t);prefetchClip(t);}activeLyrics=null;homeLine="";homeWord=-2;homeKineticSpans.clear();if(homeLyric!=null)homeLyric.setText("");loadMiniCover(t);fetchLyricsAndPreload();animateTrackTransition();updateList();if(full)openPlayer();}if(seek!=null&&!seek.isPressed()){int duration=(int)Math.max(1,state.optDouble("duration"));seek.setMax(duration);seek.setProgress((int)state.optDouble("position"));seek.setSecondaryProgress((int)(duration*state.optDouble("bufferFraction")));if(seek instanceof PreparingSeekBar)((PreparingSeekBar)seek).setPreparation(state.optBoolean("nextPreparing")||state.optBoolean("buffering"),state.optBoolean("nextPreparing")?state.optDouble("preparationFraction"):state.optDouble("bufferFraction"));}if(fullTime!=null)setLabel(fullTime,time(state.optDouble("position"))+"     /     "+time(state.optDouble("duration")));String playbackError=state.optString("error");
+        if(!playbackError.isEmpty()&&status!=null)status.setText(playbackError);
+        if(playbackError.startsWith(FailedNextSkipPolicy.FAILURE_MESSAGE)){
+            if(!playbackError.equals(lastNextLoadNotice)){
+                lastNextLoadNotice=playbackError;
+                Toast.makeText(this,FailedNextSkipPolicy.FAILURE_MESSAGE+
+                    ". Повторное нажатие «Далее» пропустит недоступный трек.",
+                    Toast.LENGTH_LONG).show();
+            }
+        }else lastNextLoadNotice="";syncLyrics(state.optDouble("position"));syncHomeLyrics(state.optDouble("position"));if(lastPlaying!=state.optBoolean("playing")){lastPlaying=state.optBoolean("playing");updateList();}}catch(Exception ignored){}}
     void animateTrackTransition(){
         if(dock==null||!dock.isShown())return;
         final float slide=dp(24)*trackTransitionDirection;

@@ -69,6 +69,42 @@ public final class FavoriteTracksTest {
         assertEquals("external_1234",displayed.getJSONObject(0).getString("id"));
     }
 
+    @Test public void unresolvedFavoriteShowsRealTitleAfterRecovery() throws Exception {
+        FavoriteTracks index=new FavoriteTracks();
+        Set<String> likes=new HashSet<>();
+        likes.add("soundcloud_unknown_102");
+        index.reconcile(likes,new JSONArray().put("soundcloud_unknown_102"),null);
+        assertTrue(index.visible(likes,new JSONArray(),new JSONArray(),null)
+            .getJSONObject(0).optBoolean("_favoriteMissing"));
+        JSONArray recovered=new JSONArray().put(track("soundcloud_unknown_102",
+            "Полное название восстановленного трека"));
+        assertEquals(1,index.rememberLikedAndCount(recovered,likes));
+        JSONObject actual=index.visible(likes,new JSONArray(),new JSONArray(),null)
+            .getJSONObject(0);
+        assertEquals("Полное название восстановленного трека",
+            actual.getString("title"));
+        assertEquals("Nightwell Artist",actual.getString("artist"));
+        assertFalse(actual.optBoolean("_favoriteMissing"));
+    }
+
+    @Test public void offlineAndCachedPlaylistMetadataFillMissingArtist() throws Exception {
+        FavoriteTracks index=new FavoriteTracks();
+        Set<String> likes=new HashSet<>();
+        likes.add("offline_old");
+        likes.add("playlist_old");
+        index.reconcile(likes,new JSONArray().put("offline_old")
+            .put("playlist_old"),null);
+        assertEquals(2,index.missingCount(likes));
+        assertEquals(1,index.rememberLikedAndCount(
+            new JSONArray().put(track("offline_old","Офлайн-песня")),likes));
+        assertEquals(1,index.rememberLikedAndCount(
+            new JSONArray().put(track("playlist_old","Песня из плейлиста")),likes));
+        assertEquals(0,index.missingCount(likes));
+        assertEquals(2,index.visible(likes,new JSONArray(),new JSONArray(),null).length());
+        assertEquals(0,index.rememberLikedAndCount(
+            new JSONArray().put(track("offline_old","Офлайн-песня")),likes));
+    }
+
     @Test public void removalClearsTrackAndStopsDisplay() throws Exception {
         FavoriteTracks index=new FavoriteTracks();
         Set<String> likes=new HashSet<>();
