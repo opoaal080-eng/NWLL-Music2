@@ -42,8 +42,8 @@ try:
         assert find('Главная',values) is not None,'Menu popup did not become visible'
         # On a fresh CI emulator there is no account session. In guest mode
         # the final menu entry is Settings, not Sign out.
-        guest_menu = find('Войти',values) is not None
-        last_entry = 'Настройки' if guest_menu else 'Выйти'
+        # Sign out moved to Profile; Settings is last in both menu variants.
+        last_entry = 'Настройки'
         scroll=next(n for n in values if n.get('scrollable')=='true')
         l,t,r,b=map(int,re.findall(r'\d+',scroll.get('bounds')))
         for _ in range(4):
@@ -51,6 +51,11 @@ try:
             adb('shell','input','swipe',str((l+r)//2),str(b-25),str((l+r)//2),str(t+25),'300');time.sleep(.3)
         assert find(last_entry) is not None, f'Last menu entry {last_entry!r} is inaccessible'
         capture('menu-bottom-'+str(width))
+        if width == 1080:
+            # These screenshots are included in the CI artifact for design QA.
+            for screen in ['profile','settings','settings-playback','player','queue']:
+                launch(screen)
+                capture('android-'+screen+'-'+str(width))
     adb('shell','wm','size','reset');adb('shell','wm','density','reset')
     fixture=out/'nightwell-playlist.csv';fixture.write_text('artist,title\nNightwell,Import Test',encoding='utf-8')
     adb('push',str(fixture),'/sdcard/Download/nightwell-playlist.csv')
