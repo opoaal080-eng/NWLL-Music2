@@ -1833,7 +1833,11 @@ public final class MainActivity extends Activity {
             favoriteTracks.rememberLiked(shown,likes);
             recoverMissingFavoriteTracks();
             LinearLayout actionsRow=row();actionsRow.setGravity(Gravity.CENTER_VERTICAL);
-            TextView count=text(shown.length()+" треков",12);
+            int unavailable=favoriteTracks.unresolved(likes,catalog,queue,2000).size();
+            TextView count=text(shown.length()+" треков"+
+                (unavailable>0?" · "+unavailable+" без сведений":""),12);
+            count.setSingleLine(true);
+            count.setEllipsize(android.text.TextUtils.TruncateAt.END);
             favoriteCount=count;
             count.setTextColor(0xffaeb2bc);
             actionsRow.addView(count,new LinearLayout.LayoutParams(0,-2,1));
@@ -1987,6 +1991,30 @@ public final class MainActivity extends Activity {
         if(single!=null&&!single.optString("id").isEmpty())output.add(single);
     }
 
+    private void applyFavoriteMetadata(String owner,String server,int generation,
+                                      java.util.List<JSONObject> tracks) {
+        if(isDestroyed()||generation!=favoriteRecoveryGeneration||
+            !owner.equals(user)||!server.equals(origin))return;
+        int restored=0;
+        for(JSONObject track:tracks){
+            if(track==null||!likes.contains(track.optString("id")))continue;
+            NativeAPI.normalizeTrack(track);
+            if(!favoriteTracks.hasMetadata(track.optString("id")))restored++;
+            favoriteTracks.remember(track);
+        }
+        if(restored==0)return;
+        saveFavoriteIndex();
+        if(!full&&"Избранное".equals(screen)){
+            shown=sortedFavorites(favoriteTracks.visible(likes,catalog,queue,shown));
+            updateList();
+            if(favoriteCount!=null){
+                int pending=favoriteTracks.unresolved(likes,catalog,queue,2000).size();
+                favoriteCount.setText(shown.length()+" треков"+
+                    (pending>0?" · "+pending+" без сведений":""));
+            }
+        }
+    }
+
     private void recoverMissingFavoriteTracks() {
         if(user.isEmpty()||smokeMode||likes.isEmpty()||favoriteRecoveryRunning)return;
         favoriteTracks.rememberLiked(catalog,likes);
@@ -2057,6 +2085,11 @@ public final class MainActivity extends Activity {
 
                 java.util.HashSet<String> resolved=new java.util.HashSet<>();
                 for(JSONObject item:candidates)resolved.add(item.optString("id"));
+                if(!candidates.isEmpty()){
+                    final java.util.ArrayList<JSONObject> local=
+                        new java.util.ArrayList<>(candidates);
+                    ui.post(()->applyFavoriteMetadata(owner,server,generation,local));
+                }
 
                 NativeAPI client=new NativeAPI(this,server);
                 try{
@@ -2088,29 +2121,13 @@ public final class MainActivity extends Activity {
                 // Preserve the visible list of liked IDs on network failures.
             }
             ui.post(()->{
-                favoriteRecoveryRunning=false;
                 if(isDestroyed()||generation!=favoriteRecoveryGeneration||
                    !owner.equals(user)||!server.equals(origin))return;
-                int recovered=0;
-                for(JSONObject item:candidates){
-                    if(!likes.contains(item.optString("id")))continue;
-                    if(!favoriteTracks.hasMetadata(item.optString("id")))recovered++;
-                    favoriteTracks.remember(item);
-                }
-                if(recovered>0){
-                    saveFavoriteIndex();
-                    if(!full&&"Избранное".equals(screen)){
-                        shown=sortedFavorites(favoriteTracks.visible(likes,catalog,queue,shown));
-                        updateList();
-                        if(favoriteCount!=null)
-                            favoriteCount.setText(shown.length()+" треков");
-                    }
-                }
-                // Continue until all eligible IDs have been examined. This
-                // avoids the old "first five forever" recovery behavior.
-                if(!full&&"Избранное".equals(screen)){
+                favoriteRecoveryRunning=false;
+                applyFavoriteMetadata(owner,server,generation,candidates);
+                // Continue in batches, not only when the user reopens Favorites.
+                if(!full&&"Избранное".equals(screen))
                     ui.postDelayed(this::recoverMissingFavoriteTracks,1700);
-                }
             });
         });
     }
