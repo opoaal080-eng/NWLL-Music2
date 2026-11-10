@@ -44,17 +44,21 @@ public final class NightwellMotionCover extends ImageView {
     @Override protected void onAttachedToWindow(){
         super.onAttachedToWindow();
         if(Build.VERSION.SDK_INT>=26&&!ValueAnimator.areAnimatorsEnabled())return;
-        ObjectAnimator scaleX=ObjectAnimator.ofFloat(this,View.SCALE_X,1.0f,1.045f);
-        ObjectAnimator scaleY=ObjectAnimator.ofFloat(this,View.SCALE_Y,1.0f,1.045f);
-        ObjectAnimator move=ObjectAnimator.ofFloat(this,View.TRANSLATION_X,4f,-4f);
-        for(ObjectAnimator animator:new ObjectAnimator[]{scaleX,scaleY,move}){
+        if(!getContext().getSharedPreferences("appearance",Context.MODE_PRIVATE)
+                .getBoolean("nw-animated-album-artwork",true))return;
+        ObjectAnimator scaleX=ObjectAnimator.ofFloat(this,View.SCALE_X,1.035f,1.085f);
+        ObjectAnimator scaleY=ObjectAnimator.ofFloat(this,View.SCALE_Y,1.035f,1.085f);
+        ObjectAnimator move=ObjectAnimator.ofFloat(this,View.TRANSLATION_X,7f,-7f);
+        ObjectAnimator vertical=ObjectAnimator.ofFloat(this,View.TRANSLATION_Y,-6f,6f);
+        ObjectAnimator tilt=ObjectAnimator.ofFloat(this,View.ROTATION,-0.45f,0.45f);
+        for(ObjectAnimator animator:new ObjectAnimator[]{scaleX,scaleY,move,vertical,tilt}){
             animator.setDuration(8500);
             animator.setInterpolator(new AccelerateDecelerateInterpolator());
             animator.setRepeatCount(ValueAnimator.INFINITE);
             animator.setRepeatMode(ValueAnimator.REVERSE);
         }
         motion=new AnimatorSet();
-        motion.playTogether(scaleX,scaleY,move);
+        motion.playTogether(scaleX,scaleY,move,vertical,tilt);
         motion.start();
     }
 
