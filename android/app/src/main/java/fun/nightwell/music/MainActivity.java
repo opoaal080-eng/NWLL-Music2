@@ -806,7 +806,7 @@ public final class MainActivity extends Activity {
                     track.optString("title")+", "+track.optString("artist")+
                     ". Нажми для воспроизведения, удерживай чтобы поставить следующим");
                 GradientDrawable plate=new GradientDrawable();
-                plate.setColor(0xff17181d);
+                plate.setColor(rank==0?0xff17181d:rank==1?0xff2a2b30:0xff34353b);
                 plate.setCornerRadius(dp(18));
                 plate.setStroke(dp(1),rank==0?0x77ffffff:0x2cffffff);
                 card.setBackground(plate);
@@ -855,15 +855,15 @@ public final class MainActivity extends Activity {
                     dp(cardWidthDp),dp(cardHeightDp),Gravity.CENTER_HORIZONTAL|Gravity.TOP);
                 layout.topMargin=dp(6);
                 deck.addView(card,layout);
-                float targetScale=1f-rank*.055f;
-                float targetY=dp(rank*12);
-                float targetX=dp(rank*11);
-                float yaw=rank*5.8f;
+                float targetScale=1f-rank*.062f;
+                float targetY=dp(rank*18);
+                float targetX=dp(rank*20);
+                float yaw=rank*8.0f;
                 card.setCameraDistance(dp(3500));
                 card.setPivotX(dp(cardWidthDp)/2f);
                 card.setPivotY(dp(cardHeightDp)/2f);
                 card.setTranslationX(targetX);
-                card.setRotationX(rank*1.4f);
+                card.setRotationX(rank*1.9f);
                 card.setRotationY(yaw);
                 if(motion){
                     card.setAlpha(0f);
