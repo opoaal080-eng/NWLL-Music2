@@ -2406,7 +2406,7 @@ public final class MainActivity extends Activity {
         top.addView(center,new LinearLayout.LayoutParams(0,dp(60),1));
         top.addView(iconButton("⋯",()->fullPlayerMenu(track)),new LinearLayout.LayoutParams(dp(48),dp(48)));
         body.addView(top);
-        android.widget.ScrollView scroll=new android.widget.ScrollView(this);scroll.setFillViewport(true);scroll.setClipToPadding(false);LinearLayout content=column();content.setPadding(0,dp(16),0,dp(16));scroll.addView(content);body.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+        android.widget.ScrollView scroll=new android.widget.ScrollView(this);scroll.setFillViewport(true);scroll.setClipToPadding(false);LinearLayout content=column();content.setPadding(0,dp(4),0,dp(10));scroll.addView(content);body.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
         boolean landscapePlayer=getResources().getConfiguration().orientation==
             android.content.res.Configuration.ORIENTATION_LANDSCAPE;
         LinearLayout details=content;
@@ -2422,8 +2422,8 @@ public final class MainActivity extends Activity {
         }else addCover(track,content);
         LinearLayout metadata=row();metadata.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout names=column();
-        TextView title=text(track.optString("title"),25);title.setMaxLines(2);title.setLetterSpacing(-.025f);title.setLineSpacing(dp(2),1f);title.setAutoSizeTextTypeUniformWithConfiguration(19,25,1,android.util.TypedValue.COMPLEX_UNIT_SP);title.setEllipsize(android.text.TextUtils.TruncateAt.END);title.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);title.setPadding(dp(8),dp(18),dp(8),dp(6));names.addView(title);
-        TextView artist=text(track.optString("artist")+"  ›",12);artist.setTextColor(0xffd3d3da);artist.setMaxLines(2);artist.setEllipsize(android.text.TextUtils.TruncateAt.END);artist.setPadding(dp(10),dp(6),dp(10),dp(6));artist.setBackground(touchSurface(0x55282a31,16));artist.setOnClickListener(v->chooseArtist(track.optString("artist")));artist.setContentDescription("Открыть исполнителя");names.addView(artist);
+        TextView title=text(track.optString("title"),23);title.setMaxLines(2);title.setLetterSpacing(-.025f);title.setLineSpacing(dp(2),1f);title.setAutoSizeTextTypeUniformWithConfiguration(18,23,1,android.util.TypedValue.COMPLEX_UNIT_SP);title.setEllipsize(android.text.TextUtils.TruncateAt.END);title.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);title.setPadding(dp(4),dp(4),dp(4),dp(5));names.addView(title);
+        TextView artist=text(track.optString("artist")+"  ›",14);artist.setTextColor(0xffd3d3da);artist.setMaxLines(2);artist.setEllipsize(android.text.TextUtils.TruncateAt.END);artist.setPadding(dp(6),dp(4),dp(6),dp(4));artist.setBackground(null);artist.setOnClickListener(v->chooseArtist(track.optString("artist")));artist.setContentDescription("Открыть исполнителя");names.addView(artist);
         metadata.addView(names,new LinearLayout.LayoutParams(0,-2,1));
         fullLike=iconButton(likes.contains(track.optString("id"))?"♥":"♡",()->toggleFavorite(current()));
         fullLike.setContentDescription(likes.contains(track.optString("id"))?"Убрать из избранного":"Добавить в избранное");
@@ -2446,7 +2446,7 @@ public final class MainActivity extends Activity {
         metadata.addView(fullDislike,new LinearLayout.LayoutParams(dp(44),dp(48)));
         metadata.addView(fullLike,likeParams);
         details.addView(metadata);
-        LinearLayout transport=column();transport.setPadding(dp(12),dp(12),dp(12),dp(6));transport.setBackground(new NativeSurfaceDrawable(transport,26));details.addView(transport);
+        LinearLayout transport=column();transport.setPadding(dp(10),dp(8),dp(10),dp(4));transport.setBackground(glass(23));details.addView(transport);
         seek=new SeekBar(this);seek.setMinimumHeight(dp(44));seek.setProgressTintList(android.content.res.ColorStateList.valueOf(0xfff0f0f0));seek.setSecondaryProgressTintList(android.content.res.ColorStateList.valueOf(0x88c6c9d0));seek.setProgressBackgroundTintList(android.content.res.ColorStateList.valueOf(0x333b3d43));android.graphics.drawable.GradientDrawable tinyThumb=new android.graphics.drawable.GradientDrawable();tinyThumb.setShape(android.graphics.drawable.GradientDrawable.OVAL);tinyThumb.setColor(0xfff8f8f8);tinyThumb.setStroke(dp(1),0x88ffffff);tinyThumb.setSize(dp(8),dp(8));seek.setThumb(tinyThumb);seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar b,int p,boolean user){}public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){cancelMix();if(playback!=null)playback.seek(b.getProgress());}});transport.addView(seek);fullTime=text("",12);fullTime.setPadding(dp(8),0,dp(8),dp(12));fullTime.setTextColor(0xffc8c8c8);transport.addView(fullTime);
         LinearLayout controls=row();controls.setGravity(Gravity.CENTER);
         TextView shuffleButton=iconButton("⇄",()->{
@@ -2474,17 +2474,17 @@ public final class MainActivity extends Activity {
         }
         backward.setTextSize(31);forward.setTextSize(31);
         fullPlay.setTextColor(0xffeeeeee);fullPlay.setTextSize(30);
-        fullPlay.setBackground(touchSurface(0x442a2730,38));
+        fullPlay.setBackground(touchSurface(0xfff0f0f1,34));fullPlay.setTextColor(0xff17181a);
         fullPlay.setPadding(0,0,0,0);
         controls.addView(shuffleButton,new LinearLayout.LayoutParams(0,dp(56),1));
-        controls.addView(backward,new LinearLayout.LayoutParams(0,dp(64),1));
-        LinearLayout.LayoutParams centerPlay=new LinearLayout.LayoutParams(dp(76),dp(76));
+        controls.addView(backward,new LinearLayout.LayoutParams(0,dp(59),1));
+        LinearLayout.LayoutParams centerPlay=new LinearLayout.LayoutParams(dp(66),dp(66));
         centerPlay.leftMargin=dp(2);centerPlay.rightMargin=dp(2);
         controls.addView(fullPlay,centerPlay);
-        controls.addView(forward,new LinearLayout.LayoutParams(0,dp(64),1));
+        controls.addView(forward,new LinearLayout.LayoutParams(0,dp(59),1));
         controls.addView(repeatButton,new LinearLayout.LayoutParams(0,dp(56),1));
         transport.addView(controls);
-        TextView queueButton=action("Дальше в очереди  ·  "+queue.length(),this::showQueue);queueButton.setTextSize(14);queueButton.setTextColor(0xffc8c8c8);transport.addView(queueButton);updatePlayback();
+        TextView queueButton=action("Очередь  ·  "+queue.length()+"    ›",this::showQueue);queueButton.setTextSize(13);queueButton.setTextColor(0xffbfc2ca);queueButton.setMinHeight(dp(39));transport.addView(queueButton);updatePlayback();
     }
     void loadMiniCover(JSONObject track) {
         if (miniCover == null || artworkCache == null) return;
@@ -2493,31 +2493,44 @@ public final class MainActivity extends Activity {
     void addCover(JSONObject track,LinearLayout parent) {
         boolean classic="classic".equals(getSharedPreferences("appearance",MODE_PRIVATE)
             .getString("nw-cover-style","immersive"));
-        // Full-screen style keeps the large moving feathered cover. Classic
-        // restores the clean rounded square, without any vertical fading.
+        boolean landscape=getResources().getConfiguration().orientation==
+            android.content.res.Configuration.ORIENTATION_LANDSCAPE;
+        int width=getResources().getConfiguration().screenWidthDp;
+        int height=getResources().getConfiguration().screenHeightDp;
+        // A cover must not push playback controls outside the viewport.
+        // Immersive remains broad, while classic has wider side margins.
+        int preferred=classic?width-54:width-20;
+        int maxByHeight=(int)(height*(landscape?.66f:.43f));
+        int side=landscape?Math.min(width/2-26,height-120):
+            Math.min(preferred,maxByHeight);
+        side=Math.max(145,Math.min(side,380));
+        android.widget.FrameLayout artwork=new android.widget.FrameLayout(this);
+        GradientDrawable backdrop=new GradientDrawable(
+            GradientDrawable.Orientation.TL_BR,
+            new int[]{0xff4b4e55,0xff292b31,0xff131418});
+        backdrop.setCornerRadius(dp(classic?23:25));
+        backdrop.setStroke(dp(1),0x4cffffff);
+        artwork.setBackground(backdrop);
+        artwork.setClipToOutline(true);
+        artwork.setElevation(dp(7));
+        TextView placeholder=text("N",94);
+        placeholder.setGravity(Gravity.CENTER);
+        placeholder.setTypeface(android.graphics.Typeface.create("sans-serif-black",0));
+        placeholder.setTextColor(0x25ffffff);
+        placeholder.setContentDescription("Обложка Nightwell Music");
+        artwork.addView(placeholder,new android.widget.FrameLayout.LayoutParams(-1,-1));
         android.widget.ImageView cover=classic
             ?new android.widget.ImageView(this):new NightwellMotionCover(this);
         cover.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+        cover.setBackgroundColor(Color.TRANSPARENT);
         android.view.GestureDetector detector=gestures(true);
-        cover.setOnTouchListener((v,event)->detector.onTouchEvent(event));
-        int width=getResources().getConfiguration().screenWidthDp;
-        boolean landscape=getResources().getConfiguration().orientation==
-            android.content.res.Configuration.ORIENTATION_LANDSCAPE;
-        int edge=landscape
-            ?Math.max(120,Math.min((int)(width*.44),
-                getResources().getConfiguration().screenHeightDp-130))
-            :(classic?Math.max(200,width-44):Math.max(280,width+18));
-        if(classic){
-            GradientDrawable rounded=new GradientDrawable();
-            rounded.setColor(0xff25252b);
-            rounded.setCornerRadius(dp(24));
-            cover.setBackground(rounded);
-            cover.setClipToOutline(true);
-            cover.setElevation(dp(8));
-        }
-        LinearLayout.LayoutParams coverLayout=new LinearLayout.LayoutParams(dp(edge),dp(edge));
-        coverLayout.gravity=Gravity.CENTER_HORIZONTAL;
-        parent.addView(cover,coverLayout);
+        cover.setOnTouchListener((view,event)->detector.onTouchEvent(event));
+        artwork.addView(cover,new android.widget.FrameLayout.LayoutParams(-1,-1));
+        LinearLayout.LayoutParams layout=new LinearLayout.LayoutParams(dp(side),dp(side));
+        layout.gravity=Gravity.CENTER_HORIZONTAL;
+        layout.topMargin=dp(7);
+        layout.bottomMargin=dp(13);
+        parent.addView(artwork,layout);
         if(artworkCache!=null)artworkCache.load(cover,origin,track.optString("cover_url"));
     }
     String[] trackNames(JSONArray items){String[] names=new String[items.length()];for(int i=0;i<names.length;i++)names[i]=items.optJSONObject(i).optString("title");return names;}
