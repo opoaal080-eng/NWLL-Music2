@@ -461,8 +461,8 @@ public final class MainActivity extends Activity {
         fill.setCornerRadius(dp(corners));fill.setStroke(dp(1),0x24ffffff);return fill;
     }
     android.graphics.drawable.Drawable touchSurface(int color,int corners){GradientDrawable fill=fieldSurface(color,corners);GradientDrawable mask=new GradientDrawable();mask.setColor(Color.WHITE);mask.setCornerRadius(dp(corners));return new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x30ffffff),fill,mask);}
-    TextView sectionLabel(String label){TextView v=text(label.toUpperCase(java.util.Locale.ROOT),11);v.setLetterSpacing(0.08f);v.setTextColor(0xffadb0b8);v.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);v.setPadding(dp(6),dp(8),dp(6),dp(6));return v;}
-    void styleField(EditText view){view.setTextColor(0xfff4f4f7);view.setHintTextColor(0xff8f95a5);view.setTextSize(15);view.setBackground(fieldSurface(0x88262a33,18));view.setPadding(dp(16),dp(14),dp(16),dp(14));}
+    TextView sectionLabel(String label){TextView v=text(label.toUpperCase(java.util.Locale.ROOT),11);v.setLetterSpacing(.095f);v.setTextColor(0xffadb0b8);v.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));v.setPadding(dp(5),dp(12),dp(5),dp(7));return v;}
+    void styleField(EditText view){view.setTextColor(0xfff4f4f7);view.setHintTextColor(0xff8f95a5);view.setTextSize(15);view.setMinHeight(dp(50));view.setBackground(fieldSurface(0x88262a33,16));view.setPadding(dp(14),dp(10),dp(14),dp(10));}
     void styleSwitch(android.widget.Switch view){view.setTextColor(0xfff0f1f6);view.setTextSize(15);view.setPadding(dp(2),dp(10),dp(2),dp(10));}
     void styleSheet(AlertDialog dialog){dialog.setOnShowListener(ignored->{android.view.Window window=dialog.getWindow();if(window!=null){window.setBackgroundDrawable(surface());window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);WindowManager.LayoutParams params=window.getAttributes();params.dimAmount=.72f;window.setAttributes(params);int width=Math.min(dp(isLandscapeLayout()?740:540),
                 getResources().getDisplayMetrics().widthPixels-dp(isLandscapeLayout()?20:28));
@@ -2527,14 +2527,14 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams routeParams=new LinearLayout.LayoutParams(-2,dp(30));
         routeParams.gravity=Gravity.CENTER_HORIZONTAL;
         center.addView(fullAudioOutput,routeParams);
-        TextView caption=text("Играет сейчас",16);
+        TextView caption=text("СЕЙЧАС ИГРАЕТ",11);caption.setLetterSpacing(.16f);caption.setTextColor(0xffc4c5cc);
         caption.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams captionParams=new LinearLayout.LayoutParams(-1,dp(24));
         center.addView(caption,captionParams);
-        top.addView(center,new LinearLayout.LayoutParams(0,dp(60),1));
+        top.addView(center,new LinearLayout.LayoutParams(0,dp(50),1));
         top.addView(iconButton("⋯",()->fullPlayerMenu(track)),new LinearLayout.LayoutParams(dp(48),dp(48)));
         body.addView(top);
-        android.widget.ScrollView scroll=new android.widget.ScrollView(this);scroll.setFillViewport(true);scroll.setClipToPadding(false);LinearLayout content=column();content.setPadding(0,dp(4),0,dp(10));scroll.addView(content);body.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+        android.widget.ScrollView scroll=new android.widget.ScrollView(this);scroll.setFillViewport(true);scroll.setClipToPadding(false);LinearLayout content=column();content.setPadding(dp(2),dp(6),dp(2),dp(18));scroll.addView(content);body.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
         boolean landscapePlayer=getResources().getConfiguration().orientation==
             android.content.res.Configuration.ORIENTATION_LANDSCAPE;
         LinearLayout details=content;
@@ -2550,7 +2550,7 @@ public final class MainActivity extends Activity {
         }else addCover(track,content);
         LinearLayout metadata=row();metadata.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout names=column();
-        TextView title=text(track.optString("title"),23);title.setMaxLines(2);title.setLetterSpacing(-.025f);title.setLineSpacing(dp(2),1f);title.setAutoSizeTextTypeUniformWithConfiguration(18,23,1,android.util.TypedValue.COMPLEX_UNIT_SP);title.setEllipsize(android.text.TextUtils.TruncateAt.END);title.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);title.setPadding(dp(4),dp(4),dp(4),dp(5));names.addView(title);
+        TextView title=text(track.optString("title"),23);title.setMaxLines(2);title.setLetterSpacing(-.025f);title.setLineSpacing(dp(2),1f);title.setAutoSizeTextTypeUniformWithConfiguration(18,23,1,android.util.TypedValue.COMPLEX_UNIT_SP);title.setEllipsize(android.text.TextUtils.TruncateAt.END);title.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);title.setPadding(dp(2),dp(12),dp(4),dp(6));names.addView(title);
         TextView artist=text(track.optString("artist")+"  ›",14);artist.setTextColor(0xffd3d3da);artist.setMaxLines(2);artist.setEllipsize(android.text.TextUtils.TruncateAt.END);artist.setPadding(dp(6),dp(4),dp(6),dp(4));artist.setBackground(null);artist.setOnClickListener(v->chooseArtist(track.optString("artist")));artist.setContentDescription("Открыть исполнителя");names.addView(artist);
         metadata.addView(names,new LinearLayout.LayoutParams(0,-2,1));
         fullLike=iconButton(likes.contains(track.optString("id"))?"♥":"♡",()->toggleFavorite(current()));
@@ -2575,9 +2575,18 @@ public final class MainActivity extends Activity {
         fullDislike.setContentDescription(hidden?"Вернуть в рекомендации":"Не рекомендовать");
         metadata.addView(fullDislike,new LinearLayout.LayoutParams(dp(44),dp(48)));
         metadata.addView(fullLike,likeParams);
-        details.addView(metadata);
-        LinearLayout transport=column();transport.setPadding(dp(10),dp(8),dp(10),dp(4));transport.setBackground(glass(23));details.addView(transport);
-        seek=new SeekBar(this);seek.setMinimumHeight(dp(44));seek.setProgressTintList(android.content.res.ColorStateList.valueOf(0xfff0f0f0));seek.setSecondaryProgressTintList(android.content.res.ColorStateList.valueOf(0x88c6c9d0));seek.setProgressBackgroundTintList(android.content.res.ColorStateList.valueOf(0x333b3d43));android.graphics.drawable.GradientDrawable tinyThumb=new android.graphics.drawable.GradientDrawable();tinyThumb.setShape(android.graphics.drawable.GradientDrawable.OVAL);tinyThumb.setColor(0xfff8f8f8);tinyThumb.setStroke(dp(1),0x88ffffff);tinyThumb.setSize(dp(8),dp(8));seek.setThumb(tinyThumb);seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar b,int p,boolean user){}public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){cancelMix();if(playback!=null)playback.seek(b.getProgress());}});transport.addView(seek);fullTime=text("",12);fullTime.setPadding(dp(8),0,dp(8),dp(12));fullTime.setTextColor(0xffc8c8c8);transport.addView(fullTime);
+        LinearLayout.LayoutParams metadataParams=new LinearLayout.LayoutParams(-1,-2);
+        metadataParams.bottomMargin=dp(4);
+        details.addView(metadata,metadataParams);
+        LinearLayout transport=column();
+        transport.setPadding(dp(4),dp(6),dp(4),dp(5));
+        transport.setBackground(null);
+        transport.setClipChildren(false);
+        transport.setClipToPadding(false);
+        LinearLayout.LayoutParams transportParams=new LinearLayout.LayoutParams(-1,-2);
+        transportParams.topMargin=dp(isLandscapeLayout()?5:13);
+        details.addView(transport,transportParams);
+        seek=new SeekBar(this);seek.setMinimumHeight(dp(44));seek.setProgressTintList(android.content.res.ColorStateList.valueOf(0xfff0f0f0));seek.setSecondaryProgressTintList(android.content.res.ColorStateList.valueOf(0x88c6c9d0));seek.setProgressBackgroundTintList(android.content.res.ColorStateList.valueOf(0x333b3d43));android.graphics.drawable.GradientDrawable tinyThumb=new android.graphics.drawable.GradientDrawable();tinyThumb.setShape(android.graphics.drawable.GradientDrawable.OVAL);tinyThumb.setColor(0xfff8f8f8);tinyThumb.setStroke(dp(1),0x88ffffff);tinyThumb.setSize(dp(8),dp(8));seek.setThumb(tinyThumb);seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar b,int p,boolean user){}public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){cancelMix();if(playback!=null)playback.seek(b.getProgress());}});transport.addView(seek);fullTime=text("",12);fullTime.setPadding(dp(5),0,dp(5),dp(5));fullTime.setTextColor(0xffc8c8c8);transport.addView(fullTime);
         LinearLayout controls=row();controls.setGravity(Gravity.CENTER);
         TextView shuffleButton=iconButton("⇄",()->{
             if(playback==null)return;
@@ -2621,7 +2630,22 @@ public final class MainActivity extends Activity {
         controls.addView(forward,new LinearLayout.LayoutParams(0,dp(59),1));
         controls.addView(repeatButton,new LinearLayout.LayoutParams(0,dp(56),1));
         transport.addView(controls);
-        TextView queueButton=action("Очередь  ·  "+queue.length()+"    ›",this::showQueue);queueButton.setTextSize(13);queueButton.setTextColor(0xffbfc2ca);queueButton.setMinHeight(dp(39));transport.addView(queueButton);updatePlayback();
+        TextView queueButton=action("Объёмная очередь  ·  "+queue.length()+"   ›",this::showQueue);
+        queueButton.setTextSize(13);
+        queueButton.setTextColor(0xffc1c4ce);
+        queueButton.setMinHeight(dp(43));
+        queueButton.setPadding(dp(8),dp(9),dp(8),dp(7));
+        queueButton.setBackground(null);
+        LinearLayout.LayoutParams queueParams=new LinearLayout.LayoutParams(-1,dp(46));
+        queueParams.topMargin=dp(10);
+        transport.addView(queueButton,queueParams);
+        if(android.animation.ValueAnimator.areAnimatorsEnabled()){
+            content.setAlpha(0f);
+            content.setTranslationY(dp(10));
+            content.animate().alpha(1f).translationY(0f).setDuration(270)
+                .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
+        }
+        updatePlayback();
     }
     void loadMiniCover(JSONObject track) {
         if (miniCover == null || artworkCache == null) return;
