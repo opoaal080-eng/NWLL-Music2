@@ -3366,31 +3366,46 @@ public final class MainActivity extends Activity {
     }
 
     void settings(){
-        LinearLayout list=column();list.setPadding(dp(18),dp(12),dp(18),dp(16));
-        TextView introduction=text("Все параметры по отдельным разделам.",13);
-        introduction.setTextColor(0xffb3b6bd);
-        introduction.setPadding(dp(6),0,dp(6),dp(14));list.addView(introduction);
+        LinearLayout list=column();
+        list.setPadding(dp(19),dp(6),dp(19),dp(13));
+        TextView introduction=text("Настрой музыку под себя",13);
+        introduction.setTextColor(0xffadb0b9);
+        introduction.setPadding(dp(4),0,0,dp(16));
+        list.addView(introduction);
         final String[] pages={"Кастомизация","Воспроизведение","Оформление","О приложении"};
-        final String[] descriptions={
-            "Обложка, очередь, текст и анимации",
-            "Переключение, загрузка, громкость и буфер",
-            "Темы, ленты и внешний вид",
+        final String[] captions={
+            "Обложки, очередь и текст песен",
+            "Звук, загрузка и переходы",
+            "Темы и визуальные эффекты",
             "Версия и сведения о сборке"
         };
+        final String[] symbols={"◈","♫","✧","ⓘ"};
         AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Настройки")
             .setView(list).setPositiveButton("Готово",null).create();
         for(int i=0;i<pages.length;i++){
             final String selected=pages[i];
-            LinearLayout item=column();item.setPadding(dp(16),dp(12),dp(16),dp(12));
-            TextView title=text(selected+"   ›",16);title.setTypeface(null,android.graphics.Typeface.BOLD);
-            TextView subtitle=text(descriptions[i],12);subtitle.setTextColor(0xffb4b7c0);
-            item.addView(title);item.addView(subtitle);
-            item.setBackground(touchSurface(0x8a2e3138,18));
-            LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,dp(72));
-            params.bottomMargin=dp(10);list.addView(item,params);
+            LinearLayout item=row();
+            item.setPadding(dp(15),0,dp(12),0);
+            item.setBackground(touchSurface(0xff282a30,18));
+            TextView symbol=text(symbols[i],23);
+            symbol.setTextColor(0xffd5d6dc);symbol.setGravity(Gravity.CENTER);
+            symbol.setBackground(fieldSurface(0xff33353a,14));
+            item.addView(symbol,new LinearLayout.LayoutParams(dp(45),dp(45)));
+            LinearLayout names=column();names.setPadding(dp(13),0,0,0);
+            TextView title=text(selected,16);
+            title.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));
+            TextView subtitle=text(captions[i],12);
+            subtitle.setTextColor(0xffa7aab4);subtitle.setPadding(0,dp(4),0,0);
+            names.addView(title);names.addView(subtitle);
+            item.addView(names,new LinearLayout.LayoutParams(0,-2,1));
+            TextView chevron=text("›",25);chevron.setTextColor(0xff9b9da6);
+            item.addView(chevron,new LinearLayout.LayoutParams(dp(18),-2));
+            LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,dp(78));
+            params.bottomMargin=dp(9);
+            list.addView(item,params);
             item.setOnClickListener(v->{dialog.dismiss();settingsPage(selected);});
         }
-        styleSheet(dialog);dialog.show();
+        styleNavigationSheet(dialog);dialog.show();
     }
 
     void settingsPage(String page){
@@ -3542,10 +3557,11 @@ public final class MainActivity extends Activity {
         TextView version=text("Nightwell Music "+BuildConfig.VERSION_NAME+" ("+BuildConfig.VERSION_CODE+")",12);
         version.setTextColor(0xff9696a1);version.setPadding(0,dp(12),0,0);panel.addView(version);
         }
+        arrangeSettingsControls(panel);
         AlertDialog dialog=new AlertDialog.Builder(this).setTitle(page).setView(scroll)
             .setPositiveButton("Назад",(d,w)->settings())
             .setNegativeButton("Закрыть",null).create();
-        styleSheet(dialog);dialog.show();
+        styleNavigationSheet(dialog);dialog.show();
     }
 
     private JSONObject premiumPrefs=new JSONObject();private String premiumOwner="";private long premiumUntil,premiumChecked;private boolean premiumLoading;
