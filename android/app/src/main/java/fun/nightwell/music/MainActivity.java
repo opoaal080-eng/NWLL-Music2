@@ -1158,31 +1158,52 @@ public final class MainActivity extends Activity {
 
     void profile(){
         if(user.isEmpty()){auth();return;}
-        LinearLayout panel=column();panel.setPadding(dp(18),dp(18),dp(18),dp(18));
+        LinearLayout panel=column();
+        panel.setPadding(dp(20),dp(13),dp(20),dp(14));
         LinearLayout header=row();
+        header.setPadding(dp(1),dp(4),dp(1),dp(12));
         android.widget.ImageView avatar=new android.widget.ImageView(this);
         if(cachedProfileAvatar!=null){
             avatar.setImageBitmap(cachedProfileAvatar);
             avatar.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
-        }else avatar.setImageResource(android.R.drawable.ic_menu_myplaces);
-        avatar.setBackground(glass(38));avatar.setClipToOutline(true);
-        header.addView(avatar,new LinearLayout.LayoutParams(dp(72),dp(72)));
-        LinearLayout label=column();label.setPadding(dp(15),0,0,0);
-        TextView name=text(cachedProfileNickname.isEmpty()?"Мой профиль":cachedProfileNickname,20);
-        name.setTypeface(null,android.graphics.Typeface.BOLD);
-        label.addView(name);TextView description=text("Аккаунт Nightwell Music",12);
-        description.setTextColor(0xffb9bcc4);label.addView(description);
-        header.addView(label,new LinearLayout.LayoutParams(0,-2,1));panel.addView(header);
-        TextView editAvatar=sheetAction("Изменить аватар",this::selectProfileAvatar);
-        TextView editNick=sheetAction("Изменить ник",this::editProfileNickname);
-        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);
-        p.topMargin=dp(12);panel.addView(editAvatar,p);
-        LinearLayout.LayoutParams p2=new LinearLayout.LayoutParams(-1,-2);
-        p2.topMargin=dp(8);panel.addView(editNick,p2);
-        TextView logout=sheetAction("Выйти из аккаунта",()->{});
-        logout.setTextColor(0xffffa8ad);
-        LinearLayout.LayoutParams p3=new LinearLayout.LayoutParams(-1,-2);
-        p3.topMargin=dp(22);panel.addView(logout,p3);
+        }else{
+            avatar.setImageResource(android.R.drawable.ic_menu_myplaces);
+            avatar.setPadding(dp(13),dp(13),dp(13),dp(13));
+        }
+        avatar.setBackground(fieldSurface(0xff292b30,34));
+        avatar.setClipToOutline(true);
+        avatar.setElevation(dp(2));
+        header.addView(avatar,new LinearLayout.LayoutParams(dp(68),dp(68)));
+        LinearLayout identity=column();
+        identity.setGravity(Gravity.CENTER_VERTICAL);
+        identity.setPadding(dp(16),0,0,0);
+        String nickname=cachedProfileNickname.isEmpty()?"Твой профиль":cachedProfileNickname;
+        TextView title=text(nickname,21);
+        title.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));
+        title.setMaxLines(1);
+        title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        identity.addView(title);
+        TextView caption=text("Аккаунт Nightwell Music",13);
+        caption.setTextColor(0xffa2a6b0);
+        caption.setPadding(0,dp(6),0,0);
+        identity.addView(caption);
+        header.addView(identity,new LinearLayout.LayoutParams(0,dp(68),1));
+        panel.addView(header);
+        View rule=new View(this);rule.setBackgroundColor(0x26ffffff);
+        LinearLayout.LayoutParams line=new LinearLayout.LayoutParams(-1,dp(1));
+        line.bottomMargin=dp(14);
+        panel.addView(rule,line);
+        TextView editAvatar=sheetAction("▧    Изменить аватар    ›",this::selectProfileAvatar);
+        TextView editNick=sheetAction("✎    Изменить ник    ›",this::editProfileNickname);
+        LinearLayout.LayoutParams a1=new LinearLayout.LayoutParams(-1,dp(53));
+        a1.bottomMargin=dp(9);panel.addView(editAvatar,a1);
+        panel.addView(editNick,new LinearLayout.LayoutParams(-1,dp(53)));
+        View space=new View(this);
+        panel.addView(space,new LinearLayout.LayoutParams(-1,dp(16)));
+        TextView logout=sheetAction("↪    Выйти из аккаунта",()->{});
+        logout.setTextColor(0xffffaaa9);
+        logout.setBackground(touchSurface(0xff30262a,17));
+        panel.addView(logout,new LinearLayout.LayoutParams(-1,dp(54)));
         AlertDialog sheet=new AlertDialog.Builder(this).setTitle("Профиль")
             .setView(panel).setPositiveButton("Готово",null).create();
         logout.setOnClickListener(v->new AlertDialog.Builder(this)
@@ -1192,7 +1213,7 @@ public final class MainActivity extends Activity {
                 sheet.dismiss();
                 selectMenu("Выйти");
             }).show());
-        styleSheet(sheet);sheet.show();
+        styleNavigationSheet(sheet);sheet.show();
     }
 
     void selectMenu(String tab){
