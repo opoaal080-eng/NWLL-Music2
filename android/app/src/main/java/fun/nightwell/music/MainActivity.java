@@ -1932,6 +1932,84 @@ public final class MainActivity extends Activity {
         }
         if(adapter!=null)adapter.notifyDataSetChanged();
     }
+    private String favoriteIndexKey(String owner) {
+        return origin+"|"+owner;
+    }
+
+    private void restoreFavoriteIndex(String owner) {
+        favoriteTracks.clear();
+        favoriteRecoveryAttempts.clear();
+        favoriteRecoveryGeneration++;
+        if(owner==null||owner.isEmpty())return;
+        try{
+            String saved=getSharedPreferences("favorite-tracks-v1",MODE_PRIVATE)
+                .getString(favoriteIndexKey(owner),"");
+            if(!saved.isEmpty())favoriteTracks.restore(new JSONObject(saved));
+        }catch(Exception ignored){}
+    }
+
+    private void saveFavoriteIndex() {
+        if(user.isEmpty()||smokeMode)return;
+        String payload=favoriteTracks.snapshot(1500).toString();
+        if(payload.length()>1900000)return;
+        getSharedPreferences("favorite-tracks-v1",MODE_PRIVATE).edit()
+            .putString(favoriteIndexKey(user),payload).apply();
+    }
+
+    private void recoverMissingFavoriteTracks() {
+        if(user.isEmpty()||smokeMode||likes.isEmpty())return;
+        final long now=SystemClock.elapsedRealtime();
+        if(now-favoriteLastRecovery<6000)return;
+        java.util.List<String> missing=favoriteTracks.unresolved(likes,catalog,queue,8);
+        java.util.ArrayList<String> chosen=new java.util.ArrayList<>();
+        for(String id:missing){
+            long previous=favoriteRecoveryAttempts.containsKey(id)?
+                favoriteRecoveryAttempts.get(id):0L;
+            if(now-previous<180000)continue;
+            chosen.add(id);
+            favoriteRecoveryAttempts.put(id,now);
+            if(chosen.size()>=5)break;
+        }
+        if(chosen.isEmpty())return;
+        favoriteLastRecovery=now;
+        final int ticket=++favoriteRecoveryGeneration;
+        final String owner=user,server=origin;
+        favoriteLookup.execute(()->{
+            java.util.ArrayList<JSONObject> found=new java.util.ArrayList<>();
+            NativeAPI lookup=new NativeAPI(this,server);
+            try{
+                for(String id:chosen){
+                    if(Thread.currentThread().isInterrupted())break;
+                    try{
+                        JSONArray entries=lookup.request("api/shared-track/"+id)
+                            .optJSONArray("tracks");
+                        if(entries==null)continue;
+                        for(int i=0;i<entries.length();i++){
+                            JSONObject item=entries.optJSONObject(i);
+                            if(item!=null&&id.equalsIgnoreCase(item.optString("id"))){
+                                found.add(item);break;
+                            }
+                        }
+                    }catch(Exception ignored){
+                        // Older servers may not expose a particular ID.
+                        // Leave a visible placeholder instead of hiding the like.
+                    }
+                }
+            }finally{lookup.close();}
+            if(found.isEmpty())return;
+            ui.post(()->{
+                if(isDestroyed()||ticket!=favoriteRecoveryGeneration||
+                    !owner.equals(user)||!server.equals(origin))return;
+                for(JSONObject item:found){
+                    if(likes.contains(item.optString("id")))
+                        favoriteTracks.remember(item);
+                }
+                saveFavoriteIndex();
+                if(!full&&"Избранное".equals(screen))showScreen();
+            });
+        });
+    }
+
     private void restoreLibrarySnapshot(String account) {
         try {
             String raw=getSharedPreferences("library-snapshot",MODE_PRIVATE).getString("snapshot",null);
