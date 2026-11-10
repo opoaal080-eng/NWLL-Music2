@@ -62,6 +62,44 @@ public final class PlaybackService extends MediaSessionService {
     private int pendingNextIndex = C.INDEX_UNSET;
     private String pendingNextId = "";
     private Runnable pendingNextTimeout;
+    private boolean keepCurrentUntilReady() {
+        return getSharedPreferences("playback",MODE_PRIVATE)
+            .getBoolean("nw-keep-current-until-ready",true);
+    }
+    // Manual queue selections must use a stable media ID, not the artwork
+    // deck's index which may have moved while recommendations were appended.
+    void selectTrack(String id) {
+        if(player==null||id==null||id.isEmpty())return;
+        for(int i=0;i<player.getMediaItemCount();i++) {
+            if(id.equals(player.getMediaItemAt(i).mediaId)) {
+                if(i==player.getCurrentMediaItemIndex()){
+                    if(!player.getPlayWhenReady())player.play();
+                    return;
+                }
+                if(keepCurrentUntilReady()&&player.getPlayWhenReady()
+                   &&player.getPlaybackState()!=Player.STATE_ENDED) {
+                    prepareSelectedIndex(i);
+                } else {
+                    cancelPreparedNext();
+                    player.seekTo(i,0);
+                    if(player.getPlaybackState()==Player.STATE_IDLE)player.prepare();
+                    player.play();
+                }
+                return;
+            }
+        }
+    }
+    void settingKeepCurrentUntilReady(boolean enabled) {
+        getSharedPreferences("playback",MODE_PRIVATE).edit()
+            .putBoolean("nw-keep-current-until-ready",enabled).apply();
+        if(!enabled&&nextPreparing&&pendingNextIndex!=C.INDEX_UNSET) {
+            int target=pendingNextIndex;
+            cancelPreparedNext();
+            player.seekTo(target,0);
+            if(player.getPlaybackState()==Player.STATE_IDLE)player.prepare();
+            player.play();
+        }
+    }
     private void cancelPreparedNext() {
         pendingNextGeneration++;
         nextPreparing = false; pendingWaveNext = false;
@@ -82,6 +120,17 @@ public final class PlaybackService extends MediaSessionService {
             if(waveActive) { pendingWaveNext = true; refillWave(); }
             return;
         }
+        if(!keepCurrentUntilReady()) {
+            player.seekTo(destination,0);
+            if(player.getPlaybackState()==Player.STATE_IDLE)player.prepare();
+            player.play();
+            return;
+        }
+        prepareSelectedIndex(destination);
+    }
+    private void prepareSelectedIndex(int destination) {
+        if(player==null || destination<0 || destination>=player.getMediaItemCount())return;
+        cancelPreparedNext();
         MediaItem candidate = player.getMediaItemAt(destination);
         if(candidate.localConfiguration == null) return;
         nextPreparing = true; pendingNextIndex = destination;
@@ -776,6 +825,15 @@ public final class PlaybackService extends MediaSessionService {
             state.put("duration",player.getDuration()==C.TIME_UNSET?0:player.getDuration()/1000.0);
             state.put("playing",player.getPlayWhenReady() && player.getPlaybackState()!=Player.STATE_ENDED);
             state.put("nextPreparing",nextPreparing || pendingWaveNext);
+            state.put("displayID",nextPreparing&&!pendingNextId.isEmpty()?pendingNextId:
+                item==null?"":item.mediaId);
+            // Initial bytes have not yet made the staged stream audible.
+            state.put("preparationFraction",nextPreparing&&pendingNextPlayer!=null?
+                Math.max(0,Math.min(0.99,pendingNextPlayer.getBufferedPercentage()/100.0)):0);
+            long durationMs=player.getDuration();
+            long bufferedMs=player.getBufferedPosition();
+            state.put("bufferFraction",durationMs>0&&durationMs!=C.TIME_UNSET?
+                Math.max(0,Math.min(1,bufferedMs/(double)durationMs)):0);
             state.put("ended",player.getPlaybackState()==Player.STATE_ENDED);
             state.put("repeat",player.getRepeatMode()==Player.REPEAT_MODE_ALL?1:player.getRepeatMode()==Player.REPEAT_MODE_ONE?2:0);state.put("shuffle",player.getShuffleModeEnabled());state.put("shuffleMode",shuffleMode);
             state.put("error",error);state.put("volume",baseVolume);state.put("smoothTransitions",true);state.put("transitionSeconds",transitionSeconds);
