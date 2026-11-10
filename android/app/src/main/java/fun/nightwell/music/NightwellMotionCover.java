@@ -43,6 +43,8 @@ public final class NightwellMotionCover extends ImageView {
 
     @Override protected void onAttachedToWindow(){
         super.onAttachedToWindow();
+        if(!getContext().getSharedPreferences("appearance",Context.MODE_PRIVATE)
+            .getBoolean("nw-animated-album-artwork",true))return;
         if(Build.VERSION.SDK_INT>=26&&!ValueAnimator.areAnimatorsEnabled())return;
         if(!getContext().getSharedPreferences("appearance",Context.MODE_PRIVATE)
                 .getBoolean("nw-animated-album-artwork",true))return;
