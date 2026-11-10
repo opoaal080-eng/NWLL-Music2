@@ -882,9 +882,9 @@ public final class MainActivity extends Activity {
 
                 if(rank!=0)continue;
                 Runnable playCard=()->{
+                    if(position==playing){depthQueueFeedback(card,"Уже играет");return;}
                     if(dialog.isShowing())dialog.dismiss();
-                    if(position==playing)depthQueueFeedback(card,"Уже играет");
-                    else play(track,queue,false);
+                    play(track,queue,false);
                 };
                 Runnable playNext=()->{
                     if(position<=playing+1){
