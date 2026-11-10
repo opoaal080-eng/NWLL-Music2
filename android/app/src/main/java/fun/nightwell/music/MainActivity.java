@@ -464,12 +464,43 @@ public final class MainActivity extends Activity {
     TextView sectionLabel(String label){TextView v=text(label.toUpperCase(java.util.Locale.ROOT),11);v.setLetterSpacing(.095f);v.setTextColor(0xffadb0b8);v.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));v.setPadding(dp(5),dp(12),dp(5),dp(7));return v;}
     void styleField(EditText view){view.setTextColor(0xfff4f4f7);view.setHintTextColor(0xff8f95a5);view.setTextSize(15);view.setMinHeight(dp(50));view.setBackground(fieldSurface(0x88262a33,16));view.setPadding(dp(14),dp(10),dp(14),dp(10));}
     void styleSwitch(android.widget.Switch view){view.setTextColor(0xfff0f1f6);view.setTextSize(15);view.setPadding(dp(2),dp(10),dp(2),dp(10));}
-    void styleSheet(AlertDialog dialog){dialog.setOnShowListener(ignored->{android.view.Window window=dialog.getWindow();if(window!=null){window.setBackgroundDrawable(surface());window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);WindowManager.LayoutParams params=window.getAttributes();params.dimAmount=.72f;window.setAttributes(params);int width=Math.min(dp(isLandscapeLayout()?740:540),
-                getResources().getDisplayMetrics().widthPixels-dp(isLandscapeLayout()?20:28));
-            window.setLayout(width,WindowManager.LayoutParams.WRAP_CONTENT);window.getDecorView().setPadding(dp(6),dp(6),dp(6),dp(8));window.getDecorView().post(()->{int limit=getResources().getDisplayMetrics().heightPixels-dp(isLandscapeLayout()?26:64);
-                if(window.getDecorView().getHeight()>limit)window.setLayout(width,limit);});}
-        for(int which:new int[]{AlertDialog.BUTTON_POSITIVE,AlertDialog.BUTTON_NEGATIVE,AlertDialog.BUTTON_NEUTRAL}){Button b=dialog.getButton(which);if(b==null)continue;b.setAllCaps(false);b.setTextColor(which==AlertDialog.BUTTON_NEGATIVE?0xffb6bac7:0xffeeeeee);b.setTextSize(15);}
-    });}
+    void styleSheet(AlertDialog dialog){
+        dialog.setOnShowListener(ignored->{
+            Window window=dialog.getWindow();
+            if(window==null)return;
+            window.setBackgroundDrawable(surface());
+            window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            WindowManager.LayoutParams params=window.getAttributes();
+            params.dimAmount=.76f;
+            window.setAttributes(params);
+            int width=Math.min(dp(isLandscapeLayout()?650:480),
+                getResources().getDisplayMetrics().widthPixels-dp(isLandscapeLayout()?22:28));
+            window.setLayout(width,WindowManager.LayoutParams.WRAP_CONTENT);
+            View decor=window.getDecorView();
+            decor.setPadding(dp(7),dp(7),dp(7),dp(10));
+            decor.post(()->{
+                int limit=getResources().getDisplayMetrics().heightPixels-
+                    dp(isLandscapeLayout()?24:54);
+                if(decor.getHeight()>limit)window.setLayout(width,limit);
+            });
+            for(int which:new int[]{AlertDialog.BUTTON_POSITIVE,
+                    AlertDialog.BUTTON_NEGATIVE,AlertDialog.BUTTON_NEUTRAL}){
+                Button button=dialog.getButton(which);
+                if(button==null)continue;
+                button.setAllCaps(false);
+                button.setTextSize(14);
+                button.setTextColor(which==AlertDialog.BUTTON_NEGATIVE?
+                    0xffb6bac7:0xffeeeeee);
+                button.setMinHeight(dp(44));
+            }
+            if(android.animation.ValueAnimator.areAnimatorsEnabled()){
+                decor.setAlpha(0f);
+                decor.setScaleX(.97f);decor.setScaleY(.97f);
+                decor.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(200)
+                    .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
+            }
+        });
+    }
     // Use a wide bottom sheet for the major navigation screens; keep generic
     // one-off confirmation dialogs as small floating windows.
     void styleNavigationSheet(AlertDialog dialog){
@@ -480,25 +511,32 @@ public final class MainActivity extends Activity {
             window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
             WindowManager.LayoutParams attrs=window.getAttributes();
             attrs.gravity=Gravity.BOTTOM;
-            attrs.dimAmount=.84f;
+            attrs.dimAmount=.80f;
             window.setAttributes(attrs);
-            int width=getResources().getDisplayMetrics().widthPixels-dp(isLandscapeLayout()?32:12);
-            int maxHeight=(int)(getResources().getDisplayMetrics().heightPixels*(isLandscapeLayout()?.90f:.83f));
+            int width=getResources().getDisplayMetrics().widthPixels-
+                dp(isLandscapeLayout()?30:16);
+            int maxHeight=(int)(getResources().getDisplayMetrics().heightPixels*
+                (isLandscapeLayout()?.91f:.83f));
             window.setLayout(width,WindowManager.LayoutParams.WRAP_CONTENT);
-            window.getDecorView().setPadding(dp(3),dp(5),dp(3),dp(8));
-            window.getDecorView().post(()->{
-                if(window.getDecorView().getHeight()>maxHeight)window.setLayout(width,maxHeight);
+            View decor=window.getDecorView();
+            decor.setPadding(dp(6),dp(5),dp(6),dp(9));
+            decor.post(()->{
+                if(decor.getHeight()>maxHeight)window.setLayout(width,maxHeight);
             });
             window.setNavigationBarColor(0xff0d0e11);
             for(int which:new int[]{AlertDialog.BUTTON_POSITIVE,AlertDialog.BUTTON_NEGATIVE}){
                 Button button=dialog.getButton(which);
-                if(button!=null){
-                    button.setAllCaps(false);
-                    button.setTextSize(14);
-                    button.setTextColor(0xfff1f2f5);
-                    button.setBackground(touchSurface(0xff33353b,17));
-                    button.setPadding(dp(16),dp(9),dp(16),dp(9));
-                }
+                if(button==null)continue;
+                button.setAllCaps(false);
+                button.setTextSize(14);
+                button.setTextColor(0xfff1f2f5);
+                button.setBackground(touchSurface(0xff33353b,14));
+                button.setPadding(dp(14),dp(9),dp(14),dp(9));
+            }
+            if(android.animation.ValueAnimator.areAnimatorsEnabled()){
+                decor.setAlpha(0f);decor.setTranslationY(dp(15));
+                decor.animate().alpha(1f).translationY(0f).setDuration(240)
+                    .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
             }
         });
     }
@@ -3275,13 +3313,13 @@ public final class MainActivity extends Activity {
         });
     }
     void nightwellOptions(String title,String[] options,java.util.function.IntConsumer selected){
-        LinearLayout panel=column();panel.setPadding(dp(18),dp(14),dp(18),dp(16));
-        TextView heading=text(title,21);heading.setTextColor(0xffeeeeee);heading.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);heading.setPadding(dp(8),dp(4),dp(8),dp(16));panel.addView(heading);
+        LinearLayout panel=column();panel.setPadding(dp(12),dp(10),dp(12),dp(12));
+        TextView heading=text(title,19);heading.setTextColor(0xffeeeeee);heading.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);heading.setPadding(dp(6),dp(4),dp(6),dp(10));panel.addView(heading);
         AlertDialog dialog=new AlertDialog.Builder(this).setView(panel).create();
         for(int index=0;index<options.length;index++){
             final int choice=index;
             TextView entry=sheetAction(options[index],()->{dialog.dismiss();selected.accept(choice);});
-            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(54));lp.setMargins(0,dp(4),0,dp(4));panel.addView(entry,lp);
+            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(47));lp.setMargins(0,dp(3),0,dp(3));panel.addView(entry,lp);
         }
         styleSheet(dialog);dialog.show();
     }
@@ -3559,23 +3597,23 @@ public final class MainActivity extends Activity {
         for(int i=0;i<pages.length;i++){
             final String selected=pages[i];
             LinearLayout item=row();
-            item.setPadding(dp(15),0,dp(12),0);
-            item.setBackground(touchSurface(0xff282a30,18));
-            TextView symbol=text(symbols[i],23);
+            item.setPadding(dp(12),0,dp(10),0);
+            item.setBackground(touchSurface(0xff282a30,15));
+            TextView symbol=text(symbols[i],20);
             symbol.setTextColor(0xffd5d6dc);symbol.setGravity(Gravity.CENTER);
-            symbol.setBackground(fieldSurface(0xff33353a,14));
-            item.addView(symbol,new LinearLayout.LayoutParams(dp(45),dp(45)));
-            LinearLayout names=column();names.setPadding(dp(13),0,0,0);
-            TextView title=text(selected,16);
+            symbol.setBackground(fieldSurface(0xff33353a,12));
+            item.addView(symbol,new LinearLayout.LayoutParams(dp(40),dp(40)));
+            LinearLayout names=column();names.setPadding(dp(11),0,0,0);
+            TextView title=text(selected,15);
             title.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));
-            TextView subtitle=text(captions[i],12);
+            TextView subtitle=text(captions[i],11);
             subtitle.setTextColor(0xffa7aab4);subtitle.setPadding(0,dp(4),0,0);
             names.addView(title);names.addView(subtitle);
             item.addView(names,new LinearLayout.LayoutParams(0,-2,1));
-            TextView chevron=text("›",25);chevron.setTextColor(0xff9b9da6);
+            TextView chevron=text("›",21);chevron.setTextColor(0xff9b9da6);
             item.addView(chevron,new LinearLayout.LayoutParams(dp(18),-2));
-            LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,dp(78));
-            params.bottomMargin=dp(9);
+            LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,dp(68));
+            params.bottomMargin=dp(7);
             list.addView(item,params);
             item.setOnClickListener(v->{dialog.dismiss();settingsPage(selected);});
         }
@@ -3584,7 +3622,7 @@ public final class MainActivity extends Activity {
 
     void settingsPage(String page){
         LinearLayout panel=column();
-        panel.setPadding(dp(20),dp(16),dp(20),dp(16));
+        panel.setPadding(dp(14),dp(12),dp(14),dp(14));
         ScrollView scroll=new ScrollView(this);
         scroll.setFillViewport(false);
         scroll.setVerticalScrollBarEnabled(false);
