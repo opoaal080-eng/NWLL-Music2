@@ -1965,7 +1965,7 @@ public final class MainActivity extends Activity {
         for(String id:missing){
             long previous=favoriteRecoveryAttempts.containsKey(id)?
                 favoriteRecoveryAttempts.get(id):0L;
-            if(now-previous<180000)continue;
+            if(previous>0&&now-previous<180000)continue;
             chosen.add(id);
             favoriteRecoveryAttempts.put(id,now);
             if(chosen.size()>=5)break;
