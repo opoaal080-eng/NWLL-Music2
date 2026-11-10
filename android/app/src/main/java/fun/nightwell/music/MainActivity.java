@@ -542,7 +542,7 @@ public final class MainActivity extends Activity {
         int current=playback==null?-1:playback.player.getCurrentMediaItemIndex();
         depthQueuePage=queue.length()==0?0:Math.min(queue.length()-1,Math.max(0,current+1));
         boolean depth=getSharedPreferences("appearance",MODE_PRIVATE)
-            .getBoolean("nw-depth-queue",false);
+            .getBoolean("nw-depth-queue",true);
         if(depth){showDepthQueue();return;}
         ScrollView scroll=new ScrollView(this);
         scroll.setFillViewport(false);
@@ -644,214 +644,252 @@ public final class MainActivity extends Activity {
             .withEndAction(()->card.animate().scaleX(sx).scaleY(sy).setDuration(160).start()).start();
     }
 
+    // A single in-place carousel. Page changes never recreate the dialog.
+    // Previously switching between cards closed and reopened AlertDialog, which
+    // looked like flickering and lost swipe/long-press gesture continuity.
     void showDepthQueue(){
-        int playing=playback==null?-1:playback.player.getCurrentMediaItemIndex();
-        android.widget.ScrollView scroll=new android.widget.ScrollView(this);
-        LinearLayout outer=column();
-        outer.setPadding(dp(14),dp(18),dp(14),dp(14));
-        scroll.addView(outer);
-
-        TextView eyebrow=text("Т В О Я   М У З Ы К А",10);
-        eyebrow.setTextColor(0xffbfc0c8);
-        eyebrow.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
-        outer.addView(eyebrow);
-        final AlertDialog[] holder={null};
-        LinearLayout heading=row();heading.setGravity(Gravity.CENTER_VERTICAL);
-        TextView headingTitle=text("Очередь",28);
-        headingTitle.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
-        heading.addView(headingTitle,new LinearLayout.LayoutParams(0,dp(56),1));
-        TextView count=text(String.valueOf(queue.length()),16);
-        count.setGravity(Gravity.CENTER);
-        count.setBackground(touchSurface(0x993a3a3f,32));
-        heading.addView(count,new LinearLayout.LayoutParams(dp(52),dp(52)));
-        TextView closeQueue=text("×",28);
-        closeQueue.setGravity(Gravity.CENTER);
-        closeQueue.setContentDescription("Закрыть очередь");
-        closeQueue.setBackground(touchSurface(0x993a3a3f,32));
-        closeQueue.setOnClickListener(v->{if(holder[0]!=null)holder[0].dismiss();});
-        LinearLayout.LayoutParams closeParams=new LinearLayout.LayoutParams(dp(52),dp(52));
-        closeParams.leftMargin=dp(8);
-        heading.addView(closeQueue,closeParams);
-        LinearLayout.LayoutParams headingParams=new LinearLayout.LayoutParams(-1,-2);
-        headingParams.bottomMargin=dp(12);
-        outer.addView(heading,headingParams);
+        final int playing=playback==null?-1:playback.player.getCurrentMediaItemIndex();
+        final int total=queue==null?0:queue.length();
+        depthQueuePage=total==0?0:Math.min(total-1,Math.max(0,depthQueuePage));
+        final boolean motion=android.animation.ValueAnimator.areAnimatorsEnabled();
+        final android.content.res.Configuration configuration=getResources().getConfiguration();
+        final boolean landscape=isLandscapeLayout();
 
         LinearLayout panel=column();
-        panel.setGravity(Gravity.CENTER_HORIZONTAL);
-        panel.setPadding(dp(14),dp(24),dp(14),dp(24));
-        GradientDrawable panelSurface=new GradientDrawable(
-            GradientDrawable.Orientation.TL_BR,new int[]{0xff303034,0xff1d1d21});
-        panelSurface.setCornerRadius(dp(30));
-        panelSurface.setStroke(dp(1),0x38ffffff);
-        panel.setBackground(panelSurface);
-        outer.addView(panel,new LinearLayout.LayoutParams(-1,-2));
-        final int totalTracks=queue.length();
-        // Absolute queue cursor: swipe backwards through "Ранее" and the
-        // current track, forward through every upcoming track.
-        final int lastPosition=Math.max(0,totalTracks-1);
-        depthQueuePage=Math.min(Math.max(0,depthQueuePage),lastPosition);
-        final int pageStart=depthQueuePage;
-        if(totalTracks>0){
-            // Scale the artwork to the available width, while keeping the
-            // deck usable on narrow phones and in landscape.
-            int cardWidthDp=Math.min(312,Math.max(210,
-                getResources().getConfiguration().screenWidthDp-112));
-            int cardHeightDp=Math.round(cardWidthDp*1.20f);
-            android.widget.FrameLayout deck=new android.widget.FrameLayout(this);
-            panel.addView(deck,new LinearLayout.LayoutParams(-1,dp(cardHeightDp+34)));
-            int available=Math.min(3,Math.max(0,queue.length()-pageStart));
-            for(int rank=available-1;rank>=0;rank--){
-                final int from=pageStart+rank;
-                JSONObject track=queue.optJSONObject(from);
-                if(track==null)continue;
-                android.widget.FrameLayout card=new android.widget.FrameLayout(this);
-                GradientDrawable plate=new GradientDrawable();
-                plate.setColor(0xff131317);plate.setCornerRadius(dp(21));
-                plate.setStroke(dp(1),0x4effffff);
-                card.setBackground(plate);card.setClipToOutline(true);
-                card.setElevation(dp(7+available-rank));
-                android.widget.ImageView cover=new android.widget.ImageView(this);
-                cover.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
-                android.widget.FrameLayout.LayoutParams artworkParams=
-                    new android.widget.FrameLayout.LayoutParams(-1,dp(cardHeightDp-78),Gravity.TOP);
-                card.addView(cover,artworkParams);
-                String coverPath=track.optString("cover_url");
-                if(coverPath.isEmpty())coverPath="api/covers/"+track.optString("id");
-                if(artworkCache!=null)artworkCache.load(cover,origin,coverPath);
-                TextView sectionBadge=text(from<playing?"РАНЕЕ":
-                    from==playing?"СЕЙЧАС ИГРАЕТ":"ДАЛЕЕ",10);
-                sectionBadge.setTypeface(android.graphics.Typeface.DEFAULT,
-                    android.graphics.Typeface.BOLD);
-                sectionBadge.setTextColor(0xfffafafa);
-                sectionBadge.setPadding(dp(12),dp(6),dp(12),dp(6));
-                sectionBadge.setBackground(touchSurface(0xdf29292e,16));
-                android.widget.FrameLayout.LayoutParams badgeLayout=
-                    new android.widget.FrameLayout.LayoutParams(-2,-2,Gravity.TOP|Gravity.START);
-                badgeLayout.setMargins(dp(12),dp(12),0,0);
-                card.addView(sectionBadge,badgeLayout);
+        panel.setPadding(dp(14),dp(14),dp(14),dp(12));
+        ScrollView scroll=new ScrollView(this);
+        scroll.setFillViewport(false);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.addView(panel);
+        TextView eyebrow=text("Т В О Я   М У З Ы К А",10);
+        eyebrow.setLetterSpacing(.1f);
+        eyebrow.setTextColor(0xffaeb1bb);
+        panel.addView(eyebrow);
 
-                LinearLayout infoPanel=column();
-                infoPanel.setGravity(Gravity.CENTER_VERTICAL);
-                infoPanel.setPadding(dp(14),dp(5),dp(14),dp(5));
-                GradientDrawable textSurface=new GradientDrawable(
-                    GradientDrawable.Orientation.TOP_BOTTOM,
-                    new int[]{0xff1b1a1f,0xff0b0b0f});
-                infoPanel.setBackground(textSurface);
-                TextView title=text(track.optString("title"),16);
-                title.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
+        LinearLayout heading=row();
+        heading.setPadding(0,dp(4),0,dp(10));
+        TextView headingTitle=text("Объёмная очередь",22);
+        headingTitle.setTypeface(android.graphics.Typeface.create("sans-serif",android.graphics.Typeface.BOLD));
+        headingTitle.setSingleLine(true);
+        headingTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        heading.addView(headingTitle,new LinearLayout.LayoutParams(0,dp(42),1));
+        TextView close=iconButton("×",()->{});
+        close.setContentDescription("Закрыть очередь");
+        close.setBackground(touchSurface(0xff303238,15));
+        heading.addView(close,new LinearLayout.LayoutParams(dp(43),dp(43)));
+        panel.addView(heading);
+
+        int maxWidth=Math.max(190,configuration.screenWidthDp-(landscape?140:80));
+        final int cardWidthDp=Math.min(280,maxWidth);
+        final int cardHeightDp=Math.min(Math.round(cardWidthDp*1.08f),
+            Math.max(180,Math.round(configuration.screenHeightDp*(landscape?.56f:.50f))));
+        final FrameLayout deck=new FrameLayout(this);
+        deck.setClipChildren(false);
+        deck.setClipToPadding(false);
+        panel.addView(deck,new LinearLayout.LayoutParams(-1,dp(cardHeightDp+33)));
+
+        final LinearLayout pager=row();
+        pager.setGravity(Gravity.CENTER_VERTICAL);
+        pager.setPadding(dp(4),dp(4),dp(4),dp(3));
+        TextView previous=iconButton("‹",()->{});
+        previous.setContentDescription("Предыдущая карточка в очереди");
+        TextView counter=text("",13);
+        counter.setGravity(Gravity.CENTER);
+        counter.setTextColor(0xffc8cbd2);
+        TextView next=iconButton("›",()->{});
+        next.setContentDescription("Следующая карточка в очереди");
+        pager.addView(previous,new LinearLayout.LayoutParams(dp(46),dp(44)));
+        pager.addView(counter,new LinearLayout.LayoutParams(0,dp(44),1));
+        pager.addView(next,new LinearLayout.LayoutParams(dp(46),dp(44)));
+        panel.addView(pager);
+
+        TextView help=text("Нажатие: воспроизвести   ·   Удержание: следующим\nЛистай влево и вправо, чтобы увидеть всю очередь",11);
+        help.setGravity(Gravity.CENTER);
+        help.setMaxLines(3);
+        help.setLineSpacing(dp(2),1f);
+        help.setTextColor(0xffadb1bb);
+        help.setPadding(dp(3),dp(10),dp(3),dp(3));
+        panel.addView(help);
+
+        AlertDialog dialog=new AlertDialog.Builder(this).setView(scroll).create();
+        close.setOnClickListener(v->dialog.dismiss());
+
+        final Runnable[] render=new Runnable[1];
+        final boolean[] transitioning={false};
+        final java.util.function.IntConsumer changePage=direction->{
+            int nextPosition=Math.max(0,Math.min(total-1,depthQueuePage+direction));
+            if(total==0||nextPosition==depthQueuePage||transitioning[0])return;
+            transitioning[0]=true;
+            depthQueuePage=nextPosition;
+            if(!motion){
+                render[0].run();
+                transitioning[0]=false;
+                return;
+            }
+            deck.animate().cancel();
+            deck.animate().alpha(.25f).translationX(dp(-direction*24))
+                .setDuration(125).withEndAction(()->{
+                    if(!dialog.isShowing()){transitioning[0]=false;return;}
+                    deck.setTranslationX(dp(direction*26));
+                    render[0].run();
+                    deck.animate().alpha(1f).translationX(0f)
+                        .setDuration(225)
+                        .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                        .withEndAction(()->transitioning[0]=false).start();
+                }).start();
+        };
+        previous.setOnClickListener(v->changePage.accept(-1));
+        next.setOnClickListener(v->changePage.accept(1));
+        render[0]=()->{
+            deck.removeAllViews();
+            deck.setClipChildren(false);
+            counter.setText(total==0?"Очередь пуста":(depthQueuePage+1)+" / "+total);
+            previous.setEnabled(total>0&&depthQueuePage>0);
+            next.setEnabled(total>0&&depthQueuePage<total-1);
+            previous.setAlpha(previous.isEnabled()?1f:.28f);
+            next.setAlpha(next.isEnabled()?1f:.28f);
+            if(total==0){
+                TextView empty=text("Добавь музыку, чтобы появилась очередь",14);
+                empty.setTextColor(0xffc5c7d0);
+                empty.setGravity(Gravity.CENTER);
+                deck.addView(empty,new FrameLayout.LayoutParams(-1,-1));
+                return;
+            }
+            int available=Math.min(3,total-depthQueuePage);
+            for(int rank=available-1;rank>=0;rank--){
+                final int position=depthQueuePage+rank;
+                final JSONObject track=queue.optJSONObject(position);
+                if(track==null)continue;
+                final FrameLayout card=new FrameLayout(this);
+                card.setClickable(rank==0);
+                card.setFocusable(rank==0);
+                card.setContentDescription(
+                    (position<playing?"Ранее. ":position==playing?"Сейчас играет. ":"Далее. ")+
+                    track.optString("title")+", "+track.optString("artist")+
+                    ". Нажми для воспроизведения, удерживай чтобы поставить следующим");
+                GradientDrawable plate=new GradientDrawable();
+                plate.setColor(0xff17181d);
+                plate.setCornerRadius(dp(18));
+                plate.setStroke(dp(1),rank==0?0x77ffffff:0x2cffffff);
+                card.setBackground(plate);
+                card.setClipToOutline(true);
+                card.setElevation(dp(8+available-rank*2));
+
+                ImageView artwork=new ImageView(this);
+                artwork.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                FrameLayout.LayoutParams coverLayout=new FrameLayout.LayoutParams(
+                    -1,dp(cardHeightDp-72),Gravity.TOP);
+                card.addView(artwork,coverLayout);
+                String coverPath=track.optString("cover_url");
+                if(coverPath.isEmpty())coverPath="/api/covers/"+track.optString("id");
+                if(artworkCache!=null)artworkCache.load(artwork,origin,coverPath);
+
+                TextView section=text(position<playing?"РАНЕЕ":
+                    position==playing?"СЕЙЧАС ИГРАЕТ":"ДАЛЕЕ",10);
+                section.setTextColor(0xfff4f5f7);
+                section.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));
+                section.setPadding(dp(10),dp(6),dp(10),dp(6));
+                section.setBackground(touchSurface(0xff282a2f,13));
+                FrameLayout.LayoutParams labelParams=new FrameLayout.LayoutParams(
+                    -2,-2,Gravity.TOP|Gravity.START);
+                labelParams.leftMargin=dp(11);labelParams.topMargin=dp(11);
+                card.addView(section,labelParams);
+
+                LinearLayout description=column();
+                description.setGravity(Gravity.CENTER_VERTICAL);
+                description.setPadding(dp(13),dp(9),dp(13),dp(9));
+                description.setBackgroundColor(0xff191a1e);
+                TextView title=text(track.optString("title","Без названия"),15);
+                title.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));
                 title.setMaxLines(1);
                 title.setEllipsize(android.text.TextUtils.TruncateAt.END);
-                TextView artist=text(track.optString("artist"),12);
-                artist.setTextColor(0xffa8a8b1);
+                description.addView(title);
+                TextView artist=text(track.optString("artist","Nightwell Music"),12);
+                artist.setTextColor(0xffaaadb7);
                 artist.setMaxLines(1);
                 artist.setEllipsize(android.text.TextUtils.TruncateAt.END);
-                infoPanel.addView(title);
-                infoPanel.addView(artist);
-                card.addView(infoPanel,new android.widget.FrameLayout.LayoutParams(-1,dp(78),Gravity.BOTTOM));
+                artist.setPadding(0,dp(4),0,0);
+                description.addView(artist);
+                card.addView(description,new FrameLayout.LayoutParams(
+                    -1,dp(72),Gravity.BOTTOM));
 
-                android.widget.FrameLayout.LayoutParams layout=
-                    new android.widget.FrameLayout.LayoutParams(dp(cardWidthDp),dp(cardHeightDp),Gravity.CENTER);
+                FrameLayout.LayoutParams layout=new FrameLayout.LayoutParams(
+                    dp(cardWidthDp),dp(cardHeightDp),Gravity.CENTER_HORIZONTAL|Gravity.TOP);
+                layout.topMargin=dp(6);
                 deck.addView(card,layout);
-                card.setTranslationX(dp(rank*14));
-                card.setTranslationY(dp(rank*12));
-                card.setScaleX(1-rank*.048f);card.setScaleY(1-rank*.048f);
-                card.setRotation(rank*1.3f);
-                card.setOnClickListener(v->{
-                    if(from==playing){
-                        depthQueueFeedback(v,"Сейчас играет");
+                float targetScale=1f-rank*.055f;
+                float targetY=dp(rank*12);
+                float targetX=dp(rank*11);
+                float yaw=rank*5.8f;
+                card.setCameraDistance(dp(3500));
+                card.setPivotX(dp(cardWidthDp)/2f);
+                card.setPivotY(dp(cardHeightDp)/2f);
+                card.setTranslationX(targetX);
+                card.setRotationX(rank*1.4f);
+                card.setRotationY(yaw);
+                if(motion){
+                    card.setAlpha(0f);
+                    card.setScaleX(targetScale*.94f);
+                    card.setScaleY(targetScale*.94f);
+                    card.setTranslationY(targetY+dp(15));
+                    card.animate().alpha(1f).scaleX(targetScale).scaleY(targetScale)
+                        .translationY(targetY).setStartDelay((available-1-rank)*38L)
+                        .setDuration(265)
+                        .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                        .start();
+                }else{
+                    card.setAlpha(1f);card.setScaleX(targetScale);
+                    card.setScaleY(targetScale);card.setTranslationY(targetY);
+                }
+
+                if(rank!=0)continue;
+                Runnable playCard=()->{
+                    if(dialog.isShowing())dialog.dismiss();
+                    if(position==playing)depthQueueFeedback(card,"Уже играет");
+                    else play(track,queue,false);
+                };
+                Runnable playNext=()->{
+                    if(position<=playing+1){
+                        depthQueueFeedback(card,position<playing?
+                            "Этот трек уже звучал":position==playing?
+                            "Сейчас играет":"Уже следующий в очереди");
                         return;
                     }
-                    if(holder[0]!=null)holder[0].dismiss();
-                    play(track,queue,false);
-                });
-                card.setOnLongClickListener(v->{
-                    if(from<=playing+1){
-                        depthQueueFeedback(v,from<playing
-                            ?"Этот трек уже был в очереди"
-                            :from==playing?"Сейчас играет":"Уже следующий в очереди");
-                        return true;
-                    }
-                    reorderUpcoming(from,playing+1);
-                    depthQueueFeedback(v,"Следующий в очереди ✓");
-                    depthQueuePage=queue.length()==0?0:
-                        Math.min(queue.length()-1,Math.max(0,playing+1));
-                    ui.postDelayed(()->{
-                        if(holder[0]!=null)holder[0].dismiss();
-                        showQueue();
-                    },370);
-                    return true;
-                });
-                if(rank==0){
-                    final float[] start={0f};
-                    card.setOnTouchListener((v,event)->{
-                        if(event.getActionMasked()==android.view.MotionEvent.ACTION_DOWN){
-                            start[0]=event.getX();
-                            // Let Android schedule the normal long-press callback.
-                            return false;
+                    reorderUpcoming(position,playing+1);
+                    depthQueueFeedback(card,"Добавлено следующим");
+                    depthQueuePage=Math.min(queue.length()-1,Math.max(0,playing+1));
+                    render[0].run();
+                };
+                card.setOnClickListener(v->playCard.run());
+                card.setOnLongClickListener(v->{playNext.run();return true;});
+                android.view.GestureDetector gestures=new android.view.GestureDetector(
+                    this,new android.view.GestureDetector.SimpleOnGestureListener(){
+                        @Override public boolean onDown(MotionEvent event){return true;}
+                        @Override public boolean onSingleTapUp(MotionEvent event){
+                            card.performClick();return true;
                         }
-                        if(event.getActionMasked()==android.view.MotionEvent.ACTION_UP){
-                            float delta=event.getX()-start[0];
-                            if(Math.abs(delta)>dp(48)){
-                                v.cancelLongPress();
-                                int direction=delta<0?1:-1;
-                                int newPosition=Math.max(0,Math.min(lastPosition,
-                                    depthQueuePage+direction));
-                                if(newPosition!=depthQueuePage){
-                                    depthQueuePage=newPosition;
-                                    v.animate().translationXBy(delta<0?-dp(34):dp(34))
-                                        .alpha(0.78f).setDuration(105).withEndAction(()->{
-                                            if(holder[0]!=null)holder[0].dismiss();
-                                            showDepthQueue();
-                                        }).start();
-                                }
-                                // A swipe must never also trigger click-to-play.
-                                return true;
-                            }
+                        @Override public void onLongPress(MotionEvent event){
+                            card.performLongClick();
                         }
-                        // Preserve the default click and long-press gestures.
-                        return false;
+                        @Override public boolean onFling(MotionEvent first,MotionEvent last,
+                            float velocityX,float velocityY){
+                            if(first==null||last==null)return false;
+                            float dx=last.getX()-first.getX();
+                            if(Math.abs(dx)<dp(48)||
+                                Math.abs(dx)<Math.abs(last.getY()-first.getY())*1.2f||
+                                Math.abs(velocityX)<dp(140))return false;
+                            changePage.accept(dx<0?1:-1);
+                            return true;
+                        }
                     });
-                }
+                card.setOnTouchListener((v,event)->gestures.onTouchEvent(event));
             }
-        }
-        // One-card steps make the entire queue reachable without changing playback order.
-        if(totalTracks>1){
-            LinearLayout pager=row();pager.setGravity(Gravity.CENTER);
-            TextView previous=action("‹",()->{
-                if(depthQueuePage==0)return;
-                depthQueuePage--;
-                if(holder[0]!=null)holder[0].dismiss();
-                ui.post(this::showDepthQueue);
-            });
-            previous.setEnabled(depthQueuePage>0);
-            pager.addView(previous,new LinearLayout.LayoutParams(dp(52),dp(48)));
-            TextView counter=text((depthQueuePage+1)+" из "+totalTracks,14);
-            counter.setGravity(Gravity.CENTER);counter.setTextColor(0xffbfc1ca);
-            pager.addView(counter,new LinearLayout.LayoutParams(0,dp(48),1));
-            TextView nextPage=action("›",()->{
-                if(depthQueuePage>=lastPosition)return;
-                depthQueuePage++;
-                if(holder[0]!=null)holder[0].dismiss();
-                ui.post(this::showDepthQueue);
-            });
-            nextPage.setEnabled(depthQueuePage<lastPosition);
-            pager.addView(nextPage,new LinearLayout.LayoutParams(dp(52),dp(48)));
-            panel.addView(pager);
-        }else if(totalTracks==0){
-            TextView empty=text("Очередь пока пуста",14);
-            empty.setGravity(Gravity.CENTER);empty.setPadding(0,dp(18),0,dp(18));
-            panel.addView(empty);
-        }
-        TextView guide=text("Тап: играть сейчас · удержание: следующая\nСвайп: листать всю очередь",11);
-        guide.setTextColor(0xffaeb2c1);
-        guide.setGravity(Gravity.CENTER);
-        guide.setMaxLines(3);
-        guide.setPadding(dp(4),dp(14),dp(4),dp(4));
-        panel.addView(guide,new LinearLayout.LayoutParams(-1,-2));
-        AlertDialog dialog=new AlertDialog.Builder(this)
-            .setView(scroll).create();
-        holder[0]=dialog;styleSheet(dialog);dialog.show();
+        };
+        styleSheet(dialog);
+        dialog.show();
+        render[0].run();
     }
+
     void build(){
         if(ribbon!=null)ribbon.running(false);full=false;lyricsOpen=false;seek=null;fullTime=null;fullPlay=null;fullLike=null;fullDislike=null;fullAudioOutput=null;
         // Render scenery and aura across the window, outside the padded controls.
@@ -3548,7 +3586,7 @@ public final class MainActivity extends Activity {
         depthQueue.setText("Объёмная очередь");
         styleSwitch(depthQueue);
         depthQueue.setChecked(getSharedPreferences("appearance",MODE_PRIVATE)
-            .getBoolean("nw-depth-queue",false));
+            .getBoolean("nw-depth-queue",true));
         depthQueue.setOnCheckedChangeListener((view,enabled)->
             getSharedPreferences("appearance",MODE_PRIVATE).edit()
                 .putBoolean("nw-depth-queue",enabled).apply());
