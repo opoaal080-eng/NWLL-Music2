@@ -65,6 +65,12 @@ try:
             values=capture('favorites-off-catalog-'+str(width))
             assert any('Трек из поиска, которого нет в каталоге' in (n.get('text') or '')
                        for n in values), 'Off-catalog favorite missing from Android list'
+            launch('favorites-metadata-recovered')
+            values=capture('favorites-metadata-recovered-'+str(width))
+            assert any('Восстановленное название песни' in (n.get('text') or '')
+                       for n in values), 'Favorite title did not recover after metadata arrived'
+            assert any('Восстановленный исполнитель' in (n.get('text') or '')
+                       for n in values), 'Favorite artist did not recover after metadata arrived'
     # Verify main player and sheets in horizontal orientation as well.
     adb('shell','wm','size','1280x720')
     adb('shell','wm','density','320')
