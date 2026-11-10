@@ -731,7 +731,7 @@ struct NativeRoot: View {
         .sheet(isPresented: $profilePresented) {
             NavigationStack {
                 ScrollView(showsIndicators: false) {
-                    VStack(spacing: 16) {
+                    VStack(spacing: 10) {
                         ProfileSettingsView()
                             .environmentObject(store)
                         if store.account != nil {
@@ -758,17 +758,18 @@ struct NativeRoot: View {
                                 }
                                 .font(.system(size: 16, weight: .medium))
                                 .foregroundStyle(.white)
-                                .padding(16)
+                                .padding(.horizontal, 15)
+                                .padding(.vertical, 12)
                                 .frame(maxWidth: .infinity)
-                                .nightwellMonochromeGlass(radius: 20)
+                                .nightwellMonochromeGlass(radius: 19)
                             }
                             .buttonStyle(.plain)
                             .disabled(profileSigningOut)
                         }
                     }
                     .padding(.horizontal, 18)
-                    .padding(.top, 16)
-                    .padding(.bottom, 28)
+                    .padding(.top, 10)
+                    .padding(.bottom, 16)
                 }
                 .background { NightwellMonochromeGlassBackground() }
                 .navigationTitle("Профиль")
