@@ -10,6 +10,8 @@ struct NightwellPlayerActionSnapshot: Identifiable {
     let recommendationHidden: Bool
     let shareBaseURL: URL
     let lyricsVisible: Bool
+    let coverStyle: String
+    let downloaded: Bool
 }
 
 struct NightwellPlayerActionsOverlay: View {
@@ -88,12 +90,14 @@ struct NightwellPlayerActionsOverlay: View {
                                 actionLabel(snapshot.lyricsVisible ? "Обложка" : "Текст песни",
                                             icon: "text.alignleft")
                             }
-                            Button {
-                                animatedArtwork.toggle()
-                                onClose()
-                            } label: {
-                                actionLabel(animatedArtwork ? "Отключить анимацию обложки" : "Включить анимацию обложки",
-                                            icon: "livephoto")
+                            if snapshot.coverStyle != "classic" {
+                                Button {
+                                    animatedArtwork.toggle()
+                                    onClose()
+                                } label: {
+                                    actionLabel(animatedArtwork ? "Отключить анимацию обложки" : "Включить анимацию обложки",
+                                                icon: "livephoto")
+                                }
                             }
                             if let track = snapshot.track {
                                 Button { onSeededRhythm(track) } label: {
@@ -109,7 +113,8 @@ struct NightwellPlayerActionsOverlay: View {
                                                 icon: "hand.thumbsdown")
                                 }
                                 Button { onDownload(track) } label: {
-                                    actionLabel("Скачать", icon: "arrow.down.to.line")
+                                    actionLabel(snapshot.downloaded ? "Удалить загрузку" : "Скачать",
+                                                icon: snapshot.downloaded ? "trash" : "arrow.down.to.line")
                                 }
                                 ShareLink(item: snapshot.shareBaseURL.appendingPathComponent("track/" + track.id)) {
                                     actionLabel("Поделиться", icon: "square.and.arrow.up")
