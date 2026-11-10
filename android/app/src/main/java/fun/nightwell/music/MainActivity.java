@@ -258,6 +258,8 @@ public final class MainActivity extends Activity {
     private long favoriteRevision;
     private long favoriteLastRecovery;
     private int favoriteRecoveryGeneration;
+    private boolean favoriteRecoveryRunning;
+    private TextView favoriteCount;
     private final java.util.LinkedHashMap<String,JSONArray> searchCache =
         new java.util.LinkedHashMap<String,JSONArray>(24,0.75f,true) {
             @Override protected boolean removeEldestEntry(java.util.Map.Entry<String,JSONArray> entry) {
@@ -1956,56 +1958,152 @@ public final class MainActivity extends Activity {
             .putString(favoriteIndexKey(user),payload).apply();
     }
 
-    private void recoverMissingFavoriteTracks() {
-        if(user.isEmpty()||smokeMode||likes.isEmpty())return;
-        final long now=SystemClock.elapsedRealtime();
-        if(now-favoriteLastRecovery<6000)return;
-        java.util.List<String> missing=favoriteTracks.unresolved(likes,catalog,queue,120);
-        java.util.ArrayList<String> chosen=new java.util.ArrayList<>();
-        for(String id:missing){
-            long previous=favoriteRecoveryAttempts.containsKey(id)?
-                favoriteRecoveryAttempts.get(id):0L;
-            if(previous>0&&now-previous<180000)continue;
-            chosen.add(id);
-            favoriteRecoveryAttempts.put(id,now);
-            if(chosen.size()>=5)break;
+    // Fill missing titles/artists from local playlists, offline files and
+    // prior searches before querying the server. The server's /api/likes
+    // contains IDs on legacy installations, not complete track metadata.
+    private static void appendFavoriteMetadata(java.util.List<JSONObject> output,
+                                               JSONObject response){
+        if(response==null)return;
+        for(String field:new String[]{"tracks","items","favorites","results"}){
+            JSONArray items=response.optJSONArray(field);
+            if(items==null)continue;
+            for(int i=0;i<items.length();i++){
+                JSONObject item=items.optJSONObject(i);
+                if(item==null)continue;
+                JSONObject track=item.optJSONObject("track");
+                if(track==null)track=item;
+                if(!track.optString("id").isEmpty()&&!track.optString("title").isEmpty())
+                    output.add(track);
+            }
         }
-        if(chosen.isEmpty())return;
+        JSONObject single=response.optJSONObject("track");
+        if(single!=null&&!single.optString("id").isEmpty())output.add(single);
+    }
+
+    private void recoverMissingFavoriteTracks() {
+        if(user.isEmpty()||smokeMode||likes.isEmpty()||favoriteRecoveryRunning)return;
+        favoriteTracks.rememberLiked(catalog,likes);
+        favoriteTracks.rememberLiked(queue,likes);
+        for(JSONArray entries:searchCache.values())favoriteTracks.rememberLiked(entries,likes);
+
+        final long now=SystemClock.elapsedRealtime();
+        if(now-favoriteLastRecovery<1400)return;
+        final java.util.List<String> unresolved=
+            favoriteTracks.unresolved(likes,catalog,queue,1200);
+        if(unresolved.isEmpty())return;
+
+        final java.util.ArrayList<String> pending=new java.util.ArrayList<>();
+        for(String id:unresolved){
+            Long previous=favoriteRecoveryAttempts.get(id);
+            if(previous!=null&&now-previous<180000)continue;
+            pending.add(id);
+            favoriteRecoveryAttempts.put(id,now);
+            if(pending.size()>=10)break;
+        }
+        if(pending.isEmpty())return;
         favoriteLastRecovery=now;
-        final int ticket=++favoriteRecoveryGeneration;
+        favoriteRecoveryRunning=true;
+
         final String owner=user,server=origin;
+        final int generation=favoriteRecoveryGeneration;
+        final JSONArray savedPlaylists=playlists;
+        final java.util.HashSet<String> wanted=new java.util.HashSet<>(likes);
+        final java.util.ArrayList<JSONArray> cachedSearches=
+            new java.util.ArrayList<>(searchCache.values());
         favoriteLookup.execute(()->{
-            java.util.ArrayList<JSONObject> found=new java.util.ArrayList<>();
-            NativeAPI lookup=new NativeAPI(this,server);
+            java.util.ArrayList<JSONObject> candidates=new java.util.ArrayList<>();
             try{
-                for(String id:chosen){
-                    if(Thread.currentThread().isInterrupted())break;
+                // Metadata saved when the user downloaded a track.
+                try{
+                    String request=new JSONObject().put("op","list")
+                        .put("account",owner).toString();
+                    appendFavoriteMetadata(candidates,new JSONObject(
+                        OfflineStore.operation(this,server,request)));
+                }catch(Exception ignored){}
+
+                // Personal playlists already cached on this device.
+                android.content.SharedPreferences prefs=
+                    getSharedPreferences("playlist-snapshots",MODE_PRIVATE);
+                for(int i=0;i<Math.min(100,savedPlaylists.length());i++){
+                    JSONObject playlist=savedPlaylists.optJSONObject(i);
+                    if(playlist==null)continue;
+                    String id=playlist.optString("id");
+                    if(id.isEmpty())continue;
                     try{
-                        JSONArray entries=lookup.request("api/shared-track/"+id)
-                            .optJSONArray("tracks");
-                        if(entries==null)continue;
-                        for(int i=0;i<entries.length();i++){
-                            JSONObject item=entries.optJSONObject(i);
-                            if(item!=null&&id.equalsIgnoreCase(item.optString("id"))){
-                                found.add(item);break;
-                            }
+                        String json=prefs.getString("playlist|"+server+"|"+owner+"|"+id,"");
+                        if(json.isEmpty())continue;
+                        JSONArray items=new JSONArray(json);
+                        for(int k=0;k<Math.min(3000,items.length());k++){
+                            JSONObject t=items.optJSONObject(k);
+                            if(t!=null&&wanted.contains(t.optString("id")))
+                                candidates.add(t);
                         }
-                    }catch(Exception ignored){
-                        // Older servers may not expose a particular ID.
-                        // Leave a visible placeholder instead of hiding the like.
+                    }catch(Exception ignored){}
+                }
+                for(JSONArray array:cachedSearches){
+                    for(int i=0;i<array.length();i++){
+                        JSONObject t=array.optJSONObject(i);
+                        if(t!=null&&wanted.contains(t.optString("id")))
+                            candidates.add(t);
                     }
                 }
-            }finally{lookup.close();}
-            if(found.isEmpty())return;
+
+                java.util.HashSet<String> resolved=new java.util.HashSet<>();
+                for(JSONObject item:candidates)resolved.add(item.optString("id"));
+
+                NativeAPI client=new NativeAPI(this,server);
+                try{
+                    // Newer API versions may include liked track records.
+                    try{
+                        JSONObject likesResponse=client.request("api/likes");
+                        appendFavoriteMetadata(candidates,likesResponse);
+                        for(JSONObject item:candidates)resolved.add(item.optString("id"));
+                    }catch(Exception ignored){}
+
+                    // Legacy fallback. Keep a bounded batch to avoid flooding
+                    // SoundCloud/Audius/Cloud APIs behind the Nightwell server.
+                    for(String id:pending){
+                        if(resolved.contains(id)||Thread.currentThread().isInterrupted())continue;
+                        try{
+                            JSONObject response=client.request("api/shared-track/"+
+                                java.net.URLEncoder.encode(id,"UTF-8"));
+                            java.util.ArrayList<JSONObject> matches=new java.util.ArrayList<>();
+                            appendFavoriteMetadata(matches,response);
+                            for(JSONObject item:matches)if(id.equals(item.optString("id"))){
+                                candidates.add(item);
+                                resolved.add(id);
+                                break;
+                            }
+                        }catch(Exception ignored){}
+                    }
+                }finally{client.close();}
+            }catch(Exception ignored){
+                // Preserve the visible list of liked IDs on network failures.
+            }
             ui.post(()->{
-                if(isDestroyed()||ticket!=favoriteRecoveryGeneration||
-                    !owner.equals(user)||!server.equals(origin))return;
-                for(JSONObject item:found){
-                    if(likes.contains(item.optString("id")))
-                        favoriteTracks.remember(item);
+                favoriteRecoveryRunning=false;
+                if(isDestroyed()||generation!=favoriteRecoveryGeneration||
+                   !owner.equals(user)||!server.equals(origin))return;
+                int recovered=0;
+                for(JSONObject item:candidates){
+                    if(!likes.contains(item.optString("id")))continue;
+                    if(!favoriteTracks.hasMetadata(item.optString("id")))recovered++;
+                    favoriteTracks.remember(item);
                 }
-                saveFavoriteIndex();
-                if(!full&&"Избранное".equals(screen))showScreen();
+                if(recovered>0){
+                    saveFavoriteIndex();
+                    if(!full&&"Избранное".equals(screen)){
+                        shown=sortedFavorites(favoriteTracks.visible(likes,catalog,queue,shown));
+                        updateList();
+                        if(favoriteCount!=null)
+                            favoriteCount.setText(shown.length()+" треков");
+                    }
+                }
+                // Continue until all eligible IDs have been examined. This
+                // avoids the old "first five forever" recovery behavior.
+                if(!full&&"Избранное".equals(screen)){
+                    ui.postDelayed(this::recoverMissingFavoriteTracks,1700);
+                }
             });
         });
     }
