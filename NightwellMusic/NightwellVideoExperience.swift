@@ -10,20 +10,24 @@ struct NightwellAnimatedCover: View {
     let side: CGFloat
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
     @AppStorage("nw-animated-album-artwork") private var animated = true
     @State private var drifting = false
+
+    private var motionEnabled: Bool {
+        animated && !reduceMotion && scenePhase == .active
+    }
 
     var body: some View {
         Cover(track: track, origin: origin, pixelWidth: 1024)
             .frame(width: side, height: side)
-            // Restrict movement to a few pixels, rather than enlarging the
-            // artwork over the entire display.
-            .scaleEffect(animated && !reduceMotion && drifting ? 1.055 : 1.008)
-            .offset(x: animated && !reduceMotion && drifting ? -5 : 5,
-                    y: animated && !reduceMotion && drifting ? 5 : -5)
-            .animation(animated && !reduceMotion
-                       ? .easeInOut(duration: 9).repeatForever(autoreverses: true)
-                       : .none, value: drifting)
+            // Full-screen-only motion: slow zoom, diagonal drift and a subtle
+            // tilt. No animation is applied to the separate classic artwork.
+            .scaleEffect(motionEnabled ? (drifting ? 1.085 : 1.035) : 1.008)
+            .rotationEffect(.degrees(motionEnabled ? (drifting ? 0.45 : -0.45) : 0))
+            .offset(x: motionEnabled ? (drifting ? -9 : 9) : 0,
+                    y: motionEnabled ? (drifting ? 8 : -8) : 0)
+            .animation(.easeOut(duration: 0.3), value: motionEnabled)
             .frame(width: side, height: side)
             // The image is taller than the display and cropped at the
             // screen boundary. Its original top/bottom lie just offscreen,
@@ -43,7 +47,16 @@ struct NightwellAnimatedCover: View {
                 ], startPoint: .top, endPoint: .bottom)
             }
             .id(track?.id)
-            .onAppear { drifting = true }
+            .task(id: "\(track?.id ?? "")|\(motionEnabled)") {
+                drifting = false
+                guard motionEnabled else { return }
+                do { try await Task.sleep(nanoseconds: 65_000_000) }
+                catch { return }
+                guard !Task.isCancelled else { return }
+                withAnimation(.easeInOut(duration: 8.5).repeatForever(autoreverses: true)) {
+                    drifting = true
+                }
+            }
             .accessibilityLabel(track?.title ?? "Обложка трека")
     }
 }
