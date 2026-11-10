@@ -882,9 +882,9 @@ public final class MainActivity extends Activity {
         if(navigationPopup!=null)navigationPopup.dismiss();
         final android.widget.ImageView opener=profileAvatarButton;
         LinearLayout shell=column();
-        shell.setPadding(dp(12),dp(11),dp(12),dp(11));
-        shell.setBackground(glass(27));
-        LinearLayout top=row();top.setPadding(dp(6),0,dp(4),dp(12));
+        shell.setPadding(dp(17),dp(17),dp(17),dp(15));
+        shell.setBackground(glass(29));
+        LinearLayout top=row();top.setPadding(dp(3),0,dp(1),dp(13));
         TextView title=text("Меню",23);title.setTypeface(null,android.graphics.Typeface.BOLD);
         title.setSingleLine(true);
         top.addView(title,new LinearLayout.LayoutParams(0,dp(44),1));
@@ -913,14 +913,19 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams avatarParams=new LinearLayout.LayoutParams(dp(43),dp(43));
         avatarParams.leftMargin=dp(7);top.addView(avatar,avatarParams);
         shell.addView(top);
+        View headerDivider=new View(this);
+        headerDivider.setBackgroundColor(0x26ffffff);
+        LinearLayout.LayoutParams dividerParams=new LinearLayout.LayoutParams(-1,dp(1));
+        dividerParams.bottomMargin=dp(12);
+        shell.addView(headerDivider,dividerParams);
         ScrollView scroll=new ScrollView(this);
         scroll.setFillViewport(false);
         scroll.setVerticalScrollBarEnabled(false);
         LinearLayout entries=column();
         scroll.addView(entries);
         shell.addView(scroll);
-        int width=Math.min(dp(342),getResources().getDisplayMetrics().widthPixels-dp(24));
-        int maxHeight=getResources().getDisplayMetrics().heightPixels-dp(isLandscapeLayout()?65:128);
+        int width=Math.min(dp(368),getResources().getDisplayMetrics().widthPixels-dp(20));
+        int maxHeight=getResources().getDisplayMetrics().heightPixels-dp(isLandscapeLayout()?65:110);
         PopupWindow popup=new PopupWindow(shell,width,WindowManager.LayoutParams.WRAP_CONTENT,true);
         navigationPopup=popup;
         popup.setBackgroundDrawable(glass(28));
@@ -945,22 +950,45 @@ public final class MainActivity extends Activity {
                 : (user.isEmpty()?new String[]{"Войти","Главная","Настройки"}:
                     new String[]{"Главная","Избранное","Плейлисты","Офлайн","Nightwell Premium","Настройки"});
             for(String tab:tabs){
-                TextView item=sheetAction(tab,()->{
-                    popup.dismiss();
-                    selectMenu(tab);
-                });
-                item.setGravity(Gravity.CENTER_VERTICAL);
-                item.setTextSize(15);
-                item.setTypeface(null,tab.equals(screen)?android.graphics.Typeface.BOLD:android.graphics.Typeface.NORMAL);
-                item.setPadding(dp(17),dp(10),dp(15),dp(10));
-                item.setCompoundDrawablePadding(dp(10));
-                item.setBackground(touchSurface(0x752e3036,17));
-                LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(50));
-                p.bottomMargin=dp(7);entries.addView(item,p);
+                final String glyph;
+                switch(tab){
+                    case "Главная":glyph="⌂";break;
+                    case "Избранное":glyph="♡";break;
+                    case "Плейлисты":glyph="▤";break;
+                    case "Офлайн":glyph="↓";break;
+                    case "Настройки":glyph="⚙";break;
+                    case "Nightwell Premium":glyph="✧";break;
+                    case "Слушать вместе":glyph="◉";break;
+                    case "Моя статистика":glyph="▥";break;
+                    case "Перенос плейлистов":glyph="⇩";break;
+                    default:glyph="↗";
+                }
+                boolean active=tab.equals(screen);
+                LinearLayout item=row();
+                item.setPadding(dp(13),0,dp(12),0);
+                item.setBackground(touchSurface(active?0xff3b3d43:0xff25272c,16));
+                TextView symbol=text(glyph,21);
+                symbol.setGravity(Gravity.CENTER);
+                symbol.setTextColor(active?0xffffffff:0xffaeb3bd);
+                item.addView(symbol,new LinearLayout.LayoutParams(dp(31),dp(51)));
+                TextView name=text(tab,15);
+                name.setTypeface(android.graphics.Typeface.create(active?"sans-serif-medium":"sans-serif",0));
+                name.setSingleLine(true);
+                name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                LinearLayout.LayoutParams textParams=new LinearLayout.LayoutParams(0,-2,1);
+                textParams.leftMargin=dp(12);
+                item.addView(name,textParams);
+                TextView chevron=text("›",22);
+                chevron.setTextColor(0xff777b85);
+                item.addView(chevron);
+                item.setOnClickListener(v->{popup.dismiss();selectMenu(tab);});
+                LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(53));
+                p.bottomMargin=dp(6);
+                entries.addView(item,p);
             }
-            entries.measure(View.MeasureSpec.makeMeasureSpec(width-dp(24),View.MeasureSpec.EXACTLY),
+            entries.measure(View.MeasureSpec.makeMeasureSpec(width-dp(34),View.MeasureSpec.EXACTLY),
                             View.MeasureSpec.makeMeasureSpec(0,View.MeasureSpec.UNSPECIFIED));
-            popup.setHeight(Math.min(maxHeight,entries.getMeasuredHeight()+dp(94)));
+            popup.setHeight(Math.min(maxHeight,entries.getMeasuredHeight()+dp(104)));
         };
         additional.setOnClickListener(v->{
             extra[0]=!extra[0];
