@@ -226,9 +226,9 @@ private struct StableNavigationSheet: View {
                 .foregroundStyle(.white.opacity(0.35))
         }
         .foregroundStyle(.white)
-        .frame(minHeight: 48)
+        .frame(minHeight: 49)
         .padding(.horizontal, 16)
-        .background(.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 18))
+        .nightwellMonochromeGlass(radius: 19)
     }
 
     private func entry(_ title: String, icon: String, action: StableNavigationAction) -> some View {
@@ -273,8 +273,14 @@ private struct StableNavigationSheet: View {
                         .font(.system(size: 18, weight: .medium))
                         .foregroundStyle(.white)
                         .frame(width: 42, height: 42)
-                        .background(.white.opacity(showingAdditional ? 0.17 : 0.08), in: Circle())
-                        .overlay(Circle().strokeBorder(.white.opacity(showingAdditional ? 0.38 : 0.19), lineWidth: 1))
+                        .background {
+                            Circle().fill(.ultraThinMaterial)
+                                .overlay {
+                                    Circle().fill(.white.opacity(showingAdditional ? 0.15 : 0.07))
+                                }
+                        }
+                        .overlay(Circle().strokeBorder(.white.opacity(showingAdditional ? 0.40 : 0.27), lineWidth: 1))
+                        .shadow(color: .black.opacity(0.17), radius: 9, y: 4)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(showingAdditional ? "Назад в меню" : "Дополнительно")
@@ -299,8 +305,9 @@ private struct StableNavigationSheet: View {
                     .frame(width: 38, height: 38)
                     .clipShape(Circle())
                     .frame(width: 42, height: 42)
-                    .background(.white.opacity(0.08), in: Circle())
-                    .overlay(Circle().strokeBorder(.white.opacity(0.24), lineWidth: 1))
+                    .background(Circle().fill(.ultraThinMaterial))
+                    .overlay(Circle().strokeBorder(.white.opacity(0.36), lineWidth: 1))
+                    .shadow(color: .black.opacity(0.2), radius: 9, y: 4)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(signedIn ? "Открыть профиль" : "Войти в аккаунт")
@@ -341,11 +348,12 @@ private struct StableNavigationSheet: View {
                 .padding(.horizontal, 20).padding(.bottom, 24)
             }
         }
+        .background { NightwellMonochromeGlassBackground() }
         .tint(.white)
         .preferredColorScheme(.dark)
         .presentationDetents([.height(430), .large])
         .presentationDragIndicator(.visible)
-        .presentationBackground(Color(red: 0.055, green: 0.055, blue: 0.065))
+        .presentationBackground(.clear)
     }
 }
 
@@ -752,7 +760,7 @@ struct NativeRoot: View {
                                 .foregroundStyle(.white)
                                 .padding(16)
                                 .frame(maxWidth: .infinity)
-                                .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 18))
+                                .nightwellMonochromeGlass(radius: 20)
                             }
                             .buttonStyle(.plain)
                             .disabled(profileSigningOut)
@@ -762,25 +770,27 @@ struct NativeRoot: View {
                     .padding(.top, 16)
                     .padding(.bottom, 28)
                 }
-                .background {
-                    LinearGradient(
-                        colors: [Color(white: 0.12), Color(white: 0.03), .black],
-                        startPoint: .topLeading, endPoint: .bottomTrailing
-                    )
-                    .ignoresSafeArea()
-                }
+                .background { NightwellMonochromeGlassBackground() }
                 .navigationTitle("Профиль")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
-                        Button("Готово") { profilePresented = false }
-                            .foregroundStyle(.white)
+                        Button { profilePresented = false } label: {
+                            Text("Готово")
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 17)
+                                .padding(.vertical, 9)
+                                .nightwellMonochromeGlass(radius: 22)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
             }
             .preferredColorScheme(.dark)
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
+            .presentationBackground(.clear)
         }
         .sheet(isPresented: $premiumPresented) { PremiumView(api: store.api) }
         .sheet(isPresented: $togetherPresented) {
