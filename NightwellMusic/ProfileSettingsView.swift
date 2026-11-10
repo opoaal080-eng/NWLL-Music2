@@ -274,7 +274,7 @@ struct ProfileSettingsView: View {
     @State private var busy = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 17) {
+        VStack(alignment: .leading, spacing: 11) {
             HStack(spacing: 10) {
                 Image(systemName: "person.crop.circle")
                     .font(.system(size: 19, weight: .medium))
@@ -282,7 +282,7 @@ struct ProfileSettingsView: View {
                 Text("Профиль")
                     .font(.system(size: 18, weight: .semibold))
             }
-            HStack(spacing: 16) {
+            HStack(spacing: 12) {
                 Group {
                     if let image = store.profileAvatar {
                         Image(uiImage: image).resizable().scaledToFill()
@@ -292,10 +292,10 @@ struct ProfileSettingsView: View {
                             .foregroundStyle(.white.opacity(0.72))
                     }
                 }
-                .frame(width: 68, height: 68)
+                .frame(width: 58, height: 58)
                 .clipShape(Circle())
                 .overlay(Circle().strokeBorder(.white.opacity(0.32), lineWidth: 1))
-                .shadow(color: .black.opacity(0.24), radius: 12, y: 6)
+                .shadow(color: .black.opacity(0.20), radius: 9, y: 4)
                 PhotosPicker(selection: $selectedPhoto, matching: .images) {
                     HStack(spacing: 8) {
                         Image(systemName: "photo.badge.plus")
@@ -303,8 +303,8 @@ struct ProfileSettingsView: View {
                     }
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(.white)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 12)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 9)
                     .nightwellMonochromeGlass(radius: 15)
                 }
                 .buttonStyle(.plain)
@@ -325,8 +325,8 @@ struct ProfileSettingsView: View {
                 .autocorrectionDisabled()
                 .foregroundStyle(.white)
                 .tint(.white)
-                .padding(15)
-                .nightwellMonochromeGlass(radius: 15)
+                .padding(12)
+                .nightwellMonochromeGlass(radius: 14)
             Button(busy ? "Сохраняем…" : "Сохранить ник") {
                 busy = true
                 Task {
@@ -337,8 +337,8 @@ struct ProfileSettingsView: View {
             }
             .font(.system(size: 15, weight: .semibold))
             .foregroundStyle(.white.opacity(0.95))
-            .padding(.horizontal, 15)
-            .padding(.vertical, 11)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
             .nightwellMonochromeGlass(radius: 15)
             .buttonStyle(.plain)
             .disabled(busy || nickname.trimmingCharacters(in: .whitespacesAndNewlines).count < 2)
@@ -349,9 +349,10 @@ struct ProfileSettingsView: View {
                     .foregroundStyle(.white.opacity(0.68))
             }
         }
-        .padding(20)
+        .padding(.horizontal, 17)
+        .padding(.vertical, 15)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .nightwellMonochromeGlass(radius: 27)
+        .nightwellMonochromeGlass(radius: 25)
         .task { await store.refreshProfile(); nickname = store.profileNickname }
         .onChange(of:selectedPhoto) { next in
             guard let next, !busy else { return }
