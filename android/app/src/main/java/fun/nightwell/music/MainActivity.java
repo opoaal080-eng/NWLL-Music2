@@ -545,14 +545,89 @@ public final class MainActivity extends Activity {
         depthQueuePage=queue.length()==0?0:Math.min(queue.length()-1,Math.max(0,current+1));
         boolean depth=getSharedPreferences("appearance",MODE_PRIVATE)
             .getBoolean("nw-depth-queue",false);
-        if(!depth){
-            AlertDialog d=new AlertDialog.Builder(this)
-                .setTitle("Очередь воспроизведения")
-                .setItems(trackNames(queue),(dialog,index)->play(queue.optJSONObject(index),queue,false))
-                .setNegativeButton("Закрыть",null).create();
-            styleSheet(d);d.show();return;
+        if(depth){showDepthQueue();return;}
+        ScrollView scroll=new ScrollView(this);
+        scroll.setFillViewport(false);
+        scroll.setVerticalScrollBarEnabled(false);
+        LinearLayout entries=column();
+        entries.setPadding(dp(15),dp(7),dp(15),dp(12));
+        scroll.addView(entries);
+        int currentIndex=Math.max(0,current);
+        int from=Math.max(0,currentIndex-35);
+        int to=Math.min(queue.length(),Math.max(currentIndex+85,75));
+        if(queue.length()==0){
+            TextView empty=text("В очереди пока нет треков",15);
+            empty.setGravity(Gravity.CENTER);
+            empty.setTextColor(0xffbec0c8);
+            empty.setPadding(dp(12),dp(30),dp(12),dp(30));
+            entries.addView(empty);
         }
-        showDepthQueue();
+        final View[] focused={null};
+        for(int i=from;i<to;i++){
+            JSONObject track=queue.optJSONObject(i);
+            if(track==null)continue;
+            boolean playing=i==current;
+            if(i==from||i==current||i==current+1){
+                String section=i==current?"СЕЙЧАС ИГРАЕТ":i==current+1?"ДАЛЕЕ":"РАНЕЕ";
+                TextView caption=sectionLabel(section);
+                caption.setTextColor(playing?0xfffafafa:0xffa2a6af);
+                LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,-2);
+                cp.topMargin=dp(i==from?0:12);
+                cp.bottomMargin=dp(5);
+                entries.addView(caption,cp);
+            }
+            LinearLayout line=row();
+            line.setPadding(dp(10),dp(7),dp(10),dp(7));
+            line.setBackground(touchSurface(playing?0xff373940:0xff24262b,17));
+            TextView index=text(playing?"♫":String.valueOf(i+1),12);
+            index.setTextColor(playing?0xfff6f6f8:0xff999da8);
+            index.setGravity(Gravity.CENTER);
+            line.addView(index,new LinearLayout.LayoutParams(dp(25),dp(44)));
+            ImageView artwork=new ImageView(this);
+            artwork.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            GradientDrawable shape=new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                new int[]{0xff4c5057,0xff1f2127});
+            shape.setCornerRadius(dp(9));
+            artwork.setBackground(shape);
+            artwork.setClipToOutline(true);
+            LinearLayout.LayoutParams imageParams=new LinearLayout.LayoutParams(dp(44),dp(44));
+            imageParams.leftMargin=dp(6);
+            line.addView(artwork,imageParams);
+            if(artworkCache!=null)artworkCache.load(artwork,origin,track.optString("cover_url"));
+            LinearLayout names=column();
+            names.setGravity(Gravity.CENTER_VERTICAL);
+            names.setPadding(dp(12),0,0,0);
+            TextView title=text(track.optString("title","Без названия"),14);
+            title.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));
+            title.setMaxLines(1);
+            title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            TextView artist=text(track.optString("artist","Nightwell Music"),12);
+            artist.setTextColor(playing?0xffccd0d9:0xff989ca6);
+            artist.setMaxLines(1);
+            artist.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            artist.setPadding(0,dp(4),0,0);
+            names.addView(title);
+            names.addView(artist);
+            line.addView(names,new LinearLayout.LayoutParams(0,-2,1));
+            TextView chevron=text(playing?"▮▮":"›",18);
+            chevron.setTextColor(playing?0xfff5f5f7:0xff737781);
+            chevron.setGravity(Gravity.CENTER);
+            line.addView(chevron,new LinearLayout.LayoutParams(dp(26),dp(44)));
+            final JSONObject selected=track;
+            line.setOnClickListener(view->play(selected,queue,false));
+            LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,dp(62));
+            params.bottomMargin=dp(6);
+            entries.addView(line,params);
+            if(playing)focused[0]=line;
+        }
+        AlertDialog dialog=new AlertDialog.Builder(this)
+            .setTitle("Очередь воспроизведения")
+            .setView(scroll)
+            .setPositiveButton("Готово",null).create();
+        styleNavigationSheet(dialog);
+        dialog.show();
+        if(focused[0]!=null)scroll.post(()->scroll.scrollTo(0,
+            Math.max(0,focused[0].getTop()-dp(140))));
     }
     void reorderUpcoming(int from,int to){
         if(playback==null)return;
