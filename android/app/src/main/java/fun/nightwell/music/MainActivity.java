@@ -1700,7 +1700,7 @@ public final class MainActivity extends Activity {
         }
         if(screen.equals("Поиск")){
             FrameLayout searchBox=new FrameLayout(this);
-            searchBox.setBackground(touchSurface(0xff202228,24));
+            searchBox.setBackground(touchSurface(0xff202228,18));
             searchBox.setClipToOutline(true);
             WhiteSearchCaretGlow glow=new WhiteSearchCaretGlow(this);
             searchBox.addView(glow,new FrameLayout.LayoutParams(-1,-1));
@@ -1710,12 +1710,14 @@ public final class MainActivity extends Activity {
             search.setSingleLine(true);
             search.setTextSize(16);
             search.setHintTextColor(0xff999ca8);
-            search.setPadding(dp(16),dp(14),dp(16),dp(14));
+            search.setPadding(dp(14),dp(11),dp(14),dp(11));
             search.setBackgroundColor(Color.TRANSPARENT);
             search.setHint("Трек или исполнитель");
             search.setSelectAllOnFocus(false);
             searchBox.addView(search,new FrameLayout.LayoutParams(-1,-2));
-            body.addView(searchBox,new LinearLayout.LayoutParams(-1,-2));
+            LinearLayout.LayoutParams searchParams=new LinearLayout.LayoutParams(-1,-2);
+            searchParams.bottomMargin=dp(11);
+            body.addView(searchBox,searchParams);
             Runnable moveGlow=()->{
                 if(search==null||!search.isAttachedToWindow()||search.getLayout()==null)return;
                 int insertion=Math.max(0,search.getSelectionStart());
@@ -1739,17 +1741,25 @@ public final class MainActivity extends Activity {
             shown=new JSONArray();
             artistStrip=column();body.addView(artistStrip);
         }
-        else if(screen.equals("Избранное")){shown=new JSONArray();for(int i=0;i<catalog.length();i++)if(likes.contains(catalog.optJSONObject(i).optString("id")))shown.put(catalog.optJSONObject(i));shown=sortedFavorites(shown);LinearLayout actionsRow=row();actionsRow.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);TextView sort=iconButton("⇅",()->favoriteSortMenu());sort.setContentDescription("Сортировка избранного");TextView more=iconButton("⋯",()->collectionMenu("likes",""));LinearLayout.LayoutParams sortParams=new LinearLayout.LayoutParams(dp(47),dp(46));actionsRow.addView(sort,sortParams);LinearLayout.LayoutParams moreParams=new LinearLayout.LayoutParams(dp(47),dp(46));moreParams.leftMargin=dp(7);actionsRow.addView(more,moreParams);body.addView(actionsRow);}
+        else if(screen.equals("Избранное")){shown=new JSONArray();for(int i=0;i<catalog.length();i++)if(likes.contains(catalog.optJSONObject(i).optString("id")))shown.put(catalog.optJSONObject(i));shown=sortedFavorites(shown);LinearLayout actionsRow=row();actionsRow.setGravity(Gravity.CENTER_VERTICAL);
+            TextView count=text(shown.length()+" треков",12);
+            count.setTextColor(0xffaeb2bc);
+            actionsRow.addView(count,new LinearLayout.LayoutParams(0,-2,1));
+            TextView sort=iconButton("⇅",()->favoriteSortMenu());sort.setContentDescription("Сортировка избранного");TextView more=iconButton("⋯",()->collectionMenu("likes",""));LinearLayout.LayoutParams sortParams=new LinearLayout.LayoutParams(dp(47),dp(46));actionsRow.addView(sort,sortParams);LinearLayout.LayoutParams moreParams=new LinearLayout.LayoutParams(dp(47),dp(46));moreParams.leftMargin=dp(7);actionsRow.addView(more,moreParams);LinearLayout.LayoutParams controlsParams=new LinearLayout.LayoutParams(-1,dp(47));
+            controlsParams.bottomMargin=dp(8);
+            body.addView(actionsRow,controlsParams);}
         else if(screen.equals("Плейлисты")){
             android.widget.ScrollView scroll=new android.widget.ScrollView(this);
             LinearLayout entries=column();
             scroll.addView(entries);
             body.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
-            entries.addView(sheetAction("Умные плейлисты · Premium",()->feature("smart")));
-            entries.addView(sheetAction("Подборки дня · обновляются ежедневно",this::dailyPublicPlaylists));
-            entries.addView(action("＋ Создать плейлист",()->input("Новый плейлист",
+            addSpacedAction(entries,sheetAction("Умные плейлисты · Premium",()->feature("smart")),8);
+            addSpacedAction(entries,sheetAction("Подборки дня · обновляются ежедневно",this::dailyPublicPlaylists),8);
+            TextView newPlaylist=sheetAction("＋  Создать плейлист",()->input("Новый плейлист",
                 name->task(()->api.request("api/playlists","POST",
-                    new JSONObject().put("name",name)),v->load()))));
+                    new JSONObject().put("name",name)),v->load())));
+            newPlaylist.setGravity(Gravity.CENTER);
+            addSpacedAction(entries,newPlaylist,12);
             boolean wide=isLandscapeLayout();
             LinearLayout left=column(),right=column();
             if(wide){
@@ -1763,7 +1773,7 @@ public final class MainActivity extends Activity {
             for(int i=0;i<playlists.length();i++){
                 JSONObject p=playlists.optJSONObject(i);
                 if(p==null)continue;
-                LinearLayout item=row();item.setBackground(surface());
+                LinearLayout item=row();item.setBackground(fieldSurface(0xff25272b,16));item.setMinimumHeight(dp(58));item.setPadding(dp(8),dp(4),dp(4),dp(4));
                 TextView title=action(p.optString("name"),()->openPlaylist(p));
                 title.setGravity(Gravity.CENTER_VERTICAL|Gravity.LEFT);
                 title.setMaxLines(2);
@@ -1772,13 +1782,13 @@ public final class MainActivity extends Activity {
                 item.addView(action("⋯",()->collectionMenu("playlist",p.optString("id"))),
                     new LinearLayout.LayoutParams(dp(48),dp(48)));
                 LinearLayout.LayoutParams gap=new LinearLayout.LayoutParams(-1,-2);
-                gap.bottomMargin=dp(wide?6:10);
+                gap.bottomMargin=dp(wide?8:9);
                 (wide?(i%2==0?left:right):entries).addView(item,gap);
             }
             return;
         }
         else if(screen.equals("Офлайн")){
-            body.addView(action("Добавить аудиофайлы",this::importFiles));
+            addSpacedAction(body,sheetAction("＋  Добавить аудиофайлы",this::importFiles),10);
             TextView repairNotice=text("",13);
             body.addView(repairNotice);
             task(()->new JSONObject(OfflineStore.operation(this,origin,"{\"op\":\"listAll\"}")),v->{
@@ -1800,7 +1810,21 @@ public final class MainActivity extends Activity {
             });
             shown=new JSONArray();
         }
-        list=new ListView(this);list.setDivider(null);list.setCacheColorHint(Color.TRANSPARENT);adapter=new TrackAdapter();list.setAdapter(adapter);body.addView(list,new LinearLayout.LayoutParams(-1,0,1));list.setOnItemClickListener((p,v,pos,id)->play(shown.optJSONObject(pos),shown,false));list.setOnItemLongClickListener((p,v,pos,id)->{trackMenu(shown.optJSONObject(pos));return true;});
+        list=new ListView(this);
+        list.setDivider(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
+        list.setDividerHeight(dp(6));
+        list.setVerticalScrollBarEnabled(false);
+        list.setSelector(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
+        list.setClipToPadding(false);
+        list.setPadding(0,dp(2),0,dp(12));
+        list.setCacheColorHint(Color.TRANSPARENT);
+        adapter=new TrackAdapter();list.setAdapter(adapter);
+        body.addView(list,new LinearLayout.LayoutParams(-1,0,1));list.setOnItemClickListener((p,v,pos,id)->play(shown.optJSONObject(pos),shown,false));list.setOnItemLongClickListener((p,v,pos,id)->{trackMenu(shown.optJSONObject(pos));return true;});
+    }
+    private void addSpacedAction(LinearLayout parent,TextView button,int bottomMarginDp){
+        LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,-2);
+        params.bottomMargin=dp(bottomMarginDp);
+        parent.addView(button,params);
     }
     void updateList(){
         if(shown==null)shown=new JSONArray();
@@ -4014,7 +4038,7 @@ public final class MainActivity extends Activity {
     void handleAudioImportResult(int request,int result,Intent data){if(request!=72||result!=RESULT_OK||data==null)return;ArrayList<Uri> uris=new ArrayList<>();if(data.getClipData()!=null)for(int i=0;i<data.getClipData().getItemCount();i++)uris.add(data.getClipData().getItemAt(i).getUri());else if(data.getData()!=null)uris.add(data.getData());io.execute(()->{for(Uri uri:uris)try{OfflineStore.importFile(this,origin,uri);}catch(Exception ex){ui.post(()->status.setText("Не удалось импортировать файл"));}ui.post(()->navigate("Офлайн"));});}
     final class TrackAdapter extends BaseAdapter {
         public int getCount(){return shown.length();}public Object getItem(int p){return shown.optJSONObject(p);}public long getItemId(int p){return p;}
-        public View getView(int position,View recycled,ViewGroup parent){LinearLayout r;TextView title,artist,more;if(recycled==null){r=row();r.setPadding(dp(12),dp(12),dp(8),dp(12));LinearLayout labels=column();title=text("",16);title.setMaxLines(2);artist=text("",12);artist.setMaxLines(1);labels.addView(title);labels.addView(artist);r.addView(labels,new LinearLayout.LayoutParams(0,-2,1));r.addView(new PlayingIndicator(MainActivity.this),new LinearLayout.LayoutParams(dp(20),dp(20)));more=action("⋯",()->{});r.addView(more);r.setTag(new TextView[]{title,artist,more});}else r=(LinearLayout)recycled;TextView[] holder=(TextView[])r.getTag();JSONObject t=shown.optJSONObject(position);holder[0].setText(t.optString("title"));PlayingIndicator indicator=(PlayingIndicator)r.getChildAt(1);indicator.setVisibility(currentID.equals(t.optString("id"))?View.VISIBLE:View.GONE);indicator.playing(lastPlaying);holder[1].setText(t.optString("artist"));holder[1].setOnClickListener(v->play(t,shown,false));holder[1].setContentDescription("Воспроизвести "+t.optString("title"));holder[2].setOnClickListener(v->trackMenu(t));r.setOnClickListener(v->play(t,shown,false));r.setContentDescription("Воспроизвести "+t.optString("title"));r.setBackgroundColor(currentID.equals(t.optString("id"))?0x22ffb260:Color.TRANSPARENT);return r;}
+        public View getView(int position,View recycled,ViewGroup parent){LinearLayout r;TextView title,artist,more;if(recycled==null){r=row();r.setPadding(dp(12),dp(9),dp(7),dp(9));r.setMinimumHeight(dp(62));LinearLayout labels=column();title=text("",16);title.setMaxLines(2);artist=text("",12);artist.setMaxLines(1);labels.addView(title);labels.addView(artist);r.addView(labels,new LinearLayout.LayoutParams(0,-2,1));r.addView(new PlayingIndicator(MainActivity.this),new LinearLayout.LayoutParams(dp(20),dp(20)));more=action("⋯",()->{});r.addView(more);r.setTag(new TextView[]{title,artist,more});}else r=(LinearLayout)recycled;TextView[] holder=(TextView[])r.getTag();JSONObject t=shown.optJSONObject(position);holder[0].setText(t.optString("title"));PlayingIndicator indicator=(PlayingIndicator)r.getChildAt(1);indicator.setVisibility(currentID.equals(t.optString("id"))?View.VISIBLE:View.GONE);indicator.playing(lastPlaying);holder[1].setText(t.optString("artist"));holder[1].setOnClickListener(v->play(t,shown,false));holder[1].setContentDescription("Воспроизвести "+t.optString("title"));holder[2].setOnClickListener(v->trackMenu(t));r.setOnClickListener(v->play(t,shown,false));r.setContentDescription("Воспроизвести "+t.optString("title"));r.setBackground(fieldSurface(currentID.equals(t.optString("id"))?0xff33363c:0xff23252a,15));return r;}
     }
     private String favoriteOrder="recent";
     private void favoriteSortMenu(){
