@@ -2408,9 +2408,51 @@ public final class MainActivity extends Activity {
     }
     String[] trackNames(JSONArray items){String[] names=new String[items.length()];for(int i=0;i<names.length;i++)names[i]=items.optJSONObject(i).optString("title");return names;}
     JSONObject cachedLyrics(String id)throws Exception {
-        java.io.File dir=new java.io.File(getCacheDir(),"native-lyrics");dir.mkdirs();java.io.File file=new java.io.File(dir,id+".json");
-        if(file.isFile()&&file.length()<2*1024*1024){try{JSONObject cached=new JSONObject(new String(java.nio.file.Files.readAllBytes(file.toPath()),java.nio.charset.StandardCharsets.UTF_8));long ttl=cached.optBoolean("lookup_complete",true)?30L*86400000:3600000;if(System.currentTimeMillis()-file.lastModified()<ttl&&cached.optString("status").equals("found"))return cached;}catch(Exception ignored){}}
-        JSONObject value=api.request("api/lyrics/"+id);if(value.optString("status").equals("found"))java.nio.file.Files.write(file.toPath(),value.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));return value;
+        // Application files survive automatic cache eviction. The name is
+        // scoped by server and hashed so provider IDs cannot escape the folder.
+        java.security.MessageDigest digest=java.security.MessageDigest.getInstance("SHA-256");
+        byte[] raw=digest.digest((origin+"|"+id).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        StringBuilder key=new StringBuilder();
+        for(byte b:raw)key.append(String.format(java.util.Locale.ROOT,"%02x",b&0xff));
+        java.io.File root=new java.io.File(getFilesDir(),"native-lyrics");
+        if(!root.isDirectory()&&!root.mkdirs())throw new java.io.IOException("No lyrics storage");
+        java.io.File file=new java.io.File(root,key+".json");
+        if(file.isFile()&&file.length()>0&&file.length()<1024*1024){
+            try{
+                JSONObject saved=new JSONObject(new String(java.nio.file.Files.readAllBytes(
+                    file.toPath()),java.nio.charset.StandardCharsets.UTF_8));
+                if("found".equals(saved.optString("status"))||"instrumental".equals(saved.optString("status")))
+                    return saved;
+            }catch(Exception ignored){}
+        }
+        // Migrate the former purgeable 30-day cache without requiring network.
+        if(id.matches("[A-Za-z0-9_-]{1,80}")){
+            java.io.File legacy=new java.io.File(new java.io.File(getCacheDir(),"native-lyrics"),id+".json");
+            if(legacy.isFile()&&legacy.length()>0&&legacy.length()<1024*1024)try{
+                JSONObject saved=new JSONObject(new String(java.nio.file.Files.readAllBytes(
+                    legacy.toPath()),java.nio.charset.StandardCharsets.UTF_8));
+                if("found".equals(saved.optString("status"))||"instrumental".equals(saved.optString("status"))){
+                    java.nio.file.Files.write(file.toPath(),saved.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    return saved;
+                }
+            }catch(Exception ignored){}
+        }
+        JSONObject value=api.request("api/lyrics/"+id);
+        if("found".equals(value.optString("status"))||"instrumental".equals(value.optString("status"))){
+            // Keep the entire JSON, including line/word timestamps and plain
+            // lyric text. Do not replace a richer saved version with less data.
+            if(file.isFile())try{
+                JSONObject previous=new JSONObject(new String(java.nio.file.Files.readAllBytes(
+                    file.toPath()),java.nio.charset.StandardCharsets.UTF_8));
+                if(value.optJSONArray("lines")==null&&previous.optJSONArray("lines")!=null)
+                    value.put("lines",previous.getJSONArray("lines")).put("synced",true);
+                if(value.optString("plain").isEmpty()&&!previous.optString("plain").isEmpty())
+                    value.put("plain",previous.optString("plain"));
+            }catch(Exception ignored){}
+            byte[] bytes=value.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            if(bytes.length<1024*1024)java.nio.file.Files.write(file.toPath(),bytes);
+        }
+        return value;
     }
     boolean lyricsPending(JSONObject value){String state=value.optString("status");return state.equals("loading")||state.equals("pending")||state.equals("unavailable");}
     void fetchLyricsAndPreload(){final String id=currentID;if(id.isEmpty())return;final JSONArray upcoming=new JSONArray();for(int i=0;i<queue.length();i++)if(queue.optJSONObject(i).optString("id").equals(id)){for(int j=i+1;j<Math.min(queue.length(),i+13);j++)upcoming.put(queue.optJSONObject(j).optString("id"));break;}
@@ -2879,9 +2921,10 @@ public final class MainActivity extends Activity {
         java.util.List<String> actionsList=new java.util.ArrayList<>();
         actionsList.add("Твой ритм по треку");
         if(video)actionsList.add("Клип");
+        boolean downloaded=OfflineStore.audio(this,origin,user,id)!=null;
         actionsList.addAll(java.util.Arrays.asList(
             likes.contains(id)?"Убрать из избранного":"В избранное",
-            "Скачать","Поделиться","Добавить в плейлист",
+            downloaded?"Удалить загрузку":"Скачать","Поделиться","Добавить в плейлист",
             hiddenRecommendations().contains(id)?"Вернуть в рекомендации":"Не рекомендовать",
             isArtistHidden(track)?"Вернуть исполнителя":"Не рекомендовать исполнителя"));
         AlertDialog actions=new AlertDialog.Builder(this).setTitle(track.optString("title"))
@@ -2890,7 +2933,14 @@ public final class MainActivity extends Activity {
                 if(video&&chosen==1){openClip(track);return;}
                 int n=chosen-(video?2:1);
                 if(n==0)toggleFavorite(track);
-                else if(n==1)download(new JSONArray().put(track));
+                else if(n==1){
+                    if(downloaded){
+                        task(()->new JSONObject(OfflineStore.operation(this,origin,
+                            new JSONObject().put("op","remove").put("account",user)
+                                .put("id",id).toString())),
+                            result->{status.setText("Загрузка удалена");if(screen.equals("Офлайн"))showScreen();});
+                    }else download(new JSONArray().put(track));
+                }
                 else if(n==2)share(origin+"track/"+id);
                 else if(n==4)toggleRecommendationHidden(track);
                 else if(n==5)toggleArtistHidden(track);
