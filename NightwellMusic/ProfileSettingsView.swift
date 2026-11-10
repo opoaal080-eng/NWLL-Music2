@@ -53,49 +53,98 @@ extension MusicStore {
         try? data.write(to: url, options: .atomic)
     }
 
-    func refreshProfile() async {
+    func refreshProfile(force: Bool = false) async {
         guard let userID = account?.id else {
             profileNickname = ""
             profileAvatar = nil
-            profileLoadError = "Войди в аккаунт, чтобы загрузить сохранённый профиль."
+            profileLoadError = nil
             return
         }
-        profileLoadError = nil
         let server = origin
-        do {
-            let details: NightwellProfile = try await api.request("/api/profile/me")
-            guard account?.id == userID, origin == server else { return }
-            profileLoadError = nil
-            profileNickname = details.nickname
-            UserDefaults.standard.set(details.nickname,
-                forKey: cachedNicknameKey(userID: userID, server: server))
-            guard let path = details.avatar_url, !path.isEmpty,
-                  let url = URL(string: path, relativeTo: server)?.absoluteURL,
-                  url.scheme == "https", url.host == server.host else {
-                profileAvatar = nil
-                profileLoadError = "На сервере пока нет аватарки для этого аккаунта."
-                try? FileManager.default.removeItem(
-                    at: profileCachePath(userID: userID, server: server))
-                return
-            }
+        let scope = server.absoluteString + "|" + userID
+        // Startup, the account-change observer, and opening the profile
+        // sheet can all request this endpoint at once. A brief throttle
+        // prevents duplicate traffic without blocking the explicit Retry.
+        if profileLoading && profileLastRequestScope == scope { return }
+        if !force && profileLastRequestScope == scope &&
+            Date().timeIntervalSince(profileLastRequestAt) < 20 { return }
 
-            // A stable avatar URL was previously cached by the proxy. Revalidate
-            // explicitly, while retaining the cached photo if the network fails.
+        let token = UUID()
+        profileLastRequestScope = scope
+        profileLastRequestAt = Date()
+        profileRequestToken = token
+        profileLoading = true
+        profileLoadError = nil
+        defer {
+            if profileRequestToken == token {
+                profileLoading = false
+                profileRequestToken = nil
+            }
+        }
+
+        let details: NightwellProfile
+        do {
+            details = try await api.request("/api/profile/me", timeout: 12)
+        } catch {
+            guard !Task.isCancelled, profileRequestToken == token,
+                  account?.id == userID, origin == server else { return }
+            // Distinguish a missing/unauthorized profile endpoint from an
+            // actual loss of connectivity to the Nightwell music server.
+            if let response = error as? RequestRetry.HTTPFailure {
+                switch response.status {
+                case 401, 403:
+                    profileLoadError = "Доступ к API профиля отклонён (HTTP \(response.status)). Проверь вход в аккаунт."
+                case 404:
+                    profileLoadError = "Основной сервер доступен, но API профиля не найден (HTTP 404). Требуется /api/profile/me."
+                case 429:
+                    profileLoadError = "Слишком много запросов к профилю (HTTP 429). Повтори немного позже."
+                case 500...599:
+                    profileLoadError = "API профиля ответил с ошибкой HTTP \(response.status). Музыка может работать отдельно."
+                default:
+                    profileLoadError = "Не удалось обновить профиль (HTTP \(response.status))."
+                }
+            } else if error is DecodingError {
+                profileLoadError = "Сервер вернул неподдерживаемый формат данных профиля."
+            } else {
+                profileLoadError = "Ошибка запроса профиля: " + error.localizedDescription
+            }
+            // Keep the saved nickname and avatar. A profile-specific failure
+            // must never hide the user's locally restored account.
+            return
+        }
+        guard !Task.isCancelled, profileRequestToken == token,
+              account?.id == userID, origin == server else { return }
+        profileNickname = details.nickname
+        profileLoadError = nil
+        UserDefaults.standard.set(details.nickname,
+            forKey: cachedNicknameKey(userID: userID, server: server))
+
+        guard let path = details.avatar_url, !path.isEmpty,
+              let url = URL(string: path, relativeTo: server)?.absoluteURL,
+              url.scheme == "https", url.host == server.host else {
+            // No avatar is a valid profile, not a server error.
+            profileAvatar = nil
+            try? FileManager.default.removeItem(
+                at: profileCachePath(userID: userID, server: server))
+            return
+        }
+        // Avatar bytes are optional and fetched independently from metadata.
+        // A failing cover/image endpoint must not mark the profile offline.
+        do {
             var request = URLRequest(url: url)
+            request.timeoutInterval = 12
             request.cachePolicy = .reloadIgnoringLocalCacheData
             request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
             let (data, response) = try await URLSession.shared.data(for: request)
-            guard account?.id == userID, origin == server else { return }
+            guard !Task.isCancelled, profileRequestToken == token,
+                  account?.id == userID, origin == server else { return }
             guard let http = response as? HTTPURLResponse, http.statusCode == 200,
                   !data.isEmpty, data.count <= 768 * 1024,
                   let image = UIImage(data: data) else { return }
             profileAvatar = image
-            profileLoadError = nil
             cacheAvatar(data, userID: userID, server: server)
         } catch {
-            // Keep the last local image and report why a fresh install could
-            // not restore the avatar from the server.
-            profileLoadError = "Не удалось загрузить профиль: " + error.localizedDescription
+            // The cached avatar stays visible. Profile metadata loaded fine.
         }
     }
 
