@@ -1958,6 +1958,14 @@ public final class MainActivity extends Activity {
             String saved=getSharedPreferences("favorite-tracks-v1",MODE_PRIVATE)
                 .getString(favoriteIndexKey(owner),"");
             if(!saved.isEmpty())favoriteTracks.restore(new JSONObject(saved));
+            // Migrate metadata preserved by the older v48 Android client.
+            String legacy=getSharedPreferences("favorite-track-cache",MODE_PRIVATE)
+                .getString(favoriteIndexKey(owner),"");
+            if(!legacy.isEmpty()){
+                JSONArray entries=new JSONArray(legacy);
+                for(int i=0;i<entries.length();i++)
+                    favoriteTracks.remember(entries.optJSONObject(i));
+            }
         }catch(Exception ignored){}
     }
 
