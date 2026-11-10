@@ -134,6 +134,8 @@ private struct AudioQualityDecision: Decodable {
     // Profile loads originate at startup, connectivity restoration and sheet
     // presentation. Coalesce them to avoid hitting the same API repeatedly.
     var profileLastRequestAt = Date.distantPast
+    var profileLastRequestScope = ""
+    var profileRequestToken: UUID?
     @Published var query = ""
     @Published var searchMessage = ""
     @Published var audioQualityNotice = ""
