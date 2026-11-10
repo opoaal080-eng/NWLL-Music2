@@ -268,6 +268,7 @@ public final class MainActivity extends Activity {
         };
     private LinearLayout root,body,dock,head,landscapeRail;
     private TextView status,miniTitle,miniArtist,miniPlay,miniPrev,miniNext,miniLike;
+    private String lastNextLoadNotice="";
     private android.widget.ImageView miniCover;private CircularProgressRing miniProgressRing;
     private ArtworkCache artworkCache;
     private TextView fullTime,homePlay,fullPlay,fullLike,fullDislike,fullAudioOutput,fullShuffle;
@@ -2917,7 +2918,16 @@ public final class MainActivity extends Activity {
                 "Подготовка следующего трека"):
             buffering?"Подготовка аудио":
                 (state.optBoolean("playing")?"Пауза":"Воспроизвести"));
-    }setLabel(miniPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(homePlay!=null)setLabel(homePlay,state.optBoolean("playing")?"Ⅱ":"▶");if(fullPlay!=null)setLabel(fullPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(ribbon!=null)ribbon.playing(state.optBoolean("playing"));if(trackChanged){currentID=next;refreshFavoriteButtons();if(!next.isEmpty()){rememberRecent(next);checkTrackAudioQuality(t);prefetchClip(t);}activeLyrics=null;homeLine="";homeWord=-2;homeKineticSpans.clear();if(homeLyric!=null)homeLyric.setText("");loadMiniCover(t);fetchLyricsAndPreload();animateTrackTransition();updateList();if(full)openPlayer();}if(seek!=null&&!seek.isPressed()){int duration=(int)Math.max(1,state.optDouble("duration"));seek.setMax(duration);seek.setProgress((int)state.optDouble("position"));seek.setSecondaryProgress((int)(duration*state.optDouble("bufferFraction")));if(seek instanceof PreparingSeekBar)((PreparingSeekBar)seek).setPreparation(state.optBoolean("nextPreparing")||state.optBoolean("buffering"),state.optBoolean("nextPreparing")?state.optDouble("preparationFraction"):state.optDouble("bufferFraction"));}if(fullTime!=null)setLabel(fullTime,time(state.optDouble("position"))+"     /     "+time(state.optDouble("duration")));if(!state.optString("error").isEmpty())status.setText(state.optString("error"));syncLyrics(state.optDouble("position"));syncHomeLyrics(state.optDouble("position"));if(lastPlaying!=state.optBoolean("playing")){lastPlaying=state.optBoolean("playing");updateList();}}catch(Exception ignored){}}
+    }setLabel(miniPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(homePlay!=null)setLabel(homePlay,state.optBoolean("playing")?"Ⅱ":"▶");if(fullPlay!=null)setLabel(fullPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(ribbon!=null)ribbon.playing(state.optBoolean("playing"));if(trackChanged){currentID=next;refreshFavoriteButtons();if(!next.isEmpty()){rememberRecent(next);checkTrackAudioQuality(t);prefetchClip(t);}activeLyrics=null;homeLine="";homeWord=-2;homeKineticSpans.clear();if(homeLyric!=null)homeLyric.setText("");loadMiniCover(t);fetchLyricsAndPreload();animateTrackTransition();updateList();if(full)openPlayer();}if(seek!=null&&!seek.isPressed()){int duration=(int)Math.max(1,state.optDouble("duration"));seek.setMax(duration);seek.setProgress((int)state.optDouble("position"));seek.setSecondaryProgress((int)(duration*state.optDouble("bufferFraction")));if(seek instanceof PreparingSeekBar)((PreparingSeekBar)seek).setPreparation(state.optBoolean("nextPreparing")||state.optBoolean("buffering"),state.optBoolean("nextPreparing")?state.optDouble("preparationFraction"):state.optDouble("bufferFraction"));}if(fullTime!=null)setLabel(fullTime,time(state.optDouble("position"))+"     /     "+time(state.optDouble("duration")));String playbackError=state.optString("error");
+        if(!playbackError.isEmpty()&&status!=null)status.setText(playbackError);
+        if(playbackError.startsWith(FailedNextSkipPolicy.FAILURE_MESSAGE)){
+            if(!playbackError.equals(lastNextLoadNotice)){
+                lastNextLoadNotice=playbackError;
+                Toast.makeText(this,FailedNextSkipPolicy.FAILURE_MESSAGE+
+                    ". Повторное нажатие «Далее» пропустит недоступный трек.",
+                    Toast.LENGTH_LONG).show();
+            }
+        }else lastNextLoadNotice="";syncLyrics(state.optDouble("position"));syncHomeLyrics(state.optDouble("position"));if(lastPlaying!=state.optBoolean("playing")){lastPlaying=state.optBoolean("playing");updateList();}}catch(Exception ignored){}}
     void animateTrackTransition(){
         if(dock==null||!dock.isShown())return;
         final float slide=dp(24)*trackTransitionDirection;
