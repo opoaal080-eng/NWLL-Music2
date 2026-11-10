@@ -21,8 +21,11 @@ public final class MainActivity extends Activity {
     private final ExecutorService waveIO=Executors.newSingleThreadExecutor();
     private final ExecutorService prefetch=Executors.newSingleThreadExecutor();
     private final ExecutorService playlistIndexer=Executors.newSingleThreadExecutor();
-    private TextView liveHandoff;
+    private TextView liveHandoff, compactHandoff;
+    private boolean handoffCollapsed = false;
+    private Runnable handoffCollapseTask;
     private TextView nightwellBadge, nightwellMenuStatus;
+    private ProgressBar nightwellMenuSpinner;
     private String nightwellStatus = "Проверка…";
     private final Runnable nightwellProbe = new Runnable() {
         @Override public void run() {
@@ -66,16 +69,22 @@ public final class MainActivity extends Activity {
     }
     private void setNightwellStatus(String value) {
         nightwellStatus = value;
-        int color = value.equals("Онлайн") ? 0xff64d98b :
-                    value.equals("Ограничен") ? 0xffffbd64 : 0xffa7abb7;
+        boolean connecting = value.equals("Загрузка…") || value.equals("Проверка…");
+        int color = connecting ? 0xff67a8ff : value.equals("Онлайн") ? 0xff5fe7a3 :
+                    value.equals("Ограничен") ? 0xffffc076 : 0xffa7abb7;
         if (nightwellBadge != null) {
-            nightwellBadge.setText("● Nightwell · " + value);
+            nightwellBadge.setText("●");
             nightwellBadge.setTextColor(color);
+            nightwellBadge.setContentDescription("Подключение Nightwell: "+value);
         }
         if (nightwellMenuStatus != null) {
-            nightwellMenuStatus.setText(value);
+            nightwellMenuStatus.setText("●");
             nightwellMenuStatus.setTextColor(color);
+            nightwellMenuStatus.setContentDescription("Подключение Nightwell: "+value);
+            nightwellMenuStatus.setVisibility(connecting?View.GONE:View.VISIBLE);
         }
+        if (nightwellMenuSpinner != null)
+            nightwellMenuSpinner.setVisibility(connecting?View.VISIBLE:View.GONE);
     }
     private JSONObject liveRemote;
     private boolean liveOwner, liveBusy;
@@ -116,10 +125,23 @@ public final class MainActivity extends Activity {
         });
     }
     private void refreshLiveHandoff(){
-        if(liveHandoff==null)return;
         boolean show=!user.isEmpty()&&liveRemote!=null&&
             !liveRemote.optString("track_id").isEmpty()&&!backgroundOnly;
-        liveHandoff.setVisibility(show?View.VISIBLE:View.GONE);
+        if(!show){
+            handoffCollapsed=false;
+            if(handoffCollapseTask!=null)ui.removeCallbacks(handoffCollapseTask);
+            handoffCollapseTask=null;
+        }else if(!handoffCollapsed&&handoffCollapseTask==null){
+            handoffCollapseTask=()->{
+                handoffCollapseTask=null;
+                if(liveRemote==null||isDestroyed())return;
+                handoffCollapsed=true;
+                refreshLiveHandoff();
+            };
+            ui.postDelayed(handoffCollapseTask,8000);
+        }
+        if(liveHandoff!=null)liveHandoff.setVisibility(show&&!handoffCollapsed?View.VISIBLE:View.GONE);
+        if(compactHandoff!=null)compactHandoff.setVisibility(show&&handoffCollapsed?View.VISIBLE:View.GONE);
     }
     private void publishLive(boolean takeover){
         if(smokeMode||liveBusy||user.isEmpty()||playback==null||(!takeover&&!liveOwner))return;
@@ -424,10 +446,21 @@ public final class MainActivity extends Activity {
     LinearLayout column(){LinearLayout v=new LinearLayout(this);v.setOrientation(LinearLayout.VERTICAL);return v;}
     LinearLayout row(){LinearLayout v=new LinearLayout(this);v.setGravity(Gravity.CENTER_VERTICAL);return v;}
     TextView text(String label,int size){TextView v=new TextView(this);v.setText(label);v.setTextSize(size);v.setTextColor(0xfff3f3f5);v.setFontFeatureSettings("kern");v.setIncludeFontPadding(false);v.setBreakStrategy(android.text.Layout.BREAK_STRATEGY_HIGH_QUALITY);v.setHyphenationFrequency(android.text.Layout.HYPHENATION_FREQUENCY_NORMAL);return v;}
-    GradientDrawable surface(){GradientDrawable d=new GradientDrawable();d.setColor(0xf01b1e25);d.setCornerRadius(dp(30));d.setStroke(dp(1),0x33ffffff);return d;}
-    GradientDrawable fieldSurface(int color,int corners){GradientDrawable fill=new GradientDrawable();fill.setColor(color);fill.setCornerRadius(dp(corners));fill.setStroke(dp(1),0x26ffffff);return fill;}
+    // Neutral frosted surfaces: no purple/orange tint or opaque bulky cards.
+    GradientDrawable glass(int corners){
+        GradientDrawable d=new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+            new int[]{0xdb34363b,0xc91d1f24,0xe016181d});
+        d.setCornerRadius(dp(corners));d.setStroke(dp(1),0x59ffffff);
+        return d;
+    }
+    GradientDrawable surface(){return glass(28);}
+    GradientDrawable fieldSurface(int color,int corners){
+        GradientDrawable fill=new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+            new int[]{(color&0x00ffffff)|0x88000000,0x88232429});
+        fill.setCornerRadius(dp(corners));fill.setStroke(dp(1),0x40ffffff);return fill;
+    }
     android.graphics.drawable.Drawable touchSurface(int color,int corners){GradientDrawable fill=fieldSurface(color,corners);GradientDrawable mask=new GradientDrawable();mask.setColor(Color.WHITE);mask.setCornerRadius(dp(corners));return new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x30ffffff),fill,mask);}
-    TextView sectionLabel(String label){TextView v=text(label.toUpperCase(java.util.Locale.ROOT),11);v.setLetterSpacing(0.08f);v.setTextColor(0xffd1a46d);v.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);v.setPadding(dp(6),dp(8),dp(6),dp(6));return v;}
+    TextView sectionLabel(String label){TextView v=text(label.toUpperCase(java.util.Locale.ROOT),11);v.setLetterSpacing(0.08f);v.setTextColor(0xffadb0b8);v.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);v.setPadding(dp(6),dp(8),dp(6),dp(6));return v;}
     void styleField(EditText view){view.setTextColor(0xfff4f4f7);view.setHintTextColor(0xff8f95a5);view.setTextSize(15);view.setBackground(fieldSurface(0x88262a33,18));view.setPadding(dp(16),dp(14),dp(16),dp(14));}
     void styleSwitch(android.widget.Switch view){view.setTextColor(0xfff0f1f6);view.setTextSize(15);view.setPadding(dp(2),dp(10),dp(2),dp(10));}
     void styleSheet(AlertDialog dialog){dialog.setOnShowListener(ignored->{android.view.Window window=dialog.getWindow();if(window!=null){window.setBackgroundDrawable(surface());window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);WindowManager.LayoutParams params=window.getAttributes();params.dimAmount=.72f;window.setAttributes(params);int width=Math.min(dp(isLandscapeLayout()?740:540),
@@ -436,9 +469,9 @@ public final class MainActivity extends Activity {
                 if(window.getDecorView().getHeight()>limit)window.setLayout(width,limit);});}
         for(int which:new int[]{AlertDialog.BUTTON_POSITIVE,AlertDialog.BUTTON_NEGATIVE,AlertDialog.BUTTON_NEUTRAL}){Button b=dialog.getButton(which);if(b==null)continue;b.setAllCaps(false);b.setTextColor(which==AlertDialog.BUTTON_NEGATIVE?0xffb6bac7:0xffeeeeee);b.setTextSize(15);}
     });}
-    TextView sheetAction(String label,Runnable run){TextView v=action(label,run);v.setTextSize(14);v.setMaxLines(2);v.setEllipsize(android.text.TextUtils.TruncateAt.END);v.setGravity(Gravity.CENTER_VERTICAL);v.setTextColor(0xfff2f2f5);v.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);v.setPadding(dp(16),dp(14),dp(16),dp(14));v.setBackground(touchSurface(0xaa262b34,24));return v;}
+    TextView sheetAction(String label,Runnable run){TextView v=action(label,run);v.setTextSize(14);v.setMaxLines(2);v.setEllipsize(android.text.TextUtils.TruncateAt.END);v.setGravity(Gravity.CENTER_VERTICAL);v.setTextColor(0xfff2f2f5);v.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);v.setPadding(dp(16),dp(14),dp(16),dp(14));v.setBackground(touchSurface(0x84282b30,19));return v;}
     TextView action(String label,Runnable run){TextView v=NativeIconButton.isIcon(label)?new NativeIconButton(this):text(label,16);v.setText(label);v.setTextColor(0xfff3f3f5);v.setTextSize(NativeIconButton.isIcon(label)?20:16);if(NativeIconButton.isIcon(label))v.setContentDescription(iconLabel(label));v.setGravity(Gravity.CENTER);v.setPadding(dp(14),dp(12),dp(14),dp(12));v.setMinHeight(dp(50));v.setOnClickListener(x->run.run());return v;}
-    TextView iconButton(String label,Runnable run){TextView v=action(label,run);v.setPadding(0,0,0,0);v.setTextSize(20);v.setTextColor(0xfff1f1f6);v.setBackground(touchSurface(0xa61f232c,24));return v;}
+    TextView iconButton(String label,Runnable run){TextView v=action(label,run);v.setPadding(0,0,0,0);v.setTextSize(20);v.setTextColor(0xfff1f1f6);v.setBackground(touchSurface(0xa52b2e34,23));return v;}
     void toggleBackgroundOnly(){backgroundOnly=!backgroundOnly;build();}
     private int depthQueuePage = 0;
 
@@ -700,15 +733,19 @@ public final class MainActivity extends Activity {
         TextView brandName=text("Nightwell",27);brandName.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);brandName.setTextColor(0xfff3f3f5);brandName.setIncludeFontPadding(false);brandName.setSingleLine(true);brandName.setAutoSizeTextTypeUniformWithConfiguration(20,27,1,android.util.TypedValue.COMPLEX_UNIT_SP);
         wordmark.addView(brandName,new LinearLayout.LayoutParams(-1,dp(landscape?27:33)));
         TextView brandCaption=text("M U S I C",12);brandCaption.setIncludeFontPadding(false);brandCaption.setSingleLine(true);brandCaption.setTextColor(0xff92959f);LinearLayout.LayoutParams captionParams=new LinearLayout.LayoutParams(-1,-2);captionParams.topMargin=dp(1);wordmark.addView(brandCaption,captionParams);
-        wordmark.setOnClickListener(v->navigate("Главная"));wordmark.setContentDescription("Nightwell Music, на главный экран");head.addView(wordmark,new LinearLayout.LayoutParams(0,-2,1));if(landscape){brandName.setTextSize(20);brandCaption.setTextSize(9);}TextView searchButton=iconButton("⌕",()->navigate("Поиск"));searchButton.setBackground(touchSurface(0x40202228,24));head.addView(searchButton,new LinearLayout.LayoutParams(dp(48),dp(48)));android.widget.ImageView menuButton=new android.widget.ImageView(this);menuButton.setImageResource(android.R.drawable.ic_menu_myplaces);menuButton.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);menuButton.setPadding(dp(8),dp(8),dp(8),dp(8));menuButton.setBackground(touchSurface(0x40202228,24));menuButton.setOnClickListener(v->menu());menuButton.setContentDescription("Меню профиля");profileAvatarButton=menuButton;head.addView(menuButton,new LinearLayout.LayoutParams(dp(48),dp(48)));refreshProfileAvatar();LinearLayout.LayoutParams headerParams=new LinearLayout.LayoutParams(-1,dp(landscape?52:58));headerParams.bottomMargin=dp(landscape?2:12);root.addView(head,headerParams);if(backgroundOnly)head.setVisibility(View.GONE);
+        wordmark.setOnClickListener(v->navigate("Главная"));wordmark.setContentDescription("Nightwell Music, на главный экран");head.addView(wordmark,new LinearLayout.LayoutParams(0,-2,1));if(landscape){brandName.setTextSize(20);brandCaption.setTextSize(9);}TextView searchButton=iconButton("⌕",()->navigate("Поиск"));searchButton.setBackground(touchSurface(0x40202228,24));head.addView(searchButton,new LinearLayout.LayoutParams(dp(48),dp(48)));
+        compactHandoff=iconButton("⇄",this::continueLiveHere);
+        compactHandoff.setContentDescription("Продолжить на этом устройстве");
+        compactHandoff.setVisibility(View.GONE);
+        head.addView(compactHandoff,new LinearLayout.LayoutParams(dp(44),dp(48)));
+        android.widget.ImageView menuButton=new android.widget.ImageView(this);menuButton.setImageResource(android.R.drawable.ic_menu_myplaces);menuButton.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);menuButton.setPadding(dp(8),dp(8),dp(8),dp(8));menuButton.setBackground(touchSurface(0x40202228,24));menuButton.setOnClickListener(v->menu());menuButton.setContentDescription("Меню профиля");profileAvatarButton=menuButton;
+        head.setLayoutTransition(new android.animation.LayoutTransition());
+        head.addView(menuButton,new LinearLayout.LayoutParams(dp(48),dp(48)));refreshProfileAvatar();LinearLayout.LayoutParams headerParams=new LinearLayout.LayoutParams(-1,dp(landscape?52:58));headerParams.bottomMargin=dp(landscape?2:12);root.addView(head,headerParams);if(backgroundOnly)head.setVisibility(View.GONE);
         nightwellBadge = text("", 11);
         nightwellBadge.setContentDescription("Состояние подключения Nightwell");
         setNightwellStatus(nightwellStatus);
-        if (!backgroundOnly) {
-            LinearLayout.LayoutParams networkParams = new LinearLayout.LayoutParams(-1, dp(17));
-            networkParams.bottomMargin = dp(3);
-            root.addView(nightwellBadge, networkParams);
-        }
+        // Connectivity indicator lives beside the Menu title, not in a
+        // dedicated line above the contents.
         liveHandoff=sheetAction("Музыка на другом устройстве · Продолжить здесь",this::continueLiveHere);
         liveHandoff.setVisibility(View.GONE);root.addView(liveHandoff);
         refreshLiveHandoff();
@@ -722,8 +759,8 @@ public final class MainActivity extends Activity {
         status=text("",landscape?10:12);
         status.setMaxLines(landscape?1:3);
         root.addView(status);
-        dock=row();dock.setPadding(dp(10),dp(8),dp(10),dp(8));GradientDrawable fill=new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,new int[]{0x12ffbc78,0x12ffbc78});fill.setCornerRadius(dp(34));miniProgress=new android.graphics.drawable.ClipDrawable(fill,Gravity.LEFT,android.graphics.drawable.ClipDrawable.HORIZONTAL);GradientDrawable glassDock=new GradientDrawable();glassDock.setColor(0x8c202228);glassDock.setCornerRadius(dp(34));glassDock.setStroke(dp(1),0x38ffffff);dock.setBackground(new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{glassDock,miniProgress}));dock.setClipToOutline(true);
-        miniCover=new android.widget.ImageView(this);miniCover.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);GradientDrawable coverShape=new GradientDrawable();coverShape.setColor(0x443e2d52);coverShape.setCornerRadius(dp(16));miniCover.setBackground(coverShape);miniCover.setClipToOutline(true);miniCover.setOnClickListener(v->openPlayer());LinearLayout.LayoutParams coverParams=new LinearLayout.LayoutParams(dp(44),dp(44));coverParams.rightMargin=dp(10);dock.addView(miniCover,coverParams);
+        dock=row();dock.setPadding(dp(10),dp(8),dp(10),dp(8));GradientDrawable fill=new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,new int[]{0x1affffff,0x38ffffff});fill.setCornerRadius(dp(34));miniProgress=new android.graphics.drawable.ClipDrawable(fill,Gravity.LEFT,android.graphics.drawable.ClipDrawable.HORIZONTAL);GradientDrawable glassDock=new GradientDrawable();glassDock.setColor(0x8c202228);glassDock.setCornerRadius(dp(34));glassDock.setStroke(dp(1),0x38ffffff);dock.setBackground(new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{glassDock,miniProgress}));dock.setClipToOutline(true);
+        miniCover=new android.widget.ImageView(this);miniCover.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);GradientDrawable coverShape=new GradientDrawable();coverShape.setColor(0x44333338);coverShape.setCornerRadius(dp(16));miniCover.setBackground(coverShape);miniCover.setClipToOutline(true);miniCover.setOnClickListener(v->openPlayer());LinearLayout.LayoutParams coverParams=new LinearLayout.LayoutParams(dp(44),dp(44));coverParams.rightMargin=dp(10);dock.addView(miniCover,coverParams);
         LinearLayout labels=column();miniTitle=text("Выбери трек",15);miniTitle.setMaxLines(1);miniTitle.setTextSize(15);miniTitle.setLetterSpacing(-.015f);miniTitle.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);miniArtist=text("Nightwell Music",12);miniArtist.setMaxLines(1);miniArtist.setTextSize(12);miniArtist.setLetterSpacing(.005f);miniArtist.setTextColor(0xffa4a6b1);miniTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);miniArtist.setEllipsize(android.text.TextUtils.TruncateAt.END);labels.addView(miniTitle);labels.addView(miniArtist);labels.setOnClickListener(v->openPlayer());dock.addView(labels,new LinearLayout.LayoutParams(0,-2,1));miniPrev=action("|‹",()->previous());miniPlay=action("▶",()->toggle());miniNext=action("›|",()->{nextTrack();});miniLike=action("♡",()->toggleFavorite(current()));miniLike.setTextColor(0xffeeeeee);miniPlay.setTextSize(23);miniNext.setTextSize(24);miniPlay.setPadding(0,0,0,0);miniNext.setPadding(0,0,0,0);miniPlay.setTextColor(0xffeeeeee);miniPlay.setBackground(null);miniPrev.setPadding(0,0,0,0);miniLike.setPadding(0,0,0,0);if(getResources().getConfiguration().screenWidthDp>=380)dock.addView(miniLike,new LinearLayout.LayoutParams(dp(40),dp(48)));dock.addView(miniPrev,new LinearLayout.LayoutParams(dp(40),dp(48)));dock.addView(miniPlay,new LinearLayout.LayoutParams(dp(48),dp(48)));dock.addView(miniNext,new LinearLayout.LayoutParams(dp(44),dp(48)));LinearLayout.LayoutParams dockParams=new LinearLayout.LayoutParams(-1,-2);dockParams.topMargin=dp(landscape?2:10);root.addView(dock,dockParams);if(backgroundOnly)dock.setVisibility(View.GONE);android.view.GestureDetector miniGestures=gestures(false);labels.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));dock.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));
         showScreen();updatePlayback();loadMiniCover(current());
     }
