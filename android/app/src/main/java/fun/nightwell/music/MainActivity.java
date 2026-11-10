@@ -446,18 +446,19 @@ public final class MainActivity extends Activity {
     LinearLayout column(){LinearLayout v=new LinearLayout(this);v.setOrientation(LinearLayout.VERTICAL);return v;}
     LinearLayout row(){LinearLayout v=new LinearLayout(this);v.setGravity(Gravity.CENTER_VERTICAL);return v;}
     TextView text(String label,int size){TextView v=new TextView(this);v.setText(label);v.setTextSize(size);v.setTextColor(0xfff3f3f5);v.setFontFeatureSettings("kern");v.setIncludeFontPadding(false);v.setBreakStrategy(android.text.Layout.BREAK_STRATEGY_HIGH_QUALITY);v.setHyphenationFrequency(android.text.Layout.HYPHENATION_FREQUENCY_NORMAL);return v;}
-    // Neutral frosted surfaces: no purple/orange tint or opaque bulky cards.
+    // One visual system. Dark enough to prevent the underlying player text
+    // shining through dialogs, with soft lighting rather than outlined boxes.
     GradientDrawable glass(int corners){
         GradientDrawable d=new GradientDrawable(GradientDrawable.Orientation.TL_BR,
-            new int[]{0xdb34363b,0xc91d1f24,0xe016181d});
-        d.setCornerRadius(dp(corners));d.setStroke(dp(1),0x59ffffff);
+            new int[]{0xff303237,0xff1c1e23,0xff121317});
+        d.setCornerRadius(dp(corners));d.setStroke(dp(1),0x36ffffff);
         return d;
     }
-    GradientDrawable surface(){return glass(28);}
+    GradientDrawable surface(){return glass(30);}
     GradientDrawable fieldSurface(int color,int corners){
         GradientDrawable fill=new GradientDrawable(GradientDrawable.Orientation.TL_BR,
-            new int[]{(color&0x00ffffff)|0x88000000,0x88232429});
-        fill.setCornerRadius(dp(corners));fill.setStroke(dp(1),0x40ffffff);return fill;
+            new int[]{0xff292b30,0xff202126});
+        fill.setCornerRadius(dp(corners));fill.setStroke(dp(1),0x24ffffff);return fill;
     }
     android.graphics.drawable.Drawable touchSurface(int color,int corners){GradientDrawable fill=fieldSurface(color,corners);GradientDrawable mask=new GradientDrawable();mask.setColor(Color.WHITE);mask.setCornerRadius(dp(corners));return new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x30ffffff),fill,mask);}
     TextView sectionLabel(String label){TextView v=text(label.toUpperCase(java.util.Locale.ROOT),11);v.setLetterSpacing(0.08f);v.setTextColor(0xffadb0b8);v.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);v.setPadding(dp(6),dp(8),dp(6),dp(6));return v;}
@@ -469,7 +470,71 @@ public final class MainActivity extends Activity {
                 if(window.getDecorView().getHeight()>limit)window.setLayout(width,limit);});}
         for(int which:new int[]{AlertDialog.BUTTON_POSITIVE,AlertDialog.BUTTON_NEGATIVE,AlertDialog.BUTTON_NEUTRAL}){Button b=dialog.getButton(which);if(b==null)continue;b.setAllCaps(false);b.setTextColor(which==AlertDialog.BUTTON_NEGATIVE?0xffb6bac7:0xffeeeeee);b.setTextSize(15);}
     });}
-    TextView sheetAction(String label,Runnable run){TextView v=action(label,run);v.setTextSize(14);v.setMaxLines(2);v.setEllipsize(android.text.TextUtils.TruncateAt.END);v.setGravity(Gravity.CENTER_VERTICAL);v.setTextColor(0xfff2f2f5);v.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);v.setPadding(dp(16),dp(14),dp(16),dp(14));v.setBackground(touchSurface(0x84282b30,19));return v;}
+    // Use a wide bottom sheet for the major navigation screens; keep generic
+    // one-off confirmation dialogs as small floating windows.
+    void styleNavigationSheet(AlertDialog dialog){
+        dialog.setOnShowListener(ignored->{
+            Window window=dialog.getWindow();
+            if(window==null)return;
+            window.setBackgroundDrawable(surface());
+            window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            WindowManager.LayoutParams attrs=window.getAttributes();
+            attrs.gravity=Gravity.BOTTOM;
+            attrs.dimAmount=.84f;
+            window.setAttributes(attrs);
+            int width=getResources().getDisplayMetrics().widthPixels-dp(isLandscapeLayout()?32:12);
+            int maxHeight=(int)(getResources().getDisplayMetrics().heightPixels*(isLandscapeLayout()?.90f:.83f));
+            window.setLayout(width,WindowManager.LayoutParams.WRAP_CONTENT);
+            window.getDecorView().setPadding(dp(3),dp(5),dp(3),dp(8));
+            window.getDecorView().post(()->{
+                if(window.getDecorView().getHeight()>maxHeight)window.setLayout(width,maxHeight);
+            });
+            window.setNavigationBarColor(0xff0d0e11);
+            for(int which:new int[]{AlertDialog.BUTTON_POSITIVE,AlertDialog.BUTTON_NEGATIVE}){
+                Button button=dialog.getButton(which);
+                if(button!=null){
+                    button.setAllCaps(false);
+                    button.setTextSize(14);
+                    button.setTextColor(0xfff1f2f5);
+                    button.setBackground(touchSurface(0xff33353b,17));
+                    button.setPadding(dp(16),dp(9),dp(16),dp(9));
+                }
+            }
+        });
+    }
+
+    // Wrap each logical setting in a quiet surface instead of stacking a
+    // wall of loose controls, hints and sliders.
+    void arrangeSettingsControls(LinearLayout panel){
+        java.util.List<View> old=new java.util.ArrayList<>();
+        for(int i=0;i<panel.getChildCount();i++)old.add(panel.getChildAt(i));
+        panel.removeAllViews();
+        for(int i=0;i<old.size();i++){
+            View v=old.get(i);
+            LinearLayout card=column();
+            card.setPadding(dp(14),dp(10),dp(14),dp(10));
+            card.setBackground(fieldSurface(0xff26282d,19));
+            card.addView(v,new LinearLayout.LayoutParams(-1,-2));
+            if(i+1<old.size()){
+                View next=old.get(i+1);
+                boolean hint=next instanceof TextView &&
+                    ((TextView)next).getTextSize()/getResources().getDisplayMetrics().scaledDensity<14 &&
+                    !(v instanceof TextView && ((TextView)v).getTextSize()/getResources().getDisplayMetrics().scaledDensity<14);
+                boolean seek=next instanceof SeekBar && v instanceof TextView;
+                if(hint||seek){
+                    i++;
+                    LinearLayout.LayoutParams child=new LinearLayout.LayoutParams(-1,-2);
+                    child.topMargin=dp(5);
+                    card.addView(next,child);
+                }
+            }
+            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);
+            lp.bottomMargin=dp(10);
+            panel.addView(card,lp);
+        }
+    }
+
+    TextView sheetAction(String label,Runnable run){TextView v=action(label,run);v.setTextSize(15);v.setMaxLines(2);v.setEllipsize(android.text.TextUtils.TruncateAt.END);v.setGravity(Gravity.CENTER_VERTICAL);v.setTextColor(0xfff4f4f6);v.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));v.setPadding(dp(17),dp(13),dp(17),dp(13));v.setBackground(touchSurface(0xff292b30,18));return v;}
     TextView action(String label,Runnable run){TextView v=NativeIconButton.isIcon(label)?new NativeIconButton(this):text(label,16);v.setText(label);v.setTextColor(0xfff3f3f5);v.setTextSize(NativeIconButton.isIcon(label)?20:16);if(NativeIconButton.isIcon(label))v.setContentDescription(iconLabel(label));v.setGravity(Gravity.CENTER);v.setPadding(dp(14),dp(12),dp(14),dp(12));v.setMinHeight(dp(50));v.setOnClickListener(x->run.run());return v;}
     TextView iconButton(String label,Runnable run){TextView v=action(label,run);v.setPadding(0,0,0,0);v.setTextSize(20);v.setTextColor(0xfff1f1f6);v.setBackground(touchSurface(0xa52b2e34,23));return v;}
     void toggleBackgroundOnly(){backgroundOnly=!backgroundOnly;build();}
