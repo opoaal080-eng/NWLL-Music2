@@ -40,6 +40,9 @@ final class NativePlayer {
     private var pendingNextTimeout: DispatchWorkItem?
     private var pendingNextIndex: Int?
     private var pendingManualSelection = false
+    private var pendingForwardButton = false
+    // Only a visible load error unlocks a second-tap skip.
+    private var failedForwardTrackID: String?
     private var pendingNextGeneration = UUID()
     // Enabled by default, including for existing installations. Only new
     // playback selection commands consult this; no second decoder is created.
@@ -109,12 +112,17 @@ final class NativePlayer {
         pendingNextTimeout?.cancel(); pendingNextTimeout = nil
         pendingNextIndex = nil
         pendingManualSelection = false
+        pendingForwardButton = false
+        failedForwardTrackID = nil
     }
 
-    private func beginPreparedNext(at destination: Int, manual: Bool = false) {
+    private func beginPreparedNext(at destination: Int, manual: Bool = false,
+                                   forwardButton: Bool = false) {
         guard pendingNextIndex == nil, !waveWaiting,
               tracks.indices.contains(destination), let origin else { return }
+        failedForwardTrackID = nil
         pendingManualSelection = manual
+        pendingForwardButton = forwardButton
         let track = tracks[destination]
         let saved = OfflineStore.audio(origin: origin,
             account: track.offlineAccount.isEmpty ? offlineAccount : track.offlineAccount,
@@ -163,10 +171,22 @@ final class NativePlayer {
         guard pendingNextGeneration == ticket else { return }
         let destination = pendingNextIndex
         let manuallySelected = pendingManualSelection
+        let wasForwardButton = pendingForwardButton
         let length = player.currentItem?.duration.seconds ?? .nan
         let reachedEnd = ended || (length.isFinite && length > 0 &&
             playbackPosition >= length - 0.25)
         cancelPendingNext()
+        // A manual Next request must show a failure before a further press
+        // can skip the failed candidate. The previous song stays audible.
+        if manuallySelected, wasForwardButton, let destination,
+           tracks.indices.contains(destination) {
+            failedForwardTrackID = tracks[destination].id
+            endBackgroundHandoff()
+            if reachedEnd { wantsPlay = false; player.pause() }
+            error = "Не удалось загрузить трек. Нажми «Далее» ещё раз, чтобы пропустить его."
+            publish()
+            return
+        }
         // A tapped song is an explicit selection: on timeout keep the old
         // stream instead of silently jumping to a third track.
         if !manuallySelected,
@@ -936,6 +956,30 @@ final class NativePlayer {
     private var previousRestartAt: TimeInterval = -Double.infinity
     func step(_ direction: Int) {
         guard !tracks.isEmpty, tracks.indices.contains(index) else { return }
+        // Repeated Next is ignored while loading. It can skip only after
+        // the player has shown the actual loading-failure message.
+        if direction > 0, pendingNextIndex == nil, !waveWaiting,
+           let failedID = failedForwardTrackID,
+           error.hasPrefix("Не удалось загрузить трек"),
+           let failed = tracks.firstIndex(where: { $0.id == failedID }) {
+            failedForwardTrackID = nil
+            unavailableIDs.insert(failedID)
+            if let destination = nextAvailableIndex(after: failed) {
+                if ended || !keepCurrentUntilNextReady {
+                    switchDirectly(to: destination)
+                } else {
+                    beginPreparedNext(at: destination, manual: true, forwardButton: true)
+                }
+            } else if waveActive && wantsPlay && !waveWaiting {
+                waveWaiting = true
+                refillWave(force: true)
+                publish()
+            } else {
+                error = "Не удалось загрузить трек. Других доступных треков в очереди нет."
+                publish()
+            }
+            return
+        }
         let now = ProcessInfo.processInfo.systemUptime
         // User-requested navigation allows a fresh availability pass.
         if pendingNextIndex == nil { unavailableIDs.removeAll() }
@@ -967,7 +1011,7 @@ final class NativePlayer {
             if ended || !keepCurrentUntilNextReady {
                 switchDirectly(to: target)
             } else {
-                beginPreparedNext(at: target, manual: true)
+                beginPreparedNext(at: target, manual: true, forwardButton: true)
             }
             return
         }
