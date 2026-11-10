@@ -59,6 +59,12 @@ try:
             for screen in ['profile','settings','settings-playback','player','queue']:
                 launch(screen)
                 capture('android-'+screen+'-'+str(width))
+            # A liked search result is absent from /api/tracks, but must
+            # still appear in the Favorites tab.
+            launch('favorites-outside-catalog')
+            values=capture('favorites-off-catalog-'+str(width))
+            assert any('Трек из поиска, которого нет в каталоге' in (n.get('text') or '')
+                       for n in values), 'Off-catalog favorite missing from Android list'
     # Verify main player and sheets in horizontal orientation as well.
     adb('shell','wm','size','1280x720')
     adb('shell','wm','density','320')
