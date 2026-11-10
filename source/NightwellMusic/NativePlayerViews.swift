@@ -232,14 +232,14 @@ struct MiniPlayer: View {
             HStack(spacing: compact ? 8 : 12) {
                 Button(action: open) {
                     HStack(spacing: 7) {
-                        Cover(track: clock.current, origin: store.origin)
+                        Cover(track: clock.displayCurrent, origin: store.origin)
                             .frame(width: compactHeight ? 34 : 42, height: compactHeight ? 34 : 42).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(clock.current?.title ?? "Выбери трек").font(.system(size: compact ? 12 : 14, weight: .semibold)).lineLimit(1)
-                            Text(clock.current?.artist ?? "Nightwell Music").font(.system(size: compact ? 10 : 12)).foregroundStyle(.white.opacity(0.65)).lineLimit(1)
+                            Text(clock.displayCurrent?.title ?? "Выбери трек").font(.system(size: compact ? 12 : 14, weight: .semibold)).lineLimit(1)
+                            Text(clock.displayCurrent?.artist ?? "Nightwell Music").font(.system(size: compact ? 10 : 12)).foregroundStyle(.white.opacity(0.65)).lineLimit(1)
                         }.frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .id(clock.id)
+                    .id(clock.displayID)
                     .transition(.asymmetric(
                         insertion: .offset(x: 45 * slideDirection).combined(with: .opacity),
                         removal: .offset(x: -45 * slideDirection).combined(with: .opacity)
@@ -252,7 +252,7 @@ struct MiniPlayer: View {
                     }
                 })
                 HStack(spacing: compact ? 2 : 5) {
-                    if let track = clock.current {
+                    if let track = clock.displayCurrent {
                         Button { Task { await store.like(track) } } label: { Image(systemName: store.likes.contains(track.id) ? "heart.fill" : "heart").font(.system(size: 19)).foregroundStyle(Color.white).frame(width: compact ? 26 : 29, height: 44) }.accessibilityLabel("Избранное")
                     }
                     Button { changeTrack(-1) } label: { Image(systemName: "backward.end").font(.system(size: 15)).frame(width: compact ? 24 : 28, height: 44) }.accessibilityLabel("Предыдущий трек")
@@ -319,9 +319,9 @@ struct MiniPlayer: View {
     private var playbackFraction: CGFloat {
         // Protect against unknown duration, invalid stream timestamps and
         // seeking overshoot. @ObservedObject updates the ring on every tick.
-        guard clock.duration.isFinite, clock.position.isFinite,
-              clock.duration > 0 else { return 0 }
-        return CGFloat(min(1, max(0, clock.position / clock.duration)))
+        guard clock.displayDuration.isFinite, clock.displayPosition.isFinite,
+              clock.displayDuration > 0 else { return 0 }
+        return CGFloat(min(1, max(0, clock.displayPosition / clock.displayDuration)))
     }
 
     private func changeTrack(_ step: Int) {
@@ -342,6 +342,8 @@ struct GlassSlider: View {
     // keep their existing appearance with the default 0 fraction.
     var bufferedFraction: CGFloat = 0
     var preparing: Bool = false
+    // Keep settings sliders unchanged, but use an unobtrusive handle on the player.
+    var knobDiameter: CGFloat = 18
     var onEditingChanged: (Bool) -> Void = { _ in }
     @State private var dragging = false
     @Environment(\.accessibilityReduceMotion) private var reducedMotion
@@ -390,11 +392,11 @@ struct GlassSlider: View {
                     .frame(width: width * fraction, height: dragging ? 6 : 4)
                 Circle()
                     .fill(LinearGradient(colors: [.white.opacity(0.95), Color.white], startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .frame(width: 18, height: 18)
-                    .overlay(Circle().stroke(.white.opacity(0.5), lineWidth: 0.7))
-                    .shadow(color: Color.white.opacity(dragging ? 0.55 : 0.18), radius: dragging ? 12 : 4)
-                    .scaleEffect(dragging ? 1.22 : 1)
-                    .offset(x: width * fraction - 9)
+                    .frame(width: knobDiameter, height: knobDiameter)
+                    .overlay(Circle().stroke(.white.opacity(0.45), lineWidth: 0.5))
+                    .shadow(color: Color.white.opacity(dragging ? 0.35 : 0.12), radius: dragging ? 5 : 2)
+                    .scaleEffect(dragging ? 1.15 : 1)
+                    .offset(x: width * fraction - knobDiameter / 2)
             }
             .padding(.horizontal, 11)
             .frame(height: 40)
@@ -591,7 +593,7 @@ struct FullPlayer: View {
     private var playerFinal: some View {
         playerSearchAndUpdates
         .confirmationDialog("Выбери исполнителя", isPresented: $showArtistChoices, titleVisibility: .visible) {
-            ForEach(ArtistNames.split(clock.current?.artist ?? ""), id: \.self) { name in
+            ForEach(ArtistNames.split(clock.displayCurrent?.artist ?? ""), id: \.self) { name in
                 Button(name) { selectedArtist = ArtistSelection(name: name) }
             }
         }
@@ -608,17 +610,17 @@ struct FullPlayer: View {
 
     private var playerSearchAndUpdates: some View {
         playerWithSheets
-        .task(id: (clock.current?.id ?? "") + "|" + (store.account?.id ?? "")) {
+        .task(id: (clock.displayCurrent?.id ?? "") + "|" + (store.account?.id ?? "")) {
             // Prefetch for the selected song. The ⋯ button never starts a request.
             availableClipURL = nil
-            guard let selected = clock.current else { return }
+            guard let selected = clock.displayCurrent else { return }
             let result = await NightwellClipAvailabilityCache.shared.lookup(
                 track: selected, api: store.api, origin: store.origin,
                 accountID: store.account?.id)
-            guard !Task.isCancelled, clock.current?.id == selected.id else { return }
+            guard !Task.isCancelled, clock.displayCurrent?.id == selected.id else { return }
             availableClipURL = result
         }
-        .onChange(of: clock.current?.id) { _ in
+        .onChange(of: clock.displayCurrent?.id) { _ in
             refreshNativeMenu()
         }
         .onChange(of: availableClipURL) { _ in
@@ -628,6 +630,12 @@ struct FullPlayer: View {
             refreshNativeMenu()
         }
         .onChange(of: store.likes) { _ in
+            refreshNativeMenu()
+        }
+        .onChange(of: store.offline.map(\.id).sorted().joined(separator: "|")) { _ in
+            refreshNativeMenu()
+        }
+        .onChange(of: coverStyle) { _ in
             refreshNativeMenu()
         }
     }
@@ -648,7 +656,7 @@ struct FullPlayer: View {
             repeatMode = modes["repeat"] as? Int ?? 0
             shuffleMode = modes["shuffleMode"] as? Int ?? ((modes["shuffle"] as? Bool ?? false) ? 1 : 0)
             if store.lyrics.value == nil || store.lyrics.value?.status == "error" || store.lyrics.value?.status == "unavailable" {
-                store.lyrics.select(clock.current, api: store.api, origin: store.origin, online: store.account != nil)
+                store.lyrics.select(clock.displayCurrent, api: store.api, origin: store.origin, online: store.account != nil)
             }
         }
     }
@@ -686,7 +694,7 @@ struct FullPlayer: View {
             Color.black.ignoresSafeArea()
             if !showLyrics {
                 ArtworkColorBackground(
-                    url: clock.current?.cover_url.flatMap {
+                    url: clock.displayCurrent?.cover_url.flatMap {
                         URL(string: $0, relativeTo: store.origin)
                     }
                 )
@@ -699,7 +707,7 @@ struct FullPlayer: View {
                 GeometryReader { screen in
                     let coverSide = max(screen.size.width, screen.size.height + 76)
                     NightwellAnimatedCover(
-                        track: clock.current,
+                        track: clock.displayCurrent,
                         origin: store.origin,
                         side: coverSide
                     )
@@ -788,7 +796,7 @@ struct FullPlayer: View {
                             if coverStyle == "classic" ||
                                 (box.size.width > box.size.height && box.size.height < 500) {
                                 let side = min(box.size.width, box.size.height) * 0.96
-                                Cover(track: clock.current, origin: store.origin, pixelWidth: 1024)
+                                Cover(track: clock.displayCurrent, origin: store.origin, pixelWidth: 1024)
                                     .frame(width: side, height: side)
                                     .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
                                     .shadow(color: .black.opacity(0.38), radius: 22, y: 12)
@@ -813,14 +821,14 @@ struct FullPlayer: View {
     @ViewBuilder private var playerTrackDetails: some View {
                 HStack(spacing: 10) {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text(clock.current?.title ?? "Выбери трек").font(.system(size: 20, weight: .bold)).lineLimit(2)
+                        Text(clock.displayCurrent?.title ?? "Выбери трек").font(.system(size: 20, weight: .bold)).lineLimit(2)
                         Button {
-                            let artists = ArtistNames.split(clock.current?.artist ?? "")
+                            let artists = ArtistNames.split(clock.displayCurrent?.artist ?? "")
                             if artists.count > 1 { showArtistChoices = true }
                             else if let name = artists.first { selectedArtist = ArtistSelection(name: name) }
                         } label: {
                             HStack(spacing: 5) {
-                                Text(clock.current?.artist ?? "").lineLimit(1)
+                                Text(clock.displayCurrent?.artist ?? "").lineLimit(1)
                                 Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold))
                             }
                             .font(.system(size: 12, weight: .medium))
@@ -830,7 +838,7 @@ struct FullPlayer: View {
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Открыть исполнителя")
-                        .disabled(!ArtistAttribution.isKnown(clock.current?.artist ?? ""))
+                        .disabled(!ArtistAttribution.isKnown(clock.displayCurrent?.artist ?? ""))
                         if !store.audioQualityNotice.isEmpty {
                             Text(store.audioQualityNotice)
                                 .font(.system(size: 10))
@@ -839,7 +847,7 @@ struct FullPlayer: View {
                         }
                     }
                     Spacer(minLength: 4)
-                    if let track = clock.current {
+                    if let track = clock.displayCurrent {
                         Button { store.toggleRecommendationHidden(track) } label: {
                             Image(systemName: store.isRecommendationHidden(track) ? "hand.thumbsdown.fill" : "hand.thumbsdown")
                                 .font(.system(size: 19))
@@ -860,8 +868,11 @@ struct FullPlayer: View {
     @ViewBuilder private var playerTransport: some View {
                 VStack(spacing: 16) {
                     VStack(spacing: 8) {
-                        GlassSlider(value: Binding(get: { seeking ? scrub : min(clock.position, clock.duration) }, set: { scrub = $0 }), range: 0...clock.duration, accessibilityStep: 5, label: "Позиция трека", valueText: formatTime(seeking ? scrub : clock.position), bufferedFraction: CGFloat(clock.bufferFraction), preparing: clock.preparing) { editing in if editing { scrub = clock.position; seeking = true } else { NativePlayer.shared.seek(scrub); seeking = false } }
-                        HStack { Text(formatTime(seeking ? scrub : clock.position)); Spacer(); Text("−" + formatTime(max(0, clock.duration - (seeking ? scrub : clock.position)))) }.font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                        GlassSlider(value: Binding(get: { seeking ? scrub : min(clock.displayPosition, clock.displayDuration) }, set: { scrub = $0 }), range: 0...clock.displayDuration, accessibilityStep: 5, label: "Позиция трека", valueText: formatTime(seeking ? scrub : clock.displayPosition), bufferedFraction: CGFloat(clock.bufferFraction), preparing: clock.preparing, knobDiameter: 8) { editing in if editing { scrub = clock.displayPosition; seeking = true } else { NativePlayer.shared.seek(scrub); seeking = false } }
+                            // The former stream is still audible during handoff.
+                            // Disable scrubbing to avoid seeking the wrong track.
+                            .allowsHitTesting(clock.displayID == clock.id)
+                        HStack { Text(formatTime(seeking ? scrub : clock.displayPosition)); Spacer(); Text("−" + formatTime(max(0, clock.displayDuration - (seeking ? scrub : clock.displayPosition)))) }.font(.caption).foregroundStyle(.secondary).monospacedDigit()
                     }
                     HStack {
                         Button {
@@ -892,14 +903,16 @@ struct FullPlayer: View {
                 if !clock.failure.isEmpty { Text(clock.failure).font(.caption).foregroundStyle(Color.white) }
     }
     private func refreshNativeMenu() {
-        let selected = clock.current
+        let selected = clock.displayCurrent
         nativeMenuSnapshot = NightwellPlayerActionSnapshot(
             track: selected,
             clipURL: availableClipURL,
             playlists: store.playlists,
             recommendationHidden: selected.map { store.isRecommendationHidden($0) } ?? false,
             shareBaseURL: store.origin,
-            lyricsVisible: showLyrics
+            lyricsVisible: showLyrics,
+            coverStyle: coverStyle,
+            downloaded: selected.map { store.isDownloaded($0) } ?? false
         )
     }
 
@@ -923,7 +936,14 @@ struct FullPlayer: View {
                 refreshNativeMenu()
             },
             onDownload: { track in
-                Task { await store.download([track]) }
+                Task {
+                    if store.isDownloaded(track) {
+                        await store.removeDownload(track)
+                    } else {
+                        await store.download([track])
+                    }
+                    refreshNativeMenu()
+                }
             },
             onAddPlaylist: { track, list in
                 Task { await store.add(track, playlist: list) }
@@ -931,6 +951,9 @@ struct FullPlayer: View {
             onQuality: { _ in
                 store.audioQualityNotice = "Качество изменится со следующего трека"
                 Task { await store.checkAudioQualitySupport() }
+            },
+            onAnimationChanged: {
+                refreshNativeMenu()
             }
         )
         .frame(width: 44, height: 44)
@@ -1357,7 +1380,6 @@ struct AuthSheet: View {
 }
 
 struct NativeSettings: View {
-    @State private var transferPresented = false
     @State private var feature: PremiumFeatureView.Kind?
     let close: () -> Void
     @EnvironmentObject var store: MusicStore
@@ -1365,6 +1387,7 @@ struct NativeSettings: View {
     @AppStorage("nw-transition-seconds") private var transition = 1.5
     @AppStorage("nw-stream-buffer-seconds") private var streamBufferSeconds = 4.0
     @AppStorage("nw-equal-volume") private var equalVolume = 0.0
+    @AppStorage("nw-keep-current-until-ready") private var keepCurrentUntilNextReady = true
     @AppStorage("nw-ambient-lyrics") private var ambientLyrics = true
     @AppStorage("nw-ambient-animate-when-paused") private var animatePausedAmbient = true
     @AppStorage("nw-ambient-audio-sensitivity") private var ambientSensitivity = 2.5
@@ -1372,6 +1395,31 @@ struct NativeSettings: View {
     @AppStorage("nw-depth-queue") private var depthQueue = false
     @AppStorage("nw-kinetic-lyrics") private var kineticLyrics = true
     @State private var playbackDiagnostics = "Нет данных о запуске"
+
+    private enum SettingsPage: String, CaseIterable {
+        case customization = "Кастомизация"
+        case playback = "Воспроизведение"
+        case appearance = "Оформление"
+        case about = "О приложении"
+
+        var icon: String {
+            switch self {
+            case .customization: return "slider.horizontal.3"
+            case .playback: return "waveform"
+            case .appearance: return "paintbrush"
+            case .about: return "info.circle"
+            }
+        }
+        var subtitle: String {
+            switch self {
+            case .customization: return "Обложки, очередь, текст и фон"
+            case .playback: return "Звук, буфер, громкость и офлайн"
+            case .appearance: return "Ленты, темы и визуальные эффекты"
+            case .about: return "Версия и сведения о сборке"
+            }
+        }
+    }
+    @State private var activePage: SettingsPage?
     private var buildCaption: String {
         let info = Bundle.main.infoDictionary ?? [:]
         let version = info["CFBundleShortVersionString"] as? String ?? ""
@@ -1379,133 +1427,211 @@ struct NativeSettings: View {
         let revision = String((info["NWSourceCommit"] as? String ?? "local").prefix(7))
         return "Nightwell Music \(version) (\(number)) · \(revision)"
     }
-    var body: some View {
-        VStack(spacing: 18) {
-            HStack {
-                Text("Настройки").font(.system(size: 28, weight: .bold))
-                Spacer()
-                Button(action: close) {
-                    Image(systemName: "xmark").font(.system(size: 22, weight: .light))
-                        .foregroundStyle(Color.white).frame(width: 42, height: 42).background(.white.opacity(0.05), in: Circle())
-                }.accessibilityLabel("Закрыть настройки")
-            }.padding(.top, 12)
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 18) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Label("Кастомизация", systemImage: "slider.horizontal.3")
-                            .font(.system(size: 18, weight: .semibold))
-                        Text("Стиль обложки в плеере")
-                            .font(.system(size: 14, weight: .medium))
-                        Picker("Стиль обложки", selection: $coverStyle) {
-                            Text("Во весь экран").tag("immersive")
-                            Text("Классическая").tag("classic")
-                        }
-                        .pickerStyle(.segmented)
-                        .accessibilityLabel("Стиль обложки")
-                        Text(coverStyle == "classic"
-                            ? "Большая квадратная обложка с закруглёнными углами, как в классическом музыкальном плеере."
-                            : "Обложка занимает всю высоту экрана, верх и низ плавно переходят в фон.")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.white.opacity(0.5))
-                        Toggle("Объёмная очередь", isOn: $depthQueue)
-                        Text("Стопка обложек следующих песен. Свайпом меняй их порядок, удержанием ставь песню следующей.")
-                            .font(.system(size: 12)).foregroundStyle(.white.opacity(0.5))
-                        Toggle("Кинетический текст песен", isOn: $kineticLyrics)
-                        Text("Плавная подсветка слов и строк. Если точных таймкодов слов нет, движение рассчитывается по времени строки.")
-                            .font(.system(size: 12)).foregroundStyle(.white.opacity(0.5))
-                        Toggle("Переливание фона на паузе", isOn: $animatePausedAmbient)
-                        Text("Плавный цветной градиент продолжает двигаться, даже если музыка остановлена.")
-                            .font(.system(size: 12)).foregroundStyle(.white.opacity(0.5))
-                        HStack {
-                            Text("Чувствительность активного фона")
-                            Spacer()
-                            Text(String(format: "%.2fx", ambientSensitivity))
-                                .monospacedDigit().foregroundStyle(.secondary)
-                        }
-                        .font(.system(size: 13))
-                        GlassSlider(value: $ambientSensitivity,
-                                    range: 0.5...4.0, step: 0.25,
-                                    accessibilityStep: 0.25,
-                                    label: "Чувствительность активного фона",
-                                    valueText: String(format: "%.2fx", ambientSensitivity))
-                        Text("Усиливает реакцию на тихие звуки. На паузе работает только плавный градиент.")
-                            .font(.system(size: 12)).foregroundStyle(.white.opacity(0.5))
+    @ViewBuilder
+    private func pageContents(for page: SettingsPage) -> some View {
+        switch page {
+        case .customization:
+                VStack(alignment: .leading, spacing: 12) {
+                    Label("Кастомизация", systemImage: "slider.horizontal.3")
+                        .font(.system(size: 18, weight: .semibold))
+                    Text("Стиль обложки в плеере")
+                        .font(.system(size: 14, weight: .medium))
+                    Picker("Стиль обложки", selection: $coverStyle) {
+                        Text("Во весь экран").tag("immersive")
+                        Text("Классическая").tag("classic")
                     }
-                    .padding(16)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 24))
-                    VStack(alignment:.leading,spacing:12) {
-                        Label("Перенос музыки",systemImage:"square.and.arrow.down").font(.system(size:18,weight:.semibold))
-                        Button("Импортировать плейлисты") { transferPresented = true }
-                            .disabled(store.account == nil)
-                        Text("Переноси музыку из файлов и других сервисов.")
-                            .font(.system(size:12)).foregroundStyle(.white.opacity(0.5))
-                    }.padding(16).frame(maxWidth:.infinity,alignment:.leading)
-                        .background(.white.opacity(0.035),in:RoundedRectangle(cornerRadius:24))
-                    .sheet(isPresented:$transferPresented) { NightwellNativeTransfer().environmentObject(store) }
-                    VStack(alignment: .leading, spacing: 8) {
-                        Button("Темы и ленты · Premium") { feature = .appearance }
-                            .sheet(item: $feature) { PremiumFeatureView(kind: $0).environmentObject(store) }
-                        Label("Оформление", systemImage: "paintbrush").font(.system(size: 18, weight: .semibold)).foregroundStyle(Color.white)
-                        Toggle("Текст вместе с лентами", isOn: $ambientLyrics)
-                            .onChange(of: ambientLyrics) { enabled in
-                                if enabled { store.lyrics.select(store.clock.current, api: store.api, origin: store.origin, online: store.account != nil) }
-                            }
-                        Text("Строки с таймкодами появляются во время песни.").font(.system(size: 13)).foregroundStyle(.white.opacity(0.43))
-                    }.padding(16).frame(maxWidth: .infinity, minHeight: 160, alignment: .leading).background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
-                    VStack(alignment: .leading, spacing: 12) {
-                        Label("Воспроизведение", systemImage: "waveform").font(.system(size: 18, weight: .semibold)).foregroundStyle(Color.white)
-                        Toggle("Автоматически скачивать избранное", isOn: Binding(
-                            get: { store.automaticFavoritesDownload },
-                            set: { store.setAutomaticFavoritesDownload($0) }
-                        ))
-                        .disabled(store.account == nil)
-                        Text("Новые избранные треки сохраняются для офлайна. Требуется активный Premium.")
-                            .font(.system(size: 12)).foregroundStyle(.white.opacity(0.50))
-                        HStack { Text("Переход между треками"); Spacer(minLength: 4); Text(transition == 0 ? "Выкл." : String(format: "%.1f с", transition)).foregroundStyle(Color.white) }
-                        GlassSlider(value: $transition, range: 0...5, step: 0.1, accessibilityStep: 0.1, label: "Переход между треками", valueText: String(format: "%.1f с", transition))
-                            .padding(.vertical, 2)
-                            .onChange(of: transition) { NativePlayer.shared.transitionDuration($0) }
-                        Text("Плавное затухание и нарастание громкости.").font(.system(size: 12)).foregroundStyle(.white.opacity(0.43))
-                        HStack {
-                            Text("Буфер потока")
-                            Spacer(minLength: 4)
-                            Text(streamBufferSeconds == 0 ? "Авто" : String(format: "%.0f с", streamBufferSeconds))
-                                .foregroundStyle(Color.white)
+                    .pickerStyle(.segmented)
+                    .accessibilityLabel("Стиль обложки")
+                    Text(coverStyle == "classic"
+                        ? "Большая квадратная обложка с закруглёнными углами, как в классическом музыкальном плеере."
+                        : "Обложка занимает всю высоту экрана, верх и низ плавно переходят в фон.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.5))
+                    Toggle("Объёмная очередь", isOn: $depthQueue)
+                    Text("Стопка обложек следующих песен. Свайпом меняй их порядок, удержанием ставь песню следующей.")
+                        .font(.system(size: 12)).foregroundStyle(.white.opacity(0.5))
+                    Toggle("Кинетический текст песен", isOn: $kineticLyrics)
+                    Text("Плавная подсветка слов и строк. Если точных таймкодов слов нет, движение рассчитывается по времени строки.")
+                        .font(.system(size: 12)).foregroundStyle(.white.opacity(0.5))
+                    Toggle("Переливание фона на паузе", isOn: $animatePausedAmbient)
+                    Text("Плавный цветной градиент продолжает двигаться, даже если музыка остановлена.")
+                        .font(.system(size: 12)).foregroundStyle(.white.opacity(0.5))
+                    HStack {
+                        Text("Чувствительность активного фона")
+                        Spacer()
+                        Text(String(format: "%.2fx", ambientSensitivity))
+                            .monospacedDigit().foregroundStyle(.secondary)
+                    }
+                    .font(.system(size: 13))
+                    GlassSlider(value: $ambientSensitivity,
+                                range: 0.5...4.0, step: 0.25,
+                                accessibilityStep: 0.25,
+                                label: "Чувствительность активного фона",
+                                valueText: String(format: "%.2fx", ambientSensitivity))
+                    Text("Усиливает реакцию на тихие звуки. На паузе работает только плавный градиент.")
+                        .font(.system(size: 12)).foregroundStyle(.white.opacity(0.5))
+                }
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 24))
+        case .playback:
+                VStack(alignment: .leading, spacing: 12) {
+                    Label("Воспроизведение", systemImage: "waveform").font(.system(size: 18, weight: .semibold)).foregroundStyle(Color.white)
+                    Toggle("Играть текущий трек до готовности следующего", isOn: $keepCurrentUntilNextReady)
+                        .onChange(of: keepCurrentUntilNextReady) { enabled in
+                            NativePlayer.shared.setKeepCurrentUntilNextReady(enabled)
                         }
-                        GlassSlider(value: $streamBufferSeconds, range: 0...12, step: 4,
-                                    accessibilityStep: 4, label: "Буфер потока",
-                                    valueText: String(format: "%.0f с", streamBufferSeconds))
-                            .onChange(of: streamBufferSeconds) { NativePlayer.shared.setStreamBufferDuration($0) }
-                        Text("Меньше буфер: быстрее старт, но выше риск пауз на слабой сети. При обрывах выбери 8 или 12 секунд.")
-                            .font(.system(size: 12)).foregroundStyle(.white.opacity(0.43))
-                        HStack {
-                            Text("Одинаковая громкость")
-                            Spacer()
-                            Text(equalVolume == 0 ? "Выкл." : String(format: "%.0f%%", equalVolume))
-                                .foregroundStyle(Color.white)
-                        }
-                        GlassSlider(value: $equalVolume, range: 0...100, step: 10,
-                                    accessibilityStep: 10, label: "Одинаковая громкость",
-                                    valueText: String(format: "%.0f%%", equalVolume))
-                            .onChange(of: equalVolume) { NativePlayer.shared.setEqualVolume($0) }
-                        Text("Мягко уменьшает громкость более громких треков. На Bluetooth выравнивание становится доступно после анализа записи.")
-                            .font(.system(size: 12)).foregroundStyle(.white.opacity(0.43))
-                        Text("Диагностика: " + playbackDiagnostics)
-                            .font(.system(size: 12)).monospacedDigit().foregroundStyle(.white.opacity(0.6))
-                            .task {
-                                while !Task.isCancelled {
-                                    playbackDiagnostics = NativePlayer.shared.startupDiagnostics
-                                    do { try await Task.sleep(nanoseconds: 1_000_000_000) }
-                                    catch { return }
-                                }
+                    Text("При переключении название, исполнитель и обложка меняются сразу. Пока новый трек готовится, предыдущий продолжает звучать. Если выключить, переключение прервёт его сразу.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.50))
+                    Toggle("Автоматически скачивать избранное", isOn: Binding(
+                        get: { store.automaticFavoritesDownload },
+                        set: { store.setAutomaticFavoritesDownload($0) }
+                    ))
+                    .disabled(store.account == nil)
+                    Text("Новые избранные треки сохраняются для офлайна. Требуется активный Premium.")
+                        .font(.system(size: 12)).foregroundStyle(.white.opacity(0.50))
+                    HStack { Text("Переход между треками"); Spacer(minLength: 4); Text(transition == 0 ? "Выкл." : String(format: "%.1f с", transition)).foregroundStyle(Color.white) }
+                    GlassSlider(value: $transition, range: 0...5, step: 0.1, accessibilityStep: 0.1, label: "Переход между треками", valueText: String(format: "%.1f с", transition))
+                        .padding(.vertical, 2)
+                        .onChange(of: transition) { NativePlayer.shared.transitionDuration($0) }
+                    Text("Плавное затухание и нарастание громкости.").font(.system(size: 12)).foregroundStyle(.white.opacity(0.43))
+                    HStack {
+                        Text("Буфер потока")
+                        Spacer(minLength: 4)
+                        Text(streamBufferSeconds == 0 ? "Авто" : String(format: "%.0f с", streamBufferSeconds))
+                            .foregroundStyle(Color.white)
+                    }
+                    GlassSlider(value: $streamBufferSeconds, range: 0...12, step: 4,
+                                accessibilityStep: 4, label: "Буфер потока",
+                                valueText: String(format: "%.0f с", streamBufferSeconds))
+                        .onChange(of: streamBufferSeconds) { NativePlayer.shared.setStreamBufferDuration($0) }
+                    Text("Меньше буфер: быстрее старт, но выше риск пауз на слабой сети. При обрывах выбери 8 или 12 секунд.")
+                        .font(.system(size: 12)).foregroundStyle(.white.opacity(0.43))
+                    HStack {
+                        Text("Одинаковая громкость")
+                        Spacer()
+                        Text(equalVolume == 0 ? "Выкл." : String(format: "%.0f%%", equalVolume))
+                            .foregroundStyle(Color.white)
+                    }
+                    GlassSlider(value: $equalVolume, range: 0...100, step: 10,
+                                accessibilityStep: 10, label: "Одинаковая громкость",
+                                valueText: String(format: "%.0f%%", equalVolume))
+                        .onChange(of: equalVolume) { NativePlayer.shared.setEqualVolume($0) }
+                    Text("Мягко уменьшает громкость более громких треков. На Bluetooth выравнивание становится доступно после анализа записи.")
+                        .font(.system(size: 12)).foregroundStyle(.white.opacity(0.43))
+                    Text("Диагностика: " + playbackDiagnostics)
+                        .font(.system(size: 12)).monospacedDigit().foregroundStyle(.white.opacity(0.6))
+                        .task {
+                            while !Task.isCancelled {
+                                playbackDiagnostics = NativePlayer.shared.startupDiagnostics
+                                do { try await Task.sleep(nanoseconds: 1_000_000_000) }
+                                catch { return }
                             }
-                    }.padding(16).frame(maxWidth: .infinity, minHeight: 166, alignment: .leading).background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
-                    Text(buildCaption).font(.system(size: 11)).foregroundStyle(.white.opacity(0.4)).frame(maxWidth: .infinity)
-                }.padding(.vertical, 2)
+                        }
+                }.padding(16).frame(maxWidth: .infinity, minHeight: 166, alignment: .leading).background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        case .appearance:
+                VStack(alignment: .leading, spacing: 8) {
+                    Button("Темы и ленты · Premium") { feature = .appearance }
+                        .sheet(item: $feature) { PremiumFeatureView(kind: $0).environmentObject(store) }
+                    Label("Оформление", systemImage: "paintbrush").font(.system(size: 18, weight: .semibold)).foregroundStyle(Color.white)
+                    Toggle("Текст вместе с лентами", isOn: $ambientLyrics)
+                        .onChange(of: ambientLyrics) { enabled in
+                            if enabled { store.lyrics.select(store.clock.current, api: store.api, origin: store.origin, online: store.account != nil) }
+                        }
+                    Text("Строки с таймкодами появляются во время песни.").font(.system(size: 13)).foregroundStyle(.white.opacity(0.43))
+                }.padding(16).frame(maxWidth: .infinity, minHeight: 160, alignment: .leading).background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        case .about:
+            VStack(alignment: .leading, spacing: 12) {
+                Label("О приложении", systemImage: "info.circle")
+                    .font(.system(size: 18, weight: .semibold))
+                Text(buildCaption)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.75))
+                    .textSelection(.enabled)
             }
-        }.font(.system(size: 17)).padding(20).tint(Color.white)
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 24))
+        }
+    }
 
+    private func categoryRow(_ page: SettingsPage) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.22)) { activePage = page }
+        } label: {
+            HStack(spacing: 14) {
+                Image(systemName: page.icon)
+                    .font(.system(size: 19, weight: .medium))
+                    .frame(width: 28)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(page.rawValue)
+                        .font(.system(size: 16, weight: .semibold))
+                    Text(page.subtitle)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.55))
+                }
+                Spacer(minLength: 5)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.42))
+            }
+            .foregroundStyle(.white)
+            .frame(minHeight: 56)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 6)
+            .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 18))
+        }
+        .buttonStyle(.plain)
+    }
+
+    var body: some View {
+        VStack(spacing: 16) {
+            HStack(spacing: 11) {
+                if activePage != nil {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.22)) { activePage = nil }
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 17, weight: .semibold))
+                            .frame(width: 38, height: 42)
+                            .background(.white.opacity(0.055), in: Circle())
+                    }
+                    .accessibilityLabel("Назад к настройкам")
+                }
+                Text(activePage?.rawValue ?? "Настройки")
+                    .font(.system(size: activePage == nil ? 28 : 23, weight: .bold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Button(action: close) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 22, weight: .light))
+                        .frame(width: 42, height: 42)
+                        .background(.white.opacity(0.055), in: Circle())
+                }
+                .accessibilityLabel("Закрыть настройки")
+            }
+            .padding(.top, 12)
+
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 12) {
+                    if let page = activePage {
+                        pageContents(for: page)
+                    } else {
+                        ForEach(SettingsPage.allCases, id: \.self) { page in
+                            categoryRow(page)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 2)
+            }
+            .id(activePage)
+        }
+        .font(.system(size: 17))
+        .padding(20)
+        .tint(.white)
     }
 }
 
