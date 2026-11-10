@@ -2306,6 +2306,14 @@ public final class MainActivity extends Activity {
                 JSONObject external=new JSONObject().put("id","external_test_9999").put("title","Трек из поиска, которого нет в каталоге").put("artist","Nightwell QA");
                 likes.add(external.optString("id"));favoriteTracks.remember(external);favoriteTracks.promote(external.optString("id"));
                 navigate("Избранное");
+            }else if("favorites-metadata-recovered".equals(page)){
+                String id="old_favorite_id_981";
+                likes.add(id);
+                favoriteTracks.reconcile(likes,new JSONArray().put(id),null);
+                favoriteTracks.remember(new JSONObject().put("id",id)
+                    .put("title","Восстановленное название песни")
+                    .put("artist","Восстановленный исполнитель"));
+                navigate("Избранное");
             }else if(page!=null)navigate(page);}catch(JSONException e){throw new IllegalStateException(e);}}
     String friendly(Exception error){if(error instanceof java.net.UnknownHostException||error instanceof java.net.ConnectException||error instanceof java.net.SocketTimeoutException)return "Нет соединения. Офлайн-файлы доступны в меню.";String message=error.getMessage();return message!=null&&!message.startsWith("Unable")&&message.length()<180?message:"Не удалось выполнить действие. Повтори попытку.";}
     interface Work{JSONObject run()throws Exception;} interface Done{void run(JSONObject value);}
