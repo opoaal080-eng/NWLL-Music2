@@ -921,6 +921,148 @@ public final class MainActivity extends Activity {
         }
     }
 
+    private String togetherCode="";
+    private int togetherGeneration=0;
+
+    private String togetherRoomCode(String input){
+        String value=input==null?"":input.trim();
+        try{
+            Uri uri=Uri.parse(value);
+            if("https".equalsIgnoreCase(uri.getScheme())){
+                if(!Uri.parse(origin).getHost().equalsIgnoreCase(uri.getHost()))return "";
+                value=uri.getQueryParameter("together");
+            }else if("nightwell".equalsIgnoreCase(uri.getScheme())
+                     &&"together".equalsIgnoreCase(uri.getHost()))
+                value=uri.getLastPathSegment();
+        }catch(Exception ignored){}
+        return value!=null&&value.matches("[A-Za-z0-9_-]{24}")?value:"";
+    }
+
+    void together(){
+        if(user.isEmpty()){auth();return;}
+        final String owner=user;
+        LinearLayout panel=column();panel.setPadding(dp(18),dp(14),dp(18),dp(18));
+        TextView summary=text("Пригласи друга по ссылке и слушайте одну очередь.",13);
+        summary.setTextColor(0xffb7bac3);panel.addView(summary);
+        EditText invite=new EditText(this);
+        invite.setHint("Код комнаты или ссылка");
+        invite.setSingleLine(true);styleField(invite);
+        LinearLayout.LayoutParams inputParams=new LinearLayout.LayoutParams(-1,-2);
+        inputParams.topMargin=dp(15);panel.addView(invite,inputParams);
+        TextView state=text(togetherCode.isEmpty()?"Нет активной комнаты":"Комната "+togetherCode,14);
+        state.setTextColor(0xffe2e4ea);
+        state.setPadding(0,dp(15),0,dp(10));panel.addView(state);
+        TextView create=sheetAction("Создать комнату",()->{});
+        TextView join=sheetAction("Присоединиться",()->{});
+        TextView share=sheetAction("Поделиться приглашением",()->{});
+        TextView previous=sheetAction("Предыдущий",()->{});
+        TextView toggle=sheetAction("Воспроизведение / пауза",()->{});
+        TextView next=sheetAction("Следующий",()->{});
+        TextView leave=sheetAction("Покинуть комнату",()->{});
+        for(TextView item:new TextView[]{create,join,share,previous,toggle,next,leave}){
+            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);
+            p.bottomMargin=dp(8);panel.addView(item,p);
+        }
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Слушать вместе")
+            .setView(panel).setPositiveButton("Готово",null).create();
+        final Runnable[] refreshUI={null};
+        refreshUI[0]=()->{
+            boolean joined=!togetherCode.isEmpty();
+            state.setText(joined?"Комната "+togetherCode:"Нет активной комнаты");
+            invite.setVisibility(joined?View.GONE:View.VISIBLE);
+            create.setVisibility(joined?View.GONE:View.VISIBLE);
+            join.setVisibility(joined?View.GONE:View.VISIBLE);
+            share.setVisibility(joined?View.VISIBLE:View.GONE);
+            previous.setVisibility(joined?View.VISIBLE:View.GONE);
+            toggle.setVisibility(joined?View.VISIBLE:View.GONE);
+            next.setVisibility(joined?View.VISIBLE:View.GONE);
+            leave.setVisibility(joined?View.VISIBLE:View.GONE);
+        };
+        create.setOnClickListener(v->{
+            create.setEnabled(false);
+            state.setText("Создаём комнату…");
+            task(()->api.request("api/together/rooms","POST",new JSONObject()),response->{
+                create.setEnabled(true);
+                togetherCode=response.optJSONObject("room")==null?"":response.optJSONObject("room").optString("code");
+                refreshUI[0].run();
+            });
+        });
+        join.setOnClickListener(v->{
+            String target=togetherRoomCode(invite.getText().toString());
+            if(target.isEmpty()){state.setText("Введи код из 24 символов или ссылку.");return;}
+            join.setEnabled(false);state.setText("Подключаемся…");
+            task(()->api.request("api/together/rooms/"+target+"/join","POST",new JSONObject()),
+                response->{join.setEnabled(true);togetherCode=target;refreshUI[0].run();});
+        });
+        share.setOnClickListener(v->{
+            if(togetherCode.isEmpty())return;
+            String url=origin+"?together="+togetherCode;
+            Intent send=new Intent(Intent.ACTION_SEND).setType("text/plain")
+                .putExtra(Intent.EXTRA_TEXT,url);
+            startActivity(Intent.createChooser(send,"Пригласить слушать вместе"));
+        });
+        java.util.function.Consumer<String> command=action->{
+            if(togetherCode.isEmpty())return;
+            final String codeSnapshot=togetherCode;
+            task(()->api.request("api/together/rooms/"+codeSnapshot+"/command","POST",
+                new JSONObject().put("action",action)),ignored->{});
+        };
+        previous.setOnClickListener(v->command.accept("previous"));
+        toggle.setOnClickListener(v->command.accept("play"));
+        next.setOnClickListener(v->command.accept("next"));
+        leave.setOnClickListener(v->{
+            String codeSnapshot=togetherCode;togetherCode="";
+            togetherGeneration++;
+            refreshUI[0].run();
+            task(()->api.request("api/together/rooms/"+codeSnapshot+"/leave","POST",new JSONObject()),
+                ignored->{});
+        });
+        int generation=++togetherGeneration;
+        Runnable[] poll={null};
+        poll[0]=()->{
+            if(!dialog.isShowing()||!owner.equals(user)||generation!=togetherGeneration)return;
+            final String codeSnapshot=togetherCode;
+            if(!codeSnapshot.isEmpty()){
+                io.execute(()->{
+                    try{
+                        JSONObject result=api.request("api/together/rooms/"+codeSnapshot);
+                        JSONObject room=result.optJSONObject("room");
+                        ui.post(()->{
+                            if(!dialog.isShowing()||generation!=togetherGeneration||
+                               !codeSnapshot.equals(togetherCode)||room==null)return;
+                            JSONArray members=room.optJSONArray("members");
+                            state.setText("Комната "+codeSnapshot+"\nУчастников: "+
+                                (members==null?0:members.length()));
+                            JSONObject track=room.optJSONObject("track");
+                            if(track!=null&&playback!=null){
+                                String desired=track.optString("id");
+                                if(!desired.isEmpty()&&!desired.equals(currentID)){
+                                    JSONArray tracks=room.optJSONArray("queue");
+                                    if(tracks==null||tracks.length()==0)tracks=new JSONArray().put(track);
+                                    play(track,tracks,false);
+                                }else if(!desired.isEmpty()){
+                                    double seconds=room.optDouble("position_ms",0)/1000.0;
+                                    if(room.optBoolean("playing")&&
+                                       Math.abs(playback.player.getCurrentPosition()/1000.0-seconds)>2.0)
+                                        playback.seek(seconds);
+                                    if(room.optBoolean("playing")&&!playback.player.getPlayWhenReady())
+                                        playback.play();
+                                    if(!room.optBoolean("playing")&&playback.player.getPlayWhenReady())
+                                        playback.pause();
+                                }
+                            }
+                        });
+                    }catch(Exception ignored){}
+                });
+            }
+            ui.postDelayed(poll[0],1600);
+        };
+        dialog.setOnDismissListener(v->{togetherGeneration++;ui.removeCallbacks(poll[0]);});
+        styleSheet(dialog);dialog.show();
+        refreshUI[0].run();
+        ui.postDelayed(poll[0],800);
+    }
+
     void profile(){
         if(user.isEmpty()){auth();return;}
         LinearLayout panel=column();panel.setPadding(dp(18),dp(18),dp(18),dp(18));
