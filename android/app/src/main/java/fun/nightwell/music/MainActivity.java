@@ -811,51 +811,164 @@ public final class MainActivity extends Activity {
             android.widget.Toast.makeText(this,"Выбор устройства сейчас недоступен",android.widget.Toast.LENGTH_SHORT).show();
         }
     }
+    // Compact two-level navigation, matching iOS. Only the header owns the
+    // connection indicator, Additional action and profile avatar.
     void menu(){
         if(navigationPopup!=null)navigationPopup.dismiss();
-        View anchor=head.getChildAt(head.getChildCount()-1);
-        LinearLayout entries=column();entries.setPadding(0,dp(6),0,dp(6));
-        if(!user.isEmpty()){
-            TextView profileHeading=text(cachedProfileNickname.isEmpty()?"Мой профиль":cachedProfileNickname,15);
-            profileHeading.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
-            profileHeading.setPadding(dp(14),dp(7),dp(14),dp(10));
-            entries.addView(profileHeading);
+        final android.widget.ImageView opener=profileAvatarButton;
+        LinearLayout shell=column();
+        shell.setPadding(dp(12),dp(11),dp(12),dp(11));
+        shell.setBackground(glass(27));
+        LinearLayout top=row();top.setPadding(dp(6),0,dp(4),dp(12));
+        TextView title=text("Меню",23);title.setTypeface(null,android.graphics.Typeface.BOLD);
+        title.setSingleLine(true);
+        top.addView(title,new LinearLayout.LayoutParams(0,dp(44),1));
+        nightwellMenuStatus=text("●",18);
+        nightwellMenuStatus.setGravity(Gravity.CENTER);
+        top.addView(nightwellMenuStatus,new LinearLayout.LayoutParams(dp(24),dp(40)));
+        nightwellMenuSpinner=new ProgressBar(this);
+        nightwellMenuSpinner.setIndeterminate(true);
+        nightwellMenuSpinner.setIndeterminateTintList(
+            android.content.res.ColorStateList.valueOf(0xff67a8ff));
+        top.addView(nightwellMenuSpinner,new LinearLayout.LayoutParams(dp(20),dp(28)));
+        TextView additional=iconButton("⊞",()->{});
+        additional.setTextSize(22);
+        additional.setContentDescription("Дополнительно");
+        LinearLayout.LayoutParams moreParams=new LinearLayout.LayoutParams(dp(43),dp(43));
+        moreParams.leftMargin=dp(7);top.addView(additional,moreParams);
+        android.widget.ImageView avatar=new android.widget.ImageView(this);
+        if(cachedProfileAvatar!=null&&!user.isEmpty()){
+            avatar.setImageBitmap(cachedProfileAvatar);
+            avatar.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+            avatar.setClipToOutline(true);
+        }else avatar.setImageResource(android.R.drawable.ic_menu_myplaces);
+        avatar.setPadding(dp(6),dp(6),dp(6),dp(6));
+        avatar.setBackground(touchSurface(0x9d303237,22));
+        avatar.setContentDescription(user.isEmpty()?"Войти":"Открыть профиль");
+        LinearLayout.LayoutParams avatarParams=new LinearLayout.LayoutParams(dp(43),dp(43));
+        avatarParams.leftMargin=dp(7);top.addView(avatar,avatarParams);
+        shell.addView(top);
+        ScrollView scroll=new ScrollView(this);
+        scroll.setFillViewport(false);
+        scroll.setVerticalScrollBarEnabled(false);
+        LinearLayout entries=column();
+        scroll.addView(entries);
+        shell.addView(scroll);
+        int width=Math.min(dp(342),getResources().getDisplayMetrics().widthPixels-dp(24));
+        int maxHeight=getResources().getDisplayMetrics().heightPixels-dp(isLandscapeLayout()?65:128);
+        PopupWindow popup=new PopupWindow(shell,width,WindowManager.LayoutParams.WRAP_CONTENT,true);
+        navigationPopup=popup;
+        popup.setBackgroundDrawable(glass(28));
+        popup.setElevation(dp(22));
+        popup.setOutsideTouchable(true);
+        popup.setInputMethodMode(PopupWindow.INPUT_METHOD_NOT_NEEDED);
+        popup.setOnDismissListener(()->{
+            if(navigationPopup==popup)navigationPopup=null;
+            nightwellMenuStatus=null;
+            nightwellMenuSpinner=null;
+            if(opener!=null&&opener.isAttachedToWindow()){
+                opener.setVisibility(View.VISIBLE);
+                opener.animate().alpha(1f).setDuration(180).start();
+            }
+        });
+        final boolean[] extra={false};
+        Runnable render=()->{
+            entries.removeAllViews();
+            String[] tabs=extra[0]
+                ? (user.isEmpty()?new String[]{"Слушать вместе","Обращения"}:
+                    new String[]{"Слушать вместе","Моя статистика","Перенос плейлистов","Обращения"})
+                : (user.isEmpty()?new String[]{"Войти","Главная","Настройки"}:
+                    new String[]{"Главная","Избранное","Плейлисты","Офлайн","Nightwell Premium","Настройки"});
+            for(String tab:tabs){
+                TextView item=sheetAction(tab,()->{
+                    popup.dismiss();
+                    selectMenu(tab);
+                });
+                item.setGravity(Gravity.CENTER_VERTICAL);
+                item.setTextSize(15);
+                item.setTypeface(null,tab.equals(screen)?android.graphics.Typeface.BOLD:android.graphics.Typeface.NORMAL);
+                item.setPadding(dp(17),dp(10),dp(15),dp(10));
+                item.setCompoundDrawablePadding(dp(10));
+                item.setBackground(touchSurface(0x752e3036,17));
+                LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(50));
+                p.bottomMargin=dp(7);entries.addView(item,p);
+            }
+            entries.measure(View.MeasureSpec.makeMeasureSpec(width-dp(24),View.MeasureSpec.EXACTLY),
+                            View.MeasureSpec.makeMeasureSpec(0,View.MeasureSpec.UNSPECIFIED));
+            popup.setHeight(Math.min(maxHeight,entries.getMeasuredHeight()+dp(94)));
+        };
+        additional.setOnClickListener(v->{
+            extra[0]=!extra[0];
+            title.setText(extra[0]?"Дополнительно":"Меню");
+            additional.setText(extra[0]?"‹":"⊞");
+            additional.setContentDescription(extra[0]?"Назад в меню":"Дополнительно");
+            render.run();
+            popup.update(width,popup.getHeight());
+        });
+        avatar.setOnClickListener(v->{
+            popup.dismiss();
+            if(user.isEmpty())auth();else profile();
+        });
+        render.run();
+        setNightwellStatus(nightwellStatus);
+        popup.showAtLocation(head,Gravity.TOP|Gravity.RIGHT,dp(12),
+            Math.max(dp(58),getWindow().getDecorView().getRootWindowInsets()==null?
+                dp(65):dp(80)));
+        if(opener!=null){
+            opener.animate().alpha(0f).setDuration(150).withEndAction(()->{
+                if(navigationPopup==popup)opener.setVisibility(View.GONE);
+            }).start();
         }
-        TextView connectionHeading=text("Подключение",11);connectionHeading.setTextColor(0xffa6a4af);connectionHeading.setPadding(dp(14),dp(4),dp(14),dp(2));entries.addView(connectionHeading);
-        TextView connectionState=text(nightwellStatus,15);connectionState.setPadding(dp(14),0,dp(14),dp(6));entries.addView(connectionState);nightwellMenuStatus=connectionState;setNightwellStatus(nightwellStatus);
-        ScrollView scroll=new ScrollView(this);scroll.setFillViewport(false);scroll.setVerticalScrollBarEnabled(false);scroll.addView(entries);
-        android.graphics.Rect frame=new android.graphics.Rect();anchor.getWindowVisibleDisplayFrame(frame);int[] location=new int[2];anchor.getLocationOnScreen(location);
-        int available=Math.max(dp(96),frame.bottom-location[1]-anchor.getHeight()-dp(12));
-        int width=Math.min(dp(278),frame.width()-dp(32));
-        PopupWindow popup=new PopupWindow(scroll,width,WindowManager.LayoutParams.WRAP_CONTENT,true);
-        navigationPopup=popup;popup.setOnDismissListener(()->{if(navigationPopup==popup)navigationPopup=null;});
-        GradientDrawable glass=new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0xf2322b40,0xf222202b});glass.setCornerRadius(dp(22));glass.setStroke(dp(1),0x30ffffff);
-        popup.setBackgroundDrawable(glass);popup.setElevation(dp(24));popup.setOutsideTouchable(true);popup.setInputMethodMode(PopupWindow.INPUT_METHOD_NOT_NEEDED);scroll.setClipToOutline(true);scroll.setBackground(glass);
-        String[] tabs=user.isEmpty()?new String[]{"Войти","Главная","Настройки"}:new String[]{"Главная","Избранное","Плейлисты","Офлайн","Моя статистика","Nightwell Premium","Настройки","Обращения","Выйти"};
-        String[] icons=user.isEmpty()?new String[]{"person","home","settings"}:new String[]{"home","heart","list","download","stats","star","settings","mail","person"};
-        for(int i=0;i<tabs.length;i++){
-            View divider=new View(this);divider.setBackgroundColor(i==0||i==5||i==12?0x44000000:0x20ffffff);entries.addView(divider,new LinearLayout.LayoutParams(-1,dp(i==0||i==5||i==12?4:1)));
-            final String tab=tabs[i];boolean selected=tab.equals(screen)||(tab.equals("Плейлисты")&&!selectedPlaylist.isEmpty());
-            int color=tab.equals("Выйти")?0xffff6b76:0xfff4f1f7;
-            LinearLayout item=row();item.setPadding(dp(16),0,dp(16),0);item.setMinimumHeight(dp(48));item.setSelected(selected);
-            TextView label=text(tab.equals("Обращения")?"Обращения и поддержка":tab,15);label.setTextColor(color);if(selected)label.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
-            item.addView(label,new LinearLayout.LayoutParams(0,-2,1));
-            if(selected){TextView mark=text("✓",17);mark.setTextColor(0xffeeeeee);item.addView(mark,new LinearLayout.LayoutParams(dp(26),-2));}
-            item.addView(new NavigationMenuIcon(this,icons[i],color),new LinearLayout.LayoutParams(dp(20),dp(20)));
-            item.setBackground(new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x30ffffff),new android.graphics.drawable.ColorDrawable(selected?0x18ffffff:Color.TRANSPARENT),null));
-            item.setContentDescription(label.getText());item.setOnClickListener(v->{popup.dismiss();selectMenu(tab);});entries.addView(item,new LinearLayout.LayoutParams(-1,-2));
-        }
-        entries.measure(View.MeasureSpec.makeMeasureSpec(width,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(0,View.MeasureSpec.UNSPECIFIED));popup.setHeight(Math.min(entries.getMeasuredHeight()+dp(12),Math.min(available,dp(420))));
-        popup.showAtLocation(head,Gravity.TOP|Gravity.RIGHT,dp(18),Math.max(frame.top+dp(8),Math.min(location[1]+anchor.getHeight()+dp(6),frame.bottom-popup.getHeight()-dp(8))));
-        // Network state is refreshed independently while the app is visible.
     }
+
+    void profile(){
+        if(user.isEmpty()){auth();return;}
+        LinearLayout panel=column();panel.setPadding(dp(18),dp(18),dp(18),dp(18));
+        LinearLayout header=row();
+        android.widget.ImageView avatar=new android.widget.ImageView(this);
+        if(cachedProfileAvatar!=null){
+            avatar.setImageBitmap(cachedProfileAvatar);
+            avatar.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+        }else avatar.setImageResource(android.R.drawable.ic_menu_myplaces);
+        avatar.setBackground(glass(38));avatar.setClipToOutline(true);
+        header.addView(avatar,new LinearLayout.LayoutParams(dp(72),dp(72)));
+        LinearLayout label=column();label.setPadding(dp(15),0,0,0);
+        TextView name=text(cachedProfileNickname.isEmpty()?"Мой профиль":cachedProfileNickname,20);
+        name.setTypeface(null,android.graphics.Typeface.BOLD);
+        label.addView(name);TextView description=text("Аккаунт Nightwell Music",12);
+        description.setTextColor(0xffb9bcc4);label.addView(description);
+        header.addView(label,new LinearLayout.LayoutParams(0,-2,1));panel.addView(header);
+        TextView editAvatar=sheetAction("Изменить аватар",this::selectProfileAvatar);
+        TextView editNick=sheetAction("Изменить ник",this::editProfileNickname);
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);
+        p.topMargin=dp(12);panel.addView(editAvatar,p);
+        LinearLayout.LayoutParams p2=new LinearLayout.LayoutParams(-1,-2);
+        p2.topMargin=dp(8);panel.addView(editNick,p2);
+        TextView logout=sheetAction("Выйти из аккаунта",()->{});
+        logout.setTextColor(0xffffa8ad);
+        LinearLayout.LayoutParams p3=new LinearLayout.LayoutParams(-1,-2);
+        p3.topMargin=dp(22);panel.addView(logout,p3);
+        AlertDialog sheet=new AlertDialog.Builder(this).setTitle("Профиль")
+            .setView(panel).setPositiveButton("Готово",null).create();
+        logout.setOnClickListener(v->new AlertDialog.Builder(this)
+            .setTitle("Выйти из аккаунта?")
+            .setNegativeButton("Отмена",null)
+            .setPositiveButton("Выйти",(dialog,which)->{
+                sheet.dismiss();
+                selectMenu("Выйти");
+            }).show());
+        styleSheet(sheet);sheet.show();
+    }
+
     void selectMenu(String tab){
-        if(tab.equals("Перенести музыку")){nativeTransfer();return;}
+        if(tab.equals("Перенести музыку")||tab.equals("Перенос плейлистов")){nativeTransfer();return;}
+        if(tab.equals("Слушать вместе")){together();return;}
          if(tab.equals("Моя статистика")){feature("stats");return;}
         if(tab.equals("Nightwell Premium")){premium();return;}
         if(tab.equals("Настройки"))settings();
         else if(tab.equals("Настройка подборки"))waveSettings();
         else if(tab.equals("Обращения"))supportTickets(false);
+        else if(tab.equals("Профиль"))profile();
         else if(tab.equals("Только фон")||tab.equals("Показать интерфейс"))toggleBackgroundOnly();
         else if(tab.equals("Войти"))auth();
         else if(tab.equals("Выйти")){cancelMix();accountRequest.cancel();task(()->{api.request("api/logout","POST",null);new SessionStore(this).clear();clearLibrarySnapshot();return new JSONObject();},v->{libraryGeneration++;user="";searchCache.clear();playlists=new JSONArray();selectedPlaylist="";sessionReady=true;api.updateCSRF("");getSharedPreferences("native-api",MODE_PRIVATE).edit().putString("account","").apply();catalog=new JSONArray();shown=new JSONArray();likes.clear();if(playback!=null)playback.stop();navigate("Главная");});}
