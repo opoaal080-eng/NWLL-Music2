@@ -948,26 +948,18 @@ struct NativeRoot: View {
                         .frame(width: 42, height: 42)
                         .background(Color(white: 0.07), in: RoundedRectangle(cornerRadius: 12))
                         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.white.opacity(0.20), lineWidth: 0.8))
-                    if compactCollectionTitle == nil && !landscape {
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text("Nightwell").font(.system(size: 25, weight: .bold))
-                            Text("M U S I C").font(.caption).foregroundStyle(.secondary)
-                        }
-                    } else if landscape {
-                        Text("Nightwell Music")
-                            .font(.system(size: 16, weight: .semibold))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
-                    } else {
-                        // Small complete wordmark leaves room for the centered
-                        // compact collection heading on narrow phones.
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text("Nightwell")
-                                .font(.system(size: 14, weight: .bold))
-                            Text("MUSIC")
-                                .font(.system(size: 8, weight: .medium))
-                                .tracking(1.2)
-                                .foregroundStyle(.secondary)
+                    // Keep only the N icon when scrolling Favorites, Playlists or Offline.
+                    if compactCollectionTitle == nil {
+                        if landscape {
+                            Text("Nightwell Music")
+                                .font(.system(size: 16, weight: .semibold))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                        } else {
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text("Nightwell").font(.system(size: 25, weight: .bold))
+                                Text("M U S I C").font(.caption).foregroundStyle(.secondary)
+                            }
                         }
                     }
                 }.contentShape(Rectangle())
@@ -977,9 +969,9 @@ struct NativeRoot: View {
             .accessibilityLabel("На главную")
             Spacer()
             Button { if store.screen == .search { store.screen = .home } else { store.screen = .search } } label: { Image(systemName: store.screen == .search ? "xmark" : "magnifyingglass").font(.system(size: 19, weight: .medium)).foregroundStyle(.white).frame(width: 44, height: 44).frostedGlass(22, bordered: false, intensity: 0.20) }.accessibilityLabel(store.screen == .search ? "Закрыть поиск" : "Поиск")
-            // On Home the full resume banner becomes a small action next to Search
-            // after eight seconds; scrolling collections hide the banner so the title stays clear.
-            if store.hasRemotePlayback && (remoteHomeCollapsed || landscape) {
+            // Hide the compact handoff button while a collection is scrolled.
+            // Removing it from the HStack makes Search slide to the right.
+            if store.hasRemotePlayback && (remoteHomeCollapsed || landscape) && compactCollectionTitle == nil {
                 Button {
                     Task { await store.continuePlaybackHere() }
                 } label: {
@@ -1022,6 +1014,8 @@ struct NativeRoot: View {
         }
         .animation(reducedMotion ? nil : .spring(response: 0.34, dampingFraction: 0.86),
                    value: navigationMenuPresented)
+        .animation(reducedMotion ? nil : .spring(response: 0.34, dampingFraction: 0.86),
+                   value: collectionScrolled)
         .padding(.horizontal, landscape ? 10 : 20)
         .padding(.top, landscape ? 0 : 8)
         .overlay(alignment: .center) {
