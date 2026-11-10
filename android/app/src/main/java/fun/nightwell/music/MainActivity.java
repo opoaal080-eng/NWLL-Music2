@@ -2519,7 +2519,7 @@ public final class MainActivity extends Activity {
         fullLike.setTextColor(likes.contains(track.optString("id"))?0xffeeeeee:0xffa4a6b1);
         LinearLayout.LayoutParams likeParams=new LinearLayout.LayoutParams(dp(48),dp(48));
         likeParams.setMargins(dp(4),0,dp(0),0);
-        fullDislike=iconButton("👎",()->{
+        fullDislike=iconButton("⊖",()->{
             JSONObject selected=current();
             if(selected==null)return;
             toggleRecommendationHidden(selected);
@@ -2531,6 +2531,8 @@ public final class MainActivity extends Activity {
         });
         boolean hidden=hiddenRecommendations().contains(track.optString("id"));
         fullDislike.setAlpha(hidden?1f:.55f);
+        fullDislike.setTextColor(0xffd4d5db);
+        fullDislike.setTextSize(23);
         fullDislike.setContentDescription(hidden?"Вернуть в рекомендации":"Не рекомендовать");
         metadata.addView(fullDislike,new LinearLayout.LayoutParams(dp(44),dp(48)));
         metadata.addView(fullLike,likeParams);
@@ -2563,7 +2565,14 @@ public final class MainActivity extends Activity {
         }
         backward.setTextSize(31);forward.setTextSize(31);
         fullPlay.setTextColor(0xffeeeeee);fullPlay.setTextSize(30);
-        fullPlay.setBackground(touchSurface(0xfff0f0f1,34));fullPlay.setTextColor(0xff17181a);
+        GradientDrawable playSurface=new GradientDrawable();
+        playSurface.setColor(0xfff3f3f5);
+        playSurface.setCornerRadius(dp(34));
+        android.graphics.drawable.RippleDrawable playRipple=new android.graphics.drawable.RippleDrawable(
+            android.content.res.ColorStateList.valueOf(0x33000000),playSurface,null);
+        fullPlay.setBackground(playRipple);
+        fullPlay.setTextColor(0xff16171a);
+        fullPlay.setElevation(dp(4));
         fullPlay.setPadding(0,0,0,0);
         controls.addView(shuffleButton,new LinearLayout.LayoutParams(0,dp(56),1));
         controls.addView(backward,new LinearLayout.LayoutParams(0,dp(59),1));
