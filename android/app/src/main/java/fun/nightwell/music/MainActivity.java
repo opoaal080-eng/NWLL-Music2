@@ -512,8 +512,7 @@ public final class MainActivity extends Activity {
         for(int i=0;i<old.size();i++){
             View v=old.get(i);
             LinearLayout card=column();
-            card.setPadding(dp(14),dp(10),dp(14),dp(10));
-            card.setBackground(fieldSurface(0xff26282d,19));
+            card.setPadding(dp(12),dp(9),dp(12),dp(9));card.setBackground(fieldSurface(0xff26282d,16));
             card.addView(v,new LinearLayout.LayoutParams(-1,-2));
             if(i+1<old.size()){
                 View next=old.get(i+1);
@@ -529,14 +528,13 @@ public final class MainActivity extends Activity {
                 }
             }
             LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);
-            lp.bottomMargin=dp(10);
-            panel.addView(card,lp);
+            lp.bottomMargin=dp(8);panel.addView(card,lp);
         }
     }
 
-    TextView sheetAction(String label,Runnable run){TextView v=action(label,run);v.setTextSize(15);v.setMaxLines(2);v.setEllipsize(android.text.TextUtils.TruncateAt.END);v.setGravity(Gravity.CENTER_VERTICAL);v.setTextColor(0xfff4f4f6);v.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));v.setPadding(dp(17),dp(13),dp(17),dp(13));v.setBackground(touchSurface(0xff292b30,18));return v;}
-    TextView action(String label,Runnable run){TextView v=NativeIconButton.isIcon(label)?new NativeIconButton(this):text(label,16);v.setText(label);v.setTextColor(0xfff3f3f5);v.setTextSize(NativeIconButton.isIcon(label)?20:16);if(NativeIconButton.isIcon(label))v.setContentDescription(iconLabel(label));v.setGravity(Gravity.CENTER);v.setPadding(dp(14),dp(12),dp(14),dp(12));v.setMinHeight(dp(50));v.setOnClickListener(x->run.run());return v;}
-    TextView iconButton(String label,Runnable run){TextView v=action(label,run);v.setPadding(0,0,0,0);v.setTextSize(20);v.setTextColor(0xfff1f1f6);v.setBackground(touchSurface(0xa52b2e34,23));return v;}
+    TextView sheetAction(String label,Runnable run){TextView v=action(label,run);v.setTextSize(14);v.setMaxLines(2);v.setEllipsize(android.text.TextUtils.TruncateAt.END);v.setGravity(Gravity.CENTER_VERTICAL);v.setTextColor(0xfff4f4f6);v.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));v.setPadding(dp(14),dp(10),dp(14),dp(10));v.setMinHeight(dp(46));v.setBackground(touchSurface(0xff292b30,15));return v;}
+    TextView action(String label,Runnable run){TextView v=NativeIconButton.isIcon(label)?new NativeIconButton(this):text(label,16);v.setText(label);v.setTextColor(0xfff3f3f5);v.setTextSize(NativeIconButton.isIcon(label)?20:16);if(NativeIconButton.isIcon(label))v.setContentDescription(iconLabel(label));v.setGravity(Gravity.CENTER);v.setPadding(dp(12),dp(9),dp(12),dp(9));v.setMinHeight(dp(48));v.setOnClickListener(x->run.run());return v;}
+    TextView iconButton(String label,Runnable run){TextView v=action(label,run);v.setPadding(0,0,0,0);v.setTextSize(19);v.setTextColor(0xfff1f1f6);v.setBackground(touchSurface(0xa52b2e34,16));return v;}
     void toggleBackgroundOnly(){backgroundOnly=!backgroundOnly;build();}
     private int depthQueuePage = 0;
 
@@ -864,11 +862,9 @@ public final class MainActivity extends Activity {
         ribbon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         scene.addView(ribbon,new android.widget.FrameLayout.LayoutParams(-1,-1));
         boolean landscape=isLandscapeLayout();
-        root=column();root.setPadding(dp(landscape?9:18),dp(landscape?4:10),
-                                     dp(landscape?9:18),0);
+        root=column();root.setPadding(dp(landscape?10:16),dp(landscape?5:9),dp(landscape?10:16),0);
         scene.addView(root,new android.widget.FrameLayout.LayoutParams(-1,-1));setContentView(scene);
-        root.setOnApplyWindowInsetsListener((v,insets)->{int top,bottom;if(Build.VERSION.SDK_INT>=30){android.graphics.Insets bars=insets.getInsets(WindowInsets.Type.systemBars());top=bars.top;bottom=Math.max(bars.bottom,insets.getInsets(WindowInsets.Type.ime()).bottom);}else{top=insets.getSystemWindowInsetTop();bottom=insets.getSystemWindowInsetBottom();}v.setPadding(dp(isLandscapeLayout()?9:18),dp(isLandscapeLayout()?4:10)+top,
-                             dp(isLandscapeLayout()?9:18),bottom);return insets;});root.requestApplyInsets();
+        root.setOnApplyWindowInsetsListener((v,insets)->{int top,bottom;if(Build.VERSION.SDK_INT>=30){android.graphics.Insets bars=insets.getInsets(WindowInsets.Type.systemBars());top=bars.top;bottom=Math.max(bars.bottom,insets.getInsets(WindowInsets.Type.ime()).bottom);}else{top=insets.getSystemWindowInsetTop();bottom=insets.getSystemWindowInsetBottom();}v.setPadding(dp(isLandscapeLayout()?10:16),dp(isLandscapeLayout()?5:9)+top,dp(isLandscapeLayout()?10:16),bottom);return insets;});root.requestApplyInsets();
         head=row();android.widget.ImageView brand=new android.widget.ImageView(this);brand.setImageResource(R.drawable.nightwell_mark);brand.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);brand.setOnClickListener(v->navigate("Главная"));head.addView(brand,new LinearLayout.LayoutParams(dp(42),dp(42)));LinearLayout wordmark=column();wordmark.setGravity(Gravity.CENTER_VERTICAL);wordmark.setPadding(dp(9),0,0,0);
         TextView brandName=text("Nightwell",27);brandName.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);brandName.setTextColor(0xfff3f3f5);brandName.setIncludeFontPadding(false);brandName.setSingleLine(true);brandName.setAutoSizeTextTypeUniformWithConfiguration(20,27,1,android.util.TypedValue.COMPLEX_UNIT_SP);
         wordmark.addView(brandName,new LinearLayout.LayoutParams(-1,dp(landscape?27:33)));
@@ -880,7 +876,7 @@ public final class MainActivity extends Activity {
         head.addView(compactHandoff,new LinearLayout.LayoutParams(dp(44),dp(48)));
         android.widget.ImageView menuButton=new android.widget.ImageView(this);menuButton.setImageResource(android.R.drawable.ic_menu_myplaces);menuButton.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);menuButton.setPadding(dp(8),dp(8),dp(8),dp(8));menuButton.setBackground(touchSurface(0x40202228,24));menuButton.setOnClickListener(v->menu());menuButton.setContentDescription("Меню профиля");profileAvatarButton=menuButton;
         head.setLayoutTransition(new android.animation.LayoutTransition());
-        head.addView(menuButton,new LinearLayout.LayoutParams(dp(48),dp(48)));refreshProfileAvatar();LinearLayout.LayoutParams headerParams=new LinearLayout.LayoutParams(-1,dp(landscape?52:58));headerParams.bottomMargin=dp(landscape?2:12);root.addView(head,headerParams);if(backgroundOnly)head.setVisibility(View.GONE);
+        head.addView(menuButton,new LinearLayout.LayoutParams(dp(48),dp(48)));refreshProfileAvatar();LinearLayout.LayoutParams headerParams=new LinearLayout.LayoutParams(-1,dp(landscape?52:58));headerParams.bottomMargin=dp(landscape?3:8);root.addView(head,headerParams);if(backgroundOnly)head.setVisibility(View.GONE);
         nightwellBadge = text("", 11);
         nightwellBadge.setContentDescription("Состояние подключения Nightwell");
         setNightwellStatus(nightwellStatus);
@@ -1548,7 +1544,7 @@ public final class MainActivity extends Activity {
             TextView title=text(screen,isLandscapeLayout()?21:30);
             title.setMaxLines(1);title.setEllipsize(android.text.TextUtils.TruncateAt.END);
             LinearLayout.LayoutParams titleLayout=new LinearLayout.LayoutParams(-1,-2);
-            titleLayout.bottomMargin=dp(isLandscapeLayout()?5:10);
+            titleLayout.bottomMargin=dp(isLandscapeLayout()?7:13);
             body.addView(title,titleLayout);
         }
         if(screen.equals("Главная")){
