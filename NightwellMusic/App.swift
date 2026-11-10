@@ -287,20 +287,6 @@ struct NativeRoot: View {
     @State private var showShare = false
     @State private var launching = true
     @Environment(\.accessibilityReduceMotion) private var reducedMotion
-    private var isCollectionScreen: Bool {
-        store.screen == .likes || store.screen == .playlists || store.screen == .offline
-    }
-    private var isCompactCollectionHeader: Bool {
-        isCollectionScreen && collectionTitleCollapsed
-    }
-    private var compactCollectionTitle: String {
-        switch store.screen {
-        case .likes: return "Избранное"
-        case .playlists: return "Плейлисты"
-        case .offline: return "Офлайн"
-        default: return ""
-        }
-    }
     @ViewBuilder private var mainScene: some View {
         ZStack {
             // Shared monochrome background for Home, Search, Favorites, Playlists and Offline.
@@ -333,7 +319,7 @@ struct NativeRoot: View {
                     }
                     .accessibilityLabel("Подключение Nightwell: \(store.connectionStatus)")
                     .padding(.horizontal, 22)
-                    if store.hasRemotePlayback && !isCompactCollectionHeader {
+                    if store.hasRemotePlayback {
                         Button {
                             Task { await store.continuePlaybackHere() }
                         } label: {
@@ -349,7 +335,6 @@ struct NativeRoot: View {
                             .background(.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 18))
                         }
                         .padding(.horizontal, 20)
-                        .transition(.opacity.combined(with: .move(edge: .top)))
                     }
                     content
                     MiniPlayer(clock: store.clock, open: { fullPlayer = true })
@@ -515,7 +500,7 @@ struct NativeRoot: View {
                         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.white.opacity(0.20), lineWidth: 0.8))
                     // Keep the clickable logo, but hide the Nightwell/MUSIC wordmark
                     // when a library section is scrolled. The section name takes its place.
-                    if !isCompactCollectionHeader {
+                    if !(collectionTitleCollapsed && (store.screen == .likes || store.screen == .playlists)) {
                         VStack(alignment: .leading, spacing: 1) {
                             Text("Nightwell").font(.system(size: 25, weight: .bold))
                             Text("M U S I C").font(.caption).foregroundStyle(.secondary)
@@ -528,38 +513,23 @@ struct NativeRoot: View {
             .foregroundStyle(nightwellText)
             .accessibilityLabel("На главную")
             Spacer(minLength: 6)
-            // Keep both actions available. When the collection header collapses,
-            // search slides to the rightmost slot and the menu moves to its left.
-            HStack(spacing: 8) {
-                Button { if store.screen == .search { store.screen = .home } else { store.screen = .search } } label: {
-                    Image(systemName: store.screen == .search ? "xmark" : "magnifyingglass")
-                        .font(.system(size: 19, weight: .medium))
-                        .foregroundStyle(.white)
-                        .frame(width: 44, height: 44)
-                        .frostedGlass(22, bordered: false, intensity: 0.20)
-                }
-                .accessibilityLabel(store.screen == .search ? "Закрыть поиск" : "Поиск")
-                .offset(x: isCompactCollectionHeader ? 52 : 0)
-                .zIndex(1)
-
-                Button { navigationMenuPresented = true } label: {
-                    Image(systemName: "line.3.horizontal")
-                        .font(.system(size: 19, weight: .medium))
-                        .foregroundStyle(.white)
-                        .frame(width: 44, height: 44)
-                        .frostedGlass(22, bordered: false, intensity: 0.20)
-                }
-                .accessibilityLabel("Меню")
-                .offset(x: isCompactCollectionHeader ? -52 : 0)
+            Button { if store.screen == .search { store.screen = .home } else { store.screen = .search } } label: { Image(systemName: store.screen == .search ? "xmark" : "magnifyingglass").font(.system(size: 19, weight: .medium)).foregroundStyle(.white).frame(width: 44, height: 44).frostedGlass(22, bordered: false, intensity: 0.20) }.accessibilityLabel(store.screen == .search ? "Закрыть поиск" : "Поиск")
+            Button { navigationMenuPresented = true } label: {
+                Image(systemName: "line.3.horizontal")
+                    .font(.system(size: 19, weight: .medium))
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .frostedGlass(22, bordered: false, intensity: 0.20)
             }
+            .accessibilityLabel("Меню")
         }
         .padding(.horizontal, 20)
         .padding(.top, 8)
         // Centre the collapsed section title relative to the FULL header width,
         // not the uneven free space between the logo and the right-side controls.
         .overlay(alignment: .center) {
-            if isCompactCollectionHeader {
-                Text(compactCollectionTitle)
+            if collectionTitleCollapsed && (store.screen == .likes || store.screen == .playlists) {
+                Text(store.screen == .likes ? "Избранное" : "Плейлисты")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.88))
                     .lineLimit(1)
@@ -573,7 +543,7 @@ struct NativeRoot: View {
         .animation(reducedMotion ? nil : .easeInOut(duration: 0.18), value: collectionTitleCollapsed)
     }
     private func updateCollectionTitle(offset: CGFloat) {
-        guard isCollectionScreen else { return }
+        guard store.screen == .likes || store.screen == .playlists else { return }
         // Positive offset means the user scrolled down into the collection.
         // Collapse before the large heading can become clipped by the scroll viewport.
         // Separate thresholds avoid flickering while the scroll view is decelerating.
@@ -725,18 +695,13 @@ struct NativeRoot: View {
             .padding(.horizontal, 20)
         case .offline:
             VStack(alignment: .leading, spacing: 16) {
-                if !collectionTitleCollapsed {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text("Офлайн").font(.largeTitle.bold())
-                            Spacer()
-                            Button { importFiles = true } label: { Label("Файлы", systemImage: "folder") }
-                        }
-                        Text("Музыка на этом устройстве, доступная без интернета")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                HStack {
+                    Text("Офлайн").font(.largeTitle.bold())
+                    Spacer()
+                    Button { importFiles = true } label: { Label("Файлы", systemImage: "folder") }
                 }
+                Text("Музыка на этом устройстве, доступная без интернета")
+                    .font(.caption).foregroundStyle(.secondary)
                 if !store.damagedOffline.isEmpty {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Не удалось открыть файлы: \(store.damagedOffline.count)")
@@ -759,7 +724,7 @@ struct NativeRoot: View {
                     .padding(14)
                     .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 16))
                 }
-                TrackList(tracks: store.offline, onScroll: { updateCollectionTitle(offset: $0) })
+                TrackList(tracks: store.offline)
             }
             .padding(.horizontal, 20)
         }
