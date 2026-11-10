@@ -149,6 +149,74 @@ private extension UIImage {
     }
 }
 
+/// A neutral, softly lit backdrop used only by the menu and profile sheets.
+struct NightwellMonochromeGlassBackground: View {
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack {
+                LinearGradient(
+                    colors: [Color(white: 0.14), Color(white: 0.045), .black,
+                             Color(white: 0.08)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                Circle()
+                    .fill(Color.white.opacity(0.115))
+                    .frame(width: proxy.size.width * 1.12)
+                    .blur(radius: 90)
+                    .offset(x: -proxy.size.width * 0.34,
+                            y: -proxy.size.height * 0.42)
+                Circle()
+                    .fill(Color.white.opacity(0.055))
+                    .frame(width: proxy.size.width * 0.85)
+                    .blur(radius: 88)
+                    .offset(x: proxy.size.width * 0.42,
+                            y: proxy.size.height * 0.37)
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height)
+            .clipped()
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+    }
+}
+
+/// Subtle liquid-glass surface with white edge lighting and a dark base.
+/// Keeping it scoped to two sheets avoids changing the rest of the player.
+private struct NightwellMonochromeGlassModifier: ViewModifier {
+    let radius: CGFloat
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        content
+            .background {
+                shape.fill(.ultraThinMaterial)
+                    .overlay {
+                        shape.fill(LinearGradient(
+                            colors: [Color.white.opacity(0.09),
+                                     Color.white.opacity(0.025),
+                                     Color.white.opacity(0.055)],
+                            startPoint: .topLeading, endPoint: .bottomTrailing
+                        ))
+                    }
+            }
+            .overlay {
+                shape.strokeBorder(LinearGradient(
+                    colors: [Color.white.opacity(0.30), Color.white.opacity(0.08),
+                             Color.white.opacity(0.17)],
+                    startPoint: .topLeading, endPoint: .bottomTrailing
+                ), lineWidth: 0.85)
+            }
+            .shadow(color: .black.opacity(0.19), radius: 16, y: 8)
+    }
+}
+
+extension View {
+    func nightwellMonochromeGlass(radius: CGFloat = 20) -> some View {
+        modifier(NightwellMonochromeGlassModifier(radius: radius))
+    }
+}
+
 struct ProfileSettingsView: View {
     @EnvironmentObject private var store: MusicStore
     @State private var nickname = ""
@@ -157,46 +225,85 @@ struct ProfileSettingsView: View {
     @State private var busy = false
 
     var body: some View {
-        VStack(alignment:.leading,spacing:12) {
-            Label("Профиль",systemImage:"person.crop.circle")
-                .font(.system(size:18,weight:.semibold))
-            HStack(spacing:12) {
+        VStack(alignment: .leading, spacing: 17) {
+            HStack(spacing: 10) {
+                Image(systemName: "person.crop.circle")
+                    .font(.system(size: 19, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.84))
+                Text("Профиль")
+                    .font(.system(size: 18, weight: .semibold))
+            }
+            HStack(spacing: 16) {
                 Group {
-                    if let image=store.profileAvatar {
-                        Image(uiImage:image).resizable().scaledToFill()
+                    if let image = store.profileAvatar {
+                        Image(uiImage: image).resizable().scaledToFill()
                     } else {
-                        Image(systemName:"person.crop.circle.fill")
-                            .resizable().scaledToFit().foregroundStyle(.white.opacity(0.7))
+                        Image(systemName: "person.crop.circle.fill")
+                            .resizable().scaledToFit()
+                            .foregroundStyle(.white.opacity(0.72))
                     }
                 }
-                .frame(width:58,height:58).clipShape(Circle())
-                PhotosPicker(selection:$selectedPhoto, matching:.images) {
-                    Text("Изменить аватар").font(.system(size:15))
-                }.disabled(busy)
+                .frame(width: 68, height: 68)
+                .clipShape(Circle())
+                .overlay(Circle().strokeBorder(.white.opacity(0.32), lineWidth: 1))
+                .shadow(color: .black.opacity(0.24), radius: 12, y: 6)
+                PhotosPicker(selection: $selectedPhoto, matching: .images) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "photo.badge.plus")
+                        Text("Изменить аватар")
+                    }
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .nightwellMonochromeGlass(radius: 15)
+                }
+                .buttonStyle(.plain)
+                .disabled(busy)
             }
             if let profileError = store.profileLoadError {
-                Text(profileError).font(.caption).foregroundStyle(.secondary)
+                Text(profileError)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.64))
                 Button("Повторить загрузку профиля") {
                     Task { await store.refreshProfile(); nickname = store.profileNickname }
-                }.font(.system(size: 13, weight: .medium))
+                }
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.white)
             }
-            TextField("Ник, от 2 до 32 символов",text:$nickname)
+            TextField("Ник, от 2 до 32 символов", text: $nickname)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
-                .padding(12).background(.white.opacity(0.09),in:RoundedRectangle(cornerRadius:12))
+                .foregroundStyle(.white)
+                .tint(.white)
+                .padding(15)
+                .nightwellMonochromeGlass(radius: 15)
             Button(busy ? "Сохраняем…" : "Сохранить ник") {
-                busy=true
+                busy = true
                 Task {
-                    do { try await store.saveProfileNickname(nickname); notice="Профиль сохранён" }
-                    catch { notice="Не удалось сохранить ник: "+error.localizedDescription }
-                    busy=false
+                    do { try await store.saveProfileNickname(nickname); notice = "Профиль сохранён" }
+                    catch { notice = "Не удалось сохранить ник: " + error.localizedDescription }
+                    busy = false
                 }
-            }.disabled(busy || nickname.trimmingCharacters(in:.whitespacesAndNewlines).count < 2)
-            if !notice.isEmpty { Text(notice).font(.caption).foregroundStyle(.secondary) }
+            }
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(.white.opacity(0.95))
+            .padding(.horizontal, 15)
+            .padding(.vertical, 11)
+            .nightwellMonochromeGlass(radius: 15)
+            .buttonStyle(.plain)
+            .disabled(busy || nickname.trimmingCharacters(in: .whitespacesAndNewlines).count < 2)
+            .opacity(busy || nickname.trimmingCharacters(in: .whitespacesAndNewlines).count < 2 ? 0.55 : 1)
+            if !notice.isEmpty {
+                Text(notice)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.68))
+            }
         }
-        .padding(16)
-        .background(.white.opacity(0.035),in:RoundedRectangle(cornerRadius:24))
-        .task { await store.refreshProfile();nickname=store.profileNickname }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .nightwellMonochromeGlass(radius: 27)
+        .task { await store.refreshProfile(); nickname = store.profileNickname }
         .onChange(of:selectedPhoto) { next in
             guard let next, !busy else { return }
             busy=true
