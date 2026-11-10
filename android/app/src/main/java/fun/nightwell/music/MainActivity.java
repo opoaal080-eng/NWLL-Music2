@@ -1706,7 +1706,7 @@ public final class MainActivity extends Activity {
     void showScreen(){
         if(atmosphere!=null)atmosphere.setVisibility(screen.equals("Главная")?View.VISIBLE:View.GONE);
         if(android.animation.ValueAnimator.areAnimatorsEnabled()){body.setAlpha(.5f);body.animate().alpha(1).setDuration(180);}
-        if(ribbon!=null){ribbon.running(false);ribbon.setVisibility(View.GONE);}body.removeAllViews();list=null;search=null;artistStrip=null;adapter=null;
+        if(ribbon!=null){ribbon.running(false);ribbon.setVisibility(View.GONE);}body.removeAllViews();list=null;search=null;artistStrip=null;adapter=null;favoriteCount=null;
         if(!screen.equals("Главная")){
             TextView title=text(screen,isLandscapeLayout()?21:30);
             title.setMaxLines(1);title.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -1834,6 +1834,7 @@ public final class MainActivity extends Activity {
             recoverMissingFavoriteTracks();
             LinearLayout actionsRow=row();actionsRow.setGravity(Gravity.CENTER_VERTICAL);
             TextView count=text(shown.length()+" треков",12);
+            favoriteCount=count;
             count.setTextColor(0xffaeb2bc);
             actionsRow.addView(count,new LinearLayout.LayoutParams(0,-2,1));
             TextView sort=iconButton("⇅",()->favoriteSortMenu());sort.setContentDescription("Сортировка избранного");TextView more=iconButton("⋯",()->collectionMenu("likes",""));LinearLayout.LayoutParams sortParams=new LinearLayout.LayoutParams(dp(47),dp(46));actionsRow.addView(sort,sortParams);LinearLayout.LayoutParams moreParams=new LinearLayout.LayoutParams(dp(47),dp(46));moreParams.leftMargin=dp(7);actionsRow.addView(more,moreParams);LinearLayout.LayoutParams controlsParams=new LinearLayout.LayoutParams(-1,dp(47));
@@ -1885,6 +1886,7 @@ public final class MainActivity extends Activity {
             task(()->new JSONObject(OfflineStore.operation(this,origin,"{\"op\":\"listAll\"}")),v->{
                 if(!screen.equals("Офлайн"))return;
                 shown=v.optJSONArray("tracks");
+                if(favoriteTracks.rememberLikedAndCount(shown,likes)>0)saveFavoriteIndex();
                 JSONArray damaged=v.optJSONArray("damaged"),retryable=new JSONArray();
                 if(damaged!=null&&damaged.length()>0){
                     repairNotice.setText("Не воспроизводятся: "+damaged.length()+". Названия и обложки сохранились, но аудиофайлы повреждены.");
@@ -1932,6 +1934,10 @@ public final class MainActivity extends Activity {
         if(!screen.equals("Поиск")){
             for(int i=0;i<shown.length();i++)NativeAPI.normalizeTrack(shown.optJSONObject(i));
         }
+        if(!user.isEmpty()&&!smokeMode){
+            int recovered=favoriteTracks.rememberLikedAndCount(shown,likes);
+            if(recovered>0)saveFavoriteIndex();
+        }
         if(adapter!=null)adapter.notifyDataSetChanged();
     }
     private String favoriteIndexKey(String owner) {
@@ -1942,6 +1948,7 @@ public final class MainActivity extends Activity {
         favoriteTracks.clear();
         favoriteRecoveryAttempts.clear();
         favoriteRecoveryGeneration++;
+        favoriteRecoveryRunning=false;
         if(owner==null||owner.isEmpty())return;
         try{
             String saved=getSharedPreferences("favorite-tracks-v1",MODE_PRIVATE)
@@ -2253,6 +2260,8 @@ public final class MainActivity extends Activity {
                     favoriteTracks.rememberLiked(catalog,likes);
                     favoriteTracks.rememberLiked(queue,likes);
                     favoriteTracks.rememberLiked(value.optJSONArray("tracks"),likes);
+                    favoriteTracks.rememberLiked(value.optJSONArray("items"),likes);
+                    favoriteTracks.rememberLiked(value.optJSONArray("favorites"),likes);
                     saveFavoriteIndex();saveLibrarySnapshot();checkAutoFavoriteDownloads();
                     if(!full&&screen.equals("Избранное"))showScreen();
                 }});
@@ -2301,8 +2310,16 @@ public final class MainActivity extends Activity {
                         prefs.edit().putString(key,songs.toString()).apply();
                         ownedSearchIndex=null;
                         ui.post(()->{
-                            if(isDestroyed()||!owner.equals(user)||!screen.equals("Поиск")
-                               ||query.trim().length()<2)return;
+                            if(isDestroyed()||!owner.equals(user)||!server.equals(origin))return;
+                            int found=favoriteTracks.rememberLikedAndCount(songs,likes);
+                            if(found>0){
+                                saveFavoriteIndex();
+                                if(!full&&"Избранное".equals(screen)){
+                                    shown=sortedFavorites(favoriteTracks.visible(likes,catalog,queue,shown));
+                                    updateList();
+                                }
+                            }
+                            if(!"Поиск".equals(screen)||query.trim().length()<2)return;
                             String text=query.trim();
                             JSONArray owned=cachedOwnedTracks();
                             JSONArray local=matchingOwnTracks(text,owned);
@@ -2849,7 +2866,11 @@ public final class MainActivity extends Activity {
     }
 
     void setLabel(TextView view,String value){if(view!=null&&!android.text.TextUtils.equals(view.getText(),value))view.setText(value);}
-    void updatePlayback(){if(smokeMode||playback==null)return;try{JSONObject state=new JSONObject(playback.snapshot(false));String next=state.optString("id");boolean trackChanged=!currentID.equals(next);boolean queueChanged=trackChanged||queue==null||queue.length()!=state.optInt("queueCount");if(queueChanged){queue=new JSONObject(playback.snapshot(true)).optJSONArray("queueTracks");}if(queue==null)queue=new JSONArray();JSONObject t=null;if(queueChanged){for(int i=0;i<queue.length();i++){JSONObject item=queue.optJSONObject(i);if(item!=null&&next.equals(item.optString("id"))){t=item;break;}}setLabel(miniTitle,t==null?"Выбери трек":t.optString("title"));setLabel(miniArtist,t==null?"Nightwell Music":t.optString("artist"));}if(miniProgressRing!=null){
+    void updatePlayback(){if(smokeMode||playback==null)return;try{JSONObject state=new JSONObject(playback.snapshot(false));String next=state.optString("id");boolean trackChanged=!currentID.equals(next);boolean queueChanged=trackChanged||queue==null||queue.length()!=state.optInt("queueCount");if(queueChanged){queue=new JSONObject(playback.snapshot(true)).optJSONArray("queueTracks");}if(queue==null)queue=new JSONArray();
+        if(queueChanged&&!user.isEmpty()&&!smokeMode){
+            if(favoriteTracks.rememberLikedAndCount(queue,likes)>0)saveFavoriteIndex();
+        }
+        JSONObject t=null;if(queueChanged){for(int i=0;i<queue.length();i++){JSONObject item=queue.optJSONObject(i);if(item!=null&&next.equals(item.optString("id"))){t=item;break;}}setLabel(miniTitle,t==null?"Выбери трек":t.optString("title"));setLabel(miniArtist,t==null?"Nightwell Music":t.optString("artist"));}if(miniProgressRing!=null){
         boolean pending=state.optBoolean("nextPreparing");
         boolean buffering=state.optBoolean("buffering");
         miniProgressRing.setPlaybackState(
