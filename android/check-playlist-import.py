@@ -44,11 +44,14 @@ try:
         # the final menu entry is Settings, not Sign out.
         # Sign out moved to Profile; Settings is last in both menu variants.
         last_entry = 'Настройки'
-        scroll=next(n for n in values if n.get('scrollable')=='true')
-        l,t,r,b=map(int,re.findall(r'\d+',scroll.get('bounds')))
-        for _ in range(4):
-            if find(last_entry) is not None:break
-            adb('shell','input','swipe',str((l+r)//2),str(b-25),str((l+r)//2),str(t+25),'300');time.sleep(.3)
+        # A concise menu often fits without scrolling, so Android marks
+        # its ScrollView as non-scrollable. Swipe only when one exists.
+        scroll=next((n for n in values if n.get('scrollable')=='true'),None)
+        if scroll is not None:
+            l,t,r,b=map(int,re.findall(r'\d+',scroll.get('bounds')))
+            for _ in range(4):
+                if find(last_entry) is not None:break
+                adb('shell','input','swipe',str((l+r)//2),str(b-25),str((l+r)//2),str(t+25),'300');time.sleep(.3)
         assert find(last_entry) is not None, f'Last menu entry {last_entry!r} is inaccessible'
         capture('menu-bottom-'+str(width))
         if width == 1080:
