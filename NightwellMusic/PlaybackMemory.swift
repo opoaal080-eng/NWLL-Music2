@@ -23,22 +23,100 @@ struct PlaybackMemory: Codable {
     }
 }
 
+/// Persistent lyric archive. Application Support is not purgeable like Caches.
+/// A server- and track-scoped key keeps different catalogues separate.
 actor LyricsDisk {
     static let shared = LyricsDisk()
-    struct Entry: Codable { let saved: Date; let lyrics: Lyrics }
-    private func url(_ origin: URL, _ id: String) throws -> URL {
-        let root = try FileManager.default.url(for: .cachesDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("NativeLyrics")
+
+    private struct Entry: Codable {
+        let saved: Date
+        let lyrics: Lyrics
+    }
+    private var recent: [String: Lyrics] = [:]
+    private let maxEntryBytes = 1_000_000
+
+    private func key(_ origin: URL, _ id: String) -> String {
+        SHA256.hash(data: Data((origin.absoluteString + id).utf8))
+            .map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func file(_ origin: URL, _ id: String,
+                      directory: FileManager.SearchPathDirectory) throws -> URL {
+        let root = try FileManager.default.url(
+            for: directory, in: .userDomainMask, appropriateFor: nil, create: true
+        ).appendingPathComponent("NativeLyrics", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let key = SHA256.hash(data: Data((origin.absoluteString + id).utf8)).map { String(format: "%02x", $0) }.joined()
-        return root.appendingPathComponent(key + ".json")
+        return root.appendingPathComponent(key(origin, id) + ".json")
     }
+
+    private func read(_ file: URL) -> Lyrics? {
+        guard let data = try? Data(contentsOf: file),
+              data.count <= maxEntryBytes,
+              let entry = try? JSONDecoder().decode(Entry.self, from: data)
+        else { return nil }
+        let lyrics = entry.lyrics
+        guard lyrics.status == "instrumental" ||
+              (lyrics.status == "found" &&
+               (!(lyrics.plain?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) ||
+                !(lyrics.lines?.isEmpty ?? true))) else { return nil }
+        return lyrics
+    }
+
     func get(_ origin: URL, _ id: String) -> Lyrics? {
-        guard let file = try? url(origin, id), let bytes = try? Data(contentsOf: file), let entry = try? JSONDecoder().decode(Entry.self, from: bytes), Date().timeIntervalSince(entry.saved) < (entry.lyrics.lookup_complete == false ? 3600 : 30 * 86400) else { return nil }
-        return entry.lyrics
+        let cacheKey = key(origin, id)
+        if let text = recent[cacheKey] { return text }
+        if let path = try? file(origin, id, directory: .applicationSupportDirectory),
+           let text = read(path) {
+            recent[cacheKey] = text
+            return text
+        }
+        // Import previously cached text from old versions, including records
+        // older than the former 30-day expiry.
+        if let legacy = try? file(origin, id, directory: .cachesDirectory),
+           let text = read(legacy) {
+            set(text, origin, id)
+            return text
+        }
+        return nil
     }
+
     func set(_ lyrics: Lyrics, _ origin: URL, _ id: String) {
-        guard lyrics.status == "found" || lyrics.status == "instrumental", let file = try? url(origin, id), let bytes = try? JSONEncoder().encode(Entry(saved: Date(), lyrics: lyrics)) else { return }
-        try? bytes.write(to: file, options: .atomic)
+        guard lyrics.status == "found" || lyrics.status == "instrumental" else { return }
+        var archived = lyrics
+        if archived.status == "found" {
+            // Keep both plain and synced representations when a server update
+            // includes only one of them. Timed rows supply a plain fallback.
+            let old = recent[key(origin, id)] ??
+                (try? file(origin, id, directory: .applicationSupportDirectory)).flatMap(read)
+            if archived.plain?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true {
+                archived.plain = old?.plain
+            }
+            if archived.lines?.isEmpty ?? true, let oldLines = old?.lines, !oldLines.isEmpty {
+                archived.lines = oldLines
+                archived.synced = true
+            }
+            if archived.plain?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true,
+               let rows = archived.lines, !rows.isEmpty {
+                archived.plain = rows.map(\.text).joined(separator: "\n")
+            }
+            guard !(archived.plain?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) ||
+                  !(archived.lines?.isEmpty ?? true) else { return }
+        }
+        guard let destination = try? file(origin, id, directory: .applicationSupportDirectory),
+              let bytes = try? JSONEncoder().encode(Entry(saved: Date(), lyrics: archived)),
+              bytes.count <= maxEntryBytes else { return }
+        do {
+            try bytes.write(to: destination, options: [
+                .atomic, .completeFileProtectionUntilFirstUserAuthentication
+            ])
+            recent[key(origin, id)] = archived
+            if recent.count > 180 {
+                recent.removeAll(keepingCapacity: true)
+                recent[key(origin, id)] = archived
+            }
+        } catch {
+            // A protected-data write may fail before first device unlock.
+        }
     }
 }
 
