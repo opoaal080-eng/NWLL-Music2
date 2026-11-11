@@ -577,7 +577,74 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
  string OfflineRoot=>Path.Combine(NativeAPI.Storage,"offline");
  List<Track> ReadOffline(){Directory.CreateDirectory(OfflineRoot);var result=new List<Track>();foreach(var f in Directory.GetFiles(OfflineRoot,"*.json")){try{var t=JsonSerializer.Deserialize<Track>(File.ReadAllText(f));if(t?.LocalPath!=null&&File.Exists(t.LocalPath)&&ValidAudio(t.LocalPath))result.Add(t);}catch{}}return result;}
  async void Import(){var picker=new OpenFileDialog{Multiselect=true,Filter="Аудиофайлы|*.mp3;*.m4a;*.aac;*.flac;*.wav;*.ogg"};if(picker.ShowDialog()!=true)return;var selectedFiles=picker.FileNames;await Guard(async()=>{await Task.Run(()=>{Directory.CreateDirectory(OfflineRoot);foreach(var file in selectedFiles){string id="local_"+Guid.NewGuid().ToString("N"),target=Path.Combine(OfflineRoot,id+Path.GetExtension(file));File.Copy(file,target);var t=new Track{id=id,title=Path.GetFileNameWithoutExtension(file),artist="На этом устройстве",LocalPath=target};File.WriteAllText(Path.Combine(OfflineRoot,id+".json"),JsonSerializer.Serialize(t));}});Show("Офлайн");});}
- async Task Download(List<Track> tracks){if(downloading)return;if(account.Length==0){Login();return;}downloading=true;Directory.CreateDirectory(OfflineRoot);int added=0,skip=0,failed=0;try{foreach(var t in tracks){if(t.LocalPath!=null||ValidAudio(Path.Combine(OfflineRoot,t.id+".m4a"))){skip++;continue;}Status.Text=$"Загрузка {added+skip+failed+1} / {tracks.Count}";try{bool ready=false;for(int attempt=0;attempt<100;attempt++){var preparation=await api.Request("api/offline-export/"+t.id);string state=preparation.GetProperty("status").GetString()??"";if(state=="ready"){ready=true;break;}if(state=="error")throw new IOException(preparation.GetProperty("error").GetString());await Task.Delay(3000);}if(!ready)throw new IOException("Подготовка аудио заняла слишком много времени");using var response=await api.HTTP.GetAsync("api/offline-export/"+t.id+"?download=true",System.Net.Http.HttpCompletionOption.ResponseHeadersRead);response.EnsureSuccessStatusCode();if(response.Content.Headers.ContentType?.MediaType?.Contains("json")==true)throw new IOException("Аудио ещё не готово. Повтори загрузку.");if(response.Content.Headers.ContentLength>32*1024*1024)throw new IOException("Слишком большой файл");string target=Path.Combine(OfflineRoot,t.id+".m4a");await using(var file=File.Create(target+".tmp")){await using var input=await response.Content.ReadAsStreamAsync();byte[] buffer=new byte[16384];int count;long size=0;while((count=await input.ReadAsync(buffer))>0){size+=count;if(size>32*1024*1024)throw new IOException("Слишком большой файл");await file.WriteAsync(buffer.AsMemory(0,count));}}if(!await Task.Run(()=>ValidAudio(target+".tmp")))throw new IOException("Сервер вернул повреждённое аудио");File.Move(target+".tmp",target,true);File.WriteAllText(Path.Combine(OfflineRoot,t.id+".json"),JsonSerializer.Serialize(t with{LocalPath=target}));added++;}catch{failed++;}}Status.Text=$"Скачано: {added} · уже сохранено: {skip} · ошибок: {failed}";}finally{downloading=false;}}
+ async Task Download(List<Track> tracks){
+  if(downloading)return;
+  if(account.Length==0){Login();return;}
+  downloading=true;
+  Directory.CreateDirectory(OfflineRoot);
+  Status.Text=$"Загрузка {tracks.Count} треков…";
+  using var slots=new SemaphoreSlim(2,2);
+  async Task<int> DownloadOne(Track t){
+   await slots.WaitAsync(lifetime.Token);
+   string? staging=null;
+   try{
+    if(!System.Text.RegularExpressions.Regex.IsMatch(t.id,@"^[A-Za-z0-9_-]{1,80}$"))
+     return -1;
+    string target=Path.Combine(OfflineRoot,t.id+".m4a");
+    if((t.LocalPath!=null&&File.Exists(t.LocalPath)&&ValidAudio(t.LocalPath))||
+       ValidAudio(target))return 1;
+    bool ready=false;
+    for(int attempt=0;attempt<40;attempt++){
+     lifetime.Token.ThrowIfCancellationRequested();
+     var preparation=await api.Request("api/offline-export/"+t.id,cancellation:lifetime.Token);
+     string state=preparation.TryGetProperty("status",out var status)
+       ?status.GetString()??"":"";
+     if(state=="ready"){ready=true;break;}
+     if(state=="error")throw new IOException(
+       preparation.TryGetProperty("error",out var problem)?problem.GetString():"Не удалось подготовить трек");
+     await Task.Delay(2000,lifetime.Token);
+    }
+    if(!ready)throw new IOException("Подготовка аудио заняла слишком много времени");
+    using var response=await api.HTTP.GetAsync("api/offline-export/"+t.id+
+      "?download=true",System.Net.Http.HttpCompletionOption.ResponseHeadersRead,
+      lifetime.Token);
+    response.EnsureSuccessStatusCode();
+    if(response.Content.Headers.ContentType?.MediaType?.Contains("json")==true)
+     throw new IOException("Аудио ещё не готово");
+    if(response.Content.Headers.ContentLength>32*1024*1024)
+     throw new IOException("Слишком большой файл");
+    staging=target+"."+Guid.NewGuid().ToString("N")+".tmp";
+    await using(var output=File.Create(staging)){
+     await using var input=await response.Content.ReadAsStreamAsync(lifetime.Token);
+     byte[] buffer=new byte[32768];int count;long size=0;
+     while((count=await input.ReadAsync(buffer,lifetime.Token))>0){
+      size+=count;
+      if(size>32*1024*1024)throw new IOException("Слишком большой файл");
+      await output.WriteAsync(buffer.AsMemory(0,count),lifetime.Token);
+     }
+    }
+    if(!ValidAudio(staging))throw new IOException("Сервер вернул повреждённое аудио");
+    File.Move(staging,target,true);
+    File.WriteAllText(Path.Combine(OfflineRoot,t.id+".json"),
+       JsonSerializer.Serialize(t with {LocalPath=target}));
+    return 0;
+   }catch(OperationCanceledException){return -1;}
+    catch(Exception){return -1;}
+   finally{
+    if(staging!=null)try{File.Delete(staging);}catch(IOException){}
+    slots.Release();
+   }
+  }
+  try{
+   var jobs=tracks.Select(t=>Task.Run(()=>DownloadOne(t),lifetime.Token)).ToArray();
+   var results=await Task.WhenAll(jobs);
+   var added=results.Count(x=>x==0);
+   var skipped=results.Count(x=>x==1);
+   var failed=results.Count(x=>x<0);
+   Status.Text=$"Скачано: {added} · уже сохранено: {skipped} · ошибок: {failed}";
+  }catch(OperationCanceledException){Status.Text="Загрузка отменена";}
+   finally{downloading=false;}
+ }
  void Login(){
   var panel=new StackPanel();panel.Children.Add(Label("Войти в Nightwell"));
   panel.Children.Add(new TextBlock{Text="Твоя музыка на всех устройствах",Foreground=(Brush)FindResource("SecondaryBrush"),Margin=new Thickness(0,0,0,12)});
