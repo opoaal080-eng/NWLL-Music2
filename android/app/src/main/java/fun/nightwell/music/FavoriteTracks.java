@@ -132,7 +132,7 @@ final class FavoriteTracks {
         JSONArray tracks=new JSONArray();
         for(String id:order)ids.put(id);
         int count=0;
-        for(String id:order){
+        if(maxTracks>0)for(String id:order){
             JSONObject item=details.get(id);
             if(item==null)continue;
             tracks.put(item);
