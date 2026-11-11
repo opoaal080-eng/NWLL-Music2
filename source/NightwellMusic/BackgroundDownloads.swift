@@ -123,7 +123,7 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
         var waiting = http.statusCode == 503
         // Compatibility with servers that still return preparation JSON for download=true.
         if http.statusCode == 200, size < 65536, let bytes = try? Data(contentsOf: location), let status = (try? JSONSerialization.jsonObject(with: bytes) as? [String: Any])?["status"] as? String { waiting = status == "loading" || status == "pending" }
-        if waiting && job.attempts < 100 {
+        if waiting && job.attempts < 30 {
             lock.lock(); job.attempts += 1; state.jobs[job.key] = job; persist(); submit(job); lock.unlock(); return
         }
         guard http.statusCode == 200, !waiting else { finish(downloadTask, success: false); return }
