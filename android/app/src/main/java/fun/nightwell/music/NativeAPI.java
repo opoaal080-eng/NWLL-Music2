@@ -51,7 +51,13 @@ final class NativeAPI {
         HttpURLConnection[] pending;
         synchronized(activeConnections){closed=true;pending=activeConnections.toArray(new HttpURLConnection[0]);activeConnections.clear();}
         cancelSearch();
-        for(HttpURLConnection connection:pending)connection.disconnect();
+        // Closing a socket can block inside Android's HTTP stack.
+        // Mark the client closed immediately; disconnect off the UI thread.
+        SEARCH_CANCEL_IO.execute(()->{
+            for(HttpURLConnection connection:pending){
+                try{connection.disconnect();}catch(Exception ignored){}
+            }
+        });
     }
     synchronized void cancelSearch(){
         searchGeneration++;
@@ -104,8 +110,11 @@ final class NativeAPI {
             catch(Exception ignored){} // HTML/empty error bodies must retain the HTTP status.
             throw new NetworkRetry.HttpFailure(code,message);
         }
+        if(code==204||code==205||c.getContentLengthLong()==0)return new JSONObject();
         int limit=c.getURL().getPath().equals("/api/tracks")?32*1024*1024:4*1024*1024;
-        JSONObject payload=new JSONObject(new String(read(c.getInputStream(),limit),StandardCharsets.UTF_8));
+        byte[] bytes=read(c.getInputStream(),limit);
+        if(bytes.length==0)return new JSONObject();
+        JSONObject payload=new JSONObject(new String(bytes,StandardCharsets.UTF_8));
         normalizeArtistCredits(payload);
         return payload;
     }
@@ -152,7 +161,7 @@ final class NativeAPI {
     HttpURLConnection connection(String path) throws Exception {
         if(closed)throw new InterruptedIOException("Запрос отменён");
         URL url=new URL(new URL(origin),path);if(!ServerAddress.sameOrigin(origin,url.toString()))throw new IOException("Некорректный адрес");
-        HttpURLConnection c=(HttpURLConnection)url.openConnection();c.setInstanceFollowRedirects(false);c.setConnectTimeout(10000);c.setReadTimeout(15000);c.setRequestProperty("Cookie",cookie(context,origin));
+        HttpURLConnection c=(HttpURLConnection)url.openConnection();c.setInstanceFollowRedirects(false);c.setConnectTimeout(7000);c.setReadTimeout(10000);c.setRequestProperty("Cookie",cookie(context,origin));
         synchronized(activeConnections){if(closed){c.disconnect();throw new InterruptedIOException("Запрос отменён");}activeConnections.add(c);}
         return c;
     }

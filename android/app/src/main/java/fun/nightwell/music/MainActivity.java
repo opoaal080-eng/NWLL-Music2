@@ -269,6 +269,7 @@ public final class MainActivity extends Activity {
     private LinearLayout root,body,dock,head,landscapeRail;
     private TextView status,miniTitle,miniArtist,miniPlay,miniPrev,miniNext,miniLike;
     private String lastNextLoadNotice="";
+    private String lastDisplayedPlayerError="";
     private android.widget.ImageView miniCover;private CircularProgressRing miniProgressRing;
     private ArtworkCache artworkCache;
     private TextView fullTime,homePlay,fullPlay,fullLike,fullDislike,fullAudioOutput,fullShuffle;
@@ -434,8 +435,8 @@ public final class MainActivity extends Activity {
         super.onSaveInstanceState(saved);
     }
 
-    @Override protected void onResume(){super.onResume();if(redirectedToFirstRun)return;restoreRecent();visible=true;ui.removeCallbacks(nightwellProbe);ui.post(nightwellProbe);if(!smokeMode&&sessionReady&&SystemClock.elapsedRealtime()-lastResumeRefresh>30000)load();if(premiumRefresh!=null)premiumRefresh.run();BackgroundDownloads.reconcile(this);if(ribbon!=null)ribbon.running(!smokeMode&&!full&&screen.equals("Главная"));ui.removeCallbacks(tick);if(!smokeMode)ui.post(tick);ui.removeCallbacks(homeKineticTicker);if(!smokeMode)ui.post(homeKineticTicker);}
-    @Override protected void onPause(){super.onPause();if(redirectedToFirstRun)return;ui.removeCallbacks(nightwellProbe);ui.removeCallbacks(connectionRecovery);if(navigationPopup!=null)navigationPopup.dismiss();if(playback!=null)playback.persistPlayback(true);visible=false;if(ribbon!=null)ribbon.running(false);ui.removeCallbacks(tick);ui.removeCallbacks(homeKineticTicker);}
+    @Override protected void onResume(){super.onResume();if(redirectedToFirstRun)return;restoreRecent();visible=true;ui.removeCallbacks(nightwellProbe);ui.post(nightwellProbe);if(!smokeMode&&sessionReady&&SystemClock.elapsedRealtime()-lastResumeRefresh>30000)load();if(premiumRefresh!=null)premiumRefresh.run();BackgroundDownloads.reconcile(this);if(ribbon!=null)ribbon.running(!smokeMode&&!full&&screen.equals("Главная"));ui.removeCallbacks(tick);if(!smokeMode)ui.post(tick);ui.removeCallbacks(homeKineticTicker);if(!smokeMode)ui.post(homeKineticTicker);if(!smokeMode&&lyricsText!=null){ui.removeCallbacks(lyricTicker);ui.post(lyricTicker);}}
+    @Override protected void onPause(){super.onPause();if(redirectedToFirstRun)return;ui.removeCallbacks(nightwellProbe);ui.removeCallbacks(connectionRecovery);if(navigationPopup!=null)navigationPopup.dismiss();if(playback!=null)playback.persistPlayback(true);visible=false;if(ribbon!=null)ribbon.running(false);ui.removeCallbacks(tick);ui.removeCallbacks(homeKineticTicker);ui.removeCallbacks(lyricTicker);}
     @Override protected void onDestroy(){if(redirectedToFirstRun){super.onDestroy();return;}ui.removeCallbacks(nightwellProbe);generation++;cancelMix();accountRequest.cancel();if(api!=null)api.close();ui.removeCallbacksAndMessages(null);if(artworkCache!=null)artworkCache.close();favoriteRecoveryGeneration++;favoriteLookup.shutdownNow();io.shutdownNow();waveIO.shutdownNow();prefetch.shutdownNow();playlistIndexer.shutdownNow();if(playback!=null)playback.player.removeListener(playbackIntentObserver);if(bindingRegistered){unbindService(connection);bindingRegistered=false;}super.onDestroy();}
     int dp(float n){return (int)(n*getResources().getDisplayMetrics().density+.5f);}
     boolean isLandscapeLayout(){
@@ -1973,7 +1974,16 @@ public final class MainActivity extends Activity {
     private void saveFavoriteIndex() {
         if(user.isEmpty()||smokeMode)return;
         String payload=favoriteTracks.snapshot(1500).toString();
-        if(payload.length()>1900000)return;
+        // Keep the complete ID order even when thousands of cached track
+        // records make the metadata index too large for SharedPreferences.
+        for(int cap:new int[]{1000,700,400,200,100,0}){
+            if(payload.length()<=1900000)break;
+            payload=favoriteTracks.snapshot(cap).toString();
+        }
+        if(payload.length()>1900000){
+            android.util.Log.w("NightwellMusic","Favorite ID index exceeds storage bound");
+            return;
+        }
         getSharedPreferences("favorite-tracks-v1",MODE_PRIVATE).edit()
             .putString(favoriteIndexKey(user),payload).apply();
     }
@@ -2044,7 +2054,18 @@ public final class MainActivity extends Activity {
             favoriteRecoveryAttempts.put(id,now);
             if(pending.size()>=10)break;
         }
-        if(pending.isEmpty())return;
+        if(pending.isEmpty()){
+            long nextAt=Long.MAX_VALUE;
+            for(String id:unresolved){
+                Long previous=favoriteRecoveryAttempts.get(id);
+                if(previous!=null)nextAt=Math.min(nextAt,previous+180000);
+            }
+            if(nextAt!=Long.MAX_VALUE&&"Избранное".equals(screen)){
+                long pause=Math.max(1500,Math.min(180000,nextAt-now+100));
+                ui.postDelayed(this::recoverMissingFavoriteTracks,pause);
+            }
+            return;
+        }
         favoriteLastRecovery=now;
         favoriteRecoveryRunning=true;
 
@@ -2130,8 +2151,12 @@ public final class MainActivity extends Activity {
                 // Preserve the visible list of liked IDs on network failures.
             }
             ui.post(()->{
-                if(isDestroyed()||generation!=favoriteRecoveryGeneration||
-                   !owner.equals(user)||!server.equals(origin))return;
+                if(isDestroyed())return;
+                if(generation!=favoriteRecoveryGeneration||
+                   !owner.equals(user)||!server.equals(origin)){
+                    favoriteRecoveryRunning=false;
+                    return;
+                }
                 favoriteRecoveryRunning=false;
                 applyFavoriteMetadata(owner,server,generation,candidates);
                 // Continue in batches, not only when the user reopens Favorites.
@@ -2291,7 +2316,11 @@ public final class MainActivity extends Activity {
                     saveFavoriteIndex();saveLibrarySnapshot();checkAutoFavoriteDownloads();
                     if(!full&&screen.equals("Избранное"))showScreen();
                 }});
-            }catch(Exception ignored){}
+            }catch(Exception ex){ui.post(()->{
+                if(!isDestroyed()&&client==api&&revision==libraryGeneration&&
+                   account.equals(user)&&"Избранное".equals(screen))
+                    status.setText("Не удалось обновить избранное: "+friendly(ex));
+            });}
         });
         io.execute(()->{
             try{
@@ -2300,7 +2329,11 @@ public final class MainActivity extends Activity {
                 ui.post(()->{if(!isDestroyed()&&client==api&&revision==libraryGeneration&&account.equals(user)&&items!=null){
                     playlists=items;ownedSearchIndex=null;saveLibrarySnapshot();warmPlaylistSearchIndex(items,account,revision);if(!full&&screen.equals("Плейлисты"))showScreen();
                 }});
-            }catch(Exception ignored){}
+            }catch(Exception ex){ui.post(()->{
+                if(!isDestroyed()&&client==api&&revision==libraryGeneration&&
+                   account.equals(user)&&"Плейлисты".equals(screen))
+                    status.setText("Не удалось обновить плейлисты: "+friendly(ex));
+            });}
         });
     }
     void smokeFixture(String page){try{user="smoke";catalog=new JSONArray();for(int i=0;i<24;i++)catalog.put(new JSONObject().put("id",String.format(java.util.Locale.ROOT,"%032x",i+1)).put("title",i==0?"Очень длинное название трека, которое должно аккуратно поместиться":"Трек "+(i+1)).put("artist","Nightwell Music · Исполнитель"));queue=catalog;playlists=new JSONArray();for(int i=0;i<16;i++)playlists.put(new JSONObject().put("id","fixture"+i).put("name","Мой плейлист "+(i+1)));for(int i=0;i<catalog.length();i++)likes.add(catalog.getJSONObject(i).getString("id"));currentID=catalog.getJSONObject(0).getString("id");miniTitle.setText(catalog.getJSONObject(0).getString("title"));miniArtist.setText("Nightwell Music");if("transfer".equals(page)){nativeTransfer();}else if("menu".equals(page)){head.post(this::menu);}else if("profile".equals(page))profile();else if("player".equals(page))openPlayer();else if("settings".equals(page))settings();else if("settings-playback".equals(page))settingsPage("Воспроизведение");else if("premium-sound".equals(page)||"premium-appearance".equals(page)){premiumOwner=user;premiumUntil=System.currentTimeMillis()+3600000;premiumChecked=System.currentTimeMillis();premiumPrefs=new JSONObject().put("bands",new JSONArray("[0,0,0,0,0]")).put("presets",new JSONObject()).put("theme","nightwell").put("ribbon_speed",1).put("ribbon_intensity",1);if("premium-sound".equals(page))equalizerPanel();else appearancePanel();}else if("wave-settings".equals(page))waveSettings();else if("auth".equals(page))auth();else if("queue".equals(page))showQueue();else if("favorites-outside-catalog".equals(page)){
@@ -2919,7 +2952,14 @@ public final class MainActivity extends Activity {
             buffering?"Подготовка аудио":
                 (state.optBoolean("playing")?"Пауза":"Воспроизвести"));
     }setLabel(miniPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(homePlay!=null)setLabel(homePlay,state.optBoolean("playing")?"Ⅱ":"▶");if(fullPlay!=null)setLabel(fullPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(ribbon!=null)ribbon.playing(state.optBoolean("playing"));if(trackChanged){currentID=next;refreshFavoriteButtons();if(!next.isEmpty()){rememberRecent(next);checkTrackAudioQuality(t);prefetchClip(t);}activeLyrics=null;homeLine="";homeWord=-2;homeKineticSpans.clear();if(homeLyric!=null)homeLyric.setText("");loadMiniCover(t);fetchLyricsAndPreload();animateTrackTransition();updateList();if(full)openPlayer();}if(seek!=null&&!seek.isPressed()){int duration=(int)Math.max(1,state.optDouble("duration"));seek.setMax(duration);seek.setProgress((int)state.optDouble("position"));seek.setSecondaryProgress((int)(duration*state.optDouble("bufferFraction")));if(seek instanceof PreparingSeekBar)((PreparingSeekBar)seek).setPreparation(state.optBoolean("nextPreparing")||state.optBoolean("buffering"),state.optBoolean("nextPreparing")?state.optDouble("preparationFraction"):state.optDouble("bufferFraction"));}if(fullTime!=null)setLabel(fullTime,time(state.optDouble("position"))+"     /     "+time(state.optDouble("duration")));String playbackError=state.optString("error");
-        if(!playbackError.isEmpty()&&status!=null)status.setText(playbackError);
+        if(!playbackError.isEmpty()&&status!=null){
+            status.setText(playbackError);
+            lastDisplayedPlayerError=playbackError;
+        }else if(!lastDisplayedPlayerError.isEmpty()){
+            if(status!=null&&lastDisplayedPlayerError.contentEquals(status.getText()))
+                status.setText("");
+            lastDisplayedPlayerError="";
+        }
         if(playbackError.startsWith(FailedNextSkipPolicy.FAILURE_MESSAGE)){
             if(!playbackError.equals(lastNextLoadNotice)){
                 lastNextLoadNotice=playbackError;

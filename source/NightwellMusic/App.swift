@@ -610,7 +610,8 @@ struct NativeRoot: View {
             if !backgroundOnly {
                 // Keep one backdrop alive while the app changes tabs, pauses,
                 // buffers audio, and restores a session after launch.
-                RibbonScene(playing: store.clock.playing, flash: store.likeFlash)
+                RibbonScene(playing: store.clock.playing, flash: store.likeFlash,
+                            active: store.screen == .home)
                     .ignoresSafeArea()
                     .opacity(store.screen == .home ? 1.0 : 0.18)
                     .allowsHitTesting(false)
@@ -704,13 +705,22 @@ struct NativeRoot: View {
             }
     }
 
-    var body: some View {
+    private var artworkRefreshKey: String {
+        store.origin.absoluteString + "|" + (store.clock.current?.id ?? "")
+    }
+
+    // Keep the large root view-builder simple for the Swift type checker.
+    private var artworkScene: some View {
         mainScene
             .environmentObject(artworkPalette)
             .overlay { modalScene }
-            .task(id: store.clock.current?.id) {
+            .task(id: artworkRefreshKey) {
                 await artworkPalette.refresh(track: store.clock.current, origin: store.origin)
             }
+    }
+
+    private var navigationSheetsScene: some View {
+        artworkScene
         .animation(.spring(response: 0.3, dampingFraction: 0.86), value: settings)
         .animation(.spring(response: 0.3, dampingFraction: 0.86), value: store.authPresented)
         .tint(pumpkin)
@@ -797,6 +807,10 @@ struct NativeRoot: View {
         .sheet(isPresented: $togetherPresented) {
             NightwellTogetherSheet(session: togetherSession, store: store)
         }
+    }
+
+    var body: some View {
+        navigationSheetsScene
         .overlay { if launching { MonochromeNightwellLaunch().transition(.opacity) } }
         .task { try? await Task.sleep(nanoseconds: reducedMotion ? 150_000_000 : 1_200_000_000); withAnimation(.easeOut(duration: 0.3)) { launching = false } }
         // Collapse the remote-playback banner once per remote session, not

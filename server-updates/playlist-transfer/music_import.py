@@ -178,53 +178,87 @@ def install(app,identity,csrf,path):
                         title_key=norm(candidate.get('title',''))
                         if title_key and len(titles.setdefault(title_key,[]))<200:
                             titles[title_key].append(candidate)
-                # Single-flight remote search and bounded cache protect music playback.
-                gate=asyncio.Semaphore(1)
+                # Two bounded provider searches in flight, but no more than
+                # one new request every 450ms. Share identical simultaneous
+                # queries so large imports do not duplicate expensive lookups.
+                gate=asyncio.Semaphore(2)
                 query_cache={}
+                search_tasks={}
+                search_spacing=asyncio.Lock()
                 last_search=[0.0]
                 async def cached_search(query):
                     cache_key=norm(query)
                     cached=query_cache.get(cache_key)
-                    if cached and (not cached.get('search_pending') or time.monotonic()-cached.get('_at',0)<1.5):return cached
-                    await asyncio.sleep(max(0,0.45-(time.monotonic()-last_search[0])))
-                    last_search[0]=time.monotonic()
-                    response=await host(api,'GET','/api/tracks',params={'q':query})
-                    response['_at']=time.monotonic()
-                    query_cache[cache_key]=response
-                    return response
+                    if cached and (not cached.get('search_pending') or
+                                   time.monotonic()-cached.get('_at',0)<1.5):
+                        return cached
+                    task=search_tasks.get(cache_key)
+                    if task is None:
+                        async def fetch():
+                            async with search_spacing:
+                                wait=max(0,0.45-(time.monotonic()-last_search[0]))
+                                if wait:await asyncio.sleep(wait)
+                                last_search[0]=time.monotonic()
+                            response=await host(api,'GET','/api/tracks',params={'q':query})
+                            response['_at']=time.monotonic()
+                            query_cache[cache_key]=response
+                            return response
+                        task=asyncio.create_task(fetch())
+                        search_tasks[cache_key]=task
+                        # Clean up even when the waiting item is cancelled.
+                        task.add_done_callback(
+                            lambda done,key=cache_key:
+                                search_tasks.pop(key,None)
+                                if search_tasks.get(key) is done else None)
+                    return await asyncio.shield(task)
                 async def match(index,item):
-                    async with gate:
-                        if jobs.cancelled(key,user):return
-                        local=exact.get((norm(item["title"]),norm(item["artist"]))) or (artists.get(norm(item["artist"]),[]) + titles.get(norm(item["title"]),[]))
-                        found,reason=await asyncio.to_thread(select_match,item,local,mode)
-                        if found is None:
-                            # Additional queries only when the stricter query found no good match.
+                    if jobs.cancelled(key,user):return
+                    local=exact.get((norm(item["title"]),norm(item["artist"]))) or (
+                        artists.get(norm(item["artist"]),[]) + titles.get(norm(item["title"]),[]))
+                    # Local catalogue scoring is CPU-bound. Do not hold the
+                    # remote rate-limit gate while computing it.
+                    found,reason=await asyncio.to_thread(select_match,item,local,mode)
+                    if found is None:
+                        async with gate:
+                            if jobs.cancelled(key,user):return
                             queries=search_queries(item,mode)
                             seen_queries=set()
                             pending=False
                             for query in queries:
-                                if norm(query) in seen_queries: continue
+                                if norm(query) in seen_queries:continue
                                 seen_queries.add(norm(query))
                                 if jobs.cancelled(key,user):return
                                 for attempt in range(6 if mode == 'wide' else 4):
-                                    jobs.put(key,user,data)
                                     result=await cached_search(query)
                                     candidates=result.get('tracks',[])
-                                    if not isinstance(candidates,list):raise SourceError('Поиск вернул неверный ответ')
-                                    found,reason=await asyncio.to_thread(select_match,item,candidates[:200],mode)
+                                    if not isinstance(candidates,list):
+                                        raise SourceError('Поиск вернул неверный ответ')
+                                    found,reason=await asyncio.to_thread(
+                                        select_match,item,candidates[:200],mode)
                                     pending=bool(result.get('search_pending'))
                                     if found or not pending:break
-                                    await asyncio.sleep(min(3,max(1,float(result.get('search_retry_after',1.5)))))
+                                    await asyncio.sleep(min(3,max(1,float(
+                                        result.get('search_retry_after',1.5)))))
                                 if found:break
-                            if found is None and pending:reason='Поиск ещё не завершён. Можно повторить позже'
-                        if jobs.cancelled(key,user):return
-                        item['track_id']=str(found['id']) if found else None;item['reason']=reason
-                        if found:item['found_title']=str(found.get('title',''));item['found_artist']=str(found.get('artist',''))
-                        data['progress']+=1;data['matched']+=int(found is not None)
-                        data['message']='Проверено '+str(data['progress'])+' из '+str(data['total'])
-                # Batches keep memory and the host's search load bounded.
-                for start in range(0,len(data['items']),1):
-                    results=await asyncio.gather(*(match(i,data['items'][i]) for i in range(start,min(start+1,len(data['items'])))),return_exceptions=True)
+                            if found is None and pending:
+                                reason='Поиск ещё не завершён. Можно повторить позже'
+                    if jobs.cancelled(key,user):return
+                    item['track_id']=str(found['id']) if found else None
+                    item['reason']=reason
+                    if found:
+                        item['found_title']=str(found.get('title',''))
+                        item['found_artist']=str(found.get('artist',''))
+                    data['progress']+=1
+                    data['matched']+=int(found is not None)
+                    data['message']='Проверено '+str(data['progress'])+' из '+str(data['total'])
+                # Parallelize local matching; bound remote searches to two while
+                # preserving provider request pacing,
+                # provider-facing searches to respect their rate limits.
+                for start in range(0,len(data['items']),8):
+                    results=await asyncio.gather(
+                        *(match(i,data['items'][i]) for i in range(
+                            start,min(start+8,len(data['items'])))),
+                        return_exceptions=True)
                     jobs.put(key,user,data)
                     error=next((r for r in results if isinstance(r,BaseException)),None)
                     if error:raise error
@@ -327,7 +361,7 @@ def install(app,identity,csrf,path):
                     # Keep playlist writes under a sustainable rate; this is
                     # persistence only, never music search on the server.
                     if len(done)%5==0: jobs.put(key,user,data)
-                    await asyncio.sleep(0.10)
+                    await asyncio.sleep(0.07)
                 data.update(state='done',message='Готово. В плейлисте '+str(data['saved'])+' треков. Не найдено: '+str(data['total']-data['matched'])+'.')
                 jobs.put(key,user,data)
         except asyncio.CancelledError:raise

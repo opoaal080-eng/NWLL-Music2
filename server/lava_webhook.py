@@ -7,6 +7,7 @@ Mount with:
 This module deliberately NEVER grants Premium. Entitlements must be wired
 only after matching a verified invoice with an authenticated Nightwell account.
 """
+import asyncio
 import hashlib
 import hmac
 import json
@@ -42,6 +43,17 @@ def _init(conn):
         processing_status TEXT NOT NULL DEFAULT 'pending_review'
     )""")
     conn.execute("CREATE INDEX IF NOT EXISTS lava_events_invoice ON lava_events(invoice_id)")
+
+def _record_event(event_type, invoice_id, canonical, fingerprint):
+    # SQLite is synchronous. Keep connection creation and busy_timeout off
+    # FastAPI's event loop, including during concurrent webhook retries.
+    with sqlite3.connect(_database(), timeout=10) as conn:
+        _init(conn)
+        conn.execute(
+            "INSERT OR IGNORE INTO lava_events "
+            "(fingerprint,event_type,invoice_id,received_at,payload) VALUES (?,?,?,?,?)",
+            (fingerprint, event_type, invoice_id, int(time.time()), canonical),
+        )
 
 @router.post("/api/premium/lava/webhook")
 async def lava_webhook(request: Request):
@@ -79,15 +91,9 @@ async def lava_webhook(request: Request):
     canonical = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
     fingerprint = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
     try:
-        with sqlite3.connect(_database(), timeout=10) as conn:
-            _init(conn)
-            conn.execute(
-                "INSERT OR IGNORE INTO lava_events "
-                "(fingerprint,event_type,invoice_id,received_at,payload) VALUES (?,?,?,?,?)",
-                (fingerprint, event_type, invoice_id, int(time.time()), canonical),
-            )
+        await asyncio.to_thread(_record_event, event_type, invoice_id, canonical, fingerprint)
     except sqlite3.Error:
-        # Return a retryable error rather than losing a paid event.
+        # Request processing stays responsive when SQLite is locked.
         raise HTTPException(status_code=503, detail="Storage unavailable")
     return JSONResponse({"ok": True})
 

@@ -25,7 +25,7 @@ actor CoverImagePipeline {
     }
 
     private func markUnavailable(_ url: String) {
-        retryAfter[url] = Date().addingTimeInterval(25)
+        retryAfter[url] = Date().addingTimeInterval(8)
         if retryAfter.count > 256 {
             let now = Date()
             retryAfter = retryAfter.filter { $0.value > now }
@@ -52,7 +52,7 @@ actor CoverImagePipeline {
         configuration.httpCookieStorage = .shared
         configuration.httpShouldSetCookies = true
         configuration.httpMaximumConnectionsPerHost = 5
-        configuration.timeoutIntervalForRequest = 18
+        configuration.timeoutIntervalForRequest = 12
         session = URLSession(configuration: configuration)
     }
 
@@ -73,15 +73,15 @@ actor CoverImagePipeline {
         return url
     }
 
-    func image(for url: URL, maxPixel: Int = 160) async -> UIImage? {
+    func image(for url: URL, maxPixel: Int = 160, retryFailure: Bool = false) async -> UIImage? {
         let dimension = min(1200, max(96, maxPixel))
         let key = "\(url.absoluteString)#\(dimension)"
         if let hit = decoded.object(forKey: key as NSString) { return hit }
-        if skipTemporarily(url.absoluteString) { return nil }
+        if !retryFailure && skipTemporarily(url.absoluteString) { return nil }
         if let inFlight = pendingImages[key] { return await inFlight.value }
 
         let task = Task<UIImage?, Never>(priority: .userInitiated) {
-            guard let bytes = await self.data(for: url), !bytes.isEmpty else { return nil }
+            guard let bytes = await self.data(for: url, retryFailure: retryFailure), !bytes.isEmpty else { return nil }
             // ImageIO's thumbnail creation handles orientation without decoding
             // the original multi-megapixel cover into a main-thread UIImage.
             return await Task.detached(priority: .utility) {
@@ -104,16 +104,16 @@ actor CoverImagePipeline {
             decoded.setObject(result, forKey: key as NSString,
                               cost: cgImage.bytesPerRow * cgImage.height)
             retryAfter.removeValue(forKey: url.absoluteString)
-        } else if result == nil {
+        } else if result == nil && !Task.isCancelled {
             markUnavailable(url.absoluteString)
         }
         return result
     }
 
-    private func data(for url: URL) async -> Data? {
+    private func data(for url: URL, retryFailure: Bool = false) async -> Data? {
         let key = url.absoluteString
         if let hit = compressed.object(forKey: key as NSString) { return hit as Data }
-        if skipTemporarily(key) { return nil }
+        if !retryFailure && skipTemporarily(key) { return nil }
         if let inFlight = pendingData[key] { return await inFlight.value }
         let task = Task<Data?, Never>(priority: .userInitiated) {
             do {
@@ -136,7 +136,7 @@ actor CoverImagePipeline {
         if let result {
             compressed.setObject(result as NSData, forKey: key as NSString, cost: result.count)
             retryAfter.removeValue(forKey: key)
-        } else {
+        } else if !Task.isCancelled {
             markUnavailable(key)
         }
         return result

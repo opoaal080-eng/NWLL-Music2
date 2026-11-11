@@ -10,16 +10,44 @@ struct PlaybackMemory: Codable {
     var repeatMode: Int
     var shuffle: Bool
     var wave: Bool
+    var savedAt: Date? = nil
+
+    private struct PositionCheckpoint: Codable {
+        let id: String
+        let position: Double
+        let savedAt: Date
+    }
+    private static func positionKey(_ origin: URL, _ account: String) -> String {
+        key(origin, account) + ".position"
+    }
+
     static func key(_ origin: URL, _ account: String) -> String {
         "native.resume." + SHA256.hash(data: Data((origin.absoluteString + "|" + account).utf8)).map { String(format: "%02x", $0) }.joined()
     }
     static func read(_ origin: URL, _ account: String) -> PlaybackMemory? {
-        guard let bytes = UserDefaults.standard.data(forKey: key(origin, account)) else { return nil }
-        return try? JSONDecoder().decode(Self.self, from: bytes)
+        guard let bytes = UserDefaults.standard.data(forKey: key(origin, account)),
+              var saved = try? JSONDecoder().decode(Self.self, from: bytes) else { return nil }
+        if let data = UserDefaults.standard.data(forKey: positionKey(origin, account)),
+           let latest = try? JSONDecoder().decode(PositionCheckpoint.self, from: data),
+           latest.id == saved.id, latest.position.isFinite,
+           latest.savedAt > (saved.savedAt ?? .distantPast),
+           Date().timeIntervalSince(latest.savedAt) < 14 * 24 * 3600 {
+            saved.position = max(0, latest.position)
+        }
+        return saved
     }
     func save(_ origin: URL, _ account: String) {
-        guard !id.isEmpty, !tracks.isEmpty, let bytes = try? JSONEncoder().encode(self) else { return }
+        guard !id.isEmpty, !tracks.isEmpty else { return }
+        var latest = self
+        latest.savedAt = Date()
+        guard let bytes = try? JSONEncoder().encode(latest) else { return }
         UserDefaults.standard.set(bytes, forKey: Self.key(origin, account))
+    }
+    static func savePosition(id: String, position: Double, origin: URL, account: String) {
+        guard !id.isEmpty, position.isFinite else { return }
+        let latest = PositionCheckpoint(id: id, position: max(0, position), savedAt: Date())
+        guard let data = try? JSONEncoder().encode(latest) else { return }
+        UserDefaults.standard.set(data, forKey: positionKey(origin, account))
     }
 }
 

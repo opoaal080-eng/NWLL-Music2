@@ -16,7 +16,7 @@ final class NetworkRetry {
         return run(safe, cancelled, operation, Thread::sleep);
     }
     static <T> T run(boolean safe, Cancelled cancelled, Operation<T> operation, Sleeper sleeper) throws Exception {
-        long[] delays = {500, 1500};
+        long[] delays = {350, 950};
         for (int attempt = 0; ; attempt++) {
             check(cancelled);
             try {

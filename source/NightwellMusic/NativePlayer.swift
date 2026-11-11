@@ -39,7 +39,31 @@ final class NativePlayer {
     private var pendingNextTask: Task<Void, Never>?
     private var pendingNextTimeout: DispatchWorkItem?
     private var pendingNextIndex: Int?
+    private var pendingManualSelection = false
+    private var pendingForwardButton = false
+    // Only a visible load error unlocks a second-tap skip.
+    private var failedForwardTrackID: String?
+    // A direct Next (when keep-playing is off) also requires a visible error
+    // before a second tap skips the unsuccessful destination.
+    private var directForwardTrackID: String?
     private var pendingNextGeneration = UUID()
+    // Enabled by default, including for existing installations. Only new
+    // playback selection commands consult this; no second decoder is created.
+    private var keepCurrentUntilNextReady: Bool {
+        UserDefaults.standard.object(forKey: "nw-keep-current-until-ready") as? Bool ?? true
+    }
+
+    func setKeepCurrentUntilNextReady(_ enabled: Bool) {
+        UserDefaults.standard.set(enabled, forKey: "nw-keep-current-until-ready")
+        if !enabled, let destination = pendingNextIndex {
+            // If the user disables this while a track is preparing, immediately
+            // release the pending handoff and load that requested track instead.
+            cancelPendingNext()
+            switchDirectly(to: destination)
+        } else {
+            publish()
+        }
+    }
     // Failed candidates stay excluded until audio from a working track starts.
     private var unavailableIDs = Set<String>()
     private let maxConsecutiveUnavailable = 12
@@ -64,8 +88,11 @@ final class NativePlayer {
         guard tracks.indices.contains(failed) else { return false }
         unavailableIDs.insert(tracks[failed].id)
         if let target = nextAvailableIndex(after: failed) {
-            if whileCurrentPlays { beginPreparedNext(at: target) }
-            else { switchDirectly(to: target) }
+            if whileCurrentPlays && keepCurrentUntilNextReady {
+                beginPreparedNext(at: target)
+            } else {
+                switchDirectly(to: target)
+            }
             return true
         }
         if waveActive && wantsPlay &&
@@ -87,11 +114,19 @@ final class NativePlayer {
         pendingNextTask?.cancel(); pendingNextTask = nil
         pendingNextTimeout?.cancel(); pendingNextTimeout = nil
         pendingNextIndex = nil
+        pendingManualSelection = false
+        pendingForwardButton = false
+        failedForwardTrackID = nil
     }
 
-    private func beginPreparedNext(at destination: Int) {
+    private func beginPreparedNext(at destination: Int, manual: Bool = false,
+                                   forwardButton: Bool = false) {
         guard pendingNextIndex == nil, !waveWaiting,
               tracks.indices.contains(destination), let origin else { return }
+        failedForwardTrackID = nil
+        directForwardTrackID = nil
+        pendingManualSelection = manual
+        pendingForwardButton = forwardButton
         let track = tracks[destination]
         let saved = OfflineStore.audio(origin: origin,
             account: track.offlineAccount.isEmpty ? offlineAccount : track.offlineAccount,
@@ -112,18 +147,23 @@ final class NativePlayer {
         error = ""
         beginBackgroundHandoff()
         pendingNextTask = Task { @MainActor [weak self] in
+            guard let self else { return }
             do {
-                let playable = try await asset.load(.isPlayable)
-                guard let self, !Task.isCancelled,
+                // Read a small amount of stream data before handoff, not
+                // just an AVURLAsset metadata flag. Run both checks together.
+                async let playable = asset.load(.isPlayable)
+                async let responding = self.hasFirstStreamBytes(url, origin: origin)
+                let (isPlayable, hasBytes) = try await (playable, responding)
+                guard !Task.isCancelled,
                       self.pendingNextGeneration == ticket,
                       self.pendingNextIndex == destination else { return }
-                if playable {
+                if isPlayable && hasBytes {
                     self.commitPreparedNext(asset, destination: destination, ticket: ticket)
                 } else {
-                    self.handleNextFailure(ticket: ticket, reason: "Следующий трек недоступен.")
+                    self.handleNextFailure(ticket: ticket, reason: "Не удалось получить аудиоданные следующего трека.")
                 }
             } catch {
-                guard let self, !Task.isCancelled else { return }
+                guard !Task.isCancelled else { return }
                 self.handleNextFailure(ticket: ticket, reason: "Следующий трек не загрузился.")
             }
         }
@@ -132,18 +172,58 @@ final class NativePlayer {
                 reason: "Следующий трек загружается слишком долго.")
         }
         pendingNextTimeout = deadline
-        DispatchQueue.main.asyncAfter(deadline: .now() + 8, execute: deadline)
+        DispatchQueue.main.asyncAfter(deadline: .now() + (manual ? 12 : 16), execute: deadline)
         publish()
+    }
+
+    // A bounded HTTP read checks that the stream endpoint actually responds
+    // with bytes. HLS manifests are accepted; this is not a second decoder.
+    private func hasFirstStreamBytes(_ url: URL, origin: URL) async -> Bool {
+        if url.isFileURL || !ServerAddress.sameOrigin(origin, url) { return true }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 8
+        request.allHTTPHeaderFields = HTTPCookie.requestHeaderFields(with: cookies)
+        request.setValue("bytes=0-2047", forHTTPHeaderField: "Range")
+        do {
+            let (stream, response) = try await URLSession.shared.bytes(for: request)
+            guard let http = response as? HTTPURLResponse,
+                  (200..<300).contains(http.statusCode) else { return false }
+            var received = 0
+            for try await _ in stream {
+                if Task.isCancelled { return false }
+                received += 1
+                if received >= 512 { break }
+            }
+            return received > 0
+        } catch {
+            return false
+        }
     }
 
     private func handleNextFailure(ticket: UUID, reason: String) {
         guard pendingNextGeneration == ticket else { return }
         let destination = pendingNextIndex
+        let manuallySelected = pendingManualSelection
+        let wasForwardButton = pendingForwardButton
         let length = player.currentItem?.duration.seconds ?? .nan
         let reachedEnd = ended || (length.isFinite && length > 0 &&
             playbackPosition >= length - 0.25)
         cancelPendingNext()
-        if let destination, skipUnavailable(at: destination, whileCurrentPlays: !reachedEnd) {
+        // A manual Next request must show a failure before a further press
+        // can skip the failed candidate. The previous song stays audible.
+        if manuallySelected, wasForwardButton, let destination,
+           tracks.indices.contains(destination) {
+            failedForwardTrackID = tracks[destination].id
+            endBackgroundHandoff()
+            if reachedEnd { wantsPlay = false; player.pause() }
+            error = "Не удалось загрузить трек. Нажми «Далее» ещё раз, чтобы пропустить его."
+            publish()
+            return
+        }
+        // A tapped song is an explicit selection: on timeout keep the old
+        // stream instead of silently jumping to a third track.
+        if !manuallySelected,
+           let destination, skipUnavailable(at: destination, whileCurrentPlays: !reachedEnd) {
             return
         }
         endBackgroundHandoff()
@@ -162,6 +242,12 @@ final class NativePlayer {
         cancelPendingNext()
         nextAsset = asset
         nextAssetID = tracks[destination].id
+        switchDirectly(to: destination)
+    }
+
+    private func switchForward(to destination: Int) {
+        guard tracks.indices.contains(destination) else { return }
+        directForwardTrackID = tracks[destination].id
         switchDirectly(to: destination)
     }
 
@@ -353,6 +439,7 @@ final class NativePlayer {
                 }
                 if self.wantsPlay && self.audible && self.audibleAfterSeconds == nil && self.startupUptime > 0 {
                     self.audibleAfterSeconds = max(0, ProcessInfo.processInfo.systemUptime - self.startupUptime)
+                    self.directForwardTrackID = nil
                     self.startupTimeout?.cancel(); self.startupTimeout = nil
                 }
             }
@@ -405,6 +492,7 @@ final class NativePlayer {
                     if position.isFinite && position >= 0 { self.lastPosition = position }
                     if self.audibleAfterSeconds == nil && self.startupUptime > 0 {
                         self.audibleAfterSeconds = max(0, ProcessInfo.processInfo.systemUptime - self.startupUptime)
+                        self.directForwardTrackID = nil
                     }
                 }
                 self.updateFade(); self.refillWave(); self.refreshIndependentMeter(); self.publish()
@@ -426,6 +514,7 @@ final class NativePlayer {
                 sourceURL: item["source_url"] as? String, remote: item["is_remote"] as? Bool ?? false, offline: item["_offline"] as? Bool ?? false, offlineAccount: item["_offline_account"] as? String ?? "", offlineLyrics: item["_offline_lyrics"] as? [String: Any])
         }
         cancelPendingNext()
+        directForwardTrackID = nil
         unavailableIDs.removeAll()
         attemptedTrackID = ""; attemptedTrackLoads = 0
         startupTimeout?.cancel(); startupTimeout = nil
@@ -665,6 +754,17 @@ final class NativePlayer {
             error = "Восстанавливаем подключение…"
         } else {
             recovery.cancel()
+            if let failed = directForwardTrackID, failed == current?.id {
+                // Do not auto-skip a manually selected Next. Wait until the
+                // exact failure is visible and the user presses Next again.
+                directForwardTrackID = nil
+                failedForwardTrackID = failed
+                wantsPlay = false
+                error = "Не удалось загрузить трек. Нажми «Далее» ещё раз, чтобы пропустить его."
+                endBackgroundHandoff()
+                publish()
+                return
+            }
             if wantsPlay && skipUnavailable(at: index, whileCurrentPlays: false) { return }
             wantsPlay = false
             error = current?.offline == true
@@ -741,6 +841,7 @@ final class NativePlayer {
     }
     func stop() {
         cancelPendingNext()
+        directForwardTrackID = nil
         startupTimeout?.cancel(); startupTimeout = nil
         unavailableIDs.removeAll()
         attemptedTrackID = ""; attemptedTrackLoads = 0
@@ -871,10 +972,15 @@ final class NativePlayer {
         }
 
         cancelPendingNext()
+        directForwardTrackID = nil
         unavailableIDs.removeAll()
-        // A waiting recommendation refill previously blocked beginPreparedNext
-        // entirely, leaving the old song playing after a successful tap toast.
+        // Keep the existing audio stream alive while the selected song is
+        // prepared. UI metadata advances now; the decoder switches later.
         waveWaiting = false
+        if keepCurrentUntilNextReady && wantsPlay && !ended && audible {
+            beginPreparedNext(at: destination, manual: true)
+            return pendingNextIndex == destination
+        }
         switchDirectly(to: destination)
         return current?.id == trackID && wantsPlay
     }
@@ -905,9 +1011,35 @@ final class NativePlayer {
     private var previousRestartAt: TimeInterval = -Double.infinity
     func step(_ direction: Int) {
         guard !tracks.isEmpty, tracks.indices.contains(index) else { return }
+        // Repeated Next is ignored while loading. It can skip only after
+        // the player has shown the actual loading-failure message.
+        if direction > 0, pendingNextIndex == nil, !waveWaiting,
+           let failedID = failedForwardTrackID,
+           error.hasPrefix("Не удалось загрузить трек"),
+           let failed = tracks.firstIndex(where: { $0.id == failedID }) {
+            failedForwardTrackID = nil
+            directForwardTrackID = nil
+            unavailableIDs.insert(failedID)
+            if let destination = nextAvailableIndex(after: failed) {
+                if ended || !keepCurrentUntilNextReady {
+                    switchForward(to: destination)
+                } else {
+                    beginPreparedNext(at: destination, manual: true, forwardButton: true)
+                }
+            } else if waveActive && wantsPlay && !waveWaiting {
+                waveWaiting = true
+                refillWave(force: true)
+                publish()
+            } else {
+                error = "Не удалось загрузить трек. Других доступных треков в очереди нет."
+                publish()
+            }
+            return
+        }
         let now = ProcessInfo.processInfo.systemUptime
         // User-requested navigation allows a fresh availability pass.
         if pendingNextIndex == nil { unavailableIDs.removeAll() }
+        if direction < 0 { directForwardTrackID = nil }
         let repeated = previousRestartTrackID == tracks[index].id && now - previousRestartAt < 3
         let position = playbackPosition
         if direction < 0 && !repeated && position.isFinite && position > 3 {
@@ -926,6 +1058,9 @@ final class NativePlayer {
                 publish()
                 return
             }
+            if !waveActive && !shuffle && repeatMode == 0 && index + 1 >= tracks.count {
+                return
+            }
             let target: Int
             if shuffle && tracks.count > 1 {
                 let choices = waveActive ? tracks.indices.filter { $0 > index } : tracks.indices.filter { $0 != index }
@@ -933,13 +1068,20 @@ final class NativePlayer {
             } else { target = (index + 1) % tracks.count }
             // When the previous song has already ended, start the next
             // item directly instead of creating a second loading pipeline.
-            if ended { switchDirectly(to: target) }
-            else { beginPreparedNext(at: target) }
+            if ended || !keepCurrentUntilNextReady {
+                switchForward(to: target)
+            } else {
+                beginPreparedNext(at: target, manual: true, forwardButton: true)
+            }
             return
         }
         cancelPendingNext()
-        index = (index + direction + tracks.count) % tracks.count
-        load(); play()
+        let destination = (index + direction + tracks.count) % tracks.count
+        if keepCurrentUntilNextReady && wantsPlay && !ended && audible {
+            beginPreparedNext(at: destination, manual: true)
+        } else {
+            switchDirectly(to: destination)
+        }
     }
     private func restartSmoothly() {
         if enginePlayback.ready { seek(0); return }
@@ -977,7 +1119,15 @@ final class NativePlayer {
     }
     private func refillWave(force: Bool = false) {
         guard waveActive, wantsPlay, waveTask == nil, let origin, current != nil,
-              Date() >= waveRetryAt, force || tracks.count - index - 1 <= 16 else { return }
+              Date() >= waveRetryAt, force || tracks.count - index - 1 <= 16 else {
+            // A rejected/throttled request must not permanently disable Next.
+            if waveWaiting && waveTask == nil {
+                waveWaiting = false
+                error = "Не удалось пополнить очередь. Попробуй «Далее» ещё раз."
+                publish()
+            }
+            return
+        }
         let hiddenKey = "nw-hidden-recommendations|" + origin.absoluteString + "|" + offlineAccount
         let artistKey = "nw-hidden-artists|" + origin.absoluteString + "|" + offlineAccount
         let hiddenArtists = Set(UserDefaults.standard.stringArray(forKey: artistKey) ?? [])
@@ -994,8 +1144,11 @@ final class NativePlayer {
               var components = URLComponents(url: base, resolvingAgainstBaseURL: false) else { return }
         components.queryItems = [URLQueryItem(name: "exclude", value: Array(excluded.suffix(200)).joined(separator: ","))] + WaveSettings.keys.map { URLQueryItem(name: $0, value: waveSettings.dictionary[$0]) } + [URLQueryItem(name: "artists", value: (waveSeedArtists.isEmpty
             ? RecommendationOrder.preferredArtists() : waveSeedArtists).joined(separator: ","))]
-        guard let url = components.url else { return }
-        var request = URLRequest(url: url); request.timeoutInterval = 60
+        guard let url = components.url else {
+            if waveWaiting { waveWaiting = false; publish() }
+            return
+        }
+        var request = URLRequest(url: url); request.timeoutInterval = 25
         request.allHTTPHeaderFields = HTTPCookie.requestHeaderFields(with: cookies)
         let generation = waveGeneration
         waveTask = URLSession.shared.dataTask(with: request) { [weak self] data, response, _ in
@@ -1005,6 +1158,7 @@ final class NativePlayer {
                 self.waveTask = nil; self.waveRetryAt = Date().addingTimeInterval(5)
                 guard let response = response as? HTTPURLResponse, response.statusCode == 200,
                       let data, data.count <= 2 * 1024 * 1024, let raw = json?["tracks"] as? [[String: Any]] else {
+                    self.waveWaiting = false
                     self.error = "Не удалось пополнить волну. Повторим запрос."; self.publish(); return
                 }
                 let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
@@ -1021,6 +1175,7 @@ final class NativePlayer {
                 sourceURL: item["source_url"] as? String, remote: item["is_remote"] as? Bool ?? false, offline: item["_offline"] as? Bool ?? false, offlineAccount: item["_offline_account"] as? String ?? "", offlineLyrics: item["_offline_lyrics"] as? [String: Any])
                 }
                 if fresh.isEmpty {
+                    self.waveWaiting = false
                     self.error = json?["message"] as? String ?? "Новые треки пока не найдены."; self.publish(); return
                 }
                 self.error = ""; self.waveRetryAt = Date().addingTimeInterval(30)
@@ -1197,7 +1352,7 @@ final class NativePlayer {
         // only same-origin /api/covers/ URLs were allowed. Reuse the same image
         // pipeline as the visible player, including its disk cache and deduplication.
         artworkLoadTask = Task { [weak self] in
-            var image = await CoverImagePipeline.shared.image(for: url, maxPixel: 512)
+            var image = await CoverImagePipeline.shared.image(for: url, maxPixel: 512, retryFailure: attempt > 0)
             // Internal /api/covers may require the Nightwell session cookie.
             // Retry authenticated only for this server, never for an external CDN.
             if image == nil && !Task.isCancelled && ServerAddress.sameOrigin(origin, url) {
@@ -1294,11 +1449,20 @@ final class NativePlayer {
             .max() ?? 0
         let bufferFraction = duration.isFinite && duration > 0
             ? min(1.0, max(0.0, loadedEnd / duration)) : 0.0
-        let preparing = current != nil && wantsPlay && !audible
-        return ["id": current?.id ?? "", "origin": origin?.absoluteString ?? "",
+        // Keep the actual-playing ID and playhead stable for analytics,
+        // remote controls and persistence. The SwiftUI player can show the
+        // incoming metadata immediately during a background handoff.
+        let preview = pendingNextIndex.flatMap { tracks.indices.contains($0) ? tracks[$0] : nil }
+        let preparing = preview != nil || (current != nil && wantsPlay && !audible)
+        return ["id": current?.id ?? "",
+            "displayID": preview?.id ?? current?.id ?? "",
+            "displayPosition": preview == nil ? (position.isFinite ? max(0, position) : 0.0) : 0.0,
+            "displayDuration": preview?.duration ?? duration,
+            "origin": origin?.absoluteString ?? "",
             "position": position.isFinite ? max(0, position) : 0.0,
             "duration": duration.isFinite ? max(0, duration) : (current?.duration ?? 0),
-            "playing": wantsPlay, "audible": audible, "preparing": preparing, "bufferFraction": bufferFraction,
+            "playing": wantsPlay, "audible": audible, "preparing": preparing,
+            "bufferFraction": preview != nil ? 0.0 : bufferFraction,
             "nextPreparing": pendingNextIndex != nil || waveWaiting, "account": offlineAccount, "ended": ended, "repeat": repeatMode, "shuffle": shuffle, "shuffleMode": shuffleStyle,
             "volume": baseVolume, "smoothTransitions": true, "transitionSeconds": transitionSeconds, "queueRevision": queueRevision, "queueIds": includeQueue ? tracks.map { $0.id } : [], "error": error,
             "wave": waveActive, "waveSupported": true,
