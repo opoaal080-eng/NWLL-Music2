@@ -719,7 +719,7 @@ struct NativeRoot: View {
             }
     }
 
-    var body: some View {
+    private var navigationSheetsScene: some View {
         artworkScene
         .animation(.spring(response: 0.3, dampingFraction: 0.86), value: settings)
         .animation(.spring(response: 0.3, dampingFraction: 0.86), value: store.authPresented)
@@ -807,6 +807,10 @@ struct NativeRoot: View {
         .sheet(isPresented: $togetherPresented) {
             NightwellTogetherSheet(session: togetherSession, store: store)
         }
+    }
+
+    var body: some View {
+        navigationSheetsScene
         .overlay { if launching { MonochromeNightwellLaunch().transition(.opacity) } }
         .task { try? await Task.sleep(nanoseconds: reducedMotion ? 150_000_000 : 1_200_000_000); withAnimation(.easeOut(duration: 0.3)) { launching = false } }
         // Collapse the remote-playback banner once per remote session, not
