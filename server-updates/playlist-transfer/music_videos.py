@@ -7,16 +7,13 @@ import os
 from pathlib import Path
 import re
 import time
-from datetime import datetime, timezone
 from urllib.parse import urlencode
 from urllib.request import Request as URLRequest, urlopen
 
 from fastapi import HTTPException, Request
 
 BASE_URL = "https://www.googleapis.com/youtube/v3/search"
-# YouTube Data API search costs 100 quota units. Keep a headroom buffer
-# below the standard 10,000-units/day key quota.
-MAX_SEARCHES_PER_DAY = 80
+# No Nightwell daily search cap. YouTube Data API's own quota still applies.
 MAX_CACHE_ENTRIES = 3000
 POSITIVE_TTL = 12 * 60 * 60
 NEGATIVE_TTL = 5 * 60
@@ -72,8 +69,6 @@ class ClipLookup:
             str(Path(__file__).with_name("nightwell_verified_clips.json"))
         ))
         self._load_verified()
-        self.today = ""
-        self.count = 0
 
     def _load_verified(self):
         """Keep already verified YouTube IDs after server process restarts."""
@@ -146,12 +141,6 @@ class ClipLookup:
                 return cached[1]
             if not self.key:
                 return {"available": False, "message": "Поиск клипов не настроен"}
-            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-            if today != self.today:
-                self.today, self.count = today, 0
-            if self.count >= MAX_SEARCHES_PER_DAY:
-                return {"available": False, "message": "Лимит поиска клипов исчерпан"}
-            self.count += 1
             try:
                 result = await asyncio.wait_for(
                     asyncio.to_thread(self.search_sync, title, artist), timeout=8)
