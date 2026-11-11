@@ -137,8 +137,6 @@ class ClipLookup:
         return choose_video(doc.get("items", []), title, artist)
 
     async def lookup(self, title, artist):
-        if not self.key:
-            return {"available": False, "message": "Поиск клипов не настроен"}
         cache_key = normalized(title) + "|" + normalized(artist)
         async with self.lock:
             now = time.monotonic()
@@ -146,6 +144,8 @@ class ClipLookup:
             if cached and cached[0] > now:
                 self.cache.move_to_end(cache_key)
                 return cached[1]
+            if not self.key:
+                return {"available": False, "message": "Поиск клипов не настроен"}
             today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
             if today != self.today:
                 self.today, self.count = today, 0
