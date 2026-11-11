@@ -1240,7 +1240,7 @@ public final class MainActivity extends Activity {
             popupWindow.setAttributes(attrs);
             popupWindow.setNavigationBarColor(0xff101114);
         }
-        popup.setOnDismissListener(()->{
+        popup.setOnDismissListener(ignored->{
             if(navigationPopup==popup)navigationPopup=null;
             nightwellMenuStatus=null;
             nightwellMenuSpinner=null;
