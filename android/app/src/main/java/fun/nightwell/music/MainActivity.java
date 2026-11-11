@@ -350,7 +350,7 @@ public final class MainActivity extends Activity {
     private RibbonView ribbon;
     private HomeSparklesView atmosphere;
     private Runnable pendingSearch;
-    private PopupWindow navigationPopup;
+    private Dialog navigationPopup;
     private android.widget.ImageView profileAvatarButton;
     private android.graphics.Bitmap cachedProfileAvatar;
     private String cachedProfileUser="", cachedProfileNickname="";
@@ -1165,12 +1165,12 @@ public final class MainActivity extends Activity {
         if(navigationPopup!=null)navigationPopup.dismiss();
         final android.widget.ImageView opener=profileAvatarButton;
         LinearLayout shell=column();
-        shell.setPadding(dp(12),dp(12),dp(12),dp(11));
-        shell.setBackground(glass(22));
-        LinearLayout top=row();top.setPadding(dp(2),0,dp(1),dp(8));
-        TextView title=text("Меню",19);title.setTypeface(null,android.graphics.Typeface.BOLD);
+        shell.setPadding(0,dp(12),0,dp(12));
+        shell.setBackground(glass(32));
+        LinearLayout top=row();top.setPadding(dp(20),dp(12),dp(20),dp(12));
+        TextView title=text("Меню",24);title.setTypeface(null,android.graphics.Typeface.BOLD);
         title.setSingleLine(true);
-        top.addView(title,new LinearLayout.LayoutParams(0,dp(40),1));
+        top.addView(title,new LinearLayout.LayoutParams(0,dp(42),1));
         nightwellMenuStatus=text("●",14);
         nightwellMenuStatus.setGravity(Gravity.CENTER);
         top.addView(nightwellMenuStatus,new LinearLayout.LayoutParams(dp(21),dp(36)));
@@ -1182,7 +1182,7 @@ public final class MainActivity extends Activity {
         TextView additional=iconButton("⊞",()->{});
         additional.setTextSize(18);
         additional.setContentDescription("Дополнительно");
-        LinearLayout.LayoutParams moreParams=new LinearLayout.LayoutParams(dp(38),dp(38));
+        LinearLayout.LayoutParams moreParams=new LinearLayout.LayoutParams(dp(42),dp(42));
         moreParams.leftMargin=dp(7);top.addView(additional,moreParams);
         android.widget.ImageView avatar=new android.widget.ImageView(this);
         if(cachedProfileAvatar!=null&&!user.isEmpty()){
@@ -1190,31 +1190,44 @@ public final class MainActivity extends Activity {
             avatar.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
             avatar.setClipToOutline(true);
         }else avatar.setImageResource(android.R.drawable.ic_menu_myplaces);
-        avatar.setPadding(dp(6),dp(6),dp(6),dp(6));
+        avatar.setPadding(dp(5),dp(5),dp(5),dp(5));
         avatar.setBackground(touchSurface(0x9d303237,22));
         avatar.setContentDescription(user.isEmpty()?"Войти":"Открыть профиль");
-        LinearLayout.LayoutParams avatarParams=new LinearLayout.LayoutParams(dp(38),dp(38));
+        LinearLayout.LayoutParams avatarParams=new LinearLayout.LayoutParams(dp(42),dp(42));
         avatarParams.leftMargin=dp(7);top.addView(avatar,avatarParams);
         shell.addView(top);
         View headerDivider=new View(this);
         headerDivider.setBackgroundColor(0x26ffffff);
         LinearLayout.LayoutParams dividerParams=new LinearLayout.LayoutParams(-1,dp(1));
+        dividerParams.leftMargin=dp(20);
+        dividerParams.rightMargin=dp(20);
         dividerParams.bottomMargin=dp(8);
         shell.addView(headerDivider,dividerParams);
         ScrollView scroll=new ScrollView(this);
         scroll.setFillViewport(false);
         scroll.setVerticalScrollBarEnabled(false);
         LinearLayout entries=column();
+        entries.setPadding(dp(20),0,dp(20),dp(16));
         scroll.addView(entries);
-        shell.addView(scroll);
-        int width=Math.min(dp(302),getResources().getDisplayMetrics().widthPixels-dp(24));
-        int maxHeight=getResources().getDisplayMetrics().heightPixels-dp(isLandscapeLayout()?55:95);
-        PopupWindow popup=new PopupWindow(shell,width,WindowManager.LayoutParams.WRAP_CONTENT,true);
+        shell.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+        final int width=Math.min(dp(isLandscapeLayout()?760:600),
+            getResources().getDisplayMetrics().widthPixels-dp(isLandscapeLayout()?28:16));
+        final int maxHeight=(int)(getResources().getDisplayMetrics().heightPixels*
+            (isLandscapeLayout()?.94f:.90f));
+        final int initialHeight=Math.min(dp(430),maxHeight);
+        Dialog popup=new Dialog(this);
+        popup.setContentView(shell);
         navigationPopup=popup;
-        popup.setBackgroundDrawable(glass(22));
-        popup.setElevation(dp(22));
-        popup.setOutsideTouchable(true);
-        popup.setInputMethodMode(PopupWindow.INPUT_METHOD_NOT_NEEDED);
+        Window popupWindow=popup.getWindow();
+        if(popupWindow!=null){
+            popupWindow.setBackgroundDrawableResource(android.R.color.transparent);
+            popupWindow.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            WindowManager.LayoutParams attrs=popupWindow.getAttributes();
+            attrs.gravity=Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL;
+            attrs.dimAmount=.18f;
+            popupWindow.setAttributes(attrs);
+            popupWindow.setNavigationBarColor(0xff101114);
+        }
         popup.setOnDismissListener(()->{
             if(navigationPopup==popup)navigationPopup=null;
             nightwellMenuStatus=null;
@@ -1248,30 +1261,28 @@ public final class MainActivity extends Activity {
                 }
                 boolean active=tab.equals(screen);
                 LinearLayout item=row();
-                item.setPadding(dp(10),0,dp(9),0);
-                item.setBackground(touchSurface(active?0xff3b3d43:0xff25272c,13));
+                item.setPadding(dp(16),0,dp(16),0);
+                item.setBackground(touchSurface(active?0xff3b3d43:0xff25272c,19));
                 TextView symbol=text(glyph,18);
                 symbol.setGravity(Gravity.CENTER);
                 symbol.setTextColor(active?0xffffffff:0xffaeb3bd);
-                item.addView(symbol,new LinearLayout.LayoutParams(dp(27),dp(44)));
-                TextView name=text(tab,13);
+                item.addView(symbol,new LinearLayout.LayoutParams(dp(25),dp(49)));
+                TextView name=text(tab,16);
                 name.setTypeface(android.graphics.Typeface.create(active?"sans-serif-medium":"sans-serif",0));
                 name.setSingleLine(true);
                 name.setEllipsize(android.text.TextUtils.TruncateAt.END);
                 LinearLayout.LayoutParams textParams=new LinearLayout.LayoutParams(0,-2,1);
-                textParams.leftMargin=dp(9);
+                textParams.leftMargin=dp(15);
                 item.addView(name,textParams);
                 TextView chevron=text("›",18);
                 chevron.setTextColor(0xff777b85);
                 item.addView(chevron);
                 item.setOnClickListener(v->{popup.dismiss();selectMenu(tab);});
-                LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(44));
-                p.bottomMargin=dp(4);
+                LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(49));
+                p.bottomMargin=dp(8);
                 entries.addView(item,p);
             }
-            entries.measure(View.MeasureSpec.makeMeasureSpec(width-dp(24),View.MeasureSpec.EXACTLY),
-                            View.MeasureSpec.makeMeasureSpec(0,View.MeasureSpec.UNSPECIFIED));
-            popup.setHeight(Math.min(maxHeight,entries.getMeasuredHeight()+dp(78)));
+            entries.requestLayout();
         };
         additional.setOnClickListener(v->{
             extra[0]=!extra[0];
@@ -1279,7 +1290,11 @@ public final class MainActivity extends Activity {
             additional.setText(extra[0]?"‹":"⊞");
             additional.setContentDescription(extra[0]?"Назад в меню":"Дополнительно");
             render.run();
-            popup.update(width,popup.getHeight());
+            entries.animate().cancel();
+            entries.setAlpha(.35f);
+            entries.setTranslationX(extra[0]?dp(12):-dp(12));
+            entries.animate().alpha(1f).translationX(0f).setDuration(200)
+                .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
         });
         avatar.setOnClickListener(v->{
             popup.dismiss();
@@ -1287,12 +1302,17 @@ public final class MainActivity extends Activity {
         });
         render.run();
         setNightwellStatus(nightwellStatus);
-        popup.showAtLocation(head,Gravity.TOP|Gravity.RIGHT,dp(12),
-            Math.max(dp(58),getWindow().getDecorView().getRootWindowInsets()==null?
-                dp(65):dp(80)));
+        popup.show();
+        if(popupWindow!=null){
+            popupWindow.setLayout(width,initialHeight);
+            WindowManager.LayoutParams attrs=popupWindow.getAttributes();
+            attrs.gravity=Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL;
+            attrs.y=dp(8);
+            popupWindow.setAttributes(attrs);
+        }
         if(android.animation.ValueAnimator.areAnimatorsEnabled()){
-            shell.setAlpha(0f);shell.setTranslationY(-dp(9));
-            shell.animate().alpha(1f).translationY(0).setDuration(220)
+            shell.setAlpha(0f);shell.setTranslationY(dp(32));shell.setScaleX(.96f);shell.setScaleY(.96f);
+            shell.animate().alpha(1f).translationY(0).scaleX(1f).scaleY(1f).setDuration(300)
                 .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
         }
         if(opener!=null){
