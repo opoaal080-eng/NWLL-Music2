@@ -24,12 +24,12 @@ final class ArtworkCache {
     private final LruCache<String, Bitmap> memory = new LruCache<String, Bitmap>(32 * 1024 * 1024) {
         @Override protected int sizeOf(String key, Bitmap bitmap) { return bitmap.getByteCount(); }
     };
-    private final ExecutorService io = Executors.newFixedThreadPool(3);
+    private final ExecutorService io = Executors.newFixedThreadPool(4);
     private final ConcurrentHashMap<String, CompletableFuture<Bitmap>> inFlight = new ConcurrentHashMap<>();
     // A missing provider cover must not be re-downloaded whenever a ListView
     // recycles its row. Use monotonic time so clock changes cannot extend it.
     private final ConcurrentHashMap<String,Long> retryAfter = new ConcurrentHashMap<>();
-    private static final long FAILURE_BACKOFF_MS = 25000;
+    private static final long FAILURE_BACKOFF_MS = 8000;
     private int savedCount;
 
     private boolean temporarilyUnavailable(String identity) {
@@ -57,9 +57,10 @@ final class ArtworkCache {
     private boolean valid(String path) { return path != null && path.startsWith("/api/covers/"); }
     private String key(String origin, String path) { return origin + path; }
     void load(ImageView target, String origin, String path) {
-        target.setImageDrawable(null);
-        if (!valid(path)) { target.setTag(null); return; }
+        if (!valid(path)) { target.setTag(null); target.setImageDrawable(null); return; }
         String identity = key(origin,path);
+        if(identity.equals(target.getTag())&&target.getDrawable()!=null)return;
+        if(!identity.equals(target.getTag()))target.setImageDrawable(null);
         target.setTag(identity);
         Bitmap cached = memory.get(identity);
         if (cached != null) { target.setImageBitmap(cached); return; }
@@ -158,12 +159,14 @@ final class ArtworkCache {
     }
     /** Load a server-approved HTTPS artist portrait, never track cover art. */
     void loadArtist(ImageView target, String imageUrl) {
-        target.setImageDrawable(null);
         if (imageUrl == null || imageUrl.length() > 2048 || !imageUrl.startsWith("https://")) {
             target.setTag(null);
+            target.setImageDrawable(null);
             return;
         }
         String identity = "artist|" + imageUrl;
+        if(identity.equals(target.getTag())&&target.getDrawable()!=null)return;
+        if(!identity.equals(target.getTag()))target.setImageDrawable(null);
         target.setTag(identity);
         Bitmap cached = memory.get(identity);
         if (cached != null) {
