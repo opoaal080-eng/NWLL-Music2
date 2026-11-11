@@ -1210,7 +1210,7 @@ private struct AudioQualityDecision: Decodable {
                 refreshSearchArtists(for: text, generation: generation)
                 searchMessage = "Ищем полные версии…"
                 let encoded = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed.subtracting(CharacterSet(charactersIn: "&+=?#"))) ?? ""
-                for _ in 0..<12 {
+                for _ in 0..<9 {
                     let response: TrackResult = try await api.request("/api/tracks?q=" + encoded)
                     guard generation == searchGeneration, !Task.isCancelled else { return }
                     let incoming = Array(response.tracks.prefix(250))
