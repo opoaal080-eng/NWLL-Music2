@@ -491,39 +491,48 @@ public final class MainActivity extends Activity {
     TextView sectionLabel(String label){TextView v=text(label.toUpperCase(java.util.Locale.ROOT),11);v.setLetterSpacing(.095f);v.setTextColor(0xffadb0b8);v.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));v.setPadding(dp(5),dp(12),dp(5),dp(7));return v;}
     void styleField(EditText view){view.setTextColor(0xfff4f4f7);view.setHintTextColor(0xff8f95a5);view.setTextSize(15);view.setMinHeight(dp(50));view.setBackground(fieldSurface(0x88262a33,16));view.setPadding(dp(14),dp(10),dp(14),dp(10));}
     void styleSwitch(android.widget.Switch view){view.setTextColor(0xfff0f1f6);view.setTextSize(15);view.setPadding(dp(2),dp(10),dp(2),dp(10));}
+    // Common iOS-like presentation for every Android action, settings and
+    // confirmation window: bottom anchored, wide, rounded, softly dimmed.
     void styleSheet(AlertDialog dialog){
         dialog.setOnShowListener(ignored->{
             Window window=dialog.getWindow();
             if(window==null)return;
-            window.setBackgroundDrawable(surface());
+            window.setBackgroundDrawable(glass(32));
             window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
             WindowManager.LayoutParams params=window.getAttributes();
-            params.dimAmount=.76f;
+            params.gravity=Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL;
+            params.dimAmount=.18f;
+            params.y=dp(8);
             window.setAttributes(params);
-            int width=Math.min(dp(isLandscapeLayout()?650:480),
-                getResources().getDisplayMetrics().widthPixels-dp(isLandscapeLayout()?22:28));
+            int width=Math.min(dp(isLandscapeLayout()?760:600),
+                getResources().getDisplayMetrics().widthPixels-dp(isLandscapeLayout()?28:16));
             window.setLayout(width,WindowManager.LayoutParams.WRAP_CONTENT);
             View decor=window.getDecorView();
-            decor.setPadding(dp(7),dp(7),dp(7),dp(10));
+            decor.setPadding(dp(10),dp(10),dp(10),dp(14));
             decor.post(()->{
-                int limit=getResources().getDisplayMetrics().heightPixels-
-                    dp(isLandscapeLayout()?24:54);
+                int limit=(int)(getResources().getDisplayMetrics().heightPixels*
+                    (isLandscapeLayout()?.94f:.90f));
                 if(decor.getHeight()>limit)window.setLayout(width,limit);
             });
+            window.setNavigationBarColor(0xff101114);
             for(int which:new int[]{AlertDialog.BUTTON_POSITIVE,
                     AlertDialog.BUTTON_NEGATIVE,AlertDialog.BUTTON_NEUTRAL}){
                 Button button=dialog.getButton(which);
                 if(button==null)continue;
                 button.setAllCaps(false);
-                button.setTextSize(14);
+                button.setTextSize(16);
                 button.setTextColor(which==AlertDialog.BUTTON_NEGATIVE?
                     0xffb6bac7:0xffeeeeee);
-                button.setMinHeight(dp(44));
+                button.setMinHeight(dp(49));
+                button.setBackground(touchSurface(0xff292b30,19));
             }
             if(android.animation.ValueAnimator.areAnimatorsEnabled()){
                 decor.setAlpha(0f);
-                decor.setScaleX(.97f);decor.setScaleY(.97f);
-                decor.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(200)
+                decor.setTranslationY(dp(28));
+                decor.setScaleX(.97f);
+                decor.setScaleY(.97f);
+                decor.animate().alpha(1f).translationY(0f)
+                    .scaleX(1f).scaleY(1f).setDuration(280)
                     .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
             }
         });
