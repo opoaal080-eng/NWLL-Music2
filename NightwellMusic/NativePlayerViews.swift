@@ -18,6 +18,7 @@ struct RibbonScene: View {
     @EnvironmentObject private var palette: NightwellArtworkPalette
     let playing: Bool
     let flash: Int
+    var active = true
     @Environment(\.scenePhase) private var scene
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("nw-ambient-animate-when-paused") private var animatePaused = true
@@ -26,10 +27,10 @@ struct RibbonScene: View {
 
     var body: some View {
         TimelineView(.animation(minimumInterval: playing ? 1.0 / 24.0 : 1.0 / 15.0,
-                                paused: scene != .active || reduceMotion || (!playing && !animatePaused))) { tick in
+                                paused: scene != .active || reduceMotion || !active || (!playing && !animatePaused))) { tick in
             Canvas(opaque: false, rendersAsynchronously: true) { context, size in
                 guard size.width > 1, size.height > 1 else { return }
-                let t = reduceMotion || (!playing && !animatePaused)
+                let t = reduceMotion || !active || (!playing && !animatePaused)
                     ? frozenTime : tick.date.timeIntervalSinceReferenceDate
                 let colors = palette.at(ProcessInfo.processInfo.systemUptime)
                 let values = playing ? NativePlayer.shared.auraLevels() : []
@@ -46,6 +47,9 @@ struct RibbonScene: View {
             if !value { frozenTime = Date().timeIntervalSinceReferenceDate }
         }
         .onChange(of: animatePaused) { value in
+            if !value { frozenTime = Date().timeIntervalSinceReferenceDate }
+        }
+        .onChange(of: active) { value in
             if !value { frozenTime = Date().timeIntervalSinceReferenceDate }
         }
         .allowsHitTesting(false)
