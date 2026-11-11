@@ -4001,8 +4001,8 @@ public final class MainActivity extends Activity {
             downloaded?"Удалить загрузку":"Скачать","Поделиться","Добавить в плейлист",
             hiddenRecommendations().contains(id)?"Вернуть в рекомендации":"Не рекомендовать",
             isArtistHidden(track)?"Вернуть исполнителя":"Не рекомендовать исполнителя"));
-        AlertDialog actions=new AlertDialog.Builder(this).setTitle(track.optString("title"))
-            .setItems(actionsList.toArray(new String[0]),(d,chosen)->{
+        nightwellOptions(track.optString("title","Действия с треком"),
+            actionsList.toArray(new String[0]),chosen->{
                 if(chosen==0){seededRhythmByTrack(track);return;}
                 if(chosen==1){openClip(track);return;}
                 int n=chosen-2;
@@ -4027,8 +4027,7 @@ public final class MainActivity extends Activity {
                             "POST",null),v->{})).create();
                     styleSheet(choose);choose.show();
                 }
-            }).create();
-        styleSheet(actions);actions.show();
+            });
     }
     private String playlistSnapshotKey(String id){return "playlist|"+origin+"|"+user+"|"+id;}
     void openPlaylist(JSONObject p){
