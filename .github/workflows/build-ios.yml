@@ -2,7 +2,7 @@ name: Build Nightwell Music iOS (Recovered)
 on:
   workflow_dispatch:
   pull_request:
-    branches: [main, feature/windows-mobile-parity-20261106, fix/ios-clip-cache-retry-20261111, fix/clip-unlimited-device-cache-20261111]
+    branches: [main, feature/windows-mobile-parity-20261106, fix/ios-clip-cache-retry-20261111, fix/clip-unlimited-device-cache-20261111 , feature/search-glow-android-suggestions-ios-20261112]
     paths:
       - 'NightwellMusic/**'
       - 'source/NightwellMusic/**'
