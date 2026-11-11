@@ -140,8 +140,14 @@ public final class MainActivity extends Activity {
             };
             ui.postDelayed(handoffCollapseTask,8000);
         }
-        if(liveHandoff!=null)liveHandoff.setVisibility(show&&!handoffCollapsed?View.VISIBLE:View.GONE);
-        if(compactHandoff!=null)compactHandoff.setVisibility(show&&handoffCollapsed?View.VISIBLE:View.GONE);
+        if(liveHandoff!=null){
+            int desired=show&&!handoffCollapsed&&!collectionScrolled?View.VISIBLE:View.GONE;
+            if(liveHandoff.getVisibility()!=desired)liveHandoff.setVisibility(desired);
+        }
+        if(compactHandoff!=null){
+            int desired=show&&handoffCollapsed&&!collectionScrolled?View.VISIBLE:View.GONE;
+            if(compactHandoff.getVisibility()!=desired)compactHandoff.setVisibility(desired);
+        }
     }
     private void publishLive(boolean takeover){
         if(smokeMode||liveBusy||user.isEmpty()||playback==null||(!takeover&&!liveOwner))return;
@@ -267,6 +273,16 @@ public final class MainActivity extends Activity {
             }
         };
     private LinearLayout root,body,dock,head,landscapeRail;
+    private FrameLayout headerHost;
+    private LinearLayout headerWordmark;
+    private TextView headerCollectionTitle;
+    private boolean collectionScrolled;
+    private String displayedCollectionScreen = "";
+    private TextView collectionLargeTitle;
+    private LinearLayout collectionActions, offlineActions;
+    private ScrollView playlistCollectionScroll;
+    private int savedCollectionFirst, savedCollectionTop, savedPlaylistY;
+    private String savedCollectionScreen = "";
     private TextView status,miniTitle,miniArtist,miniPlay,miniPrev,miniNext,miniLike;
     private String lastNextLoadNotice="";
     private String lastDisplayedPlayerError="";
@@ -939,6 +955,76 @@ public final class MainActivity extends Activity {
         render[0].run();
     }
 
+    private boolean isCollectionScreen(){
+        return "Избранное".equals(screen)||"Плейлисты".equals(screen)||"Офлайн".equals(screen);
+    }
+
+    private void updateCollectionHeader(boolean collapsed, boolean animated){
+        final boolean next=collapsed&&isCollectionScreen()&&!full;
+        if(headerCollectionTitle==null||headerWordmark==null)return;
+        headerCollectionTitle.setText(next?screen:"");
+        if(next==collectionScrolled){
+            // Keep the compact title synchronized after a screen rebuild.
+            if(next&&headerCollectionTitle.getVisibility()!=View.VISIBLE){
+                headerCollectionTitle.setAlpha(1f);
+                headerCollectionTitle.setVisibility(View.VISIBLE);
+                headerWordmark.setAlpha(0f);
+                headerWordmark.setVisibility(View.INVISIBLE);
+            }
+            return;
+        }
+        collectionScrolled=next;
+        headerWordmark.animate().cancel();
+        headerCollectionTitle.animate().cancel();
+        boolean motion=animated&&android.animation.ValueAnimator.areAnimatorsEnabled();
+        if(next){
+            headerCollectionTitle.setAlpha(motion?0f:1f);
+            headerCollectionTitle.setVisibility(View.VISIBLE);
+            if(motion){
+                headerWordmark.setVisibility(View.VISIBLE);
+                headerWordmark.animate().alpha(0f).setDuration(160).withEndAction(()->{
+                    if(collectionScrolled&&headerWordmark!=null)headerWordmark.setVisibility(View.INVISIBLE);
+                }).start();
+                headerCollectionTitle.animate().alpha(1f).setDuration(190).start();
+            }else{
+                headerWordmark.setAlpha(0f);
+                headerWordmark.setVisibility(View.INVISIBLE);
+            }
+        }else{
+            headerWordmark.setAlpha(motion?0f:1f);
+            headerWordmark.setVisibility(View.VISIBLE);
+            if(motion){
+                headerCollectionTitle.animate().alpha(0f).setDuration(140).withEndAction(()->{
+                    if(!collectionScrolled&&headerCollectionTitle!=null)
+                        headerCollectionTitle.setVisibility(View.GONE);
+                }).start();
+                headerWordmark.animate().alpha(1f).setDuration(190).start();
+            }else{
+                headerCollectionTitle.setAlpha(0f);
+                headerCollectionTitle.setVisibility(View.GONE);
+            }
+        }
+        refreshLiveHandoff();
+    }
+
+    // Same 12 dp collapse threshold and near-zero return hysteresis as iPhone.
+    private void collectionOffsetChanged(int offsetPixels){
+        if(!isCollectionScreen()||full)return;
+        if(!collectionScrolled&&offsetPixels>=dp(12))updateCollectionHeader(true,true);
+        else if(collectionScrolled&&offsetPixels<=dp(1))updateCollectionHeader(false,true);
+    }
+
+    private void retainCollectionPosition(){
+        if(!screen.equals(savedCollectionScreen))return;
+        if(playlistCollectionScroll!=null&&"Плейлисты".equals(screen)){
+            savedPlaylistY=playlistCollectionScroll.getScrollY();
+        }else if(list!=null&&("Избранное".equals(screen)||"Офлайн".equals(screen))){
+            savedCollectionFirst=list.getFirstVisiblePosition();
+            View first=list.getChildAt(0);
+            savedCollectionTop=first==null?0:first.getTop()-list.getPaddingTop();
+        }
+    }
+
     void build(){
         if(ribbon!=null)ribbon.running(false);full=false;lyricsOpen=false;seek=null;fullTime=null;fullPlay=null;fullLike=null;fullDislike=null;fullAudioOutput=null;
         // Render scenery and aura across the window, outside the padded controls.
@@ -950,20 +1036,45 @@ public final class MainActivity extends Activity {
         scene.addView(ribbon,new android.widget.FrameLayout.LayoutParams(-1,-1));
         boolean landscape=isLandscapeLayout();
         root=column();root.setPadding(dp(landscape?10:16),dp(landscape?5:9),dp(landscape?10:16),0);
+        collectionScrolled=false;
+        displayedCollectionScreen="";
+        headerWordmark=null;
+        headerCollectionTitle=null;
+        playlistCollectionScroll=null;
         scene.addView(root,new android.widget.FrameLayout.LayoutParams(-1,-1));setContentView(scene);
         root.setOnApplyWindowInsetsListener((v,insets)->{int top,bottom;if(Build.VERSION.SDK_INT>=30){android.graphics.Insets bars=insets.getInsets(WindowInsets.Type.systemBars());top=bars.top;bottom=Math.max(bars.bottom,insets.getInsets(WindowInsets.Type.ime()).bottom);}else{top=insets.getSystemWindowInsetTop();bottom=insets.getSystemWindowInsetBottom();}v.setPadding(dp(isLandscapeLayout()?10:16),dp(isLandscapeLayout()?5:9)+top,dp(isLandscapeLayout()?10:16),bottom);return insets;});root.requestApplyInsets();
         head=row();android.widget.ImageView brand=new android.widget.ImageView(this);brand.setImageResource(R.drawable.nightwell_mark);brand.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);brand.setOnClickListener(v->navigate("Главная"));head.addView(brand,new LinearLayout.LayoutParams(dp(42),dp(42)));LinearLayout wordmark=column();wordmark.setGravity(Gravity.CENTER_VERTICAL);wordmark.setPadding(dp(9),0,0,0);
         TextView brandName=text("Nightwell",27);brandName.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);brandName.setTextColor(0xfff3f3f5);brandName.setIncludeFontPadding(false);brandName.setSingleLine(true);brandName.setAutoSizeTextTypeUniformWithConfiguration(20,27,1,android.util.TypedValue.COMPLEX_UNIT_SP);
         wordmark.addView(brandName,new LinearLayout.LayoutParams(-1,dp(landscape?27:33)));
         TextView brandCaption=text("M U S I C",12);brandCaption.setIncludeFontPadding(false);brandCaption.setSingleLine(true);brandCaption.setTextColor(0xff92959f);LinearLayout.LayoutParams captionParams=new LinearLayout.LayoutParams(-1,-2);captionParams.topMargin=dp(1);wordmark.addView(brandCaption,captionParams);
-        wordmark.setOnClickListener(v->navigate("Главная"));wordmark.setContentDescription("Nightwell Music, на главный экран");head.addView(wordmark,new LinearLayout.LayoutParams(0,-2,1));if(landscape){brandName.setTextSize(20);brandCaption.setTextSize(9);}TextView searchButton=iconButton("⌕",()->navigate("Поиск"));searchButton.setBackground(touchSurface(0x40202228,24));head.addView(searchButton,new LinearLayout.LayoutParams(dp(48),dp(48)));
+        wordmark.setOnClickListener(v->navigate("Главная"));wordmark.setContentDescription("Nightwell Music, на главный экран");headerWordmark=wordmark;head.addView(wordmark,new LinearLayout.LayoutParams(0,-2,1));if(landscape){brandName.setTextSize(20);brandCaption.setTextSize(9);}TextView searchButton=iconButton("⌕",()->navigate("Поиск"));searchButton.setBackground(touchSurface(0x40202228,24));head.addView(searchButton,new LinearLayout.LayoutParams(dp(48),dp(48)));
         compactHandoff=iconButton("⇄",this::continueLiveHere);
         compactHandoff.setContentDescription("Продолжить на этом устройстве");
         compactHandoff.setVisibility(View.GONE);
         head.addView(compactHandoff,new LinearLayout.LayoutParams(dp(44),dp(48)));
         android.widget.ImageView menuButton=new android.widget.ImageView(this);menuButton.setImageResource(android.R.drawable.ic_menu_myplaces);menuButton.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);menuButton.setPadding(dp(8),dp(8),dp(8),dp(8));menuButton.setBackground(touchSurface(0x40202228,24));menuButton.setOnClickListener(v->menu());menuButton.setContentDescription("Меню профиля");profileAvatarButton=menuButton;
         head.setLayoutTransition(new android.animation.LayoutTransition());
-        head.addView(menuButton,new LinearLayout.LayoutParams(dp(48),dp(48)));refreshProfileAvatar();LinearLayout.LayoutParams headerParams=new LinearLayout.LayoutParams(-1,dp(landscape?52:58));headerParams.bottomMargin=dp(landscape?3:8);root.addView(head,headerParams);if(backgroundOnly)head.setVisibility(View.GONE);
+        head.addView(menuButton,new LinearLayout.LayoutParams(dp(48),dp(48)));
+        refreshProfileAvatar();
+        headerHost=new FrameLayout(this);
+        headerHost.addView(head,new FrameLayout.LayoutParams(-1,-1));
+        headerCollectionTitle=text("",landscape?15:17);
+        headerCollectionTitle.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
+        headerCollectionTitle.setTextColor(Color.WHITE);
+        headerCollectionTitle.setGravity(Gravity.CENTER);
+        headerCollectionTitle.setSingleLine(true);
+        headerCollectionTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        headerCollectionTitle.setVisibility(View.GONE);
+        headerCollectionTitle.setClickable(false);
+        headerCollectionTitle.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        FrameLayout.LayoutParams centeredParams=new FrameLayout.LayoutParams(-1,-1,Gravity.CENTER);
+        centeredParams.leftMargin=dp(landscape?100:106);
+        centeredParams.rightMargin=dp(landscape?100:106);
+        headerHost.addView(headerCollectionTitle,centeredParams);
+        LinearLayout.LayoutParams headerParams=new LinearLayout.LayoutParams(-1,dp(landscape?52:58));
+        headerParams.bottomMargin=dp(landscape?3:8);
+        root.addView(headerHost,headerParams);
+        if(backgroundOnly)headerHost.setVisibility(View.GONE);
         nightwellBadge = text("", 11);
         nightwellBadge.setContentDescription("Состояние подключения Nightwell");
         setNightwellStatus(nightwellStatus);
@@ -1704,8 +1815,39 @@ public final class MainActivity extends Activity {
             button.setTextColor(liked?0xffeeeeee:0xffa4a6b1);
         }
     }
-    void navigate(String next){generation++;api.cancelSearch();if(pendingSearch!=null)ui.removeCallbacks(pendingSearch);screen=next;selectedPlaylist="";query="";if(full)build();else showScreen();}
+    void navigate(String next){
+        generation++;
+        api.cancelSearch();
+        if(pendingSearch!=null)ui.removeCallbacks(pendingSearch);
+        if(!next.equals(screen)){
+            savedCollectionScreen="";
+            savedCollectionFirst=0;
+            savedCollectionTop=0;
+            savedPlaylistY=0;
+        }
+        screen=next;
+        selectedPlaylist="";
+        query="";
+        if(full)build();else showScreen();
+    }
     void showScreen(){
+        if(screen.equals(displayedCollectionScreen))retainCollectionPosition();
+        else{
+            savedCollectionScreen=screen;
+            savedCollectionFirst=0;
+            savedCollectionTop=0;
+            savedPlaylistY=0;
+            collectionScrolled=false;
+        }
+        displayedCollectionScreen=screen;
+        collectionLargeTitle=null;
+        collectionActions=null;
+        offlineActions=null;
+        playlistCollectionScroll=null;
+        if(headerCollectionTitle!=null){
+            if(!isCollectionScreen())updateCollectionHeader(false,false);
+            else headerCollectionTitle.setText(screen);
+        }
         if(atmosphere!=null)atmosphere.setVisibility(screen.equals("Главная")?View.VISIBLE:View.GONE);
         if(android.animation.ValueAnimator.areAnimatorsEnabled()){body.setAlpha(.5f);body.animate().alpha(1).setDuration(180);}
         if(ribbon!=null){ribbon.running(false);ribbon.setVisibility(View.GONE);}body.removeAllViews();list=null;search=null;artistStrip=null;adapter=null;favoriteCount=null;
@@ -1714,7 +1856,8 @@ public final class MainActivity extends Activity {
             title.setMaxLines(1);title.setEllipsize(android.text.TextUtils.TruncateAt.END);
             LinearLayout.LayoutParams titleLayout=new LinearLayout.LayoutParams(-1,-2);
             titleLayout.bottomMargin=dp(isLandscapeLayout()?7:13);
-            body.addView(title,titleLayout);
+            if(isCollectionScreen())collectionLargeTitle=title;
+            else body.addView(title,titleLayout);
         }
         if(screen.equals("Главная")){
             boolean compact=getResources().getConfiguration().orientation==android.content.res.Configuration.ORIENTATION_LANDSCAPE;
@@ -1845,12 +1988,19 @@ public final class MainActivity extends Activity {
             actionsRow.addView(count,new LinearLayout.LayoutParams(0,-2,1));
             TextView sort=iconButton("⇅",()->favoriteSortMenu());sort.setContentDescription("Сортировка избранного");TextView more=iconButton("⋯",()->collectionMenu("likes",""));LinearLayout.LayoutParams sortParams=new LinearLayout.LayoutParams(dp(47),dp(46));actionsRow.addView(sort,sortParams);LinearLayout.LayoutParams moreParams=new LinearLayout.LayoutParams(dp(47),dp(46));moreParams.leftMargin=dp(7);actionsRow.addView(more,moreParams);LinearLayout.LayoutParams controlsParams=new LinearLayout.LayoutParams(-1,dp(47));
             controlsParams.bottomMargin=dp(8);
-            body.addView(actionsRow,controlsParams);}
+            collectionActions=actionsRow;}
         else if(screen.equals("Плейлисты")){
             android.widget.ScrollView scroll=new android.widget.ScrollView(this);
             LinearLayout entries=column();
             scroll.addView(entries);
             body.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+            playlistCollectionScroll=scroll;
+            if(collectionLargeTitle!=null){
+                LinearLayout.LayoutParams largeTitleParams=new LinearLayout.LayoutParams(-1,-2);
+                largeTitleParams.bottomMargin=dp(isLandscapeLayout()?7:13);
+                entries.addView(collectionLargeTitle,largeTitleParams);
+            }
+            scroll.setOnScrollChangeListener((v,x,y,oldX,oldY)->collectionOffsetChanged(y));
             addSpacedAction(entries,sheetAction("Умные плейлисты · Premium",()->feature("smart")),8);
             addSpacedAction(entries,sheetAction("Подборки дня · обновляются ежедневно",this::dailyPublicPlaylists),8);
             TextView newPlaylist=sheetAction("＋  Создать плейлист",()->input("Новый плейлист",
@@ -1883,12 +2033,21 @@ public final class MainActivity extends Activity {
                 gap.bottomMargin=dp(wide?8:9);
                 (wide?(i%2==0?left:right):entries).addView(item,gap);
             }
+            if(savedPlaylistY>0){
+                final ScrollView restore=scroll;
+                final int position=savedPlaylistY;
+                restore.post(()->{
+                    if(playlistCollectionScroll==restore&&"Плейлисты".equals(screen))
+                        restore.scrollTo(0,position);
+                });
+            }
             return;
         }
         else if(screen.equals("Офлайн")){
-            addSpacedAction(body,sheetAction("＋  Добавить аудиофайлы",this::importFiles),10);
+            offlineActions=column();
+            addSpacedAction(offlineActions,sheetAction("＋  Добавить аудиофайлы",this::importFiles),10);
             TextView repairNotice=text("",13);
-            body.addView(repairNotice);
+            offlineActions.addView(repairNotice);
             task(()->new JSONObject(OfflineStore.operation(this,origin,"{\"op\":\"listAll\"}")),v->{
                 if(!screen.equals("Офлайн"))return;
                 shown=v.optJSONArray("tracks");
@@ -1902,7 +2061,7 @@ public final class MainActivity extends Activity {
                     }
                     if(retryable.length()>0){
                         TextView retry=action("↻ Скачать повреждённые треки повторно",()->download(retryable));
-                        body.addView(retry,2);
+                        if(offlineActions!=null)offlineActions.addView(retry);
                     }
                 }
                 updateList();
@@ -1910,6 +2069,21 @@ public final class MainActivity extends Activity {
             shown=new JSONArray();
         }
         list=new ListView(this);
+        if(isCollectionScreen()){
+            LinearLayout collectionHeader=column();
+            if(collectionLargeTitle!=null){
+                LinearLayout.LayoutParams largeParams=new LinearLayout.LayoutParams(-1,-2);
+                largeParams.bottomMargin=dp(isLandscapeLayout()?7:13);
+                collectionHeader.addView(collectionLargeTitle,largeParams);
+            }
+            if(collectionActions!=null){
+                LinearLayout.LayoutParams actionsParams=new LinearLayout.LayoutParams(-1,dp(47));
+                actionsParams.bottomMargin=dp(8);
+                collectionHeader.addView(collectionActions,actionsParams);
+            }
+            if(offlineActions!=null)collectionHeader.addView(offlineActions);
+            list.addHeaderView(collectionHeader,null,false);
+        }
         list.setDivider(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
         list.setDividerHeight(dp(6));
         list.setVerticalScrollBarEnabled(false);
@@ -1918,8 +2092,29 @@ public final class MainActivity extends Activity {
         list.setPadding(0,dp(2),0,dp(12));
         list.setCacheColorHint(Color.TRANSPARENT);
         adapter=new TrackAdapter();list.setAdapter(adapter);
-        body.addView(list,new LinearLayout.LayoutParams(-1,0,1));list.setOnItemClickListener((p,v,pos,id)->{
-            JSONObject selected=shown.optJSONObject(pos);
+        body.addView(list,new LinearLayout.LayoutParams(-1,0,1));
+        if(isCollectionScreen()){
+            list.setOnScrollListener(new android.widget.AbsListView.OnScrollListener(){
+                @Override public void onScrollStateChanged(android.widget.AbsListView view,int scrollState){}
+                @Override public void onScroll(android.widget.AbsListView view,int firstVisibleItem,
+                                              int visibleItemCount,int totalItemCount){
+                    View first=view.getChildAt(0);
+                    int offset=firstVisibleItem>0?dp(40):
+                        (first==null?0:Math.max(0,view.getPaddingTop()-first.getTop()));
+                    collectionOffsetChanged(offset);
+                }
+            });
+            if(savedCollectionFirst>0||savedCollectionTop!=0){
+                final ListView restore=list;
+                final int position=savedCollectionFirst, top=savedCollectionTop;
+                restore.post(()->{
+                    if(list==restore&&isCollectionScreen())
+                        restore.setSelectionFromTop(position,top);
+                });
+            }
+        }
+        list.setOnItemClickListener((p,v,pos,id)->{
+            JSONObject selected=shown.optJSONObject(pos-list.getHeaderViewsCount());
             if(selected==null)return;
             if(selected.optBoolean("_favoriteMissing")){
                 status.setText("Загружаем сведения о треке из избранного");
@@ -1927,7 +2122,12 @@ public final class MainActivity extends Activity {
                 return;
             }
             play(selected,shown,false);
-        });list.setOnItemLongClickListener((p,v,pos,id)->{trackMenu(shown.optJSONObject(pos));return true;});
+        });list.setOnItemLongClickListener((p,v,pos,id)->{
+            JSONObject selected=shown.optJSONObject(pos-list.getHeaderViewsCount());
+            if(selected==null)return false;
+            trackMenu(selected);
+            return true;
+        });
     }
     private void addSpacedAction(LinearLayout parent,TextView button,int bottomMarginDp){
         LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,-2);
@@ -2985,7 +3185,7 @@ public final class MainActivity extends Activity {
     String iconLabel(String icon){switch(icon){case "⌕":return "Поиск музыки";case "☰":return "Открыть меню";case "⋯":return "Действия с треком";case "⌄":return "Свернуть плеер";case "×":return "Закрыть";case "|‹":return "Предыдущий трек";case "›|":return "Следующий трек";case "♡":case "♥":return "Избранное";case "⇄":return "Перемешать";case "↻":return "Повтор";default:return "Воспроизведение";}}
     void openPlayer(){
         JSONObject track=current();if(track==null)return;prefetchClip(track);full=true;
-        if(landscapeRail!=null)landscapeRail.setVisibility(View.GONE);if(atmosphere!=null)atmosphere.setVisibility(View.GONE);if(ribbon!=null){ribbon.running(false);ribbon.setVisibility(View.GONE);}dock.setVisibility(View.GONE);head.setVisibility(View.GONE);body.removeAllViews();
+        if(landscapeRail!=null)landscapeRail.setVisibility(View.GONE);if(atmosphere!=null)atmosphere.setVisibility(View.GONE);if(ribbon!=null){ribbon.running(false);ribbon.setVisibility(View.GONE);}dock.setVisibility(View.GONE);headerHost.setVisibility(View.GONE);body.removeAllViews();
         LinearLayout top=row();
         TextView close=iconButton("⌄",()->{full=false;build();});
         top.addView(close,new LinearLayout.LayoutParams(dp(48),dp(48)));
