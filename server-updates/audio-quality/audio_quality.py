@@ -89,6 +89,7 @@ class SoundCloudQuality:
         self.token_lock = asyncio.Lock()
         self.cached = {}
         self.cache_lock = asyncio.Lock()
+        self.inflight = {}
 
     async def account(self, request):
         value = self.identity(request)
@@ -182,9 +183,25 @@ class SoundCloudQuality:
 
     async def selected(self, request, owner, track_id, quality):
         marker = (owner, track_id, quality)
-        cached = self.cached.get(marker)
-        if cached and cached[0] > time.monotonic():
-            return cached[1]
+        async with self.cache_lock:
+            cached = self.cached.get(marker)
+            if cached and cached[0] > time.monotonic():
+                return cached[1]
+            task = self.inflight.get(marker)
+            if task is None:
+                task = asyncio.create_task(
+                    self._selected_uncached(request, owner, track_id, quality))
+                self.inflight[marker] = task
+                # A disconnected client must not keep a completed task in
+                # memory. Clear in-flight state even if all waiters cancel.
+                def cleanup(done, key=marker):
+                    if self.inflight.get(key) is done:
+                        self.inflight.pop(key, None)
+                task.add_done_callback(cleanup)
+        return await asyncio.shield(task)
+
+    async def _selected_uncached(self, request, owner, track_id, quality):
+        marker = (owner, track_id, quality)
         track = await self.track_for(request, track_id)
         if not isinstance(track, dict):
             return self.status(quality, None, None, None, "Трек не найден в доступном каталоге", "original")
@@ -211,9 +228,11 @@ class SoundCloudQuality:
             if len(self.cached) > 1200:
                 self.cached = {k:v for k,v in self.cached.items() if v[0] > time.monotonic()}
             return result
-        return self.status(quality, None, None, None,
-                           "Качество SoundCloud не удалось определить. "
-                           "Воспроизводится обычный доступный поток.", "original")
+        result = self.status(quality, None, None, None,
+                             "Качество SoundCloud не удалось определить. "
+                             "Воспроизводится обычный доступный поток.", "original")
+        self.cached[marker] = (time.monotonic() + 10, result)
+        return result
 
     @staticmethod
     def status(requested, selected, kbps, url, message, source, fallback=True):
