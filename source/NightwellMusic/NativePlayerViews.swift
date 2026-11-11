@@ -580,7 +580,9 @@ struct FullPlayer: View {
     @State private var showLyrics = false
     @State private var nativeMenuSnapshot: NightwellPlayerActionSnapshot?
     @State private var availableClipURL: URL?
+    @State private var availableClipTrackID = ""
     @State private var presentedClip: NightwellPresentedClip?
+    @State private var clipSearchNotice = false
     @State private var feature: PremiumFeatureView.Kind?
     @State private var showQueue = false
     @State private var selectedArtist: ArtistSelection?
@@ -616,7 +618,10 @@ struct FullPlayer: View {
     // Swift 6's constraint solver hit its type-check timeout. Keep short
     // subtrees, with simple precomputed keys for the collection observers.
     private var clipLookupKey: String {
-        (clock.displayCurrent?.id ?? "") + "|" + (store.account?.id ?? "")
+        let selected = clock.displayCurrent
+        return store.origin.absoluteString + "|" + (selected?.id ?? "") + "|"
+            + (selected?.title ?? "") + "|" + (selected?.artist ?? "")
+            + "|" + (store.account?.id ?? "")
     }
 
     private var playlistRevision: String {
@@ -633,17 +638,29 @@ struct FullPlayer: View {
     }
 
     private var playerClipUpdates: some View {
-        playerLibraryUpdates
+        playerClipAlerts
             .task(id: clipLookupKey) {
                 availableClipURL = nil
+                availableClipTrackID = ""
                 guard let selected = clock.displayCurrent else { return }
                 let result = await NightwellClipAvailabilityCache.shared.lookup(
                     track: selected, api: store.api, origin: store.origin,
                     accountID: store.account?.id)
                 guard !Task.isCancelled, clock.displayCurrent?.id == selected.id else { return }
+                availableClipTrackID = selected.id
                 availableClipURL = result
+                refreshNativeMenu()
             }
             .onChange(of: availableClipURL) { _ in refreshNativeMenu() }
+    }
+
+    private var playerClipAlerts: some View {
+        playerLibraryUpdates
+            .alert("Клип", isPresented: $clipSearchNotice) {
+                Button("ОК", role: .cancel) { }
+            } message: {
+                Text("Подходящий клип пока не найден или поиск временно недоступен. Попробуй позже.")
+            }
     }
 
     private var playerLibraryUpdates: some View {
@@ -924,7 +941,7 @@ struct FullPlayer: View {
         let selected = clock.displayCurrent
         nativeMenuSnapshot = NightwellPlayerActionSnapshot(
             track: selected,
-            clipURL: availableClipURL,
+            clipURL: availableClipTrackID == selected?.id ? availableClipURL : nil,
             playlists: store.playlists,
             recommendationHidden: selected.map { store.isRecommendationHidden($0) } ?? false,
             shareBaseURL: store.origin,
@@ -946,8 +963,26 @@ struct FullPlayer: View {
                 refreshNativeMenu()
             },
             onClip: { url, track in
-                NativePlayer.shared.pause()
-                presentedClip = NightwellPresentedClip(url: url, trackTitle: track.title)
+                if let url {
+                    NativePlayer.shared.pause()
+                    presentedClip = NightwellPresentedClip(url: url, trackTitle: track.title)
+                } else {
+                    Task {
+                        let found = await NightwellClipAvailabilityCache.shared.lookup(
+                            track: track, api: store.api, origin: store.origin,
+                            accountID: store.account?.id, forceRefresh: true)
+                        guard clock.displayCurrent?.id == track.id else { return }
+                        guard let found else {
+                            clipSearchNotice = true
+                            return
+                        }
+                        availableClipTrackID = track.id
+                        availableClipURL = found
+                        refreshNativeMenu()
+                        NativePlayer.shared.pause()
+                        presentedClip = NightwellPresentedClip(url: found, trackTitle: track.title)
+                    }
+                }
             },
             onHide: { track in
                 store.toggleRecommendationHidden(track)
