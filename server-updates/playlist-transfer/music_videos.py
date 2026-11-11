@@ -4,6 +4,7 @@ from collections import OrderedDict
 import html
 import json
 import os
+from pathlib import Path
 import re
 import time
 from datetime import datetime, timezone
@@ -13,10 +14,12 @@ from urllib.request import Request as URLRequest, urlopen
 from fastapi import HTTPException, Request
 
 BASE_URL = "https://www.googleapis.com/youtube/v3/search"
-MAX_SEARCHES_PER_DAY = 30
+# YouTube Data API search costs 100 quota units. Keep a headroom buffer
+# below the standard 10,000-units/day key quota.
+MAX_SEARCHES_PER_DAY = 80
 MAX_CACHE_ENTRIES = 3000
 POSITIVE_TTL = 12 * 60 * 60
-NEGATIVE_TTL = 3 * 60 * 60
+NEGATIVE_TTL = 5 * 60
 VERSIONS = {"remix", "live", "cover", "instrumental", "karaoke", "sped", "slowed"}
 
 
@@ -64,8 +67,57 @@ class ClipLookup:
         self.key = os.environ.get("NW_YOUTUBE_API_KEY", "").strip()
         self.lock = asyncio.Lock()
         self.cache = OrderedDict()
+        self.cache_path = Path(os.environ.get(
+            "NW_YOUTUBE_CACHE_PATH",
+            str(Path(__file__).with_name("nightwell_verified_clips.json"))
+        ))
+        self._load_verified()
         self.today = ""
         self.count = 0
+
+    def _load_verified(self):
+        """Keep already verified YouTube IDs after server process restarts."""
+        try:
+            payload = json.loads(self.cache_path.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict):
+                return
+            now = time.time()
+            for key, item in list(payload.items())[:MAX_CACHE_ENTRIES]:
+                if not isinstance(item, dict):
+                    continue
+                expires = item.get("expires_at")
+                response = item.get("response")
+                if not isinstance(expires, (int, float)) or expires <= now:
+                    continue
+                if not isinstance(response, dict) or not response.get("available"):
+                    continue
+                if not re.fullmatch(r"[A-Za-z0-9_-]{11}", response.get("video_id", "")):
+                    continue
+                self.cache[key] = (time.monotonic() + expires - now, response)
+        except (OSError, ValueError, TypeError):
+            pass
+
+    def _save_verified(self):
+        """Write only proven matches. Failures and quota errors are never persisted."""
+        now = time.monotonic()
+        expires = time.time()
+        payload = {
+            key: {"expires_at": expires + max(0, deadline - now),
+                  "response": result}
+            for key, (deadline, result) in self.cache.items()
+            if deadline > now and result.get("available")
+        }
+        temporary = self.cache_path.with_name(self.cache_path.name + ".new")
+        try:
+            self.cache_path.parent.mkdir(parents=True, exist_ok=True)
+            temporary.write_text(json.dumps(payload, ensure_ascii=False),
+                                 encoding="utf-8")
+            os.replace(temporary, self.cache_path)
+        except OSError:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     def search_sync(self, title, artist):
         query = (artist + " " + title + " official music video")[:260]
@@ -112,6 +164,8 @@ class ClipLookup:
             self.cache[cache_key] = (time.monotonic() + ttl, result)
             while len(self.cache) > MAX_CACHE_ENTRIES:
                 self.cache.popitem(last=False)
+            if result.get("available"):
+                self._save_verified()
             return result
 
 
