@@ -3350,6 +3350,11 @@ public final class MainActivity extends Activity {
             split.addView(details,new LinearLayout.LayoutParams(0,-2,0.54f));
             addCover(track,artworkColumn);
         }else addCover(track,content);
+        // Consume spare vertical space above the controls instead of
+        // allowing the transport row to float upward on taller displays.
+        View verticalSpacer=new View(this);
+        details.addView(verticalSpacer,new LinearLayout.LayoutParams(
+            1,0,1f));
         LinearLayout metadata=row();metadata.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout names=column();
         TextView title=text(track.optString("title"),23);title.setMaxLines(2);title.setLetterSpacing(-.025f);title.setLineSpacing(dp(2),1f);title.setAutoSizeTextTypeUniformWithConfiguration(18,23,1,android.util.TypedValue.COMPLEX_UNIT_SP);title.setEllipsize(android.text.TextUtils.TruncateAt.END);title.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);title.setPadding(dp(2),dp(12),dp(4),dp(6));names.addView(title);
@@ -3474,16 +3479,16 @@ public final class MainActivity extends Activity {
         int height=getResources().getConfiguration().screenHeightDp;
         // A cover must not push playback controls outside the viewport.
         // Immersive remains broad, while classic has wider side margins.
-        int preferred=classic?width-54:width-20;
-        int maxByHeight=(int)(height*(landscape?.66f:.43f));
-        int side=landscape?Math.min(width/2-26,height-120):
-            Math.min(preferred,maxByHeight);
-        side=Math.max(145,Math.min(side,380));
+        int preferred=classic?width-54:width-40;
+        int availableHeight=Math.max(170,height-(landscape?115:345));
+        int side=landscape?Math.min(width/2-36,height-116):
+            Math.min(preferred,availableHeight);
+        side=Math.max(145,Math.min(side,landscape?380:560));
         android.widget.FrameLayout artwork=new android.widget.FrameLayout(this);
         GradientDrawable backdrop=new GradientDrawable(
             GradientDrawable.Orientation.TL_BR,
             new int[]{0xff4b4e55,0xff292b31,0xff131418});
-        backdrop.setCornerRadius(dp(classic?23:25));
+        backdrop.setCornerRadius(dp(classic?23:8));
         backdrop.setStroke(dp(1),0x4cffffff);
         artwork.setBackground(backdrop);
         artwork.setClipToOutline(true);
@@ -3503,8 +3508,8 @@ public final class MainActivity extends Activity {
         artwork.addView(cover,new android.widget.FrameLayout.LayoutParams(-1,-1));
         LinearLayout.LayoutParams layout=new LinearLayout.LayoutParams(dp(side),dp(side));
         layout.gravity=Gravity.CENTER_HORIZONTAL;
-        layout.topMargin=dp(7);
-        layout.bottomMargin=dp(13);
+        layout.topMargin=dp(classic?7:0);
+        layout.bottomMargin=dp(classic?13:6);
         parent.addView(artwork,layout);
         if(artworkCache!=null)artworkCache.load(cover,origin,track.optString("cover_url"));
     }
