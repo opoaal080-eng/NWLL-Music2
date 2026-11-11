@@ -329,6 +329,7 @@ public final class MainActivity extends Activity {
         }
     }
     private EditText search;
+    private LinearLayout searchSuggestions;
     private LinearLayout artistStrip;
     private TextView lyricsText;private android.widget.ScrollView lyricsScroll;private JSONArray lyricLines;
     private int activeLyric=-2,activeLyricWord=-2;
@@ -1914,7 +1915,7 @@ public final class MainActivity extends Activity {
         if(atmosphere!=null)atmosphere.setVisibility(screen.equals("Главная")?View.VISIBLE:View.GONE);
         updateCoverBackdrop();
         if(android.animation.ValueAnimator.areAnimatorsEnabled()){body.setAlpha(.5f);body.animate().alpha(1).setDuration(180);}
-        if(ribbon!=null){ribbon.running(false);ribbon.setVisibility(View.GONE);}body.removeAllViews();list=null;search=null;artistStrip=null;adapter=null;favoriteCount=null;
+        if(ribbon!=null){ribbon.running(false);ribbon.setVisibility(View.GONE);}body.removeAllViews();list=null;search=null;searchSuggestions=null;artistStrip=null;adapter=null;favoriteCount=null;
         if(!screen.equals("Главная")){
             TextView title=text(screen,isLandscapeLayout()?21:30);
             title.setMaxLines(1);title.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -2013,6 +2014,8 @@ public final class MainActivity extends Activity {
             LinearLayout.LayoutParams searchParams=new LinearLayout.LayoutParams(-1,-2);
             searchParams.bottomMargin=dp(11);
             body.addView(searchBox,searchParams);
+            searchSuggestions=column();
+            body.addView(searchSuggestions);
             Runnable moveGlow=()->{
                 if(search==null||!search.isAttachedToWindow()||search.getLayout()==null)return;
                 int insertion=Math.max(0,search.getSelectionStart());
@@ -2029,7 +2032,8 @@ public final class MainActivity extends Activity {
             search.addTextChangedListener(new TextWatcher(){
                 public void beforeTextChanged(CharSequence s,int st,int c,int a){}
                 public void onTextChanged(CharSequence s,int st,int before,int count){
-                    query=s.toString();search(query);search.post(moveGlow);
+                    query=s.toString();updateSearchSuggestions(query);
+                    search(query);search.post(moveGlow);
                 }
                 public void afterTextChanged(Editable e){}
             });
@@ -2855,6 +2859,45 @@ public final class MainActivity extends Activity {
             .putStringSet(hiddenRecommendationKey(), hidden).apply();
         status.setText(hidden.contains(id) ? "Трек больше не появится в новых подборках" : "Трек снова может появляться в подборках");
     }
+    private void updateSearchSuggestions(String value){
+        if(searchSuggestions==null)return;
+        searchSuggestions.removeAllViews();
+        String term=value==null?"":value.trim().toLowerCase(java.util.Locale.ROOT);
+        if(term.length()<2)return;
+        java.util.LinkedHashSet<String> choices=new java.util.LinkedHashSet<>();
+        for(JSONArray source:new JSONArray[]{shown,catalog,queue}){
+            if(source==null)continue;
+            for(int i=0;i<source.length()&&choices.size()<3;i++){
+                JSONObject track=source.optJSONObject(i);
+                if(track==null)continue;
+                for(String candidate:new String[]{track.optString("title"),
+                        track.optString("artist")}){
+                    if(candidate.toLowerCase(java.util.Locale.ROOT).contains(term)
+                        &&!candidate.equalsIgnoreCase(value)&&!candidate.isEmpty())
+                        choices.add(candidate);
+                    if(choices.size()>=3)break;
+                }
+            }
+            if(choices.size()>=3)break;
+        }
+        for(String suggestion:choices){
+            TextView option=text("⌕   "+suggestion,13);
+            option.setTextColor(0xffd1d2db);
+            option.setSingleLine(true);
+            option.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            option.setPadding(dp(13),dp(7),dp(10),dp(7));
+            option.setBackground(touchSurface(0x4425272e,12));
+            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(35));
+            p.bottomMargin=dp(3);
+            searchSuggestions.addView(option,p);
+            option.setOnClickListener(v->{
+                if(search!=null){
+                    search.setText(suggestion);
+                    search.setSelection(search.length());
+                }
+            });
+        }
+    }
     void search(String value) { search(value,0); }
     void search(String value,int attempt) {
         final int gen=++generation;
@@ -3263,7 +3306,7 @@ public final class MainActivity extends Activity {
                 "Подготовка следующего трека"):
             buffering?"Подготовка аудио":
                 (state.optBoolean("playing")?"Пауза":"Воспроизвести"));
-    }setLabel(miniPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(homePlay!=null)setLabel(homePlay,state.optBoolean("playing")?"Ⅱ":"▶");if(fullPlay!=null)setLabel(fullPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(ribbon!=null)ribbon.playing(state.optBoolean("playing"));if(trackChanged){currentID=next;refreshFavoriteButtons();if(!next.isEmpty()){rememberRecent(next);checkTrackAudioQuality(t);}activeLyrics=null;homeLine="";homeWord=-2;homeKineticSpans.clear();if(homeLyric!=null)homeLyric.setText("");loadMiniCover(t);fetchLyricsAndPreload();animateTrackTransition();updateList();if(full)openPlayer();}if(seek!=null&&!seek.isPressed()){int duration=(int)Math.max(1,state.optDouble("duration"));seek.setMax(duration);seek.setProgress((int)state.optDouble("position"));seek.setSecondaryProgress((int)(duration*state.optDouble("bufferFraction")));if(seek instanceof PreparingSeekBar)((PreparingSeekBar)seek).setPreparation(state.optBoolean("nextPreparing")||state.optBoolean("buffering"),state.optBoolean("nextPreparing")?state.optDouble("preparationFraction"):state.optDouble("bufferFraction"));}if(fullTime!=null)setLabel(fullTime,time(state.optDouble("position"))+"     /     "+time(state.optDouble("duration")));String playbackError=state.optString("error");
+    }setLabel(miniPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(homePlay!=null)setLabel(homePlay,state.optBoolean("playing")?"Ⅱ":"▶");if(fullPlay!=null)setLabel(fullPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(ribbon!=null)ribbon.playing(state.optBoolean("playing"));if(trackChanged){currentID=next;updateCoverBackdrop();refreshFavoriteButtons();if(!next.isEmpty()){rememberRecent(next);checkTrackAudioQuality(t);}activeLyrics=null;homeLine="";homeWord=-2;homeKineticSpans.clear();if(homeLyric!=null)homeLyric.setText("");loadMiniCover(t);fetchLyricsAndPreload();animateTrackTransition();updateList();if(full)openPlayer();}if(seek!=null&&!seek.isPressed()){int duration=(int)Math.max(1,state.optDouble("duration"));seek.setMax(duration);seek.setProgress((int)state.optDouble("position"));seek.setSecondaryProgress((int)(duration*state.optDouble("bufferFraction")));if(seek instanceof PreparingSeekBar)((PreparingSeekBar)seek).setPreparation(state.optBoolean("nextPreparing")||state.optBoolean("buffering"),state.optBoolean("nextPreparing")?state.optDouble("preparationFraction"):state.optDouble("bufferFraction"));}if(fullTime!=null)setLabel(fullTime,time(state.optDouble("position"))+"     /     "+time(state.optDouble("duration")));String playbackError=state.optString("error");
         if(!playbackError.isEmpty()&&status!=null){
             status.setText(playbackError);
             lastDisplayedPlayerError=playbackError;
