@@ -103,8 +103,15 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
   await Guard(async()=>{
    var me=await api.Request("api/me");
    api.Csrf=me.GetProperty("csrf").GetString()??"";
+   var previousAccount=account;
    account=me.GetProperty("user").ValueKind==JsonValueKind.Object
     ?me.GetProperty("user").GetProperty("id").GetString()??"":"";
+   if(!string.Equals(previousAccount,account,StringComparison.Ordinal)){
+    favoriteDetails.Clear();
+    favoriteOrderIDs.Clear();
+    favoriteLookupAttempts.Clear();
+    likes.Clear();
+   }
    if(account.Length==0){
     Status.Text="Войди в аккаунт или открой офлайн-файлы";
     return;
