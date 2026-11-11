@@ -87,7 +87,17 @@ public partial class MainWindow {
     shown=visible;Tracks.ItemsSource=visible;
     SaveLibraryCacheAsync(owner);
    }
-  }finally{recoveringFavoriteDetails=false;}
+  }finally{
+   recoveringFavoriteDetails=false;
+   if(owner==account&&screen=="Избранное"&&!lifetime.IsCancellationRequested){
+    var hasMore=likes.Any(id=>!favoriteDetails.ContainsKey(id)&&
+      (!favoriteLookupAttempts.TryGetValue(id,out var last)||
+       DateTime.UtcNow-last>TimeSpan.FromMinutes(3)));
+    if(hasMore)Dispatcher.BeginInvoke(new Action(()=>{
+      _=RecoverFavoriteDetailsAsync();
+    }));
+   }
+  }
  }
 
  // Same assembly without scheduling another lookup from the completion path.
