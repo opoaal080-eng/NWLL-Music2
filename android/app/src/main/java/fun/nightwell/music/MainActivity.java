@@ -4765,9 +4765,99 @@ public final class MainActivity extends Activity {
     @Override public void onBackPressed(){if(backgroundOnly){backgroundOnly=false;build();}else if(full){full=false;build();}else if(!screen.equals("Главная"))navigate("Главная");else super.onBackPressed();}
     void importFiles(){Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("audio/*").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true);startActivityForResult(i,72);}
     void handleAudioImportResult(int request,int result,Intent data){if(request!=72||result!=RESULT_OK||data==null)return;ArrayList<Uri> uris=new ArrayList<>();if(data.getClipData()!=null)for(int i=0;i<data.getClipData().getItemCount();i++)uris.add(data.getClipData().getItemAt(i).getUri());else if(data.getData()!=null)uris.add(data.getData());io.execute(()->{for(Uri uri:uris)try{OfflineStore.importFile(this,origin,uri);}catch(Exception ex){ui.post(()->status.setText("Не удалось импортировать файл"));}ui.post(()->navigate("Офлайн"));});}
+    // All four library screens use the same recyclable cover-first row.
+    // Bind cover requests to the track identity to avoid showing stale art
+    // while ListView reuses views during fast scrolling.
     final class TrackAdapter extends BaseAdapter {
-        public int getCount(){return shown.length();}public Object getItem(int p){return shown.optJSONObject(p);}public long getItemId(int p){return p;}
-        public View getView(int position,View recycled,ViewGroup parent){LinearLayout r;TextView title,artist,more;if(recycled==null){r=row();r.setPadding(dp(12),dp(9),dp(7),dp(9));r.setMinimumHeight(dp(62));LinearLayout labels=column();title=text("",16);title.setMaxLines(2);artist=text("",12);artist.setMaxLines(1);labels.addView(title);labels.addView(artist);r.addView(labels,new LinearLayout.LayoutParams(0,-2,1));r.addView(new PlayingIndicator(MainActivity.this),new LinearLayout.LayoutParams(dp(20),dp(20)));more=action("⋯",()->{});r.addView(more);r.setTag(new TextView[]{title,artist,more});}else r=(LinearLayout)recycled;TextView[] holder=(TextView[])r.getTag();JSONObject t=shown.optJSONObject(position);holder[0].setText(t.optString("title"));PlayingIndicator indicator=(PlayingIndicator)r.getChildAt(1);indicator.setVisibility(currentID.equals(t.optString("id"))?View.VISIBLE:View.GONE);indicator.playing(lastPlaying);holder[1].setText(t.optString("artist"));holder[1].setOnClickListener(v->{if(t.optBoolean("_favoriteMissing")){status.setText("Загружаем сведения о треке");recoverMissingFavoriteTracks();}else play(t,shown,false);});holder[1].setContentDescription("Воспроизвести "+t.optString("title"));holder[2].setOnClickListener(v->trackMenu(t));r.setOnClickListener(v->{if(t.optBoolean("_favoriteMissing")){status.setText("Загружаем сведения о треке");recoverMissingFavoriteTracks();}else play(t,shown,false);});r.setContentDescription("Воспроизвести "+t.optString("title"));r.setBackground(fieldSurface(currentID.equals(t.optString("id"))?0xff33363c:0xff23252a,15));return r;}
+        final class TrackRow {
+            ImageView cover;
+            TextView title, artist, more;
+            PlayingIndicator indicator;
+        }
+        public int getCount(){return shown==null?0:shown.length();}
+        public Object getItem(int p){return shown.optJSONObject(p);}
+        public long getItemId(int p){return p;}
+        public View getView(int position,View recycled,ViewGroup parent){
+            LinearLayout rowView;
+            TrackRow holder;
+            if(recycled instanceof LinearLayout &&
+                ((LinearLayout)recycled).getTag() instanceof TrackRow){
+                rowView=(LinearLayout)recycled;
+                holder=(TrackRow)rowView.getTag();
+            }else{
+                rowView=row();
+                rowView.setGravity(Gravity.CENTER_VERTICAL);
+                rowView.setPadding(dp(9),dp(7),dp(7),dp(7));
+                rowView.setMinimumHeight(dp(66));
+                holder=new TrackRow();
+                holder.cover=new ImageView(MainActivity.this);
+                holder.cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                GradientDrawable placeholder=new GradientDrawable(
+                    GradientDrawable.Orientation.TL_BR,
+                    new int[]{0xff454751,0xff202127});
+                placeholder.setCornerRadius(dp(11));
+                holder.cover.setBackground(placeholder);
+                holder.cover.setClipToOutline(true);
+                holder.cover.setContentDescription("Обложка трека");
+                LinearLayout.LayoutParams art=new LinearLayout.LayoutParams(dp(52),dp(52));
+                art.rightMargin=dp(12);
+                rowView.addView(holder.cover,art);
+                LinearLayout labels=column();
+                labels.setGravity(Gravity.CENTER_VERTICAL);
+                holder.title=text("",15);
+                holder.title.setMaxLines(2);
+                holder.title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                holder.title.setTypeface(android.graphics.Typeface.create(
+                    "sans-serif-medium",0));
+                holder.artist=text("",12);
+                holder.artist.setTextColor(0xffaeb0ba);
+                holder.artist.setMaxLines(1);
+                holder.artist.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                holder.artist.setPadding(0,dp(3),0,0);
+                labels.addView(holder.title);
+                labels.addView(holder.artist);
+                rowView.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
+                holder.indicator=new PlayingIndicator(MainActivity.this);
+                rowView.addView(holder.indicator,
+                    new LinearLayout.LayoutParams(dp(20),dp(20)));
+                holder.more=action("⋯",()->{});
+                rowView.addView(holder.more,
+                    new LinearLayout.LayoutParams(dp(44),dp(48)));
+                rowView.setTag(holder);
+            }
+            JSONObject track=shown.optJSONObject(position);
+            if(track==null)return rowView;
+            holder.title.setText(track.optString("title","Без названия"));
+            holder.artist.setText(track.optString("artist",""));
+            boolean active=currentID.equals(track.optString("id"));
+            holder.indicator.setVisibility(active?View.VISIBLE:View.GONE);
+            holder.indicator.playing(lastPlaying);
+            // ArtworkCache uses the target ImageView tag to discard stale
+            // asynchronous results after a row has been recycled.
+            if(artworkCache!=null)
+                artworkCache.load(holder.cover,origin,track.optString("cover_url"));
+            else holder.cover.setImageDrawable(null);
+            holder.cover.setContentDescription("Обложка: "+
+                track.optString("title","трек"));
+            holder.artist.setOnClickListener(v->{
+                if(track.optBoolean("_favoriteMissing")){
+                    status.setText("Загружаем сведения о треке");
+                    recoverMissingFavoriteTracks();
+                }else play(track,shown,false);
+            });
+            holder.more.setOnClickListener(v->trackMenu(track));
+            rowView.setOnClickListener(v->{
+                if(track.optBoolean("_favoriteMissing")){
+                    status.setText("Загружаем сведения о треке");
+                    recoverMissingFavoriteTracks();
+                }else play(track,shown,false);
+            });
+            rowView.setContentDescription("Воспроизвести "+
+                track.optString("title"));
+            rowView.setBackground(fieldSurface(
+                active?0xff33363c:0xff23252a,17));
+            return rowView;
+        }
     }
     private String favoriteOrder="recent";
     private void favoriteSortMenu(){
