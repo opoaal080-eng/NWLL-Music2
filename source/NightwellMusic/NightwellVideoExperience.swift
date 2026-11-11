@@ -104,10 +104,12 @@ struct NightwellClipLookupResponse: Decodable {
     var video_id: String?
     var title: String?
     var channel: String?
+    var message: String?
 }
 
-/// Preload clip availability on track selection, never when opening the menu.
-/// Positive and negative results remain cached even across player presentations.
+/// Found clips are public YouTube IDs, so keeping the verified result on disk
+/// does not retain any audio or video. Transient API failures never become
+/// long-lived "no clip" results.
 @MainActor
 final class NightwellClipAvailabilityCache {
     static let shared = NightwellClipAvailabilityCache()
@@ -115,20 +117,59 @@ final class NightwellClipAvailabilityCache {
         let url: URL?
         let validUntil: Date
     }
+    private struct StoredClip: Codable {
+        let videoID: String
+        let validUntil: Date
+    }
+    private enum Outcome {
+        case found(URL)
+        case absent
+        case unavailable
+    }
+    private static let storageKey = "nightwell.verified-youtube-clips.v1"
     private var entries: [String: Entry] = [:]
-    private var pending: [String: Task<URL?, Never>] = [:]
+    private var pending: [String: Task<Outcome, Never>] = [:]
+    private lazy var verified: [String: StoredClip] = {
+        guard let data = UserDefaults.standard.data(forKey: Self.storageKey),
+              let saved = try? JSONDecoder().decode([String: StoredClip].self, from: data)
+        else { return [:] }
+        return saved.filter {
+            $0.value.validUntil > Date() &&
+            NightwellYouTubeLink.videoID(from: $0.value.videoID) != nil
+        }
+    }()
 
-    func lookup(track: Track, api: MusicAPI, origin: URL, accountID: String?) async -> URL? {
+    private func saveVerified() {
+        let now = Date()
+        verified = verified.filter { $0.value.validUntil > now }
+        if verified.count > 500 {
+            let newest = verified.sorted { $0.value.validUntil > $1.value.validUntil }
+            verified = Dictionary(uniqueKeysWithValues: newest.prefix(500).map { ($0.key, $0.value) })
+        }
+        guard let data = try? JSONEncoder().encode(verified) else { return }
+        UserDefaults.standard.set(data, forKey: Self.storageKey)
+    }
+
+    func lookup(track: Track, api: MusicAPI, origin: URL, accountID: String?,
+                forceRefresh: Bool = false) async -> URL? {
         if let direct = NightwellYouTubeLink.videoURL(from: track.source_url) {
             return direct
         }
-        let key = origin.absoluteString + "|" + (accountID ?? "guest")
-            + "|" + track.title.lowercased() + "|" + track.artist.lowercased()
-        if let entry = entries[key], entry.validUntil > Date() {
+        // The video is independent of the account; don't lose it on sign-out.
+        let key = origin.absoluteString + "|" +
+            track.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() + "|" +
+            track.artist.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let now = Date()
+        if let saved = verified[key], saved.validUntil > now,
+           let url = NightwellYouTubeLink.videoURL(from: saved.videoID) {
+            return url
+        }
+        if !forceRefresh, let entry = entries[key], entry.validUntil > now {
             return entry.url
         }
         if let task = pending[key] {
-            return await task.value
+            if case let .found(url) = await task.value { return url }
+            return nil
         }
         var query = URLComponents()
         query.path = "/api/music-videos/clip"
@@ -137,26 +178,40 @@ final class NightwellClipAvailabilityCache {
             URLQueryItem(name: "artist", value: track.artist)
         ]
         guard let path = query.string else { return nil }
-        // URLSession requests suspend; they do not block sheet presentation.
-        let task = Task<URL?, Never> {
+        let task = Task<Outcome, Never> {
             do {
-                let response: NightwellClipLookupResponse = try await api.request(path, timeout: 6)
-                guard response.available == true else { return nil }
-                return NightwellYouTubeLink.videoURL(from: response.video_id)
+                let response: NightwellClipLookupResponse = try await api.request(path, timeout: 8)
+                if response.available == true,
+                   let url = NightwellYouTubeLink.videoURL(from: response.video_id) {
+                    return .found(url)
+                }
+                // Quota exhaustion, missing API key and temporary server
+                // failures must not hide a known clip for 15 minutes.
+                return response.message == nil ? .absent : .unavailable
             } catch {
-                return nil
+                return .unavailable
             }
         }
         pending[key] = task
-        let result = await task.value
+        let outcome = await task.value
         pending[key] = nil
-        entries[key] = Entry(url: result,
-                             validUntil: Date().addingTimeInterval(result == nil ? 900 : 21600))
-        if entries.count > 300 {
-            entries = entries.filter { $0.value.validUntil > Date() }
-            if entries.count > 300 { entries.removeAll() }
+        switch outcome {
+        case let .found(url):
+            let expiry = Date().addingTimeInterval(7 * 24 * 3600)
+            entries[key] = Entry(url: url, validUntil: expiry)
+            if let id = NightwellYouTubeLink.videoID(from: url.absoluteString) {
+                verified[key] = StoredClip(videoID: id, validUntil: expiry)
+                saveVerified()
+            }
+            return url
+        case .absent:
+            entries[key] = Entry(url: nil, validUntil: Date().addingTimeInterval(120))
+            return nil
+        case .unavailable:
+            // No negative cache: allow a new attempt when connectivity returns.
+            entries.removeValue(forKey: key)
+            return nil
         }
-        return result
     }
 }
 
