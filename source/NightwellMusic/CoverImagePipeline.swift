@@ -73,15 +73,15 @@ actor CoverImagePipeline {
         return url
     }
 
-    func image(for url: URL, maxPixel: Int = 160) async -> UIImage? {
+    func image(for url: URL, maxPixel: Int = 160, retryFailure: Bool = false) async -> UIImage? {
         let dimension = min(1200, max(96, maxPixel))
         let key = "\(url.absoluteString)#\(dimension)"
         if let hit = decoded.object(forKey: key as NSString) { return hit }
-        if skipTemporarily(url.absoluteString) { return nil }
+        if !retryFailure && skipTemporarily(url.absoluteString) { return nil }
         if let inFlight = pendingImages[key] { return await inFlight.value }
 
         let task = Task<UIImage?, Never>(priority: .userInitiated) {
-            guard let bytes = await self.data(for: url), !bytes.isEmpty else { return nil }
+            guard let bytes = await self.data(for: url, retryFailure: retryFailure), !bytes.isEmpty else { return nil }
             // ImageIO's thumbnail creation handles orientation without decoding
             // the original multi-megapixel cover into a main-thread UIImage.
             return await Task.detached(priority: .utility) {
@@ -110,10 +110,10 @@ actor CoverImagePipeline {
         return result
     }
 
-    private func data(for url: URL) async -> Data? {
+    private func data(for url: URL, retryFailure: Bool = false) async -> Data? {
         let key = url.absoluteString
         if let hit = compressed.object(forKey: key as NSString) { return hit as Data }
-        if skipTemporarily(key) { return nil }
+        if !retryFailure && skipTemporarily(key) { return nil }
         if let inFlight = pendingData[key] { return await inFlight.value }
         let task = Task<Data?, Never>(priority: .userInitiated) {
             do {
