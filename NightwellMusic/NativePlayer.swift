@@ -163,7 +163,7 @@ final class NativePlayer {
                 reason: "Следующий трек загружается слишком долго.")
         }
         pendingNextTimeout = deadline
-        DispatchQueue.main.asyncAfter(deadline: .now() + 8, execute: deadline)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 16, execute: deadline)
         publish()
     }
 
