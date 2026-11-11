@@ -1077,7 +1077,7 @@ final class NativePlayer {
         components.queryItems = [URLQueryItem(name: "exclude", value: Array(excluded.suffix(200)).joined(separator: ","))] + WaveSettings.keys.map { URLQueryItem(name: $0, value: waveSettings.dictionary[$0]) } + [URLQueryItem(name: "artists", value: (waveSeedArtists.isEmpty
             ? RecommendationOrder.preferredArtists() : waveSeedArtists).joined(separator: ","))]
         guard let url = components.url else { return }
-        var request = URLRequest(url: url); request.timeoutInterval = 60
+        var request = URLRequest(url: url); request.timeoutInterval = 25
         request.allHTTPHeaderFields = HTTPCookie.requestHeaderFields(with: cookies)
         let generation = waveGeneration
         waveTask = URLSession.shared.dataTask(with: request) { [weak self] data, response, _ in
