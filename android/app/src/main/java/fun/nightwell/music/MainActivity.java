@@ -2076,7 +2076,37 @@ public final class MainActivity extends Activity {
             for(int i=0;i<playlists.length();i++){
                 JSONObject p=playlists.optJSONObject(i);
                 if(p==null)continue;
-                LinearLayout item=row();item.setBackground(fieldSurface(0xff25272b,16));item.setMinimumHeight(dp(58));item.setPadding(dp(8),dp(4),dp(4),dp(4));
+                LinearLayout item=row();item.setGravity(Gravity.CENTER_VERTICAL);
+                item.setBackground(fieldSurface(0xff25272b,16));
+                item.setMinimumHeight(dp(66));item.setPadding(dp(8),dp(5),dp(4),dp(5));
+                ImageView playlistCover=new ImageView(this);
+                playlistCover.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                GradientDrawable playlistPlaceholder=new GradientDrawable(
+                    GradientDrawable.Orientation.TL_BR,
+                    new int[]{0xff454751,0xff202127});
+                playlistPlaceholder.setCornerRadius(dp(11));
+                playlistCover.setBackground(playlistPlaceholder);
+                playlistCover.setClipToOutline(true);
+                LinearLayout.LayoutParams playlistCoverParams=
+                    new LinearLayout.LayoutParams(dp(52),dp(52));
+                playlistCoverParams.rightMargin=dp(9);
+                item.addView(playlistCover,playlistCoverParams);
+                String playlistArt=p.optString("cover_url","");
+                if(playlistArt.isEmpty()){
+                    String raw=getSharedPreferences("playlist-snapshots",MODE_PRIVATE)
+                        .getString(playlistSnapshotKey(p.optString("id")),"");
+                    if(!raw.isEmpty())try{
+                        JSONArray savedTracks=new JSONArray(raw);
+                        for(int artIndex=0;artIndex<Math.min(8,savedTracks.length());artIndex++){
+                            JSONObject savedTrack=savedTracks.optJSONObject(artIndex);
+                            if(savedTrack!=null&&!savedTrack.optString("cover_url").isEmpty()){
+                                playlistArt=savedTrack.optString("cover_url");break;
+                            }
+                        }
+                    }catch(JSONException ignored){}
+                }
+                if(artworkCache!=null)artworkCache.load(playlistCover,origin,playlistArt);
+                playlistCover.setOnClickListener(v->openPlaylist(p));
                 TextView title=action(p.optString("name"),()->openPlaylist(p));
                 title.setGravity(Gravity.CENTER_VERTICAL|Gravity.LEFT);
                 title.setMaxLines(2);
