@@ -1040,7 +1040,7 @@ public final class MainActivity extends Activity {
         ribbon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         scene.addView(ribbon,new android.widget.FrameLayout.LayoutParams(-1,-1));
         boolean landscape=isLandscapeLayout();
-        root=column();root.setPadding(dp(landscape?10:16),dp(landscape?5:9),dp(landscape?10:16),0);
+        root=column();root.setPadding(dp(landscape?10:20),dp(landscape?0:8),dp(landscape?10:20),0);
         collectionScrolled=false;
         displayedCollectionScreen=isCollectionScreen()&&screen.equals(savedCollectionScreen)
             ?screen:"";
@@ -1048,19 +1048,31 @@ public final class MainActivity extends Activity {
         headerCollectionTitle=null;
         playlistCollectionScroll=null;
         scene.addView(root,new android.widget.FrameLayout.LayoutParams(-1,-1));setContentView(scene);
-        root.setOnApplyWindowInsetsListener((v,insets)->{int top,bottom;if(Build.VERSION.SDK_INT>=30){android.graphics.Insets bars=insets.getInsets(WindowInsets.Type.systemBars());top=bars.top;bottom=Math.max(bars.bottom,insets.getInsets(WindowInsets.Type.ime()).bottom);}else{top=insets.getSystemWindowInsetTop();bottom=insets.getSystemWindowInsetBottom();}v.setPadding(dp(isLandscapeLayout()?10:16),dp(isLandscapeLayout()?5:9)+top,dp(isLandscapeLayout()?10:16),bottom);return insets;});root.requestApplyInsets();
-        head=row();android.widget.ImageView brand=new android.widget.ImageView(this);brand.setImageResource(R.drawable.nightwell_mark);brand.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);brand.setOnClickListener(v->navigate("Главная"));head.addView(brand,new LinearLayout.LayoutParams(dp(42),dp(42)));LinearLayout wordmark=column();wordmark.setGravity(Gravity.CENTER_VERTICAL);wordmark.setPadding(dp(9),0,0,0);
-        TextView brandName=text("Nightwell",27);brandName.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);brandName.setTextColor(0xfff3f3f5);brandName.setIncludeFontPadding(false);brandName.setSingleLine(true);brandName.setAutoSizeTextTypeUniformWithConfiguration(20,27,1,android.util.TypedValue.COMPLEX_UNIT_SP);
-        wordmark.addView(brandName,new LinearLayout.LayoutParams(-1,dp(landscape?27:33)));
+        root.setOnApplyWindowInsetsListener((v,insets)->{int top,bottom;if(Build.VERSION.SDK_INT>=30){android.graphics.Insets bars=insets.getInsets(WindowInsets.Type.systemBars());top=bars.top;bottom=Math.max(bars.bottom,insets.getInsets(WindowInsets.Type.ime()).bottom);}else{top=insets.getSystemWindowInsetTop();bottom=insets.getSystemWindowInsetBottom();}v.setPadding(dp(isLandscapeLayout()?10:20),dp(isLandscapeLayout()?0:8)+top,dp(isLandscapeLayout()?10:20),bottom);return insets;});root.requestApplyInsets();
+        head=row();TextView brand=text("N",29);
+        brand.setTypeface(android.graphics.Typeface.create("sans-serif-rounded",android.graphics.Typeface.BOLD));
+        brand.setGravity(Gravity.CENTER);
+        brand.setTextColor(Color.WHITE);
+        GradientDrawable brandSurface=new GradientDrawable();
+        brandSurface.setColor(0xff121212);
+        brandSurface.setCornerRadius(dp(12));
+        brandSurface.setStroke(dp(1),0x33ffffff);
+        brand.setBackground(brandSurface);
+        brand.setOnClickListener(v->navigate("Главная"));
+        brand.setContentDescription("На главную");
+        head.addView(brand,new LinearLayout.LayoutParams(dp(42),dp(42)));
+        LinearLayout wordmark=column();wordmark.setGravity(Gravity.CENTER_VERTICAL);wordmark.setPadding(dp(9),0,0,0);
+        TextView brandName=text("Nightwell",25);brandName.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);brandName.setTextColor(0xfff3f3f5);brandName.setIncludeFontPadding(false);brandName.setSingleLine(true);brandName.setAutoSizeTextTypeUniformWithConfiguration(18,25,1,android.util.TypedValue.COMPLEX_UNIT_SP);
+        wordmark.addView(brandName,new LinearLayout.LayoutParams(-1,dp(landscape?27:31)));
         TextView brandCaption=text("M U S I C",12);brandCaption.setIncludeFontPadding(false);brandCaption.setSingleLine(true);brandCaption.setTextColor(0xff92959f);LinearLayout.LayoutParams captionParams=new LinearLayout.LayoutParams(-1,-2);captionParams.topMargin=dp(1);wordmark.addView(brandCaption,captionParams);
-        wordmark.setOnClickListener(v->navigate("Главная"));wordmark.setContentDescription("Nightwell Music, на главный экран");headerWordmark=wordmark;head.addView(wordmark,new LinearLayout.LayoutParams(0,-2,1));if(landscape){brandName.setTextSize(20);brandCaption.setTextSize(9);}TextView searchButton=iconButton("⌕",()->navigate("Поиск"));searchButton.setBackground(touchSurface(0x40202228,24));head.addView(searchButton,new LinearLayout.LayoutParams(dp(48),dp(48)));
+        wordmark.setOnClickListener(v->navigate("Главная"));wordmark.setContentDescription("Nightwell Music, на главный экран");headerWordmark=wordmark;head.addView(wordmark,new LinearLayout.LayoutParams(0,-2,1));if(landscape){brandName.setTextSize(20);brandCaption.setTextSize(9);}TextView searchButton=iconButton("⌕",()->navigate("Поиск"));searchButton.setBackground(touchSurface(0x40202228,22));head.addView(searchButton,new LinearLayout.LayoutParams(dp(44),dp(44)));
         compactHandoff=iconButton("⇄",this::continueLiveHere);
         compactHandoff.setContentDescription("Продолжить на этом устройстве");
         compactHandoff.setVisibility(View.GONE);
-        head.addView(compactHandoff,new LinearLayout.LayoutParams(dp(44),dp(48)));
-        android.widget.ImageView menuButton=new android.widget.ImageView(this);menuButton.setImageResource(android.R.drawable.ic_menu_myplaces);menuButton.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);menuButton.setPadding(dp(8),dp(8),dp(8),dp(8));menuButton.setBackground(touchSurface(0x40202228,24));menuButton.setOnClickListener(v->menu());menuButton.setContentDescription("Меню профиля");profileAvatarButton=menuButton;
+        head.addView(compactHandoff,new LinearLayout.LayoutParams(dp(42),dp(44)));
+        android.widget.ImageView menuButton=new android.widget.ImageView(this);menuButton.setImageResource(android.R.drawable.ic_menu_myplaces);menuButton.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);menuButton.setPadding(dp(8),dp(8),dp(8),dp(8));menuButton.setBackground(touchSurface(0x40202228,22));menuButton.setOnClickListener(v->menu());menuButton.setContentDescription("Меню профиля");profileAvatarButton=menuButton;
         head.setLayoutTransition(new android.animation.LayoutTransition());
-        head.addView(menuButton,new LinearLayout.LayoutParams(dp(48),dp(48)));
+        head.addView(menuButton,new LinearLayout.LayoutParams(dp(44),dp(44)));
         refreshProfileAvatar();
         headerHost=new FrameLayout(this);
         headerHost.addView(head,new FrameLayout.LayoutParams(-1,-1));
@@ -1074,8 +1086,8 @@ public final class MainActivity extends Activity {
         headerCollectionTitle.setClickable(false);
         headerCollectionTitle.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         FrameLayout.LayoutParams centeredParams=new FrameLayout.LayoutParams(-1,-1,Gravity.CENTER);
-        centeredParams.leftMargin=dp(landscape?100:106);
-        centeredParams.rightMargin=dp(landscape?100:106);
+        centeredParams.leftMargin=dp(landscape?100:108);
+        centeredParams.rightMargin=dp(landscape?100:108);
         headerHost.addView(headerCollectionTitle,centeredParams);
         LinearLayout.LayoutParams headerParams=new LinearLayout.LayoutParams(-1,dp(landscape?52:58));
         headerParams.bottomMargin=dp(landscape?3:8);
@@ -3235,7 +3247,15 @@ public final class MainActivity extends Activity {
         JSONObject track=current();if(track==null)return;full=true;
         if(landscapeRail!=null)landscapeRail.setVisibility(View.GONE);if(atmosphere!=null)atmosphere.setVisibility(View.GONE);if(ribbon!=null){ribbon.running(false);ribbon.setVisibility(View.GONE);}dock.setVisibility(View.GONE);headerHost.setVisibility(View.GONE);body.removeAllViews();
         LinearLayout top=row();
-        TextView close=iconButton("⌄",()->{full=false;build();});
+        TextView close=iconButton("⌄",()->{
+            if(!android.animation.ValueAnimator.areAnimatorsEnabled()){
+                full=false;build();return;
+            }
+            body.animate().cancel();
+            body.animate().alpha(.35f).translationY(dp(36)).setDuration(180)
+                .setInterpolator(new android.view.animation.AccelerateInterpolator())
+                .withEndAction(()->{full=false;build();}).start();
+        });
         top.addView(close,new LinearLayout.LayoutParams(dp(48),dp(48)));
         LinearLayout center=column();center.setGravity(Gravity.CENTER);
         fullAudioOutput=text("♫  "+audioOutputName()+"  ⌄",12);
@@ -3257,6 +3277,13 @@ public final class MainActivity extends Activity {
         top.addView(center,new LinearLayout.LayoutParams(0,dp(50),1));
         top.addView(iconButton("⋯",()->fullPlayerMenu(track)),new LinearLayout.LayoutParams(dp(48),dp(48)));
         body.addView(top);
+        if(android.animation.ValueAnimator.areAnimatorsEnabled()){
+            body.animate().cancel();
+            body.setAlpha(.45f);
+            body.setTranslationY(dp(36));
+            body.animate().alpha(1f).translationY(0).setDuration(280)
+                .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
+        }
         android.widget.ScrollView scroll=new android.widget.ScrollView(this);scroll.setFillViewport(true);scroll.setClipToPadding(false);LinearLayout content=column();content.setPadding(dp(2),dp(6),dp(2),dp(18));scroll.addView(content);body.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
         boolean landscapePlayer=getResources().getConfiguration().orientation==
             android.content.res.Configuration.ORIENTATION_LANDSCAPE;
