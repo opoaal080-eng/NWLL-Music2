@@ -119,7 +119,8 @@ final class NightwellClipAvailabilityCache {
     }
     private struct StoredClip: Codable {
         let videoID: String
-        let validUntil: Date
+        // Optional only for compatibility with clips saved by older builds.
+        let validUntil: Date?
     }
     private enum Outcome {
         case found(URL)
@@ -134,35 +135,40 @@ final class NightwellClipAvailabilityCache {
               let saved = try? JSONDecoder().decode([String: StoredClip].self, from: data)
         else { return [:] }
         return saved.filter {
-            $0.value.validUntil > Date() &&
             NightwellYouTubeLink.videoID(from: $0.value.videoID) != nil
         }
     }()
 
     private func saveVerified() {
-        let now = Date()
-        verified = verified.filter { $0.value.validUntil > now }
-        if verified.count > 500 {
-            let newest = verified.sorted { $0.value.validUntil > $1.value.validUntil }
-            verified = Dictionary(uniqueKeysWithValues: newest.prefix(500).map { ($0.key, $0.value) })
-        }
+        // Permanent on-device links, with no expiry or forced cache eviction.
         guard let data = try? JSONEncoder().encode(verified) else { return }
         UserDefaults.standard.set(data, forKey: Self.storageKey)
     }
 
-    // Reading the cache never consumes YouTube API quota. The client calls
-    // lookup only on a user's explicit "Найти клип" action.
-    func cachedClip(track: Track, origin: URL) -> URL? {
-        if let direct = NightwellYouTubeLink.videoURL(from: track.source_url) {
-            return direct
-        }
-        let key = origin.absoluteString + "|" +
+    private func rememberClip(_ url: URL, for key: String) {
+        guard let id = NightwellYouTubeLink.videoID(from: url.absoluteString),
+              verified[key]?.videoID != id else { return }
+        verified[key] = StoredClip(videoID: id, validUntil: nil)
+        saveVerified()
+    }
+
+    private func key(for track: Track, origin: URL) -> String {
+        origin.absoluteString + "|" +
             track.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() + "|" +
             track.artist.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if let saved = verified[key], saved.validUntil > Date() {
+    }
+
+    // Cached links are loaded from permanent app storage without an API call.
+    func cachedClip(track: Track, origin: URL) -> URL? {
+        let cacheKey = key(for: track, origin: origin)
+        if let direct = NightwellYouTubeLink.videoURL(from: track.source_url) {
+            rememberClip(direct, for: cacheKey)
+            return direct
+        }
+        if let saved = verified[cacheKey] {
             return NightwellYouTubeLink.videoURL(from: saved.videoID)
         }
-        if let cached = entries[key], cached.validUntil > Date() {
+        if let cached = entries[cacheKey], cached.validUntil > Date() {
             return cached.url
         }
         return nil
@@ -170,18 +176,9 @@ final class NightwellClipAvailabilityCache {
 
     func lookup(track: Track, api: MusicAPI, origin: URL, accountID: String?,
                 forceRefresh: Bool = false) async -> URL? {
-        if let direct = NightwellYouTubeLink.videoURL(from: track.source_url) {
-            return direct
-        }
-        // The video is independent of the account; don't lose it on sign-out.
-        let key = origin.absoluteString + "|" +
-            track.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() + "|" +
-            track.artist.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if let cached = cachedClip(track: track, origin: origin) { return cached }
+        let key = key(for: track, origin: origin)
         let now = Date()
-        if let saved = verified[key], saved.validUntil > now,
-           let url = NightwellYouTubeLink.videoURL(from: saved.videoID) {
-            return url
-        }
         if !forceRefresh, let entry = entries[key], entry.validUntil > now {
             return entry.url
         }
@@ -215,12 +212,8 @@ final class NightwellClipAvailabilityCache {
         pending[key] = nil
         switch outcome {
         case let .found(url):
-            let expiry = Date().addingTimeInterval(7 * 24 * 3600)
-            entries[key] = Entry(url: url, validUntil: expiry)
-            if let id = NightwellYouTubeLink.videoID(from: url.absoluteString) {
-                verified[key] = StoredClip(videoID: id, validUntil: expiry)
-                saveVerified()
-            }
+            entries[key] = Entry(url: url, validUntil: .distantFuture)
+            rememberClip(url, for: key)
             return url
         case .absent:
             entries[key] = Entry(url: nil, validUntil: Date().addingTimeInterval(120))
