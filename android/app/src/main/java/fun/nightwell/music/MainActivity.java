@@ -313,7 +313,22 @@ public final class MainActivity extends Activity {
                 new float[]{0f,.38f,1f},android.graphics.Shader.TileMode.CLAMP));
             canvas.drawCircle(x,y,radius,paint);
             paint.setShader(null);
-            paint.setColor(android.graphics.Color.argb((int)(62*pulse),255,255,255));
+            // Matching iOS: soft white illumination also catches the top and
+            // bottom edges of the search pill, following the insertion caret.
+            float edgeRadius=getResources().getDisplayMetrics().density*46f;
+            paint.setShader(new android.graphics.LinearGradient(
+                x-edgeRadius,0,x+edgeRadius,0,
+                new int[]{0x00ffffff,0xaaffffff,0x00ffffff},
+                null,android.graphics.Shader.TileMode.CLAMP));
+            canvas.drawRoundRect(x-edgeRadius,0,x+edgeRadius,
+                getResources().getDisplayMetrics().density*2f,
+                getResources().getDisplayMetrics().density,
+                getResources().getDisplayMetrics().density,paint);
+            canvas.drawRoundRect(x-edgeRadius,getHeight()-getResources().getDisplayMetrics().density*2f,
+                x+edgeRadius,getHeight(),getResources().getDisplayMetrics().density,
+                getResources().getDisplayMetrics().density,paint);
+            paint.setShader(null);
+            paint.setColor(android.graphics.Color.argb((int)(82*pulse),255,255,255));
             canvas.drawRoundRect(x-3*getResources().getDisplayMetrics().density,y-20*getResources().getDisplayMetrics().density,
                 x+3*getResources().getDisplayMetrics().density,y+20*getResources().getDisplayMetrics().density,
                 7*getResources().getDisplayMetrics().density,7*getResources().getDisplayMetrics().density,paint);
