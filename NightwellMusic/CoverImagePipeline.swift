@@ -136,7 +136,7 @@ actor CoverImagePipeline {
         if let result {
             compressed.setObject(result as NSData, forKey: key as NSString, cost: result.count)
             retryAfter.removeValue(forKey: key)
-        } else {
+        } else if !Task.isCancelled {
             markUnavailable(key)
         }
         return result
