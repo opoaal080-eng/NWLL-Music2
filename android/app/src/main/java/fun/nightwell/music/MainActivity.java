@@ -2002,7 +2002,11 @@ public final class MainActivity extends Activity {
                 largeTitleParams.bottomMargin=dp(isLandscapeLayout()?7:13);
                 entries.addView(collectionLargeTitle,largeTitleParams);
             }
-            scroll.setOnScrollChangeListener((v,x,y,oldX,oldY)->collectionOffsetChanged(y));
+            final boolean[] restoringPlaylist={savedPlaylistY>0};
+            scroll.setOnScrollChangeListener((v,x,y,oldX,oldY)->{
+                if(playlistCollectionScroll==scroll&&!restoringPlaylist[0])
+                    collectionOffsetChanged(y);
+            });
             addSpacedAction(entries,sheetAction("Умные плейлисты · Premium",()->feature("smart")),8);
             addSpacedAction(entries,sheetAction("Подборки дня · обновляются ежедневно",this::dailyPublicPlaylists),8);
             TextView newPlaylist=sheetAction("＋  Создать плейлист",()->input("Новый плейлист",
@@ -2041,6 +2045,8 @@ public final class MainActivity extends Activity {
                 restore.post(()->{
                     if(playlistCollectionScroll==restore&&"Плейлисты".equals(screen))
                         restore.scrollTo(0,position);
+                    restoringPlaylist[0]=false;
+                    collectionOffsetChanged(restore.getScrollY());
                 });
             }
             return;
@@ -2096,10 +2102,13 @@ public final class MainActivity extends Activity {
         adapter=new TrackAdapter();list.setAdapter(adapter);
         body.addView(list,new LinearLayout.LayoutParams(-1,0,1));
         if(isCollectionScreen()){
+            final boolean[] restoringRows={
+                savedCollectionFirst>0||savedCollectionTop!=0};
             list.setOnScrollListener(new android.widget.AbsListView.OnScrollListener(){
                 @Override public void onScrollStateChanged(android.widget.AbsListView view,int scrollState){}
                 @Override public void onScroll(android.widget.AbsListView view,int firstVisibleItem,
                                               int visibleItemCount,int totalItemCount){
+                    if(list!=view||restoringRows[0])return;
                     View first=view.getChildAt(0);
                     int offset=firstVisibleItem>0?dp(40):
                         (first==null?0:Math.max(0,view.getPaddingTop()-first.getTop()));
@@ -2110,8 +2119,17 @@ public final class MainActivity extends Activity {
                 final ListView restore=list;
                 final int position=savedCollectionFirst, top=savedCollectionTop;
                 restore.post(()->{
-                    if(list==restore&&isCollectionScreen())
+                    if(list==restore&&isCollectionScreen()){
                         restore.setSelectionFromTop(position,top);
+                        restore.post(()->{
+                            if(list!=restore)return;
+                            restoringRows[0]=false;
+                            View first=restore.getChildAt(0);
+                            int offset=restore.getFirstVisiblePosition()>0?dp(40):
+                                (first==null?0:Math.max(0,restore.getPaddingTop()-first.getTop()));
+                            collectionOffsetChanged(offset);
+                        });
+                    }else restoringRows[0]=false;
                 });
             }
         }
