@@ -1137,6 +1137,56 @@ struct NativeRoot: View {
                         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                // Instant local suggestions from already available search results.
+                // Never make a network request merely to populate these pills.
+                let normalizedQuery = store.query.trimmingCharacters(in: .whitespacesAndNewlines)
+                let searchCompletions: [String] = {
+                    guard normalizedQuery.count >= 2 else { return [] }
+                    var seen = Set<String>()
+                    var values: [String] = []
+                    for track in store.results.prefix(80) {
+                        for candidate in [track.title, track.artist] {
+                            let candidate = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+                            guard !candidate.isEmpty,
+                                  candidate.localizedCaseInsensitiveContains(normalizedQuery),
+                                  candidate.localizedCaseInsensitiveCompare(normalizedQuery) != .orderedSame
+                            else { continue }
+                            if seen.insert(candidate.folding(options: [.caseInsensitive, .diacriticInsensitive],
+                                                             locale: .current)).inserted {
+                                values.append(candidate)
+                            }
+                            if values.count == 3 { return values }
+                        }
+                    }
+                    return values
+                }()
+                if !searchCompletions.isEmpty {
+                    VStack(alignment: .leading, spacing: 5) {
+                        ForEach(searchCompletions, id: \.self) { completion in
+                            Button {
+                                store.query = completion
+                                store.scheduleSearch()
+                            } label: {
+                                HStack(spacing: 10) {
+                                    Image(systemName: "magnifyingglass")
+                                        .font(.system(size: 13, weight: .medium))
+                                        .foregroundStyle(.white.opacity(0.65))
+                                    Text(completion)
+                                        .font(.system(size: 14))
+                                        .lineLimit(1)
+                                    Spacer(minLength: 0)
+                                    Image(systemName: "arrow.up.left")
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(.white.opacity(0.45))
+                                }
+                                .padding(.horizontal, 12)
+                                .frame(height: 36)
+                                .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 12))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
                 if !store.searchMessage.isEmpty { Text(store.searchMessage).font(.caption).foregroundStyle(.secondary) }
                 // Prepared off the UI thread. Never rescan the whole catalogue while typing.
                 let combinedArtists = store.searchArtistSuggestions
