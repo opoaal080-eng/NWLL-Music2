@@ -147,13 +147,14 @@ final class NativePlayer {
         error = ""
         beginBackgroundHandoff()
         pendingNextTask = Task { @MainActor [weak self] in
+            guard let self else { return }
             do {
                 // Read a small amount of stream data before handoff, not
                 // just an AVURLAsset metadata flag. Run both checks together.
                 async let playable = asset.load(.isPlayable)
                 async let responding = self.hasFirstStreamBytes(url, origin: origin)
                 let (isPlayable, hasBytes) = try await (playable, responding)
-                guard let self, !Task.isCancelled,
+                guard !Task.isCancelled,
                       self.pendingNextGeneration == ticket,
                       self.pendingNextIndex == destination else { return }
                 if isPlayable && hasBytes {
@@ -162,7 +163,7 @@ final class NativePlayer {
                     self.handleNextFailure(ticket: ticket, reason: "Не удалось получить аудиоданные следующего трека.")
                 }
             } catch {
-                guard let self, !Task.isCancelled else { return }
+                guard !Task.isCancelled else { return }
                 self.handleNextFailure(ticket: ticket, reason: "Следующий трек не загрузился.")
             }
         }
