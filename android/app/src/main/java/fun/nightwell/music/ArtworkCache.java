@@ -74,6 +74,14 @@ final class ArtworkCache {
             });
         });
     }
+    /** Deliver decoded cover pixels without ever displaying the cover image. */
+    void loadPalette(String origin,String path,java.util.function.Consumer<Bitmap> callback){
+        if(!valid(path)){callback.accept(null);return;}
+        String identity=key(origin,path);
+        Bitmap cached=memory.get(identity);
+        if(cached!=null){callback.accept(cached);return;}
+        request(origin,path).thenAccept(callback);
+    }
     void prefetch(String origin, String path) {
         if (valid(path) && memory.get(key(origin,path)) == null) request(origin,path);
     }
