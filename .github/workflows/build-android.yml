@@ -8,7 +8,7 @@ on:
       - 'scripts/validate-app-sources.py'
       - '.github/workflows/build-android.yml'
   push:
-    branches: [main, feature/windows-mobile-parity-20261106, feature/android-ios-scroll-parity-20261111, fix/clip-unlimited-device-cache-20261111, feature/android-ios-interface-parity-20261111, fix/android-ios-visual-parity-player-20261111, fix/android-covers-all-libraries-20261112]
+    branches: [main, feature/windows-mobile-parity-20261106, feature/android-ios-scroll-parity-20261111, fix/clip-unlimited-device-cache-20261111, feature/android-ios-interface-parity-20261111, fix/android-ios-visual-parity-player-20261111, fix/android-covers-all-libraries-20261112, feature/android-responsive-player-cover-theme-20261112]
     paths:
       - 'android/**'
       - 'scripts/validate-app-sources.py'
