@@ -37,7 +37,7 @@ final class NightwellArtworkPalette: ObservableObject {
     @Published private(set) var colors: NightwellArtworkColors
     private var previous: NightwellArtworkColors
     private var transitionBegan: TimeInterval = 0
-    private var requestedTrackID = ""
+    private var requestedTrackKey = ""
     private static let cacheKey = "nw-last-artwork-palette-v1"
 
     init() {
@@ -56,21 +56,38 @@ final class NightwellArtworkPalette: ObservableObject {
     }
 
     func refresh(track: Track?, origin: URL) async {
-        guard let track else { return } // Retain the last cover while no song is selected.
-        guard track.id != requestedTrackID else { return }
-        requestedTrackID = track.id
-        guard let url = CoverImagePipeline.coverURL(for: track, origin: origin) else { return }
-        guard let artwork = await CoverImagePipeline.shared.image(for: url, maxPixel: 192),
-              !Task.isCancelled, requestedTrackID == track.id else { return }
-        let palette = Self.extract(from: artwork) ?? .fallback
-        guard !Task.isCancelled, requestedTrackID == track.id else { return }
-        let now = ProcessInfo.processInfo.systemUptime
-        previous = at(now)
-        transitionBegan = now
-        colors = palette
-        if let data = try? JSONEncoder().encode(palette) {
-            UserDefaults.standard.set(data, forKey: Self.cacheKey)
+        guard let track else { return } // Keep last palette with no active track.
+        let key = origin.absoluteString + "|" + track.id
+        guard key != requestedTrackKey else { return }
+        requestedTrackKey = key
+        guard let url = CoverImagePipeline.coverURL(for: track, origin: origin) else {
+            requestedTrackKey = ""
+            return
         }
+        // A transient CDN failure must not permanently lock this track to
+        // the previous palette. Retry only the currently selected artwork.
+        for attempt in 0..<3 {
+            let artwork = await CoverImagePipeline.shared.image(
+                for: url, maxPixel: 192, retryFailure: attempt > 0)
+            guard !Task.isCancelled, requestedTrackKey == key else { return }
+            if let artwork {
+                let palette = Self.extract(from: artwork) ?? .fallback
+                guard !Task.isCancelled, requestedTrackKey == key else { return }
+                let now = ProcessInfo.processInfo.systemUptime
+                previous = at(now)
+                transitionBegan = now
+                colors = palette
+                if let data = try? JSONEncoder().encode(palette) {
+                    UserDefaults.standard.set(data, forKey: Self.cacheKey)
+                }
+                return
+            }
+            if attempt < 2 {
+                do { try await Task.sleep(nanoseconds: attempt == 0 ? 1_750_000_000 : 3_500_000_000) }
+                catch { return }
+            }
+        }
+        if requestedTrackKey == key { requestedTrackKey = "" }
     }
 
     // A 72x72 thumbnail keeps subtle cover hues without decoding full-size art.
