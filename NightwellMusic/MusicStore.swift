@@ -1477,14 +1477,17 @@ private struct AudioQualityDecision: Decodable {
         Task { await download(Array(missing.prefix(500))) }
     }
     private var likesInFlight: Set<String> = []
+    private var likeRevision = 0
     func like(_ track: Track) async {
         guard account != nil else { authPresented = true; return }
         guard likesInFlight.insert(track.id).inserted else { return }
         defer { likesInFlight.remove(track.id) }
+        likeRevision += 1
+        let revision = likeRevision
         let owner = account?.id
         let desired = !likes.contains(track.id)
-        let beforeOrder = favoriteOrder
-        let beforeDetails = favoriteTrackDetails
+        let previousPosition = favoriteOrder.firstIndex(of: track.id)
+        let previousDetails = favoriteTrackDetails.first { $0.id == track.id }
         if desired {
             rememberFavoriteTrack(track)
             likes.insert(track.id)
@@ -1501,33 +1504,61 @@ private struct AudioQualityDecision: Decodable {
         saveSessionSnapshot()
         var failure: Error?
         do {
-            // The HTTP operation may succeed even if its body is empty or uses an
-            // unexpected JSON shape. Confirm the actual server-side state below.
-            let _: OK = try await api.request("/api/likes/" + track.id, method: desired ? "POST" : "DELETE")
+            // An empty successful response is not proof that the server
+            // rejected the mutation. Canonical GET determines the outcome.
+            let _: OK = try await api.request("/api/likes/" + track.id,
+                                              method: desired ? "POST" : "DELETE")
         } catch {
             failure = error
         }
         guard account?.id == owner else { return }
-        // Read back the canonical set; never undo a successful save merely
-        // because decoding the POST/DELETE response failed.
         do {
             let response: LikeResult = try await api.request("/api/likes")
             guard account?.id == owner else { return }
-            likes = Set(response.ids)
-            reconcileFavoriteOrder(response.ids,
-                                   newestID: desired && likes.contains(track.id) ? track.id : nil)
+            let canonical = Set(response.ids)
+            if revision == likeRevision {
+                var merged = canonical
+                // Other heart taps may still be in flight. Preserve only
+                // their optimistic states until each has its own readback.
+                for id in likesInFlight where id != track.id {
+                    if likes.contains(id) { merged.insert(id) }
+                    else { merged.remove(id) }
+                }
+                likes = merged
+            } else {
+                // A late response for an older tap must not revert a newer tap.
+                if canonical.contains(track.id) { likes.insert(track.id) }
+                else { likes.remove(track.id) }
+            }
+            reconcileFavoriteOrder(Array(likes),
+                                   newestID: desired && canonical.contains(track.id)
+                                       ? track.id : nil)
             saveSessionSnapshot()
-            if likes.contains(track.id) == desired {
+            if canonical.contains(track.id) == desired {
                 if desired { syncFavoriteDownloadsIfEnabled(newest: track) }
                 return
             }
-            self.error = failure?.localizedDescription ?? "Не удалось обновить избранное. Попробуйте ещё раз."
+            self.error = failure?.localizedDescription ??
+                "Не удалось обновить избранное. Попробуйте ещё раз."
         } catch {
             guard account?.id == owner else { return }
-            // Without confirmation we must not claim the request succeeded.
-            if desired { likes.remove(track.id) } else { likes.insert(track.id) }
-            favoriteOrder = beforeOrder
-            favoriteTrackDetails = beforeDetails
+            // Roll back this track only. Replacing the full like/details
+            // snapshots would erase another simultaneous heart tap.
+            if desired {
+                likes.remove(track.id)
+                favoriteOrder.removeAll { $0 == track.id }
+                favoriteTrackDetails.removeAll { $0.id == track.id }
+            } else {
+                likes.insert(track.id)
+                favoriteOrder.removeAll { $0 == track.id }
+                favoriteOrder.insert(track.id,
+                    at: min(previousPosition ?? favoriteOrder.count,
+                            favoriteOrder.count))
+                if let previousDetails {
+                    favoriteTrackDetails.removeAll { $0.id == track.id }
+                    favoriteTrackDetails.insert(previousDetails, at: 0)
+                }
+            }
             persistFavoriteTrackDetails()
             saveFavoriteOrder()
             saveSessionSnapshot()
