@@ -41,16 +41,17 @@ import Network
         let nextID = value["id"] as? String ?? ""
         let rawDuration = value["duration"] as? Double ?? 0
         if rawDuration.isFinite && rawDuration > 0.5 {
-            duration = max(1, min(rawDuration, 604800))
+            let updated = max(1, min(rawDuration, 604800))
+            if abs(duration - updated) > 0.01 { duration = updated }
         } else if nextID != id {
-            // Keep a known duration for the SAME track when AVPlayer briefly
-            // reports an indefinite time during pause or buffering.
-            duration = 1
+            // Keep the known duration for the same song during buffering.
+            if duration != 1 { duration = 1 }
         }
         let rawPosition = value["position"] as? Double ?? 0
-        position = rawPosition.isFinite
+        let newPosition = rawPosition.isFinite
             ? min(duration, max(0, rawPosition))
             : (nextID == id ? position : 0)
+        if abs(position - newPosition) > 0.04 || nextID != id { position = newPosition }
         let next = value["playing"] as? Bool ?? false
         if playing != next { playing = next; status.playing = next }
         if id != nextID { id = nextID; status.id = nextID }
@@ -69,7 +70,8 @@ import Network
         let nextBuffered = rawBuffered.isFinite ? min(1, max(0, rawBuffered)) : 0
         if preparing != nextPreparing { preparing = nextPreparing }
         if abs(bufferFraction - nextBuffered) > 0.002 { bufferFraction = nextBuffered }
-        failure = value["error"] as? String ?? ""
+        let nextFailure = value["error"] as? String ?? ""
+        if failure != nextFailure { failure = nextFailure }
         let revision = value["queueRevision"] as? Int ?? 0
         if revision != queueRevision {
             queueRevision = revision
@@ -1726,24 +1728,38 @@ private struct AudioQualityDecision: Decodable {
         } catch { self.error = error.localizedDescription }
     }
     func importFiles(_ urls: [URL]) async {
+        let server = origin
         for url in urls {
-            let access = url.startAccessingSecurityScopedResource(); defer { if access { url.stopAccessingSecurityScopedResource() } }
+            let access = url.startAccessingSecurityScopedResource()
+            defer { if access { url.stopAccessingSecurityScopedResource() } }
             do {
                 let asset = AVURLAsset(url: url)
-                guard let exporter = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else { throw APIError(message: "Не удалось прочитать аудиофайл") }
-                let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".m4a")
+                guard let exporter = AVAssetExportSession(
+                    asset: asset, presetName: AVAssetExportPresetAppleM4A)
+                else { throw APIError(message: "Не удалось прочитать аудиофайл") }
+                let temp = FileManager.default.temporaryDirectory
+                    .appendingPathComponent(UUID().uuidString + ".m4a")
                 defer { try? FileManager.default.removeItem(at: temp) }
-                exporter.outputURL = temp; exporter.outputFileType = .m4a
-                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in exporter.exportAsynchronously { continuation.resume() } }
-                guard exporter.status == .completed else { throw exporter.error ?? APIError(message: "Неподдерживаемый формат") }
+                exporter.outputURL = temp
+                exporter.outputFileType = .m4a
+                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                    exporter.exportAsynchronously { continuation.resume() }
+                }
+                guard exporter.status == .completed else {
+                    throw exporter.error ?? APIError(message: "Неподдерживаемый формат")
+                }
                 let duration = try await asset.load(.duration).seconds
-                let bytes = try Data(contentsOf: temp)
                 let id = "local_" + UUID().uuidString.replacingOccurrences(of: "-", with: "")
-                let meta: [String: Any] = ["id": id, "title": url.deletingPathExtension().lastPathComponent, "artist": "На этом устройстве", "duration": duration.isFinite ? duration : 0]
-                _ = try OfflineStore.operation(["op": "save", "account": "device", "id": id, "audio": bytes.base64EncodedString(), "track": meta], origin: origin)
+                let title = url.deletingPathExtension().lastPathComponent
+                // Avoid a full-file Data/Base64 allocation on the main actor.
+                try await Task.detached(priority: .utility) {
+                    try OfflineStore.importLocalFile(
+                        temp, id: id, title: title, duration: duration, origin: server)
+                }.value
             } catch { self.error = error.localizedDescription }
         }
-        await refreshOffline(); screen = .offline
+        await refreshOffline()
+        screen = .offline
     }
     func changeServer(_ value: String) async {
         guard let url = ServerAddress.validated(value) else { error = "Нужен HTTPS-адрес без пути и параметров"; return }
