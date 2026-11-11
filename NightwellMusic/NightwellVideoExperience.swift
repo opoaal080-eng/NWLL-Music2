@@ -150,6 +150,24 @@ final class NightwellClipAvailabilityCache {
         UserDefaults.standard.set(data, forKey: Self.storageKey)
     }
 
+    // Reading the cache never consumes YouTube API quota. The client calls
+    // lookup only on a user's explicit "Найти клип" action.
+    func cachedClip(track: Track, origin: URL) -> URL? {
+        if let direct = NightwellYouTubeLink.videoURL(from: track.source_url) {
+            return direct
+        }
+        let key = origin.absoluteString + "|" +
+            track.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() + "|" +
+            track.artist.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if let saved = verified[key], saved.validUntil > Date() {
+            return NightwellYouTubeLink.videoURL(from: saved.videoID)
+        }
+        if let cached = entries[key], cached.validUntil > Date() {
+            return cached.url
+        }
+        return nil
+    }
+
     func lookup(track: Track, api: MusicAPI, origin: URL, accountID: String?,
                 forceRefresh: Bool = false) async -> URL? {
         if let direct = NightwellYouTubeLink.videoURL(from: track.source_url) {
