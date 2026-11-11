@@ -305,6 +305,10 @@ private struct AudioQualityDecision: Decodable {
     let clock = PlaybackClock()
     let lyrics = NativeLyrics()
     private var lastSaved = Date.distantPast
+    private var lastFullSave = Date.distantPast
+    private var lastFullSaveRevision = -1
+    private var lastFullSaveScope = ""
+    private var lastFullSaveID = ""
     private var listeningID = ""
     private var listeningArtist = "", listeningSession = "", listeningSeconds = 0.0
     private var lastTick = ProcessInfo.processInfo.systemUptime, lastReport = Date.distantPast
@@ -770,12 +774,37 @@ private struct AudioQualityDecision: Decodable {
         else { UserDefaults.standard.removeObject(forKey: "native.account") }
     }
     func savePlayback(force: Bool = false) {
-        guard force || Date().timeIntervalSince(lastSaved) >= 5, let current = clock.current else { return }
-        lastSaved = Date()
+        let now = Date()
+        guard force || now.timeIntervalSince(lastSaved) >= 5,
+              let current = clock.current else { return }
+        lastSaved = now
+        let origin = origin, owner = account?.id ?? "device"
+        let scope = origin.absoluteString + "|" + owner
+        let revision = NativePlayer.shared.queueRevision
+        // Save large queue snapshots only when the queue/track changes or
+        // once a minute; a lightweight checkpoint tracks position every 5s.
+        let mustSaveQueue = force || revision != lastFullSaveRevision ||
+            current.id != lastFullSaveID || scope != lastFullSaveScope ||
+            now.timeIntervalSince(lastFullSave) >= 60
+        if !mustSaveQueue {
+            let id = current.id, position = clock.position
+            Task.detached(priority: .utility) {
+                PlaybackMemory.savePosition(id: id, position: position,
+                                            origin: origin, account: owner)
+            }
+            return
+        }
+        lastFullSave = now
+        lastFullSaveRevision = revision
+        lastFullSaveScope = scope
+        lastFullSaveID = current.id
         let state = NativePlayer.shared.snapshot(includeQueue: false)
-        let memory = PlaybackMemory(id: current.id, tracks: Array(clock.queue.prefix(1000)), position: clock.position, repeatMode: state["repeat"] as? Int ?? 0, shuffle: state["shuffle"] as? Bool ?? false, wave: state["wave"] as? Bool ?? false)
-        let origin = origin, account = account?.id ?? "device"
-        if force { memory.save(origin, account) } else { Task.detached(priority: .utility) { memory.save(origin, account) } }
+        let memory = PlaybackMemory(id: current.id,
+            tracks: Array(clock.queue.prefix(1000)),
+            position: clock.position, repeatMode: state["repeat"] as? Int ?? 0,
+            shuffle: state["shuffle"] as? Bool ?? false, wave: state["wave"] as? Bool ?? false)
+        if force { memory.save(origin, owner) }
+        else { Task.detached(priority: .utility) { memory.save(origin, owner) } }
     }
     private func restorePlayback(offlineOnly: Bool = false) {
         guard clock.current == nil, let memory = PlaybackMemory.read(origin, account?.id ?? "device") else { return }
