@@ -2,10 +2,9 @@ import asyncio
 import os
 import tempfile
 import unittest
-from datetime import datetime, timezone
 from unittest import mock
 
-from music_videos import normalized, choose_video, ClipLookup, MAX_SEARCHES_PER_DAY
+from music_videos import normalized, choose_video, ClipLookup
 
 
 class ClipTests(unittest.TestCase):
@@ -56,18 +55,18 @@ class ClipTests(unittest.TestCase):
                                        side_effect=AssertionError("must use verified cache")):
                     self.assertEqual(asyncio.run(next_process.lookup("Song", "Artist")), result)
 
-    def test_quota_does_not_override_verified_clip(self):
+    def test_no_application_side_search_limit(self):
         with tempfile.TemporaryDirectory() as directory:
             with mock.patch.dict(os.environ, {
                     "NW_YOUTUBE_API_KEY": "test-key",
                     "NW_YOUTUBE_CACHE_PATH": os.path.join(directory, "clips.json")}):
                 finder = ClipLookup()
-                finder.today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-                finder.count = MAX_SEARCHES_PER_DAY
-                result = asyncio.run(finder.lookup("Unknown", "Artist"))
-                self.assertFalse(result["available"])
-                self.assertIn("Лимит", result["message"])
-                self.assertNotIn("unknown|artist", finder.cache)
+                result = {"available": True, "video_id": "AbCDef12345"}
+                with mock.patch.object(finder, "search_sync", return_value=result) as search:
+                    for i in range(95):
+                        found = asyncio.run(finder.lookup(f"Song {i}", "Artist"))
+                        self.assertTrue(found["available"])
+                    self.assertEqual(search.call_count, 95)
 
 
 if __name__ == "__main__":
