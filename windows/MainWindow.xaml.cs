@@ -605,7 +605,7 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
     if((t.LocalPath!=null&&File.Exists(t.LocalPath)&&ValidAudio(t.LocalPath))||
        ValidAudio(target))return 1;
     bool ready=false;
-    for(int attempt=0;attempt<40;attempt++){
+    for(int attempt=0;attempt<24;attempt++){
      lifetime.Token.ThrowIfCancellationRequested();
      var preparation=await api.Request("api/offline-export/"+t.id,cancellation:lifetime.Token);
      string state=preparation.TryGetProperty("status",out var status)
@@ -613,12 +613,14 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
      if(state=="ready"){ready=true;break;}
      if(state=="error")throw new IOException(
        preparation.TryGetProperty("error",out var problem)?problem.GetString():"Не удалось подготовить трек");
-     await Task.Delay(2000,lifetime.Token);
+     await Task.Delay(1500,lifetime.Token);
     }
     if(!ready)throw new IOException("Подготовка аудио заняла слишком много времени");
+    using var downloadDeadline=CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+    downloadDeadline.CancelAfter(TimeSpan.FromMinutes(2));
     using var response=await api.HTTP.GetAsync("api/offline-export/"+t.id+
       "?download=true",System.Net.Http.HttpCompletionOption.ResponseHeadersRead,
-      lifetime.Token);
+      downloadDeadline.Token);
     response.EnsureSuccessStatusCode();
     if(response.Content.Headers.ContentType?.MediaType?.Contains("json")==true)
      throw new IOException("Аудио ещё не готово");
