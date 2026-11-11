@@ -4,7 +4,9 @@ import AVFoundation
 
 /// Device-only files, separated by server and account. No arbitrary file paths.
 enum OfflineStore {
-    static let limit = 32 * 1024 * 1024
+    // Long mixes and lossless songs may exceed 32 MB. Copy files on disk
+    // rather than bringing whole audio files into Swift process memory.
+    static let limit = 128 * 1024 * 1024
     private static let lock = NSRecursiveLock()
     // Decode only once per unchanged file. A saved title/cover is not proof
     // that the server returned a complete and decodable audio recording.
@@ -105,6 +107,16 @@ enum OfflineStore {
         try metadata.write(to: dir.appendingPathComponent(track.id + ".json"), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
         validated.removeValue(forKey: target.path)
     }
+    static func importLocalFile(_ file: URL, id: String, title: String,
+                                duration: Double, origin: URL) throws {
+        guard valid(id) else { throw URLError(.badURL) }
+        let track = Track(id: id, title: title, artist: "На этом устройстве",
+                          duration: duration.isFinite ? max(0, duration) : 0,
+                          _offline: true, _offline_account: "device")
+        // Uses an on-disk copy and validation. No Data(contentsOf:) or Base64.
+        try saveDownloadedFile(file, track: track, origin: origin, account: "device")
+    }
+
     static func operation(_ body: [String: Any], origin: URL) throws -> [String: Any] {
         lock.lock(); defer { lock.unlock() }
         guard let op = body["op"] as? String else { throw URLError(.badURL) }
