@@ -643,9 +643,8 @@ struct FullPlayer: View {
                 availableClipURL = nil
                 availableClipTrackID = ""
                 guard let selected = clock.displayCurrent else { return }
-                let result = await NightwellClipAvailabilityCache.shared.lookup(
-                    track: selected, api: store.api, origin: store.origin,
-                    accountID: store.account?.id)
+                let result = NightwellClipAvailabilityCache.shared.cachedClip(
+                    track: selected, origin: store.origin)
                 guard !Task.isCancelled, clock.displayCurrent?.id == selected.id else { return }
                 availableClipTrackID = selected.id
                 availableClipURL = result
