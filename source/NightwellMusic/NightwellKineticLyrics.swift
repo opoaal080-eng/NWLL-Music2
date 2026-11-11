@@ -108,6 +108,12 @@ struct NightwellQueueDeck: View {
     let compact: Bool
     let availableHeight: CGFloat
 
+    // Reserve space for the header, controls and the pinned compact hint.
+    // A medium sheet must never crop the bottom of the deck or its footer.
+    private var deckHeight: CGFloat {
+        compact ? min(240, max(156, availableHeight - 214)) : 354
+    }
+
     // -1 means follow the first upcoming track until the user browses.
     @State private var position = -1
     @State private var notice: String?
@@ -158,8 +164,14 @@ struct NightwellQueueDeck: View {
     }
 
     private func playNow(at index: Int, track: Track) {
-        NativePlayer.shared.playQueueTrackNow(at: index)
-        feedback("Воспроизводим сейчас", for: track.id)
+        let accepted = NativePlayer.shared.playQueueTrackNow(trackID: track.id)
+        if accepted {
+            // Playback can still be buffering. Do not claim the song is
+            // already audible just because the tap gesture was recognized.
+            feedback("Запускаем выбранный трек", for: track.id)
+        } else {
+            feedback("Не удалось запустить трек", for: track.id, success: false)
+        }
     }
 
     private func queueNext(at index: Int, track: Track) {
@@ -175,10 +187,10 @@ struct NightwellQueueDeck: View {
     private func albumCard(
         _ track: Track, at absoluteIndex: Int, depth: Int, width: CGFloat
     ) -> some View {
-        let height = width * (compact ? 0.76 : 0.82)
+        let height = width * (compact ? 0.78 : 0.82)
         let selected = highlightedID == track.id
         return VStack(spacing: 0) {
-            Cover(track: track, origin: origin, pixelWidth: compact ? 440 : 680)
+            Cover(track: track, origin: origin, pixelWidth: compact ? 600 : 680)
                 .scaledToFill()
                 .frame(width: width, height: height)
                 .clipped()
@@ -194,16 +206,16 @@ struct NightwellQueueDeck: View {
                 }
             VStack(alignment: .leading, spacing: compact ? 2 : 5) {
                 Text(track.title)
-                    .font(.system(size: compact ? 13 : 16, weight: .semibold))
+                    .font(.system(size: compact ? 15 : 16, weight: .semibold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
                 Text(track.artist)
-                    .font(.system(size: compact ? 10 : 12, weight: .medium))
+                    .font(.system(size: compact ? 12 : 12, weight: .medium))
                     .foregroundStyle(Color.white.opacity(0.62))
                     .lineLimit(1)
             }
-            .frame(width: width - (compact ? 24 : 32), height: compact ? 48 : 74, alignment: .leading)
-            .padding(.horizontal, compact ? 12 : 16)
+            .frame(width: width - (compact ? 28 : 32), height: compact ? 58 : 74, alignment: .leading)
+            .padding(.horizontal, compact ? 14 : 16)
             .background(
                 LinearGradient(
                     colors: [Color(white: 0.075), Color(white: 0.022)],
@@ -211,7 +223,7 @@ struct NightwellQueueDeck: View {
                 )
             )
         }
-        .frame(width: width, height: height + (compact ? 48 : 74))
+        .frame(width: width, height: height + (compact ? 58 : 74))
         .background(Color(white: 0.04), in: RoundedRectangle(cornerRadius: compact ? 17 : 22))
         .clipShape(RoundedRectangle(cornerRadius: compact ? 17 : 22, style: .continuous))
         .overlay {
@@ -257,7 +269,8 @@ struct NightwellQueueDeck: View {
         VStack(spacing: 0) {
             GeometryReader { geometry in
                 let cardWidth = compact
-                    ? min(170, max(112, min(geometry.size.width - 66, (geometry.size.height - 60) / 0.76)))
+                    ? min(240, max(130, min(geometry.size.width - 50,
+                                            (geometry.size.height - 60) / 0.78)))
                     : min(max(190, geometry.size.width - 78), 310)
                 ZStack {
                     ForEach(Array(upcoming.reversed()), id: \.offset) { item in
@@ -269,7 +282,7 @@ struct NightwellQueueDeck: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(height: compact ? max(145, min(195, availableHeight * 0.445)) : 354)
+            .frame(height: deckHeight)
 
             if queue.count > 1 {
                 HStack(spacing: compact ? 12 : 20) {
@@ -310,15 +323,19 @@ struct NightwellQueueDeck: View {
                         .transition(.scale(scale: 0.92).combined(with: .opacity))
                 }
             }
-            .frame(height: compact ? 24 : 42)
+            .frame(height: compact ? 18 : 42)
 
-            Text(compact ? "Тап: играть · удержание: следующим\nСвайп: листать очередь" : "Тап: играть сейчас · удержание: следующая\nСвайп: листать всю очередь")
-                .font(.system(size: compact ? 9 : 11, weight: .medium))
-                .foregroundStyle(Color.white.opacity(0.53))
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 10)
+            // On medium detents the two-line hint lives outside the scroll
+            // viewport, so it remains fully visible even as cards are browsed.
+            if !compact {
+                Text("Тап: играть сейчас · удержание: следующая\nСвайп: листать всю очередь")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color.white.opacity(0.53))
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 10)
+            }
         }
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .contain)
