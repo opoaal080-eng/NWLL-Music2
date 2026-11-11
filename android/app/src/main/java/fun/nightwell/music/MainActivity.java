@@ -1028,6 +1028,9 @@ public final class MainActivity extends Activity {
     }
 
     void build(){
+        // Preserve the active collection scroll position on orientation changes.
+        if(root!=null&&isCollectionScreen()&&screen.equals(displayedCollectionScreen))
+            retainCollectionPosition();
         if(ribbon!=null)ribbon.running(false);full=false;lyricsOpen=false;seek=null;fullTime=null;fullPlay=null;fullLike=null;fullDislike=null;fullAudioOutput=null;
         // Render scenery and aura across the window, outside the padded controls.
         android.widget.FrameLayout scene=new android.widget.FrameLayout(this);
@@ -1039,7 +1042,8 @@ public final class MainActivity extends Activity {
         boolean landscape=isLandscapeLayout();
         root=column();root.setPadding(dp(landscape?10:16),dp(landscape?5:9),dp(landscape?10:16),0);
         collectionScrolled=false;
-        displayedCollectionScreen="";
+        displayedCollectionScreen=isCollectionScreen()&&screen.equals(savedCollectionScreen)
+            ?screen:"";
         headerWordmark=null;
         headerCollectionTitle=null;
         playlistCollectionScroll=null;
@@ -1833,8 +1837,12 @@ public final class MainActivity extends Activity {
         if(full)build();else showScreen();
     }
     void showScreen(){
-        if(screen.equals(displayedCollectionScreen))retainCollectionPosition();
-        else{
+        if(screen.equals(displayedCollectionScreen)){
+            // Do not overwrite a saved position with a detached pre-rotation view.
+            if(list!=null&&list.isAttachedToWindow()||
+               playlistCollectionScroll!=null&&playlistCollectionScroll.isAttachedToWindow())
+                retainCollectionPosition();
+        }else{
             savedCollectionScreen=screen;
             savedCollectionFirst=0;
             savedCollectionTop=0;
