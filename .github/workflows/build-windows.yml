@@ -15,6 +15,11 @@ on:
       - 'scripts/validate-app-sources.py'
       - 'scripts/build-provenance.py'
       - '.github/workflows/build-windows.yml'
+concurrency:
+  # Old PR checks must not consume emulator/macOS runners after source updates.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 jobs:
