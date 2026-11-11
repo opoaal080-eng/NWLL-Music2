@@ -52,7 +52,7 @@ actor CoverImagePipeline {
         configuration.httpCookieStorage = .shared
         configuration.httpShouldSetCookies = true
         configuration.httpMaximumConnectionsPerHost = 5
-        configuration.timeoutIntervalForRequest = 18
+        configuration.timeoutIntervalForRequest = 12
         session = URLSession(configuration: configuration)
     }
 
@@ -104,7 +104,7 @@ actor CoverImagePipeline {
             decoded.setObject(result, forKey: key as NSString,
                               cost: cgImage.bytesPerRow * cgImage.height)
             retryAfter.removeValue(forKey: url.absoluteString)
-        } else if result == nil {
+        } else if result == nil && !Task.isCancelled {
             markUnavailable(url.absoluteString)
         }
         return result
