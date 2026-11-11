@@ -93,13 +93,16 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
     private func submit(_ job: Job) {
         var request = URLRequest(url: job.origin.appendingPathComponent("api/offline-export/" + job.track.id))
         request.url = URL(string: "api/offline-export/" + job.track.id + "?download=true&wait=true", relativeTo: job.origin)
-        request.timeoutInterval = 300
+        request.timeoutInterval = 150
         if let cookies = HTTPCookieStorage.shared.cookies(for: job.origin), !cookies.isEmpty {
             for (key, value) in HTTPCookie.requestHeaderFields(with: cookies) { request.setValue(value, forHTTPHeaderField: key) }
         }
         let task = session.downloadTask(with: request)
         task.taskDescription = job.key
-        if job.attempts > 0 { task.earliestBeginDate = Date().addingTimeInterval(5) }
+        if job.attempts > 0 {
+            task.earliestBeginDate = Date().addingTimeInterval(
+                min(60, 5 + job.attempts * 4))
+        }
         task.resume()
     }
     private func persist() {
@@ -123,7 +126,7 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
         var waiting = http.statusCode == 503
         // Compatibility with servers that still return preparation JSON for download=true.
         if http.statusCode == 200, size < 65536, let bytes = try? Data(contentsOf: location), let status = (try? JSONSerialization.jsonObject(with: bytes) as? [String: Any])?["status"] as? String { waiting = status == "loading" || status == "pending" }
-        if waiting && job.attempts < 30 {
+        if waiting && job.attempts < 16 {
             lock.lock(); job.attempts += 1; state.jobs[job.key] = job; persist(); submit(job); lock.unlock(); return
         }
         guard http.statusCode == 200, !waiting else { finish(downloadTask, success: false); return }
