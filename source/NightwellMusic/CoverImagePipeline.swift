@@ -25,7 +25,7 @@ actor CoverImagePipeline {
     }
 
     private func markUnavailable(_ url: String) {
-        retryAfter[url] = Date().addingTimeInterval(25)
+        retryAfter[url] = Date().addingTimeInterval(8)
         if retryAfter.count > 256 {
             let now = Date()
             retryAfter = retryAfter.filter { $0.value > now }
