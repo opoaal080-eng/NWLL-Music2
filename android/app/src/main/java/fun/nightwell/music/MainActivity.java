@@ -348,6 +348,8 @@ public final class MainActivity extends Activity {
     private ListView list;
     private TrackAdapter adapter;
     private RibbonView ribbon;
+    private ImageView coverBackdrop;
+    private View coverBackdropShade;
     private HomeSparklesView atmosphere;
     private Runnable pendingSearch;
     private Dialog navigationPopup;
@@ -1044,6 +1046,16 @@ public final class MainActivity extends Activity {
         // Render scenery and aura across the window, outside the padded controls.
         android.widget.FrameLayout scene=new android.widget.FrameLayout(this);
         scene.setBackground(new NativeSceneryDrawable(this));
+        coverBackdrop=new ImageView(this);
+        coverBackdrop.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        coverBackdrop.setAlpha(.85f);
+        if(Build.VERSION.SDK_INT>=31)
+            coverBackdrop.setRenderEffect(android.graphics.RenderEffect.createBlurEffect(
+                dp(42),dp(42),android.graphics.Shader.TileMode.CLAMP));
+        scene.addView(coverBackdrop,new FrameLayout.LayoutParams(-1,-1));
+        coverBackdropShade=new View(this);
+        coverBackdropShade.setBackgroundColor(0x9906070b);
+        scene.addView(coverBackdropShade,new FrameLayout.LayoutParams(-1,-1));
         atmosphere=new HomeSparklesView(this);scene.addView(atmosphere,new android.widget.FrameLayout.LayoutParams(-1,-1));
         ribbon=new RibbonView(this);ui.post(this::applyPremium);ribbon.meter(()->playback==null?0:playback.level());ribbon.bands(index->playback==null?0:playback.bandLevel(index));
         ribbon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
@@ -1128,10 +1140,10 @@ public final class MainActivity extends Activity {
         dockContainer.setClipToOutline(true);
         dockContainer.addView(dock,new FrameLayout.LayoutParams(-1,-2));
         LinearLayout.LayoutParams dockParams=new LinearLayout.LayoutParams(-1,-2);
-        dockParams.topMargin=dp(landscape?3:9);
+        dockParams.topMargin=dp(landscape?3:4);
         root.addView(dockContainer,dockParams);
         if(backgroundOnly)dockContainer.setVisibility(View.GONE);android.view.GestureDetector miniGestures=gestures(false);labels.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));dock.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));
-        showScreen();updatePlayback();loadMiniCover(current());
+        showScreen();updatePlayback();loadMiniCover(current());updateCoverBackdrop();
     }
     // Audio routing is controlled by Android. Report the current media route without
     // changing the communication device (which would affect calls instead of music).
@@ -1235,7 +1247,7 @@ public final class MainActivity extends Activity {
             getResources().getDisplayMetrics().widthPixels-dp(isLandscapeLayout()?28:16));
         final int maxHeight=(int)(getResources().getDisplayMetrics().heightPixels*
             (isLandscapeLayout()?.94f:.90f));
-        final int initialHeight=Math.min(dp(430),maxHeight);
+        final int initialHeight=Math.min(dp(462),maxHeight);
         Dialog popup=new Dialog(this);
         popup.setContentView(shell);
         navigationPopup=popup;
@@ -1900,6 +1912,7 @@ public final class MainActivity extends Activity {
             else headerCollectionTitle.setText(screen);
         }
         if(atmosphere!=null)atmosphere.setVisibility(screen.equals("Главная")?View.VISIBLE:View.GONE);
+        updateCoverBackdrop();
         if(android.animation.ValueAnimator.areAnimatorsEnabled()){body.setAlpha(.5f);body.animate().alpha(1).setDuration(180);}
         if(ribbon!=null){ribbon.running(false);ribbon.setVisibility(View.GONE);}body.removeAllViews();list=null;search=null;artistStrip=null;adapter=null;favoriteCount=null;
         if(!screen.equals("Главная")){
@@ -1982,7 +1995,7 @@ public final class MainActivity extends Activity {
         }
         if(screen.equals("Поиск")){
             FrameLayout searchBox=new FrameLayout(this);
-            searchBox.setBackground(touchSurface(0xff202228,18));
+            searchBox.setBackground(touchSurface(0xff202228,14));
             searchBox.setClipToOutline(true);
             WhiteSearchCaretGlow glow=new WhiteSearchCaretGlow(this);
             searchBox.addView(glow,new FrameLayout.LayoutParams(-1,-1));
@@ -1990,13 +2003,13 @@ public final class MainActivity extends Activity {
             search=entry;
             search.setTextColor(Color.WHITE);
             search.setSingleLine(true);
-            search.setTextSize(16);
+            search.setTextSize(15);
             search.setHintTextColor(0xff999ca8);
-            search.setPadding(dp(14),dp(11),dp(14),dp(11));
+            search.setPadding(dp(14),dp(7),dp(14),dp(7));
             search.setBackgroundColor(Color.TRANSPARENT);
-            search.setHint("Трек или исполнитель");
+            search.setHint("Поиск треков, артистов и плейлистов");
             search.setSelectAllOnFocus(false);
-            searchBox.addView(search,new FrameLayout.LayoutParams(-1,-2));
+            searchBox.addView(search,new FrameLayout.LayoutParams(-1,dp(42)));
             LinearLayout.LayoutParams searchParams=new LinearLayout.LayoutParams(-1,-2);
             searchParams.bottomMargin=dp(11);
             body.addView(searchBox,searchParams);
@@ -3283,7 +3296,7 @@ public final class MainActivity extends Activity {
     JSONObject current(){for(int i=0;i<queue.length();i++)if(queue.optJSONObject(i).optString("id").equals(currentID))return queue.optJSONObject(i);return null;}
     String iconLabel(String icon){switch(icon){case "⌕":return "Поиск музыки";case "☰":return "Открыть меню";case "⋯":return "Действия с треком";case "⌄":return "Свернуть плеер";case "×":return "Закрыть";case "|‹":return "Предыдущий трек";case "›|":return "Следующий трек";case "♡":case "♥":return "Избранное";case "⇄":return "Перемешать";case "↻":return "Повтор";default:return "Воспроизведение";}}
     void openPlayer(){
-        JSONObject track=current();if(track==null)return;full=true;
+        JSONObject track=current();if(track==null)return;full=true;updateCoverBackdrop();
         if(landscapeRail!=null)landscapeRail.setVisibility(View.GONE);if(atmosphere!=null)atmosphere.setVisibility(View.GONE);if(ribbon!=null){ribbon.running(false);ribbon.setVisibility(View.GONE);}dock.setVisibility(View.GONE);headerHost.setVisibility(View.GONE);body.removeAllViews();
         LinearLayout top=row();
         TextView close=iconButton("⌄",()->{
@@ -3435,6 +3448,18 @@ public final class MainActivity extends Activity {
                 .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
         }
         updatePlayback();
+    }
+    void updateCoverBackdrop(){
+        if(coverBackdrop==null)return;
+        boolean visibleCover=full||"Главная".equals(screen);
+        coverBackdrop.setVisibility(visibleCover?View.VISIBLE:View.GONE);
+        if(coverBackdropShade!=null)
+            coverBackdropShade.setVisibility(visibleCover?View.VISIBLE:View.GONE);
+        if(!visibleCover)return;
+        JSONObject selected=current();
+        String url=selected==null?"":selected.optString("cover_url");
+        if(artworkCache!=null)artworkCache.load(coverBackdrop,origin,url);
+        else coverBackdrop.setImageDrawable(null);
     }
     void loadMiniCover(JSONObject track) {
         if (miniCover == null || artworkCache == null) return;
