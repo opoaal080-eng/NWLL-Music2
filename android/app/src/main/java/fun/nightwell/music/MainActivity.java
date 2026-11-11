@@ -364,8 +364,8 @@ public final class MainActivity extends Activity {
     private ListView list;
     private TrackAdapter adapter;
     private RibbonView ribbon;
-    private ImageView coverBackdrop;
-    private View coverBackdropShade;
+    private CoverPaletteView coverBackdrop;
+    private String coverPaletteKey="";
     private HomeSparklesView atmosphere;
     private Runnable pendingSearch;
     private Dialog navigationPopup;
@@ -1062,16 +1062,9 @@ public final class MainActivity extends Activity {
         // Render scenery and aura across the window, outside the padded controls.
         android.widget.FrameLayout scene=new android.widget.FrameLayout(this);
         scene.setBackground(new NativeSceneryDrawable(this));
-        coverBackdrop=new ImageView(this);
-        coverBackdrop.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        coverBackdrop.setAlpha(.85f);
-        if(Build.VERSION.SDK_INT>=31)
-            coverBackdrop.setRenderEffect(android.graphics.RenderEffect.createBlurEffect(
-                dp(42),dp(42),android.graphics.Shader.TileMode.CLAMP));
+        coverBackdrop=new CoverPaletteView(this);
         scene.addView(coverBackdrop,new FrameLayout.LayoutParams(-1,-1));
-        coverBackdropShade=new View(this);
-        coverBackdropShade.setBackgroundColor(0x9906070b);
-        scene.addView(coverBackdropShade,new FrameLayout.LayoutParams(-1,-1));
+        coverPaletteKey="";
         atmosphere=new HomeSparklesView(this);scene.addView(atmosphere,new android.widget.FrameLayout.LayoutParams(-1,-1));
         ribbon=new RibbonView(this);ui.post(this::applyPremium);ribbon.meter(()->playback==null?0:playback.level());ribbon.bands(index->playback==null?0:playback.bandLevel(index));
         ribbon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
@@ -1107,7 +1100,19 @@ public final class MainActivity extends Activity {
         compactHandoff.setContentDescription("Продолжить на этом устройстве");
         compactHandoff.setVisibility(View.GONE);
         head.addView(compactHandoff,new LinearLayout.LayoutParams(dp(42),dp(44)));
-        android.widget.ImageView menuButton=new android.widget.ImageView(this);menuButton.setImageResource(android.R.drawable.ic_menu_myplaces);menuButton.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);menuButton.setPadding(dp(8),dp(8),dp(8),dp(8));menuButton.setBackground(touchSurface(0x40202228,22));menuButton.setOnClickListener(v->menu());menuButton.setContentDescription("Меню профиля");profileAvatarButton=menuButton;
+        android.widget.ImageView menuButton=new android.widget.ImageView(this);
+        menuButton.setImageResource(android.R.drawable.ic_menu_myplaces);
+        menuButton.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+        menuButton.setPadding(dp(8),dp(8),dp(8),dp(8));
+        GradientDrawable roundAvatar=new GradientDrawable();
+        roundAvatar.setShape(GradientDrawable.OVAL);
+        roundAvatar.setColor(0xff25272c);
+        roundAvatar.setStroke(dp(1),0x44ffffff);
+        menuButton.setBackground(roundAvatar);
+        menuButton.setClipToOutline(true);
+        menuButton.setOnClickListener(v->menu());
+        menuButton.setContentDescription("Меню профиля");
+        profileAvatarButton=menuButton;
         head.setLayoutTransition(new android.animation.LayoutTransition());
         head.addView(menuButton,new LinearLayout.LayoutParams(dp(44),dp(44)));
         refreshProfileAvatar();
@@ -3514,15 +3519,21 @@ public final class MainActivity extends Activity {
     }
     void updateCoverBackdrop(){
         if(coverBackdrop==null)return;
-        boolean visibleCover=full||"Главная".equals(screen);
-        coverBackdrop.setVisibility(visibleCover?View.VISIBLE:View.GONE);
-        if(coverBackdropShade!=null)
-            coverBackdropShade.setVisibility(visibleCover?View.VISIBLE:View.GONE);
-        if(!visibleCover)return;
-        JSONObject selected=current();
-        String url=selected==null?"":selected.optString("cover_url");
-        if(artworkCache!=null)artworkCache.load(coverBackdrop,origin,url);
-        else coverBackdrop.setImageDrawable(null);
+        boolean visible=full||"Главная".equals(screen);
+        coverBackdrop.setVisibility(visible?View.VISIBLE:View.GONE);
+        if(!visible)return;
+        coverBackdrop.setHomeMode(!full);
+        JSONObject track=current();
+        String url=track==null?"":track.optString("cover_url","");
+        String key=origin+"|"+url;
+        if(key.equals(coverPaletteKey))return;
+        coverPaletteKey=key;
+        if(artworkCache==null){coverBackdrop.setArtwork(null);return;}
+        final CoverPaletteView target=coverBackdrop;
+        artworkCache.loadPalette(origin,url,bitmap->ui.post(()->{
+            if(coverBackdrop==target&&key.equals(coverPaletteKey))
+                target.setArtwork(bitmap);
+        }));
     }
     void loadMiniCover(JSONObject track) {
         if (miniCover == null || artworkCache == null) return;
