@@ -25,6 +25,7 @@ public partial class MainWindow:Window {
  bool volumeSettingReady;
  CancellationTokenSource? searchCancellation;List<Track> catalog=[],shown=[],queue=[];List<Playlist> playlists=[];HashSet<string> likes=[];
  readonly Dictionary<string,List<Track>> ownedPlaylistCache=new();
+  readonly HashSet<string> pendingLikeIDs=new(StringComparer.OrdinalIgnoreCase);
  readonly Dictionary<string,(string videoID,DateTime expires)> clipCache=new();
  readonly HashSet<string> clipRequests=new();
  string favoriteOrder="recent";bool premiumSortAllowed=false;
@@ -518,19 +519,22 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
  async void LikeClick(object sender,RoutedEventArgs e){if(Current!=null)await Guard(()=>Like(Current));}
  async Task Like(Track t){
   if(account.Length==0){Login();return;}
-  bool remove=likes.Contains(t.id);
-  await api.Request("api/likes/"+Uri.EscapeDataString(t.id),remove?"DELETE":"POST");
-  if(remove){
-   likes.Remove(t.id);favoriteOrderIDs.RemoveAll(id=>id==t.id);
-  }else{
-   RememberFavoriteDetails([t]);
-   likes.Add(t.id);favoriteOrderIDs.RemoveAll(id=>id==t.id);
-   favoriteOrderIDs.Insert(0,t.id);
-   if(autoDownload)_=Download([t]);
-  }
-  SaveLibraryCacheAsync(account);
-  UpdatePlaybackChrome();
-  if(screen=="Избранное")Show("Избранное");
+  if(!pendingLikeIDs.Add(t.id))return;
+  try{
+   bool remove=likes.Contains(t.id);
+   await api.Request("api/likes/"+Uri.EscapeDataString(t.id),remove?"DELETE":"POST");
+   if(remove){
+    likes.Remove(t.id);favoriteOrderIDs.RemoveAll(id=>id==t.id);
+   }else{
+    RememberFavoriteDetails([t]);
+    likes.Add(t.id);favoriteOrderIDs.RemoveAll(id=>id==t.id);
+    favoriteOrderIDs.Insert(0,t.id);
+    if(autoDownload)_=Download([t]);
+   }
+   SaveLibraryCacheAsync(account);
+   UpdatePlaybackChrome();
+   if(screen=="Избранное")Show("Избранное");
+  }finally{pendingLikeIDs.Remove(t.id);}
  }
  async Task Lyrics(Track t){
   Home.Visibility=Library.Visibility=Dock.Visibility=Visibility.Collapsed;PlayerPage.Visibility=LyricsPanel.Visibility=Visibility.Visible;Ribbon.Visibility=Visibility.Visible;Ribbon.Focused=true;Cover.Visibility=Visibility.Collapsed;StartLyricClock();
