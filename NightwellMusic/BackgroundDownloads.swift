@@ -101,7 +101,7 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
         task.taskDescription = job.key
         if job.attempts > 0 {
             task.earliestBeginDate = Date().addingTimeInterval(
-                min(60, 5 + job.attempts * 4))
+                Double(min(60, 5 + job.attempts * 4)))
         }
         task.resume()
     }
