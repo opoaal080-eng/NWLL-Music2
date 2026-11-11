@@ -610,7 +610,8 @@ struct NativeRoot: View {
             if !backgroundOnly {
                 // Keep one backdrop alive while the app changes tabs, pauses,
                 // buffers audio, and restores a session after launch.
-                RibbonScene(playing: store.clock.playing, flash: store.likeFlash)
+                RibbonScene(playing: store.clock.playing, flash: store.likeFlash,
+                            active: store.screen == .home)
                     .ignoresSafeArea()
                     .opacity(store.screen == .home ? 1.0 : 0.18)
                     .allowsHitTesting(false)
@@ -708,7 +709,7 @@ struct NativeRoot: View {
         mainScene
             .environmentObject(artworkPalette)
             .overlay { modalScene }
-            .task(id: store.clock.current?.id) {
+            .task(id: store.origin.absoluteString + "|" + (store.clock.current?.id ?? "")) {
                 await artworkPalette.refresh(track: store.clock.current, origin: store.origin)
             }
         .animation(.spring(response: 0.3, dampingFraction: 0.86), value: settings)
