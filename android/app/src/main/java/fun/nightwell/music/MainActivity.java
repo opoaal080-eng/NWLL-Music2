@@ -964,13 +964,15 @@ public final class MainActivity extends Activity {
         if(headerCollectionTitle==null||headerWordmark==null)return;
         headerCollectionTitle.setText(next?screen:"");
         if(next==collectionScrolled){
-            // Keep the compact title synchronized after a screen rebuild.
-            if(next&&headerCollectionTitle.getVisibility()!=View.VISIBLE){
-                headerCollectionTitle.setAlpha(1f);
-                headerCollectionTitle.setVisibility(View.VISIBLE);
-                headerWordmark.setAlpha(0f);
-                headerWordmark.setVisibility(View.INVISIBLE);
-            }
+            // Rebuilt screens may reuse the header after another collection
+            // or after returning from the full-screen player.
+            headerWordmark.animate().cancel();
+            headerCollectionTitle.animate().cancel();
+            headerWordmark.setAlpha(next?0f:1f);
+            headerWordmark.setVisibility(next?View.INVISIBLE:View.VISIBLE);
+            headerCollectionTitle.setAlpha(next?1f:0f);
+            headerCollectionTitle.setVisibility(next?View.VISIBLE:View.GONE);
+            refreshLiveHandoff();
             return;
         }
         collectionScrolled=next;
@@ -1845,7 +1847,7 @@ public final class MainActivity extends Activity {
         offlineActions=null;
         playlistCollectionScroll=null;
         if(headerCollectionTitle!=null){
-            if(!isCollectionScreen())updateCollectionHeader(false,false);
+            if(!isCollectionScreen()||!collectionScrolled)updateCollectionHeader(false,false);
             else headerCollectionTitle.setText(screen);
         }
         if(atmosphere!=null)atmosphere.setVisibility(screen.equals("Главная")?View.VISIBLE:View.GONE);
