@@ -1352,7 +1352,7 @@ final class NativePlayer {
         // only same-origin /api/covers/ URLs were allowed. Reuse the same image
         // pipeline as the visible player, including its disk cache and deduplication.
         artworkLoadTask = Task { [weak self] in
-            var image = await CoverImagePipeline.shared.image(for: url, maxPixel: 512)
+            var image = await CoverImagePipeline.shared.image(for: url, maxPixel: 512, retryFailure: attempt > 0)
             // Internal /api/covers may require the Nightwell session cookie.
             // Retry authenticated only for this server, never for an external CDN.
             if image == nil && !Task.isCancelled && ServerAddress.sameOrigin(origin, url) {
