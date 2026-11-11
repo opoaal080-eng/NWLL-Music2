@@ -182,8 +182,8 @@ final class NativePlayer {
         if url.isFileURL || !ServerAddress.sameOrigin(origin, url) { return true }
         var request = URLRequest(url: url)
         request.timeoutInterval = 8
-        request.setValue("bytes=0-2047", forHTTPHeaderField: "Range")
         request.allHTTPHeaderFields = HTTPCookie.requestHeaderFields(with: cookies)
+        request.setValue("bytes=0-2047", forHTTPHeaderField: "Range")
         do {
             let (stream, response) = try await URLSession.shared.bytes(for: request)
             guard let http = response as? HTTPURLResponse,
