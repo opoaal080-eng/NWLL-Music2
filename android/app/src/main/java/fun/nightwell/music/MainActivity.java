@@ -3179,7 +3179,7 @@ public final class MainActivity extends Activity {
                 "Подготовка следующего трека"):
             buffering?"Подготовка аудио":
                 (state.optBoolean("playing")?"Пауза":"Воспроизвести"));
-    }setLabel(miniPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(homePlay!=null)setLabel(homePlay,state.optBoolean("playing")?"Ⅱ":"▶");if(fullPlay!=null)setLabel(fullPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(ribbon!=null)ribbon.playing(state.optBoolean("playing"));if(trackChanged){currentID=next;refreshFavoriteButtons();if(!next.isEmpty()){rememberRecent(next);checkTrackAudioQuality(t);prefetchClip(t);}activeLyrics=null;homeLine="";homeWord=-2;homeKineticSpans.clear();if(homeLyric!=null)homeLyric.setText("");loadMiniCover(t);fetchLyricsAndPreload();animateTrackTransition();updateList();if(full)openPlayer();}if(seek!=null&&!seek.isPressed()){int duration=(int)Math.max(1,state.optDouble("duration"));seek.setMax(duration);seek.setProgress((int)state.optDouble("position"));seek.setSecondaryProgress((int)(duration*state.optDouble("bufferFraction")));if(seek instanceof PreparingSeekBar)((PreparingSeekBar)seek).setPreparation(state.optBoolean("nextPreparing")||state.optBoolean("buffering"),state.optBoolean("nextPreparing")?state.optDouble("preparationFraction"):state.optDouble("bufferFraction"));}if(fullTime!=null)setLabel(fullTime,time(state.optDouble("position"))+"     /     "+time(state.optDouble("duration")));String playbackError=state.optString("error");
+    }setLabel(miniPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(homePlay!=null)setLabel(homePlay,state.optBoolean("playing")?"Ⅱ":"▶");if(fullPlay!=null)setLabel(fullPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(ribbon!=null)ribbon.playing(state.optBoolean("playing"));if(trackChanged){currentID=next;refreshFavoriteButtons();if(!next.isEmpty()){rememberRecent(next);checkTrackAudioQuality(t);}activeLyrics=null;homeLine="";homeWord=-2;homeKineticSpans.clear();if(homeLyric!=null)homeLyric.setText("");loadMiniCover(t);fetchLyricsAndPreload();animateTrackTransition();updateList();if(full)openPlayer();}if(seek!=null&&!seek.isPressed()){int duration=(int)Math.max(1,state.optDouble("duration"));seek.setMax(duration);seek.setProgress((int)state.optDouble("position"));seek.setSecondaryProgress((int)(duration*state.optDouble("bufferFraction")));if(seek instanceof PreparingSeekBar)((PreparingSeekBar)seek).setPreparation(state.optBoolean("nextPreparing")||state.optBoolean("buffering"),state.optBoolean("nextPreparing")?state.optDouble("preparationFraction"):state.optDouble("bufferFraction"));}if(fullTime!=null)setLabel(fullTime,time(state.optDouble("position"))+"     /     "+time(state.optDouble("duration")));String playbackError=state.optString("error");
         if(!playbackError.isEmpty()&&status!=null){
             status.setText(playbackError);
             lastDisplayedPlayerError=playbackError;
@@ -3212,7 +3212,7 @@ public final class MainActivity extends Activity {
     JSONObject current(){for(int i=0;i<queue.length();i++)if(queue.optJSONObject(i).optString("id").equals(currentID))return queue.optJSONObject(i);return null;}
     String iconLabel(String icon){switch(icon){case "⌕":return "Поиск музыки";case "☰":return "Открыть меню";case "⋯":return "Действия с треком";case "⌄":return "Свернуть плеер";case "×":return "Закрыть";case "|‹":return "Предыдущий трек";case "›|":return "Следующий трек";case "♡":case "♥":return "Избранное";case "⇄":return "Перемешать";case "↻":return "Повтор";default:return "Воспроизведение";}}
     void openPlayer(){
-        JSONObject track=current();if(track==null)return;prefetchClip(track);full=true;
+        JSONObject track=current();if(track==null)return;full=true;
         if(landscapeRail!=null)landscapeRail.setVisibility(View.GONE);if(atmosphere!=null)atmosphere.setVisibility(View.GONE);if(ribbon!=null){ribbon.running(false);ribbon.setVisibility(View.GONE);}dock.setVisibility(View.GONE);headerHost.setVisibility(View.GONE);body.removeAllViews();
         LinearLayout top=row();
         TextView close=iconButton("⌄",()->{full=false;build();});
@@ -3804,31 +3804,49 @@ public final class MainActivity extends Activity {
         });
     }
 
-    private final java.util.Map<String,ClipEntry> clipCache=new java.util.HashMap<>();
+    // Verified YouTube IDs are stored in Android's private app storage,
+    // not in a RAM-only map. They survive restarts and application upgrades.
     private final Set<String> clipPending=new HashSet<>();
-    private static final class ClipEntry{
-        final String id;final long expires;
-        ClipEntry(String id,long expires){this.id=id;this.expires=expires;}
+    private String clipKey(JSONObject track){
+        if(track==null)return "";
+        String title=track.optString("title").trim().toLowerCase(java.util.Locale.ROOT);
+        String artist=track.optString("artist").trim().toLowerCase(java.util.Locale.ROOT);
+        if(title.isEmpty()||artist.isEmpty())return "";
+        return origin+"|"+title+"|"+artist;
     }
     private String foundClip(JSONObject track){
-        if(track==null)return null;
-        ClipEntry entry=clipCache.get(track.optString("id"));
-        return entry!=null&&System.currentTimeMillis()<entry.expires&&!entry.id.isEmpty()?entry.id:null;
+        String key=clipKey(track);
+        if(key.isEmpty())return null;
+        String video=getSharedPreferences("nightwell-clip-links",MODE_PRIVATE)
+            .getString(key,null);
+        return video!=null&&video.matches("[A-Za-z0-9_-]{11}")?video:null;
     }
-    private void prefetchClip(JSONObject track){
-        if(track==null||user.isEmpty())return;
-        final String id=track.optString("id");
-        if(id.isEmpty()||clipPending.contains(id))return;
-        ClipEntry prior=clipCache.get(id);
-        if(prior!=null&&prior.expires>System.currentTimeMillis())return;
-        clipPending.add(id);
-        final String title=track.optString("title"),artist=track.optString("artist"),owner=user;
+    private void searchClip(JSONObject track){
+        if(track==null||user.isEmpty()){
+            if(status!=null)status.setText("Войди в Nightwell Music для поиска клипов");
+            return;
+        }
+        final String key=clipKey(track);
+        if(key.isEmpty()){
+            if(status!=null)status.setText("Не указано название или исполнитель трека");
+            return;
+        }
+        if(clipPending.contains(key)){
+            if(status!=null)status.setText("Поиск клипа уже выполняется");
+            return;
+        }
+        clipPending.add(key);
+        if(status!=null)status.setText("Ищем клип…");
+        final String title=track.optString("title"),artist=track.optString("artist");
+        final String owner=user,server=origin;
+        final NativeAPI client=api;
+        final int requestGeneration=generation;
         io.execute(()->{
-            String video="";
+            String video=null;
             try{
                 String url="api/music-videos/clip?title="+java.net.URLEncoder.encode(title,"UTF-8")
                     +"&artist="+java.net.URLEncoder.encode(artist,"UTF-8");
-                JSONObject match=api.request(url);
+                JSONObject match=client.request(url);
                 if(match.optBoolean("available")){
                     String candidate=match.optString("video_id");
                     if(candidate.matches("[A-Za-z0-9_-]{11}"))video=candidate;
@@ -3836,17 +3854,26 @@ public final class MainActivity extends Activity {
             }catch(Exception ignored){}
             final String ready=video;
             ui.post(()->{
-                clipPending.remove(id);
-                if(!owner.equals(user)||isDestroyed())return;
-                clipCache.put(id,new ClipEntry(ready,System.currentTimeMillis()
-                    +(ready.isEmpty()?15L*60*1000:6L*60*60*1000)));
-                if(clipCache.size()>250)clipCache.clear();
+                clipPending.remove(key);
+                // Persist positive matches only. Network errors never erase
+                // existing links and negative results are not saved to disk.
+                if(ready!=null)
+                    getSharedPreferences("nightwell-clip-links",MODE_PRIVATE)
+                        .edit().putString(key,ready).apply();
+                if(isDestroyed()||!owner.equals(user)||!server.equals(origin)
+                    ||generation!=requestGeneration)return;
+                if(ready==null){
+                    if(status!=null)status.setText("Клип не найден или поиск временно недоступен");
+                }else{
+                    if(status!=null)status.setText("");
+                    openClip(track);
+                }
             });
         });
     }
     void openClip(JSONObject track){
         String video=foundClip(track);
-        if(video==null){prefetchClip(track);status.setText("Клип пока не найден.");return;}
+        if(video==null){searchClip(track);return;}
         if(playback!=null)playback.pause();
         android.webkit.WebView web=new android.webkit.WebView(this);
         web.getSettings().setJavaScriptEnabled(true);
@@ -3872,7 +3899,6 @@ public final class MainActivity extends Activity {
         dialog.show();
     }
     void fullPlayerMenu(JSONObject track){
-        prefetchClip(track);
         boolean video=foundClip(track)!=null;
         boolean classic="classic".equals(getSharedPreferences("appearance",MODE_PRIVATE)
             .getString("nw-cover-style","immersive"));
@@ -3880,7 +3906,7 @@ public final class MainActivity extends Activity {
             .getBoolean("nw-animated-album-artwork",true);
         java.util.List<String> options=new java.util.ArrayList<>();
         options.add("Твой ритм по треку");
-        if(video)options.add("Клип");
+        options.add(video?"Клип":"Найти клип");
         options.add("Качество звука");
         options.add("Эквалайзер");
         if(!classic)options.add(animate?"Отключить анимацию обложки":"Включить анимацию обложки");
@@ -3888,7 +3914,7 @@ public final class MainActivity extends Activity {
         nightwellOptions("Плеер",options.toArray(new String[0]),n->{
             String item=options.get(n);
             if(item.equals("Твой ритм по треку"))seededRhythmByTrack(track);
-            else if(item.equals("Клип"))openClip(track);
+            else if(item.equals("Клип")||item.equals("Найти клип"))openClip(track);
             else if(item.equals("Качество звука"))qualityPlayerMenu();
             else if(item.equals("Эквалайзер"))feature("sound");
             else if(item.contains("анимацию обложки")){
@@ -3921,7 +3947,7 @@ public final class MainActivity extends Activity {
         final boolean video=foundClip(track)!=null;
         java.util.List<String> actionsList=new java.util.ArrayList<>();
         actionsList.add("Твой ритм по треку");
-        if(video)actionsList.add("Клип");
+        actionsList.add(video?"Клип":"Найти клип");
         boolean downloaded=OfflineStore.audio(this,origin,user,id)!=null;
         actionsList.addAll(java.util.Arrays.asList(
             likes.contains(id)?"Убрать из избранного":"В избранное",
@@ -3931,8 +3957,8 @@ public final class MainActivity extends Activity {
         AlertDialog actions=new AlertDialog.Builder(this).setTitle(track.optString("title"))
             .setItems(actionsList.toArray(new String[0]),(d,chosen)->{
                 if(chosen==0){seededRhythmByTrack(track);return;}
-                if(video&&chosen==1){openClip(track);return;}
-                int n=chosen-(video?2:1);
+                if(chosen==1){openClip(track);return;}
+                int n=chosen-2;
                 if(n==0)toggleFavorite(track);
                 else if(n==1){
                     if(downloaded){
