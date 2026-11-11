@@ -1,6 +1,13 @@
 name: Build Nightwell Music Windows (Recovered)
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [main, feature/windows-mobile-parity-20261106]
+    paths:
+      - 'windows/**'
+      - 'scripts/validate-app-sources.py'
+      - 'scripts/build-provenance.py'
+      - '.github/workflows/build-windows.yml'
   push:
     branches: [main, feature/windows-mobile-parity-20261106]
     paths:
@@ -46,6 +53,7 @@ jobs:
             ui-previews/**
             ui-preview-error.txt
       - name: Build Windows installer (Inno Setup)
+        if: github.event_name != 'pull_request'
         shell: pwsh
         run: |
           $compiler = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
@@ -63,6 +71,7 @@ jobs:
           name: Nightwell-Music-Windows
           path: publish/**
       - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request'
         with:
           name: Nightwell-Music-Windows-Installer
           path: setup-output/Nightwell-Music-Setup-1.3.5.exe
