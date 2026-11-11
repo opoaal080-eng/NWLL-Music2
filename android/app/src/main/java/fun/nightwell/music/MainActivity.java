@@ -534,11 +534,11 @@ public final class MainActivity extends Activity {
         dialog.setOnShowListener(ignored->{
             Window window=dialog.getWindow();
             if(window==null)return;
-            window.setBackgroundDrawable(surface());
+            window.setBackgroundDrawable(glass(32));
             window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
             WindowManager.LayoutParams attrs=window.getAttributes();
             attrs.gravity=Gravity.BOTTOM;
-            attrs.dimAmount=.80f;
+            attrs.dimAmount=.18f;
             window.setAttributes(attrs);
             int width=getResources().getDisplayMetrics().widthPixels-
                 dp(isLandscapeLayout()?30:16);
@@ -4024,15 +4024,22 @@ public final class MainActivity extends Activity {
         });
     }
     void nightwellOptions(String title,String[] options,java.util.function.IntConsumer selected){
-        LinearLayout panel=column();panel.setPadding(dp(12),dp(10),dp(12),dp(12));
-        TextView heading=text(title,19);heading.setTextColor(0xffeeeeee);heading.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);heading.setPadding(dp(6),dp(4),dp(6),dp(10));panel.addView(heading);
+        LinearLayout panel=column();panel.setPadding(dp(20),dp(14),dp(20),dp(22));
+        TextView heading=text(title,24);heading.setTextColor(0xffeeeeee);
+        heading.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
+        heading.setPadding(0,dp(10),0,dp(18));panel.addView(heading);
         AlertDialog dialog=new AlertDialog.Builder(this).setView(panel).create();
         for(int index=0;index<options.length;index++){
             final int choice=index;
             TextView entry=sheetAction(options[index],()->{dialog.dismiss();selected.accept(choice);});
-            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(47));lp.setMargins(0,dp(3),0,dp(3));panel.addView(entry,lp);
+            entry.setTextSize(16);
+            entry.setMinHeight(dp(49));
+            entry.setPadding(dp(16),0,dp(16),0);
+            entry.setBackground(touchSurface(0xff25272c,19));
+            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(49));
+            lp.setMargins(0,dp(4),0,dp(4));panel.addView(entry,lp);
         }
-        styleSheet(dialog);dialog.show();
+        styleNavigationSheet(dialog);dialog.show();
     }
     void collectionMenu(String kind,String id){
         String[] options=kind.equals("playlist")
