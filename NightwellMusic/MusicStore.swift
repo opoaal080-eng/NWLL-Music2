@@ -1210,7 +1210,7 @@ private struct AudioQualityDecision: Decodable {
                 refreshSearchArtists(for: text, generation: generation)
                 searchMessage = "Ищем полные версии…"
                 let encoded = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed.subtracting(CharacterSet(charactersIn: "&+=?#"))) ?? ""
-                for _ in 0..<30 {
+                for _ in 0..<12 {
                     let response: TrackResult = try await api.request("/api/tracks?q=" + encoded)
                     guard generation == searchGeneration, !Task.isCancelled else { return }
                     let incoming = Array(response.tracks.prefix(250))
@@ -1232,7 +1232,7 @@ private struct AudioQualityDecision: Decodable {
                         if searchCache.count >= 20 { searchCache.removeAll(keepingCapacity: true) }
                         searchCache[cacheKey] = visible; return
                     }
-                    try await Task.sleep(nanoseconds: UInt64(max(1.5, min(10, response.search_retry_after ?? 2)) * 1_000_000_000))
+                    try await Task.sleep(nanoseconds: UInt64(max(1.5, min(4, response.search_retry_after ?? 2)) * 1_000_000_000))
                 }
                 searchMessage = "Поиск занимает больше времени. Повтори запрос."
             } catch is CancellationError { } catch let failure as URLError where failure.code == .cancelled { }
