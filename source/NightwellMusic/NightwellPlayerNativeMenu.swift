@@ -8,7 +8,7 @@ struct NightwellPlayerNativeMenu: UIViewRepresentable {
     let onEqualizer: () -> Void
     let onSeededRhythm: (Track) -> Void
     let onLyrics: () -> Void
-    let onClip: (URL, Track) -> Void
+    let onClip: (URL?, Track) -> Void
     let onHide: (Track) -> Void
     let onDownload: (Track) -> Void
     let onAddPlaylist: (Track, Playlist) -> Void
@@ -49,7 +49,7 @@ struct NightwellPlayerNativeMenu: UIViewRepresentable {
         var onEqualizer: (() -> Void)?
         var onSeededRhythm: ((Track) -> Void)?
         var onLyrics: (() -> Void)?
-        var onClip: ((URL, Track) -> Void)?
+        var onClip: ((URL?, Track) -> Void)?
         var onHide: ((Track) -> Void)?
         var onDownload: ((Track) -> Void)?
         var onAddPlaylist: ((Track, Playlist) -> Void)?
@@ -92,12 +92,15 @@ struct NightwellPlayerNativeMenu: UIViewRepresentable {
                                         image: UIImage(systemName: "waveform.path")) { [weak self] _ in
                     self?.onSeededRhythm?(track)
                 })
-                if let clip = snapshot?.clipURL {
-                    actions.append(UIAction(title: "Клип",
-                                            image: UIImage(systemName: "play.rectangle")) { [weak self] _ in
-                        self?.onClip?(clip, track)
-                    })
-                }
+                // Keep the action visible even when prefetch failed or the
+                // YouTube API temporarily reached its quota. A tap retries.
+                actions.append(UIAction(
+                    title: snapshot?.clipURL == nil ? "Найти клип" : "Клип",
+                    image: UIImage(systemName: "play.rectangle")
+                ) { [weak self] _ in
+                    guard let self else { return }
+                    self.onClip?(self.snapshot?.clipURL, track)
+                })
                 let hidden = snapshot?.recommendationHidden == true
                 actions.append(UIAction(title: hidden ? "Вернуть в рекомендации" : "Не рекомендовать",
                                         image: UIImage(systemName: "hand.thumbsdown")) { [weak self] _ in
