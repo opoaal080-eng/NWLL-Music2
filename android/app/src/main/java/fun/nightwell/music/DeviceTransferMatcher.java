@@ -136,6 +136,8 @@ final class DeviceTransferMatcher {
                 }
             }
             if(possible==null)continue;
+            // Remote search snapshots are small: score all candidates even with typos.
+            if(pool.size()<=250)for(int j=0;j<pool.size();j++)possible.add(j);
             double highest=0,runnerUp=0;Candidate winner=null;
             int checked=0;
             for(int index:possible){
