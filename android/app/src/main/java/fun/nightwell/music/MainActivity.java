@@ -518,9 +518,9 @@ public final class MainActivity extends Activity {
             window.setBackgroundDrawable(glass(32));
             window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
             WindowManager.LayoutParams params=window.getAttributes();
-            params.gravity=Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL;
+            params.gravity=dialog==activeAuthDialog?Gravity.CENTER:Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL;
             params.dimAmount=.18f;
-            params.y=dp(8);
+            params.y=dialog==activeAuthDialog?0:dp(8);
             window.setAttributes(params);
             int width=Math.min(dp(isLandscapeLayout()?760:600),
                 getResources().getDisplayMetrics().widthPixels-dp(isLandscapeLayout()?28:16));
@@ -546,7 +546,7 @@ public final class MainActivity extends Activity {
             }
             if(android.animation.ValueAnimator.areAnimatorsEnabled()){
                 decor.setAlpha(0f);
-                decor.setTranslationY(dp(28));
+                decor.setTranslationY(dialog==activeAuthDialog?0:dp(28));
                 decor.setScaleX(.97f);
                 decor.setScaleY(.97f);
                 decor.animate().alpha(1f).translationY(0f)
@@ -1068,7 +1068,8 @@ public final class MainActivity extends Activity {
         atmosphere=new HomeSparklesView(this);scene.addView(atmosphere,new android.widget.FrameLayout.LayoutParams(-1,-1));
         ribbon=new RibbonView(this);ui.post(this::applyPremium);ribbon.meter(()->playback==null?0:playback.level());ribbon.bands(index->playback==null?0:playback.bandLevel(index));
         ribbon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        scene.addView(ribbon,new android.widget.FrameLayout.LayoutParams(-1,-1));
+        // Ribbon visuals disabled: retain instance only for existing settings callbacks.
+        ribbon.setVisibility(View.GONE);
         boolean landscape=isLandscapeLayout();
         root=column();root.setPadding(dp(landscape?10:20),dp(landscape?0:8),dp(landscape?10:20),0);
         collectionScrolled=false;
@@ -1947,7 +1948,7 @@ public final class MainActivity extends Activity {
         if(screen.equals("Главная")){
             boolean compact=getResources().getConfiguration().orientation==android.content.res.Configuration.ORIENTATION_LANDSCAPE;
             android.widget.FrameLayout stage=new android.widget.FrameLayout(this);body.addView(stage,new LinearLayout.LayoutParams(-1,0,1));
-            ribbon.setVisibility(View.VISIBLE);ribbon.running(visible&&!smokeMode);
+            ribbon.setVisibility(View.GONE);ribbon.running(false);
             LinearLayout intro=column();intro.setGravity(Gravity.CENTER);intro.setPadding(0,0,0,0);
             TextView theme=text("Твой ритм",compact?30:Math.min(48,getResources().getConfiguration().screenWidthDp/8));theme.setTypeface(android.graphics.Typeface.create("sans-serif",android.graphics.Typeface.BOLD));theme.setLetterSpacing(-.035f);theme.setIncludeFontPadding(false);theme.setLineSpacing(0,.92f);theme.setMaxLines(2);theme.setAutoSizeTextTypeUniformWithConfiguration(25,43,1,android.util.TypedValue.COMPLEX_UNIT_SP);intro.addView(theme);theme.setGravity(Gravity.CENTER);
             android.widget.FrameLayout.LayoutParams introParams=new android.widget.FrameLayout.LayoutParams(-1,-2,Gravity.CENTER);
@@ -2019,7 +2020,7 @@ public final class MainActivity extends Activity {
             searchBox.setBackground(touchSurface(0xff202228,14));
             searchBox.setClipToOutline(true);
             WhiteSearchCaretGlow glow=new WhiteSearchCaretGlow(this);
-            searchBox.addView(glow,new FrameLayout.LayoutParams(-1,-1));
+            searchBox.addView(glow,new FrameLayout.LayoutParams(-1,dp(42)));
             CursorAwareSearchField entry=new CursorAwareSearchField(this);
             search=entry;
             search.setTextColor(Color.WHITE);
@@ -2031,7 +2032,7 @@ public final class MainActivity extends Activity {
             search.setHint("Поиск треков, артистов и плейлистов");
             search.setSelectAllOnFocus(false);
             searchBox.addView(search,new FrameLayout.LayoutParams(-1,dp(42)));
-            LinearLayout.LayoutParams searchParams=new LinearLayout.LayoutParams(-1,-2);
+            LinearLayout.LayoutParams searchParams=new LinearLayout.LayoutParams(-1,dp(42));
             searchParams.bottomMargin=dp(11);
             body.addView(searchBox,searchParams);
             searchSuggestions=column();
@@ -4854,8 +4855,9 @@ public final class MainActivity extends Activity {
         AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Вход").setView(form)
             .setPositiveButton("Войти",null).setNeutralButton("Регистрация",null)
             .setNegativeButton("Отмена",null).create();
+        activeAuthDialog=dialog;
         styleSheet(dialog);dialog.setOnDismissListener(d->{if(activeAuthDialog==dialog)activeAuthDialog=null;});
-        activeAuthDialog=dialog;dialog.show();
+        dialog.show();
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->loginFromDialog(dialog,email,password,feedback,false));
         dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v->loginFromDialog(dialog,email,password,feedback,true));
     }
