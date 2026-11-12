@@ -5098,17 +5098,29 @@ public final class MainActivity extends Activity {
                         JSONObject item=rows.optJSONObject(i);
                         if(item==null||!item.isNull("track_id"))continue;
                         final int position=i;
-                        String query=item.optString("artist")+" "+item.optString("title");
-                        try{
-                            JSONObject search=client.request("api/tracks?q="+java.net.URLEncoder.encode(query,"UTF-8"));
-                            JSONArray candidates=search.optJSONArray("tracks");
-                            if(candidates!=null&&candidates.length()>0){
+                        String candidateMode=mode.equals("safe")?"safe":"wide";
+                        for(String query:TransferPreparation.searchQueries(
+                                item.optString("title"),item.optString("artist"))){
+                            if(ticket!=transferGeneration||Thread.currentThread().isInterrupted())return;
+                            try{
+                                JSONObject search=client.request("api/tracks?q="+java.net.URLEncoder.encode(query,"UTF-8"));
+                                JSONArray candidates=search.optJSONArray("tracks");
+                                if(candidates==null||candidates.length()==0)continue;
                                 JSONArray single=new JSONArray().put(item);
-                                JSONArray accepted=DeviceTransferMatcher.match(single,candidates,mode);
+                                JSONArray accepted=DeviceTransferMatcher.match(single,candidates,candidateMode);
                                 JSONObject match=accepted.optJSONObject(0);
-                                if(match!=null&&!match.isNull("track_id"))rows.put(i,match);
-                            }
-                        }catch(Exception ignored){}
+                                if(neural&&(match==null||match.isNull("track_id"))&&candidates.length()>1){
+                                    accepted=DeviceNeuralTransferMatcher.match(single,candidates,candidateMode,
+                                        ()->ticket!=transferGeneration||Thread.currentThread().isInterrupted());
+                                    match=accepted.optJSONObject(0);
+                                }
+                                if(match!=null&&!match.isNull("track_id")){
+                                    rows.put(i,match);
+                                    break;
+                                }
+                            }catch(java.util.concurrent.CancellationException cancelled){return;}
+                            catch(Exception ignored){}
+                        }
                         if((position+1)%8==0)ui.post(()->{
                             if(ticket!=transferGeneration||transferDialog!=dialog||!dialog.isShowing())return;
                             result.setText("Проверяем новые результаты поиска: "+(position+1)+"/"+rows.length());
