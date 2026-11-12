@@ -158,6 +158,15 @@ internal sealed class LocalNeuralTransferMatcher {
   }
   return Math.Max(0,1.0-(double)p[b.Length]/Math.Max(a.Length,b.Length));
  }
+ static string CoreTitle(string title) {
+  var promotional=new HashSet<string>{"official","audio","video","lyrics","lyric","visualizer","visualiser","hq","hd","4k"};
+  return string.Join(" ",Words(title).TakeWhile(x=>x!="feat"&&x!="ft"&&x!="featuring").Where(x=>!promotional.Contains(x)));
+ }
+ static double TitleSimilarity(string a,string b) {
+  double regular=Similarity(a,b);
+  var left=CoreTitle(a);var right=CoreTitle(b);
+  return left.Length>0&&right.Length>0?Math.Max(regular,.98*Similarity(left,right)):regular;
+ }
  static readonly HashSet<string> Versions=new(new[]{"live","remix","remaster","remastered","acoustic","instrumental","cover","karaoke","sped","slowed","edit","reverb"});
  static string VersionKey(string t)=>string.Join(" ",Words(t).Where(x=>Versions.Contains(x)).OrderBy(x=>x));
  static double[] Features(LocalTransferInput.Row row,Track candidate) {
@@ -165,7 +174,7 @@ internal sealed class LocalNeuralTransferMatcher {
   var ct=Key(candidate.title);var ca=Key(candidate.artist);
   var duration=row.Duration>0&&candidate.duration>0
    ?Math.Max(0,1-Math.Abs(row.Duration-candidate.duration)/Math.Max(14,row.Duration*.13)):1;
-  return new[]{Similarity(title,ct),Similarity(artist,ca),TokenScore(title,ct),TokenScore(artist,ca),
+  return new[]{TitleSimilarity(title,ct),Similarity(artist,ca),TokenScore(title,ct),TokenScore(artist,ca),
    Dice(title,ct),Dice(artist,ca),duration,VersionKey(title)==VersionKey(ct)?1.0:0.0,
    title==ct&&artist==ca?1.0:0.0};
  }
