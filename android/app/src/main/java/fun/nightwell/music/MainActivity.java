@@ -5087,7 +5087,8 @@ public final class MainActivity extends Activity {
                     JSONArray index=client.request("api/tracks").optJSONArray("tracks");
                     if(index==null||index.length()==0)throw new java.io.IOException("Каталог пуст, проверь подключение.");
                     JSONArray rows=neural
-                        ?DeviceNeuralTransferMatcher.match(prepared,index,mode)
+                        ?DeviceNeuralTransferMatcher.match(prepared,index,mode,
+                            ()->ticket!=transferGeneration||Thread.currentThread().isInterrupted())
                         :DeviceTransferMatcher.match(prepared,index,mode);
                     // The server responds only to ordinary /api/tracks?q= searches.
                     // Each additional result is matched locally, never by import jobs.
