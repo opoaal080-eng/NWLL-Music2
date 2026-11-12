@@ -116,6 +116,26 @@ final class DeviceTransferMatcher {
             List<Integer> names=byTitle.get(title);if(names!=null)possible.addAll(names);
             List<Integer> artists=byArtist.get(artist);
             if(artists!=null)for(int j=0;j<Math.min(artists.size(),250);j++)possible.add(artists.get(j));
+            // Prefer exact title+artist pairs even when a popular artist has many songs.
+            for(int index:possible){
+                Candidate candidate=pool.get(index);
+                boolean exact=false;
+                for(String[] pair:candidate.variants)if(title.equals(pair[0])&&artist.equals(pair[1])){exact=true;break;}
+                if(exact){
+                    double duration=original.optDouble("duration",0);
+                    if(duration<=0||candidate.duration<=0||Math.abs(duration-candidate.duration)<=Math.max(14,duration*.13)){
+                        JSONObject row=new JSONObject(original.toString());
+                        row.put("track_id",candidate.id);
+                        row.put("found_title",candidate.title);
+                        row.put("found_artist",candidate.artist);
+                        row.put("reason","");
+                        out.put(row);
+                        possible=null;
+                        break;
+                    }
+                }
+            }
+            if(possible==null)continue;
             double highest=0,runnerUp=0;Candidate winner=null;
             int checked=0;
             for(int index:possible){
