@@ -54,11 +54,13 @@ final class DeviceTransferMatcher {
     }
 
     private static final class Candidate {
-        String id,title,artist;double duration;
+        String id,title,artist,isrc;double duration;
         final ArrayList<String[]> variants=new ArrayList<>();
         Candidate(JSONObject item) {
             id=item.optString("id");title=item.optString("title");artist=item.optString("artist");
             duration=item.optDouble("duration",0);
+            String code=item.optString("isrc","").trim().toUpperCase(Locale.ROOT);
+            isrc=code.matches("[A-Z]{2}[A-Z0-9]{3}[0-9]{7}")?code:"";
             variants.add(new String[]{normalize(title),normalize(artist)});
             for(String delim:new String[]{" - "," — "," – "," | "," : "}){
                 int cut=title.indexOf(delim);
@@ -96,13 +98,14 @@ final class DeviceTransferMatcher {
     static JSONArray match(JSONArray rows,JSONArray catalog,String mode)throws JSONException {
         if(rows==null||catalog==null)throw new JSONException("Нет списка треков или каталога");
         ArrayList<Candidate> pool=new ArrayList<>();
-        Map<String,ArrayList<Integer>> byTitle=new HashMap<>(),byArtist=new HashMap<>();
+        Map<String,ArrayList<Integer>> byTitle=new HashMap<>(),byArtist=new HashMap<>(),byISRC=new HashMap<>();
         for(int i=0;i<Math.min(catalog.length(),200000);i++){
             JSONObject item=catalog.optJSONObject(i);
             if(item==null)continue;
             Candidate c=new Candidate(item);
             if(!c.id.matches("[A-Za-z0-9_-]{1,100}")||c.title.isEmpty())continue;
             int index=pool.size();pool.add(c);
+            insert(byISRC,c.isrc,index);
             for(String[] pair:c.variants){
                 insert(byTitle,pair[0],index);
                 insert(byArtist,pair[1],index);
@@ -112,6 +115,27 @@ final class DeviceTransferMatcher {
         for(int i=0;i<Math.min(rows.length(),1000);i++){
             JSONObject original=rows.getJSONObject(i);
             String title=normalize(original.optString("title")),artist=normalize(original.optString("artist"));
+            String code=original.optString("isrc","").trim().toUpperCase(Locale.ROOT);
+            String importedISRC=code.matches("[A-Z]{2}[A-Z0-9]{3}[0-9]{7}")?code:"";
+            // ISRC identifies a recording; use it before fuzzy name matching.
+            if(!importedISRC.isEmpty()&&byISRC.containsKey(importedISRC)){
+                boolean foundByISRC=false;
+                for(int index:byISRC.get(importedISRC)){
+                    Candidate candidate=pool.get(index);
+                    double duration=original.optDouble("duration",0);
+                    if(duration>0&&candidate.duration>0&&
+                       Math.abs(duration-candidate.duration)>Math.max(14,duration*.13))continue;
+                    JSONObject row=new JSONObject(original.toString());
+                    row.put("track_id",candidate.id);
+                    row.put("found_title",candidate.title);
+                    row.put("found_artist",candidate.artist);
+                    row.put("reason","");
+                    out.put(row);
+                    foundByISRC=true;
+                    break;
+                }
+                if(foundByISRC)continue;
+            }
             LinkedHashSet<Integer> possible=new LinkedHashSet<>();
             List<Integer> names=byTitle.get(title);if(names!=null)possible.addAll(names);
             List<Integer> artists=byArtist.get(artist);
@@ -119,6 +143,7 @@ final class DeviceTransferMatcher {
             // Prefer exact title+artist pairs even when a popular artist has many songs.
             for(int index:possible){
                 Candidate candidate=pool.get(index);
+                if(!importedISRC.isEmpty()&&!candidate.isrc.isEmpty()&&!importedISRC.equals(candidate.isrc))continue;
                 boolean exact=false;
                 for(String[] pair:candidate.variants)if(title.equals(pair[0])&&artist.equals(pair[1])){exact=true;break;}
                 if(exact){
@@ -143,6 +168,7 @@ final class DeviceTransferMatcher {
             for(int index:possible){
                 if(++checked>500)break;
                 Candidate c=pool.get(index);
+                if(!importedISRC.isEmpty()&&!c.isrc.isEmpty()&&!importedISRC.equals(c.isrc))continue;
                 double grade=score(title,artist,original.optDouble("duration",0),c,mode);
                 if(grade>highest){
                     runnerUp=highest;highest=grade;winner=c;
