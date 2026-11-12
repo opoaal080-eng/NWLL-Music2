@@ -1806,6 +1806,7 @@ struct NightwellNativeTransfer: View {
     @State private var contents = ""
     @State private var selectedFilename = ""
     @State private var mode = "wide"
+    @State private var transferMethod = "fast"
     @State private var etaStage = ""
     @State private var etaStart = Date()
     @State private var etaProgress = 0
@@ -1844,10 +1845,28 @@ struct NightwellNativeTransfer: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     Text("Перенести музыку").font(.largeTitle.bold())
-                    Text("Разбор списка и сопоставление треков выполняются на iPhone. Сервер получает только обычные поисковые запросы и команды сохранения плейлиста. Ненайденные треки можно экспортировать.")
+                    Text("Обработка плейлиста проходит на iPhone, сервер выполняет только поиск треков и обычное сохранение плейлиста. Ненайденные треки можно экспортировать.")
                         .foregroundStyle(.secondary)
                     TextField("Название плейлиста", text: $name).focused($nameFieldFocused).submitLabel(.done).onSubmit { nameFieldFocused = false }.padding(14).nightwellLiquidGlass(18)
-                    Picker("Режим поиска", selection: $mode) {
+                    VStack(alignment: .leading, spacing: 9) {
+                        Text("Способ переноса").font(.subheadline.weight(.semibold))
+                        Picker("Способ переноса", selection: $transferMethod) {
+                            Text("Обычный").tag("fast")
+                            Text("С нейросетью").tag("neural")
+                        }
+                        .pickerStyle(.segmented)
+                        .disabled(busy)
+                        if transferMethod == "neural" {
+                            Label("Нейросеть обучается и ищет похожие записи прямо на iPhone. Возможен сильный расход заряда и нагрев, перенос может идти дольше. Рекомендуется на ПК.", systemImage: "exclamationmark.batteryblock")
+                                .font(.footnote)
+                                .foregroundStyle(.orange)
+                                .fixedSize(horizontal: false, vertical: true)
+                        } else {
+                            Text("Быстрый локальный поиск совпадений. Меньше расходует заряд.")
+                                .font(.footnote).foregroundStyle(.secondary)
+                        }
+                    }
+                    Picker("Точность совпадения", selection: $mode) {
                         Text("Точный").tag("safe")
                         Text("Умный").tag("balanced")
                         Text("Максимальный").tag("wide")
@@ -1956,6 +1975,7 @@ struct NightwellNativeTransfer: View {
             }
             .background(Color(red: 0.045, green: 0.045, blue: 0.052))
              .task { await refreshHistory() }
+             .onDisappear { transferTask?.cancel() }
             .navigationTitle("Перенос")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Закрыть") { dismiss() } }; ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("Скрыть клавиатуру") { nameFieldFocused = false } } }
@@ -2052,15 +2072,21 @@ struct NightwellNativeTransfer: View {
             job = currentJob(state: "reading", progress: 0, total: 0, matched: 0,
                              message: "Разбираем список на iPhone")
             let selectedMode = mode
+            let useNeuralMatching = transferMethod == "neural"
             let prepared = try await Task.detached(priority: .userInitiated) {
                 try TransferPreparation.prepare(raw)
             }.value
             let originals = try JSONSerialization.jsonObject(with: Data(prepared.utf8)) as? [[String: Any]] ?? []
             let localCatalog = try JSONEncoder().encode(catalog)
             job = currentJob(state: "matching", progress: 0, total: originals.count, matched: 0,
-                             message: "Ищем совпадения на устройстве")
+                             message: useNeuralMatching ? "Обучаем нейросеть на iPhone" : "Ищем совпадения на устройстве")
             var matching = try await Task.detached(priority: .userInitiated) {
-                try DeviceTransferMatcher.match(prepared: prepared, catalogJSON: localCatalog, mode: selectedMode)
+                if useNeuralMatching {
+                    return try DeviceNeuralTransferMatcher.match(
+                        prepared: prepared, catalogJSON: localCatalog, mode: selectedMode)
+                }
+                return try DeviceTransferMatcher.match(
+                    prepared: prepared, catalogJSON: localCatalog, mode: selectedMode)
             }.value
             try Task.checkCancellation()
             let numberFound = matching.filter { ($0["track_id"] as? String) != nil }.count
