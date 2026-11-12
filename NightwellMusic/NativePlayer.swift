@@ -17,14 +17,8 @@ struct NativeTrack {
     var offlineLyrics: [String: Any]? = nil
 }
 
-// Retry activation when iOS makes this playback session eligible for Now Playing.
-private final class NowPlayingEligibilityDelegate: NSObject, MPNowPlayingSessionDelegate {
-    var eligibilityChanged: (() -> Void)?
-    func nowPlayingSessionDidChangeCanBecomeActive(_ nowPlayingSession: MPNowPlayingSession) {
-        DispatchQueue.main.async { [weak self] in self?.eligibilityChanged?() }
-    }
-}
-
+// Manually publish playback state: the local EQ engine and the streaming
+// AVPlayer can each be the audible source, but share one remote command center.
 // All state changes and AVPlayer commands run on the main thread.
 final class NativePlayer {
     static let shared = NativePlayer()
@@ -273,9 +267,8 @@ final class NativePlayer {
         play()
     }
 
-    private lazy var nowPlayingSession = MPNowPlayingSession(players: [player])
-    private let nowPlayingEligibility = NowPlayingEligibilityDelegate()
-    private var activatingNowPlaying = false
+    private let nowPlayingCenter = MPNowPlayingInfoCenter.default()
+    private let remoteCommands = MPRemoteCommandCenter.shared()
     private var audioMeter = LocalAudioMeter()
     private let enginePlayback = NativeEQPlayback()
     private var eqDownload: EnvelopeDownload?
@@ -460,18 +453,27 @@ final class NativePlayer {
                 self?.appIsActive = false; self?.updateFade(); self?.independentMeter.cancel(keepingEnvelope: true); self?.publish()
             })
         fadeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.04, preferredTimescale: 600), queue: .main) { [weak self] _ in self?.updateFade() }
-        nowPlayingSession.automaticallyPublishesNowPlayingInfo = false
-        nowPlayingEligibility.eligibilityChanged = { [weak self] in self?.activateNowPlayingSession() }
-        nowPlayingSession.delegate = nowPlayingEligibility
-        let center = nowPlayingSession.remoteCommandCenter
+        // The AVPlayer is intentionally paused when the local EQ engine owns
+        // playback. An AVPlayer-backed MPNowPlayingSession would therefore
+        // advertise Pause (rate=0) even while the EQ engine is audible.
+        let center = remoteCommands
         center.skipForwardCommand.isEnabled = false
         center.skipBackwardCommand.isEnabled = false
         center.seekForwardCommand.isEnabled = false
         center.seekBackwardCommand.isEnabled = false
-        center.playCommand.addTarget { [weak self] _ in DispatchQueue.main.async { self?.play() }; return .success }
-        center.pauseCommand.addTarget { [weak self] _ in DispatchQueue.main.async { self?.pause() }; return .success }
+        center.playCommand.addTarget { [weak self] _ in
+            DispatchQueue.main.async { self?.play() }
+            return .success
+        }
+        center.pauseCommand.addTarget { [weak self] _ in
+            DispatchQueue.main.async { self?.pause() }
+            return .success
+        }
         center.togglePlayPauseCommand.addTarget { [weak self] _ in
-            DispatchQueue.main.async { guard let self else { return }; self.wantsPlay ? self.pause() : self.play() }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.wantsPlay ? self.pause() : self.play()
+            }
             return .success
         }
         center.nextTrackCommand.addTarget { [weak self] _ in DispatchQueue.main.async { self?.step(1) }; return .success }
@@ -1523,27 +1525,12 @@ final class NativePlayer {
                 return item
             }]
     }
-    // The same session owns this AVPlayer, its metadata and every remote command.
-    // Retry only when the session becomes eligible; an activation callback never
-    // starts another attempt when activation failed.
-    private func activateNowPlayingSession() {
-        guard current != nil, wantsPlay, !activatingNowPlaying,
-              !nowPlayingSession.isActive, nowPlayingSession.canBecomeActive else { return }
-        activatingNowPlaying = true
-        nowPlayingSession.becomeActiveIfPossible { [weak self] activated in
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.activatingNowPlaying = false
-                if activated, self.current != nil { self.publish() }
-            }
-        }
-    }
     private func publish() {
         if let playing = current, shuffleHistory.last != playing.id {
             shuffleHistory.append(playing.id)
             if shuffleHistory.count > 120 { shuffleHistory.removeFirst(shuffleHistory.count - 120) }
         }
-        let commands = nowPlayingSession.remoteCommandCenter
+        let commands = remoteCommands
         commands.nextTrackCommand.isEnabled = tracks.count > 1 && pendingNextIndex == nil && !waveWaiting
         commands.previousTrackCommand.isEnabled = !tracks.isEmpty
         commands.playCommand.isEnabled = current != nil
@@ -1558,6 +1545,8 @@ final class NativePlayer {
                 MPMediaItemPropertyArtist: current.artist, MPMediaItemPropertyAlbumTitle: current.album,
                 MPMediaItemPropertyPlaybackDuration: state["duration"] ?? 0,
                 MPNowPlayingInfoPropertyElapsedPlaybackTime: state["position"] ?? 0,
+                // Play intent is distinct from buffering, but the system must
+                // never resume its own UI while our actual transport is paused.
                 MPNowPlayingInfoPropertyPlaybackRate: wantsPlay && audible ? 1.0 : 0.0,
                 MPNowPlayingInfoPropertyDefaultPlaybackRate: 1.0,
                 MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue,
@@ -1565,9 +1554,8 @@ final class NativePlayer {
                 MPNowPlayingInfoPropertyPlaybackQueueCount: tracks.count,
                 MPNowPlayingInfoPropertyExternalContentIdentifier: current.id]
             if let artwork { info[MPMediaItemPropertyArtwork] = artwork }
-            nowPlayingSession.nowPlayingInfoCenter.nowPlayingInfo = info
-            activateNowPlayingSession()
-        } else { nowPlayingSession.nowPlayingInfoCenter.nowPlayingInfo = nil }
+            nowPlayingCenter.nowPlayingInfo = info
+        } else { nowPlayingCenter.nowPlayingInfo = nil }
         onChange?()
     }
 }
