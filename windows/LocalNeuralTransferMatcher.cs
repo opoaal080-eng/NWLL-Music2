@@ -29,9 +29,11 @@ internal static class LocalTransferInput {
   var raw=input.Trim().TrimStart('\uFEFF');
   if(raw.StartsWith("[")||raw.StartsWith("{")) {
    using var json=JsonDocument.Parse(raw);
-   var tracks=json.RootElement;
-   if(tracks.ValueKind==JsonValueKind.Object) {
-    if(!tracks.TryGetProperty("tracks",out tracks)&&!tracks.TryGetProperty("items",out tracks))throw new InvalidDataException("В JSON требуется массив tracks.");
+   var root=json.RootElement;
+   JsonElement tracks=root;
+   if(root.ValueKind==JsonValueKind.Object) {
+    if(root.TryGetProperty("tracks",out var list)||root.TryGetProperty("items",out list))tracks=list;
+    else throw new InvalidDataException("В JSON требуется массив tracks.");
    }
    if(tracks.ValueKind!=JsonValueKind.Array)throw new InvalidDataException("В JSON требуется массив треков.");
    foreach(var entry in tracks.EnumerateArray()) {
@@ -205,7 +207,10 @@ internal sealed class LocalNeuralTransferMatcher {
   if(titleIndex.TryGetValue(title,out var same))Include(same);
   if(artistIndex.TryGetValue(artist,out var performer))Include(performer);
   foreach(var word in Words(title).Where(x=>x.Length>=3).Take(4))if(titleIndex.TryGetValue(word,out var words))Include(words);
-  if(extra!=null)Include(extra);
+  if(extra!=null) {
+   // Search results are directly relevant to this query: always consider them.
+   foreach(var candidate in extra)possibilities[candidate.id]=candidate;
+  }
   var scores=new List<(Track T,double S,double Title,double Artist)>();
   foreach(var t in possibilities.Values) {
    var x=Features(row,t);
