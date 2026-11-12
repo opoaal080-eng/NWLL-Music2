@@ -202,6 +202,9 @@ enum DeviceNeuralTransferMatcher {
                     }
                 }
             }
+            // When a remote query yields a small set, rank every candidate.
+            // An otherwise correct track may have typos in both artist and title.
+            if candidates.count <= 250 { possible.formUnion(candidates.indices) }
             var scored: [(Double, Int)] = []
             for n in possible.sorted().prefix(500) {
                 let candidate = candidates[n]
