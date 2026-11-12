@@ -8,6 +8,7 @@ Run: python catalog_metadata_index.py index --db ./catalog.sqlite --sources audi
 from __future__ import annotations
 
 import argparse
+from difflib import SequenceMatcher
 import json
 import os
 import re
@@ -141,27 +142,48 @@ def parse_track(source: str, item: dict) -> tuple | None:
 
 def search_tracks(db: sqlite3.Connection, query: str, limit: int = 25,
                   source: str | None = None) -> list[dict]:
-    """Metadata candidates only; the main server must resolve playable IDs."""
+    """Search local metadata; never claim a record is already playable."""
     parts = [p for p in norm(query).split() if len(p) >= 2][:8]
     if not parts:
         return []
-    expression = " AND ".join('"' + p.replace('"', '') + '"*' for p in parts)
+    limit = max(1, min(int(limit), 100))
+    words = ['"' + p.replace('"', '') + '"*' for p in parts]
     sql = """SELECT t.source,t.source_id,t.title,t.artist,t.duration,
                   t.source_url,t.cover_url,bm25(tracks_fts, 1.8, 1.0) AS rank
              FROM tracks_fts JOIN tracks t ON t.id=tracks_fts.rowid
              WHERE tracks_fts MATCH ?"""
-    values: list = [expression]
+    base: list = []
     if source:
         sql += " AND t.source=?"
-        values.append(source)
+        base.append(source)
     sql += " ORDER BY rank LIMIT ?"
-    values.append(max(1, min(int(limit), 100)))
+
+    def run(expression: str, size: int) -> list:
+        return db.execute(sql, [expression, *base, size]).fetchall()
+
+    exact = run(" AND ".join(words), limit)
+    if len(exact) >= limit or len(words) == 1:
+        rows = exact
+    else:
+        # Broader FTS search recovers titles with missing words and gives the
+        # client-side fuzzy/NN matcher candidate records to inspect.
+        broad = run(" OR ".join(words), min(300, max(80, limit * 8)))
+        pooled = {(r["source"], r["source_id"]): r for r in broad}
+        pooled.update({(r["source"], r["source_id"]): r for r in exact})
+        q = " ".join(parts)
+        def relevance(row: sqlite3.Row) -> float:
+            title = norm(row["title"])
+            artist = norm(row["artist"])
+            joined = artist + " " + title
+            hits = sum(1 for token in parts if token in joined.split())
+            return hits * 1.5 + SequenceMatcher(None, q, joined).ratio()
+        rows = sorted(pooled.values(), key=relevance, reverse=True)[:limit]
     return [{
         "source": row["source"], "source_id": row["source_id"],
         "title": row["title"], "artist": row["artist"],
         "duration": row["duration"], "source_url": row["source_url"],
         "cover_url": row["cover_url"]
-    } for row in db.execute(sql, values)]
+    } for row in rows]
 
 
 def fetch_json(url: str, token: str | None = None, delay: float = 0.6) -> dict:
