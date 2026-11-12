@@ -88,6 +88,20 @@ final class TransferPreparation {
         for(int i=0;i<rows.length();i++){JSONObject row=rows.getJSONObject(i);if(seen.add(key(row.getString("artist"))+"\n"+key(row.getString("title"))))unique.put(row);}
         if(unique.length()==0)throw new Exception("В списке нет треков");return unique;
     }
+    static List<String> searchQueries(String title,String artist){
+        String cleaned=title
+            .replaceAll("(?i)\\([^)]*(?:official|video|audio|lyrics?|visualizer)[^)]*\\)"," ")
+            .replaceAll("(?i)\\b(?:feat\\.?|ft\\.?|featuring)\\s+.+$"," ")
+            .replaceAll("(?i)\\b(?:official|music video|lyrics? video|visualizer|audio)\\b"," ")
+            .replaceAll("\\s+"," ").trim();
+        LinkedHashMap<String,String> queries=new LinkedHashMap<>();
+        for(String value:new String[]{artist+" "+title,artist+" "+cleaned,cleaned,title}){
+            String q=value.trim();
+            if(!q.isEmpty())queries.putIfAbsent(key(q),q);
+            if(queries.size()>=3)break;
+        }
+        return new ArrayList<>(queries.values());
+    }
     private static JSONObject track(String title,String artist)throws Exception {
         title=title.trim();artist=artist.trim();
         if(title.isEmpty()||artist.isEmpty()||title.length()>300||artist.length()>300)throw new Exception("Проверь название и исполнителя трека");
