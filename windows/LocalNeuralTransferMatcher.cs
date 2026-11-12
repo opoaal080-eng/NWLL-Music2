@@ -9,7 +9,7 @@ namespace Nightwell.Native;
 // Entire parser, candidate index and trainable feed-forward ranker stay on this PC.
 // The server is used only for catalog/search reads and standard playlist writes.
 internal static class LocalTransferInput {
- public sealed record Row(string Title,string Artist,double Duration);
+ public sealed record Row(string Title,string Artist,double Duration,string? ISRC=null);
  static string Field(JsonElement value, params string[] keys) {
   foreach(var key in keys) if(value.ValueKind==JsonValueKind.Object&&value.TryGetProperty(key,out var item)) {
    if(item.ValueKind==JsonValueKind.String)return item.GetString()??"";
@@ -21,11 +21,12 @@ internal static class LocalTransferInput {
  public static List<Row> Parse(string input) {
   if(Encoding.UTF8.GetByteCount(input)>1024*1024)throw new InvalidDataException("Максимальный размер файла 1 МБ.");
   var result=new List<Row>();
-  void Add(string title,string artist,double duration=0) {
+  void Add(string title,string artist,double duration=0,string? isrc=null) {
    title=title.Trim();artist=artist.Trim();
    if(title.Length==0||artist.Length==0||title.Length>300||artist.Length>300)throw new InvalidDataException("Проверь название и исполнителя трека.");
    if(result.Count>=1000)throw new InvalidDataException("Переноси до 1000 треков за раз.");
-   result.Add(new Row(title,artist,duration));
+   var code=(isrc??"").Trim().ToUpperInvariant();
+   result.Add(new Row(title,artist,duration,Regex.IsMatch(code,@"^[A-Z]{2}[A-Z0-9]{3}[0-9]{7}$")?code:null));
   }
   var raw=input.Trim().TrimStart('\uFEFF');
   if(raw.StartsWith("[")||raw.StartsWith("{")) {
@@ -33,20 +34,27 @@ internal static class LocalTransferInput {
    var root=json.RootElement;
    JsonElement tracks=root;
    if(root.ValueKind==JsonValueKind.Object) {
-    if(root.TryGetProperty("tracks",out var list)||root.TryGetProperty("items",out list))tracks=list;
+    if(root.TryGetProperty("tracks",out var list)||root.TryGetProperty("items",out list)||root.TryGetProperty("audios",out list))tracks=list;
     else throw new InvalidDataException("В JSON требуется массив tracks.");
    }
    if(tracks.ValueKind!=JsonValueKind.Array)throw new InvalidDataException("В JSON требуется массив треков.");
    foreach(var entry in tracks.EnumerateArray()) {
     var row=entry;
-    if(entry.ValueKind==JsonValueKind.Object&&entry.TryGetProperty("track",out var nested)&&nested.ValueKind==JsonValueKind.Object)row=nested;
+    if(entry.ValueKind==JsonValueKind.Object){
+     foreach(var key in new[]{"track","audio","song"})
+      if(entry.TryGetProperty(key,out var nested)&&nested.ValueKind==JsonValueKind.Object){row=nested;break;}
+    }
     var title=Field(row,"title","name");
-    var artist=Field(row,"artist","artists","performer");
+    var artist=Field(row,"artist","artists","performer","artist_name","artistName");
     double duration=0;
     foreach(var key in new[]{"duration","duration_ms","durationMs"})if(row.TryGetProperty(key,out var v)&&v.ValueKind==JsonValueKind.Number) {
      duration=v.GetDouble();if(key!="duration")duration/=1000;break;
     }
-    Add(title,artist,duration);
+    string? isrc=null;
+    if(row.TryGetProperty("isrc",out var code)&&code.ValueKind==JsonValueKind.String)isrc=code.GetString();
+    else foreach(var key in new[]{"external_ids","externalIds"})
+      if(row.TryGetProperty(key,out var details)&&details.ValueKind==JsonValueKind.Object&&details.TryGetProperty("isrc",out var value)&&value.ValueKind==JsonValueKind.String){isrc=value.GetString();break;}
+    Add(title,artist,duration,isrc);
    }
   } else {
    var lines=raw.Split('\n').Select(x=>x.TrimEnd('\r')).Where(x=>!string.IsNullOrWhiteSpace(x)).ToArray();
@@ -55,11 +63,16 @@ internal static class LocalTransferInput {
    var headers=SplitCSV(lines[0],separator).Select(Normalize).ToArray();
    var name=Array.FindIndex(headers,h=>new[]{"title","track","name","song","название","трек"}.Contains(h));
    var artist=Array.FindIndex(headers,h=>new[]{"artist","artists","исполнитель","исполнители"}.Contains(h));
+   var isrc=Array.FindIndex(headers,h=>h=="isrc");
+   var duration=Array.FindIndex(headers,h=>new[]{"duration","durationms","длительность"}.Contains(h));
    if(name>=0&&artist>=0) {
     foreach(var line in lines.Skip(1)){
      var cells=SplitCSV(line,separator);
      if(cells.Count<=Math.Max(name,artist))continue;
-     Add(cells[name],cells[artist]);
+     double seconds=0;
+     if(duration>=0&&duration<cells.Count&&double.TryParse(cells[duration],NumberStyles.Float,CultureInfo.InvariantCulture,out var parsed))
+      seconds=headers[duration]=="durationms"?parsed/1000:parsed;
+     Add(cells[name],cells[artist],seconds,isrc>=0&&isrc<cells.Count?cells[isrc]:null);
     }
    } else {
     foreach(var line in lines) {
@@ -82,6 +95,19 @@ internal static class LocalTransferInput {
    else value.Append(c);
   }
   fields.Add(value.ToString());return fields;
+ }
+ public static IEnumerable<string> SearchQueries(Row row) {
+  var cleaned=Regex.Replace(row.Title,@"\([^)]*(?:official|video|audio|lyrics?|visualizer)[^)]*\)"," ",RegexOptions.IgnoreCase);
+  cleaned=Regex.Replace(cleaned,@"\b(?:feat\.?|ft\.?|featuring)\s+.+$"," ",RegexOptions.IgnoreCase);
+  cleaned=Regex.Replace(cleaned,@"\b(?:official|music video|lyrics? video|visualizer|audio)\b"," ",RegexOptions.IgnoreCase);
+  cleaned=Regex.Replace(cleaned,@"\s+"," ").Trim();
+  var unique=new HashSet<string>();
+  foreach(var candidate in new[]{row.Artist+" "+row.Title,row.Artist+" "+cleaned,cleaned,row.Title}) {
+   var text=candidate.Trim();
+   if(text.Length==0||!unique.Add(Normalize(text)))continue;
+   yield return text;
+   if(unique.Count>=3)yield break;
+  }
  }
  public static string Normalize(string text) {
   text=text.Normalize(NormalizationForm.FormKC).ToLowerInvariant().Replace('ё','е');
