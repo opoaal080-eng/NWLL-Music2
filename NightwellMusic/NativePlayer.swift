@@ -401,6 +401,9 @@ final class NativePlayer {
     private var itemGeneration = UUID()
     private var seekGeneration = UUID()
     private var resumeAfterInterruption = false
+    private var callInterruptionEnded = false
+    private var callResumeRetry: DispatchWorkItem?
+    private var callResumeAttempts = 0
     private var observers: [NSObjectProtocol] = []
     private var current: NativeTrack? { tracks.indices.contains(index) ? tracks[index] : nil }
 
@@ -448,7 +451,9 @@ final class NativePlayer {
         }
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification,
             object: nil, queue: .main) { [weak self] _ in
-                self?.appIsActive = true; self?.endBackgroundHandoff(); self?.refreshIndependentMeter(); self?.publish()
+                self?.appIsActive = true; self?.endBackgroundHandoff()
+                if self?.callInterruptionEnded == true { self?.attemptCallResume() }
+                self?.refreshIndependentMeter(); self?.publish()
             })
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.willResignActiveNotification,
             object: nil, queue: .main) { [weak self] _ in
@@ -825,6 +830,8 @@ final class NativePlayer {
                 lastPosition = max(lastPosition, position)
             }
         }
+        callResumeRetry?.cancel(); callResumeRetry = nil
+        callInterruptionEnded = false; callResumeAttempts = 0
         resumeAfterInterruption = false; recovery.cancel()
         independentMeter.cancel(keepingEnvelope: true)
         wantsPlay = false; waveWaiting = false
@@ -1320,18 +1327,55 @@ final class NativePlayer {
         }
         publish()
     }
+    // Phone and VoIP calls may end without iOS setting .shouldResume.
+    // Remember the listener's playback intent and current position locally.
+    // A manual Pause/Stop cancels pending automatic resumption.
     private func interruption(_ note: Notification) {
         guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
               let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
         if type == .began {
-            let resume = wantsPlay || resumeAfterInterruption
-            pause(); resumeAfterInterruption = resume
+            let wasPlaying = wantsPlay || resumeAfterInterruption
+            let saved = playbackPosition
+            callResumeRetry?.cancel(); callResumeRetry = nil
+            pause()
+            if saved.isFinite && saved >= 0 { lastPosition = max(lastPosition, saved) }
+            resumeAfterInterruption = wasPlaying
+            callInterruptionEnded = false
+            callResumeAttempts = 0
+            publish()
+        } else {
+            // Do not depend solely on shouldResume. Incoming calls often omit
+            // it even though playback was running before interruption.
+            callInterruptionEnded = true
+            attemptCallResume()
         }
-        else {
-            let rawOptions = note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
-            if resumeAfterInterruption && AVAudioSession.InterruptionOptions(rawValue: rawOptions).contains(.shouldResume) { play() }
+    }
+    private func attemptCallResume() {
+        guard callInterruptionEnded, resumeAfterInterruption, current != nil else { return }
+        callResumeRetry?.cancel(); callResumeRetry = nil
+        callResumeAttempts += 1
+        // The EQ engine's graph can be invalidated while the phone owns audio.
+        if enginePlayback.ready {
+            do { try enginePlayback.rebuild(playing: false) }
+            catch { fallbackFromEngine() }
+        }
+        play() // Restarts the same item/position, never moves to the next track.
+        if wantsPlay {
             resumeAfterInterruption = false
+            callInterruptionEnded = false
+            callResumeAttempts = 0
+            return
         }
+        // Audio activation can still be unavailable for a moment after a call.
+        // Retry a few times, unless the user manually pauses or stops.
+        guard callResumeAttempts < 5 else {
+            resumeAfterInterruption = false
+            callInterruptionEnded = false
+            return
+        }
+        let retry = DispatchWorkItem { [weak self] in self?.attemptCallResume() }
+        callResumeRetry = retry
+        DispatchQueue.main.asyncAfter(deadline: .now() + Double(callResumeAttempts), execute: retry)
     }
     private func fetchArtwork(_ track: NativeTrack, generation: UUID, attempt: Int = 0) {
         if attempt == 0 { artworkLoadTask?.cancel() }
