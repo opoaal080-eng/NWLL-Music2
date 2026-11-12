@@ -164,7 +164,9 @@ enum DeviceNeuralTransferMatcher {
         // on battery-powered devices. No remote model or GPU is required.
         let training = Array(candidates.prefix(800))
         for _ in 0..<4 {
+            try Task.checkCancellation()
             for (i, sample) in training.enumerated() {
+                if i.isMultiple(of: 64) { try Task.checkCancellation() }
                 let positive = vector(sample.title, sample.artist, sample.duration, sample)
                 network.learn(positive, label: 1)
                 let another = training[(i + 17) % training.count]
@@ -174,6 +176,7 @@ enum DeviceNeuralTransferMatcher {
         }
 
         for row in base.indices {
+            if row.isMultiple(of: 8) { try Task.checkCancellation() }
             guard base[row]["track_id"] as? String == nil,
                   let rawTitle = base[row]["title"] as? String,
                   let rawArtist = base[row]["artist"] as? String else { continue }
@@ -185,7 +188,7 @@ enum DeviceNeuralTransferMatcher {
                 possible.formUnion((byTitle[String(word)] ?? []).prefix(120))
             }
             var scored: [(Double, Int)] = []
-            for n in possible.prefix(260) {
+            for n in possible.sorted().prefix(260) {
                 let candidate = candidates[n]
                 let input = vector(title, artist, duration, candidate)
                 let titleMin = mode == "wide" ? 0.76 : mode == "safe" ? 0.90 : 0.82
