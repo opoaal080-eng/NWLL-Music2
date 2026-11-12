@@ -35,7 +35,9 @@ internal static class LocalTransferInput {
    JsonElement tracks=root;
    if(root.ValueKind==JsonValueKind.Object) {
     if(root.TryGetProperty("tracks",out var list)||root.TryGetProperty("items",out list)||root.TryGetProperty("audios",out list))tracks=list;
-    else throw new InvalidDataException("В JSON требуется массив tracks.");
+    else if(root.TryGetProperty("playlist",out var playlist)&&playlist.ValueKind==JsonValueKind.Object&&playlist.TryGetProperty("tracks",out var playlistTracks))tracks=playlistTracks;
+    else if(root.TryGetProperty("response",out var response)&&response.ValueKind==JsonValueKind.Object&&response.TryGetProperty("items",out var responseTracks))tracks=responseTracks;
+    else throw new InvalidDataException("В JSON требуется массив tracks, items или audios.");
    }
    if(tracks.ValueKind!=JsonValueKind.Array)throw new InvalidDataException("В JSON требуется массив треков.");
    foreach(var entry in tracks.EnumerateArray()) {
