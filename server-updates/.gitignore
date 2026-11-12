@@ -1,0 +1,8 @@
+# Large generated local metadata databases (never commit catalog dumps).
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.db
+*.db-wal
+*.db-shm
+__pycache__/
