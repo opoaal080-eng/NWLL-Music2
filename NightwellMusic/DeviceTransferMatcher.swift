@@ -8,6 +8,7 @@ enum DeviceTransferMatcher {
         let title: String
         let artist: String
         let duration: Double?
+        let isrc: String?
         let normalizedTitle: String
         let normalizedArtist: String
         let variants: [(String, String)]
@@ -37,6 +38,21 @@ enum DeviceTransferMatcher {
         return stripped.split(whereSeparator: { $0.isWhitespace })
             .map { word in String(word).map { letters[$0] ?? String($0) }.joined() }
             .joined(separator: " ")
+    }
+    private static func coreTitle(_ text: String) -> String {
+        var words = text.split(separator: " ").map(String.init)
+        if let feature = words.firstIndex(where: { ["feat", "ft", "featuring"].contains($0) }) {
+            words = Array(words.prefix(feature))
+        }
+        let promotional: Set<String> = ["official", "audio", "video", "lyrics", "lyric",
+                                        "visualizer", "visualiser", "hq", "hd", "4k", "clip"]
+        return words.filter { !promotional.contains($0) }.joined(separator: " ")
+    }
+    private static func cleanISRC(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let code = value.uppercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        return code.range(of: #"^[A-Z]{2}[A-Z0-9]{3}[0-9]{7}$"#,
+                          options: .regularExpression) == nil ? nil : code
     }
     private static func versions(_ s: String) -> Set<String> {
         Set(s.split(separator: " ").map(String.init)).intersection(versionWords)
@@ -77,7 +93,8 @@ enum DeviceTransferMatcher {
         var best = 0.0
         for (candidateTitle, candidateArtist) in candidate.variants {
             if versions(title) != versions(candidateTitle) { continue }
-            let ts = closeness(title,candidateTitle)
+            let ts = max(closeness(title,candidateTitle),
+                         0.98 * closeness(coreTitle(title),coreTitle(candidateTitle)))
             let ars = closeness(artist,candidateArtist)
             let total = 0.65 * ts + 0.35 * ars
             if ts >= limits.0 && ars >= limits.1 && total >= limits.2 {
@@ -98,6 +115,7 @@ enum DeviceTransferMatcher {
         var entries: [Entry] = []
         var byTitle: [String:[Int]] = [:]
         var byArtist: [String:[Int]] = [:]
+        var byISRC: [String:[Int]] = [:]
         for value in catalog.prefix(200_000) {
             guard let id = value["id"] as? String,
                   id.range(of: #"^[A-Za-z0-9_-]{1,100}$"#, options: .regularExpression) != nil,
@@ -118,11 +136,13 @@ enum DeviceTransferMatcher {
                 }
             }
             let entry = Entry(id:id,title:rawTitle,artist:rawArtist,
-                              duration:value["duration"] as? Double,
+                              duration:(value["duration"] as? NSNumber)?.doubleValue,
+                              isrc:cleanISRC(value["isrc"] as? String),
                               normalizedTitle:title,normalizedArtist:artist,
                               variants:variants)
             let pos = entries.count
             entries.append(entry)
+            if let code = entry.isrc { byISRC[code, default: []].append(pos) }
             for (candidateTitle,candidateArtist) in variants {
                 byTitle[candidateTitle,default:[]].append(pos)
                 byArtist[candidateArtist,default:[]].append(pos)
@@ -133,13 +153,33 @@ enum DeviceTransferMatcher {
             guard let title = item["title"] as? String,
                   let artist = item["artist"] as? String else { continue }
             let titleKey = key(title), artistKey = key(artist)
+            let importedISRC = cleanISRC(item["isrc"] as? String)
             var possible = Set(byTitle[titleKey] ?? [])
+            if let importedISRC { possible.formUnion(byISRC[importedISRC] ?? []) }
             possible.formUnion((byArtist[artistKey] ?? []).prefix(250))
+            // ISRC is a recording identifier: prefer it when the catalogue provides it.
+            if let importedISRC,
+               let matchIndex = byISRC[importedISRC]?.first(where: { idx in
+                   let entry = entries[idx]
+                   let duration = (item["duration"] as? NSNumber)?.doubleValue ?? 0
+                   return duration <= 0 || (entry.duration ?? 0) <= 0 ||
+                       abs(duration - (entry.duration ?? 0)) <= max(14, duration * 0.13)
+               }) {
+                let winner = entries[matchIndex]
+                var output = item
+                output["track_id"] = winner.id
+                output["found_title"] = winner.title
+                output["found_artist"] = winner.artist
+                output["reason"] = ""
+                results.append(output)
+                continue
+            }
             // Resolve exact normalized artist/title before truncating candidate lists.
             // Identical catalog duplicates are valid matches, not ambiguity.
             let duration = (item["duration"] as? NSNumber)?.doubleValue ?? 0
             if let exact = possible.first(where: { index in
                 let entry = entries[index]
+                if let importedISRC, let other = entry.isrc, importedISRC != other { return false }
                 let durationOK = duration <= 0 || (entry.duration ?? 0) <= 0 ||
                     abs(duration - (entry.duration ?? 0)) <= max(14, duration * 0.13)
                 return durationOK && entry.variants.contains(where: {
@@ -160,6 +200,7 @@ enum DeviceTransferMatcher {
             let candidates = possible.sorted().prefix(500)
             var ranked: [(Double,Int)] = []
             for index in candidates {
+                if let importedISRC, let other = entries[index].isrc, importedISRC != other { continue }
                 if let value = score(title:titleKey,artist:artistKey,
                                      duration:item["duration"] as? Double,
                                      candidate:entries[index],mode:mode) {
