@@ -32,7 +32,8 @@ permissions:
   contents: read
 jobs:
   ios:
-    runs-on: macos-15-intel
+    # Build on Apple Silicon to avoid the unavailable Intel runner pool.
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - name: Verify recovered sources
