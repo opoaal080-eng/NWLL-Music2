@@ -195,6 +195,9 @@ enum DeviceTransferMatcher {
                 results.append(output)
                 continue
             }
+            // Remote search returns a small candidate set. Score every result,
+            // even when both title and artist contain typos.
+            if entries.count <= 250 { possible.formUnion(entries.indices) }
             // The title, rather than a generic uploader, determines whether
             // an item belongs in the candidate pool.
             let candidates = possible.sorted().prefix(500)
