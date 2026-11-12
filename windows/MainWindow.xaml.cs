@@ -329,14 +329,17 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
       var limit=selected=="wide"?300:selected=="balanced"?180:80;
       if(extraSearches>=limit)break;
       extraSearches++;
-      try {
-       var row=rows[i];
-       var query=row.Artist+" "+row.Title;
-       var response=await api.Request("api/tracks?q="+Uri.EscapeDataString(query),cancellation:token);
-       var choices=ParseTracks(response);
-       var updated=matcher.Match(row,selected,choices);
-       if(updated.Found!=null)result[i]=updated;
-      } catch(OperationCanceledException){throw;}catch {}
+      var row=rows[i];
+      foreach(var query in LocalTransferInput.SearchQueries(row)){
+       token.ThrowIfCancellationRequested();
+       try {
+        var response=await api.Request("api/tracks?q="+Uri.EscapeDataString(query),cancellation:token);
+        var choices=ParseTracks(response);
+        if(choices.Count==0)continue;
+        var updated=matcher.Match(row,selected,choices);
+        if(updated.Found!=null){result[i]=updated;break;}
+       } catch(OperationCanceledException){throw;}catch {}
+      }
       if(i%4==0)progress.Text=$"Локальный ИИ: проверено {i+1}/{result.Count} · найдено {result.Count(x=>x.Found!=null)}";
      }
      matches=result;
