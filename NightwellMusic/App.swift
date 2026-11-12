@@ -1823,7 +1823,7 @@ struct NightwellNativeTransfer: View {
     @State private var alreadySavedIDs: Set<String> = []
     private let activeStates: Set<String> = ["reading", "matching", "saving"]
     struct ImportJob: Codable {
-        struct MatchedItem: Decodable {
+        struct MatchedItem: Codable {
             let title: String
             let artist: String
             let track_id: String?
@@ -2078,8 +2078,9 @@ struct NightwellNativeTransfer: View {
                 do {
                     let remote: TrackResult = try await store.api.request("/api/tracks?q=" + query, timeout: 12)
                     if !remote.tracks.isEmpty {
+                        let sourceRow = matching[index]
                         let found = try await Task.detached(priority: .utility) {
-                            let original = try JSONSerialization.data(withJSONObject: [matching[index]])
+                            let original = try JSONSerialization.data(withJSONObject: [sourceRow])
                             let encoded = try JSONEncoder().encode(remote.tracks)
                             return try DeviceTransferMatcher.match(
                                 prepared: String(decoding: original, as: UTF8.self),
