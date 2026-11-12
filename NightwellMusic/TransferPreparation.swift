@@ -87,13 +87,13 @@ enum TransferPreparation {
     /// featuring credits. This is metadata search, not access to source audio.
     static func searchQueries(title: String, artist: String) -> [String] {
         let cleaned = title
-            .replacingOccurrences(of: #"(?i)\\([^)]*(?:official|video|audio|lyrics?|visualizer)[^)]*\\)"#,
+            .replacingOccurrences(of: #"(?i)\([^)]*(?:official|video|audio|lyrics?|visualizer)[^)]*\)"#,
                                   with: " ", options: .regularExpression)
-            .replacingOccurrences(of: #"(?i)\\b(?:feat\\.?|ft\\.?|featuring)\\s+.+$"#,
+            .replacingOccurrences(of: #"(?i)\b(?:feat\.?|ft\.?|featuring)\s+.+$"#,
                                   with: " ", options: .regularExpression)
-            .replacingOccurrences(of: #"(?i)\\b(?:official|music video|lyrics? video|visualizer|audio)\\b"#,
+            .replacingOccurrences(of: #"(?i)\b(?:official|music video|lyrics? video|visualizer|audio)\b"#,
                                   with: " ", options: .regularExpression)
-            .replacingOccurrences(of: #"\\s+"#, with: " ", options: .regularExpression)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         var queries: [String] = []
         var seen = Set<String>()
