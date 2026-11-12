@@ -52,11 +52,22 @@ final class DeviceNeuralTransferMatcher {
         }
         return Math.max(0,1.0-(double)old[b.length()]/Math.max(a.length(),b.length()));
     }
+    private static String coreTitle(String title){
+        ArrayList<String> cleaned=new ArrayList<>();
+        Set<String> ignore=new HashSet<>(Arrays.asList("official","audio","video","lyrics","lyric","visualizer","hq","hd","4k"));
+        for(String word:words(title)){
+            if(word.equals("feat")||word.equals("ft")||word.equals("featuring"))break;
+            if(!ignore.contains(word))cleaned.add(word);
+        }
+        return String.join(" ",cleaned);
+    }
     private static double[] vector(String title,String artist,double duration,Candidate candidate){
         double dt=duration>0&&candidate.duration>0?
             Math.max(0,1-Math.abs(duration-candidate.duration)/Math.max(14,duration*.13)):1;
         return new double[]{
-            similarity(title,candidate.title),
+            Math.max(similarity(title,candidate.title),
+                coreTitle(title).isEmpty()||coreTitle(candidate.title).isEmpty()?0:
+                .98*similarity(coreTitle(title),coreTitle(candidate.title))),
             similarity(artist,candidate.artist),
             overlap(title,candidate.title),
             overlap(artist,candidate.artist),
