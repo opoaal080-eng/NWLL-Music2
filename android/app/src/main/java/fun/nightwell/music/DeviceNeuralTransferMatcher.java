@@ -182,6 +182,8 @@ final class DeviceNeuralTransferMatcher {
                     if(possible.size()>=900)break;
                 }
             }
+            // Keep fuzzy matches from small remote search responses in the pool.
+            if(pool.size()<=250)for(int j=0;j<pool.size();j++)possible.add(j);
             Candidate best=null;double highest=0,runner=0;
             int checked=0;
             for(int position:possible){
