@@ -212,6 +212,13 @@ internal sealed class LocalNeuralTransferMatcher {
    // Search results are directly relevant to this query: always consider them.
    foreach(var candidate in extra)possibilities[candidate.id]=candidate;
   }
+  // Exact artist/title matches must not be rejected as ambiguous duplicates.
+  // Still honor the duration check to avoid selecting the wrong recording.
+  foreach(var candidate in possibilities.Values) {
+   if(Key(candidate.title)!=title||Key(candidate.artist)!=artist)continue;
+   if(row.Duration>0&&candidate.duration>0&&Math.Abs(row.Duration-candidate.duration)>Math.Max(14,row.Duration*.13))continue;
+   return new Result(row,candidate,1,"");
+  }
   var scores=new List<(Track T,double S,double Title,double Artist)>();
   foreach(var t in possibilities.Values) {
    var x=Features(row,t);
