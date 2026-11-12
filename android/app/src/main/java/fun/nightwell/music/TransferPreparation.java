@@ -16,11 +16,24 @@ final class TransferPreparation {
         JSONArray rows=new JSONArray();
         if(text.startsWith("[")||text.startsWith("{")) {
             Object value=new JSONTokener(text).nextValue();
-            JSONArray array=value instanceof JSONArray?(JSONArray)value:((JSONObject)value).optJSONArray("tracks");
+            JSONArray array=null;
+            if(value instanceof JSONArray)array=(JSONArray)value;
+            else if(value instanceof JSONObject){
+                JSONObject root=(JSONObject)value;
+                array=root.optJSONArray("tracks");
+                if(array==null)array=root.optJSONArray("items");
+                if(array==null)array=root.optJSONArray("audios");
+            }
             if(array==null)throw new Exception("В JSON нужен массив tracks");
             for(int i=0;i<array.length();i++) {
-                JSONObject item=array.getJSONObject(i);if(item.optJSONObject("track")!=null)item=item.getJSONObject("track");
+                JSONObject item=array.getJSONObject(i);
+                for(String field:new String[]{"track","audio","song"}){
+                    if(item.optJSONObject(field)!=null){item=item.getJSONObject(field);break;}
+                }
                 Object artists=item.opt("artist");if(artists==null)artists=item.opt("artists");
+                if(artists==null)artists=item.opt("performer");
+                if(artists==null)artists=item.opt("artist_name");
+                if(artists==null)artists=item.opt("artistName");
                 String artist="";
                 if(artists instanceof JSONArray){JSONArray a=(JSONArray)artists;for(int j=0;j<a.length();j++){Object v=a.get(j);artist+=(j>0?", ":"")+(v instanceof JSONObject?((JSONObject)v).optString("name"):String.valueOf(v));}}
                 else if(artists instanceof JSONObject)artist=((JSONObject)artists).optString("name");
@@ -31,21 +44,40 @@ final class TransferPreparation {
                 JSONObject row=track(title,artist);
                 double seconds=item.optDouble("duration",0);if(seconds<=0)seconds=item.optDouble("duration_ms",item.optDouble("durationMs",0))/1000;
                 if(Double.isFinite(seconds)&&seconds>0&&seconds<86400)row.put("duration",seconds);
+                String isrc=item.optString("isrc","");
+                if(isrc.isEmpty()&&item.optJSONObject("external_ids")!=null)
+                    isrc=item.optJSONObject("external_ids").optString("isrc","");
+                if(isrc.isEmpty()&&item.optJSONObject("externalIds")!=null)
+                    isrc=item.optJSONObject("externalIds").optString("isrc","");
+                isrc=isrc.trim().toUpperCase(Locale.ROOT);
+                if(isrc.matches("[A-Z]{2}[A-Z0-9]{3}[0-9]{7}"))row.put("isrc",isrc);
                 rows.put(row);
             }
         } else {
             boolean csv=false;
             for(char delimiter:new char[]{'\t',';',','}) {
                 List<List<String>> table=csv(text,delimiter);if(table.isEmpty())continue;
-                int ti=-1,ai=-1;
+                int ti=-1,ai=-1,isrcIdx=-1,durationIdx=-1;
                 for(int i=0;i<table.get(0).size();i++) {String k=key(table.get(0).get(i)).replace(" ","");
                     if(Arrays.asList("title","track","trackname","song","songname","название","названиетрека","трек").contains(k))ti=i;
                     if(Arrays.asList("artist","artists","artistname","artistnames","исполнитель","исполнители").contains(k))ai=i;
+                    if(k.equals("isrc"))isrcIdx=i;
+                    if(Arrays.asList("duration","durationms","длительность").contains(k))durationIdx=i;
                 }
                 if(ti<0||ai<0)continue;csv=true;
                 for(int i=1;i<table.size();i++){List<String> row=table.get(i);if(String.join("",row).trim().isEmpty())continue;
                     if(row.size()<=Math.max(ti,ai))throw new Exception("Неполная строка CSV: "+(i+1));
-                    rows.put(track(row.get(ti),row.get(ai)));
+                    JSONObject song=track(row.get(ti),row.get(ai));
+                    if(isrcIdx>=0&&isrcIdx<row.size()){
+                        String code=row.get(isrcIdx).trim().toUpperCase(Locale.ROOT);
+                        if(code.matches("[A-Z]{2}[A-Z0-9]{3}[0-9]{7}"))song.put("isrc",code);
+                    }
+                    if(durationIdx>=0&&durationIdx<row.size())try{
+                        double duration=Double.parseDouble(row.get(durationIdx).trim());
+                        if(table.get(0).get(durationIdx).toLowerCase(Locale.ROOT).contains("ms"))duration/=1000;
+                        if(Double.isFinite(duration)&&duration>0&&duration<86400)song.put("duration",duration);
+                    }catch(NumberFormatException ignored){}
+                    rows.put(song);
                 }break;
             }
             if(!csv)for(String line:text.split("\\r?\\n")){if(line.trim().isEmpty())continue;String[] parts=line.split("\\s+[—–-]\\s+|\\t",2);
