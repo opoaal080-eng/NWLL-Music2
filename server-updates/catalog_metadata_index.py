@@ -258,6 +258,10 @@ def count_tracks(db: sqlite3.Connection) -> int:
     return db.execute("SELECT COUNT(*) FROM tracks").fetchone()[0]
 
 
+def count_source(db: sqlite3.Connection, source: str) -> int:
+    return db.execute("SELECT COUNT(*) FROM tracks WHERE source=?", (source,)).fetchone()[0]
+
+
 def run_offset_job(db: sqlite3.Connection, name: str, source: str,
                    route: str, params: dict, token: str | None, args) -> None:
     cursor, done = job_state(db, name)
@@ -266,7 +270,7 @@ def run_offset_job(db: sqlite3.Connection, name: str, source: str,
         return
     offset = int(cursor or 0)
     page = 0
-    while page < args.max_pages and count_tracks(db) < args.max_tracks:
+    while page < args.max_pages and count_source(db, source) < args.max_tracks:
         qs = urllib.parse.urlencode({**params, "limit": args.page_size, "offset": offset})
         response = fetch_json(AUDIUS_BASE + route + "?" + qs, token, args.delay)
         data = response.get("data") or []
@@ -293,7 +297,7 @@ def run_soundcloud_job(db: sqlite3.Connection, name: str, query: str,
         "linked_partitioning": "true"})
     url = cursor or initial
     page = 0
-    while page < args.max_pages and count_tracks(db) < args.max_tracks and url:
+    while page < args.max_pages and count_source(db, "soundcloud") < args.max_tracks and url:
         response = fetch_json(url, token, args.delay)
         items = response.get("collection") or []
         if not isinstance(items, list):
@@ -327,7 +331,7 @@ def index(db: sqlite3.Connection, args) -> None:
         run_offset_job(db, "audius:latest", "audius", "/tracks/latest", {},
                        token, args)
         for q in queries:
-            if count_tracks(db) >= args.max_tracks:
+            if count_source(db, "audius") >= args.max_tracks:
                 break
             run_offset_job(db, "audius:search:" + norm(q), "audius",
                            "/tracks/search", {"query": q}, token, args)
@@ -340,7 +344,7 @@ def index(db: sqlite3.Connection, args) -> None:
         if not queries:
             print("No SoundCloud seed queries. Use --seed or --seed-file.", file=sys.stderr)
         for q in queries:
-            if count_tracks(db) >= args.max_tracks:
+            if count_source(db, "soundcloud") >= args.max_tracks:
                 break
             run_soundcloud_job(db, "soundcloud:search:" + norm(q), q, token, args)
 
