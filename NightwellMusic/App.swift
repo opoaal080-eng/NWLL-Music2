@@ -658,8 +658,8 @@ struct NativeRoot: View {
                     content
                     MiniPlayer(clock: store.clock, open: { fullPlayer = true },
                                compactHeight: landscape)
-                        .padding(.horizontal, landscape ? 8 : 16)
-                        .padding(.bottom, landscape ? 4 : 18)
+                        .padding(.horizontal, landscape ? 18 : 16)
+                        .padding(.bottom, landscape ? 8 : 18)
                         .overlay(alignment: .bottom) {
                             if store.screen == .home && !landscape {
                                 HomeLyricLine(model: store.lyrics, clock: store.clock)
@@ -1030,8 +1030,8 @@ struct NativeRoot: View {
                    value: navigationMenuPresented)
         .animation(reducedMotion ? nil : .spring(response: 0.34, dampingFraction: 0.86),
                    value: collectionScrolled)
-        .padding(.horizontal, landscape ? 10 : 20)
-        .padding(.top, landscape ? 0 : 8)
+        .padding(.horizontal, landscape ? 20 : 20)
+        .padding(.top, landscape ? 14 : 8)
         .overlay(alignment: .center) {
             if let title = compactCollectionTitle {
                 Text(title)
