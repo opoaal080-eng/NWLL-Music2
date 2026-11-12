@@ -7,6 +7,7 @@ enum DeviceNeuralTransferMatcher {
         let id: String
         let rawTitle: String
         let rawArtist: String
+        let isrc: String?
         let title: String
         let artist: String
         let duration: Double
@@ -35,6 +36,12 @@ enum DeviceNeuralTransferMatcher {
             return character.isLetter || character.isNumber ? String(character) : " "
         }.joined()
         return letters.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+    }
+    private static func validISRC(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let code = value.uppercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        return code.range(of: #"^[A-Z]{2}[A-Z0-9]{3}[0-9]{7}$"#,
+                          options: .regularExpression) == nil ? nil : code
     }
     private static func tokens(_ value: String) -> Set<String> {
         Set(value.split(separator: " ").map(String.init))
@@ -147,6 +154,7 @@ enum DeviceNeuralTransferMatcher {
             let title = key(rawTitle), artist = key(rawArtist)
             guard !title.isEmpty, !artist.isEmpty else { continue }
             let candidate = Candidate(id: id, rawTitle: rawTitle, rawArtist: rawArtist,
+                                      isrc: validISRC(item["isrc"] as? String),
                                       title: title, artist: artist,
                                       duration: (item["duration"] as? NSNumber)?.doubleValue ?? 0)
             let n = candidates.count
@@ -182,6 +190,7 @@ enum DeviceNeuralTransferMatcher {
                   let rawArtist = base[row]["artist"] as? String else { continue }
             let title = key(rawTitle), artist = key(rawArtist)
             let duration = (base[row]["duration"] as? NSNumber)?.doubleValue ?? 0
+            let importedISRC = validISRC(base[row]["isrc"] as? String)
             var possible = Set(byTitle[title] ?? [])
             possible.formUnion((byArtist[artist] ?? []).prefix(160))
             for word in title.split(separator: " ").prefix(4) where word.count >= 4 {
@@ -208,6 +217,7 @@ enum DeviceNeuralTransferMatcher {
             var scored: [(Double, Int)] = []
             for n in possible.sorted().prefix(500) {
                 let candidate = candidates[n]
+                if let importedISRC, let other = candidate.isrc, importedISRC != other { continue }
                 let input = vector(title, artist, duration, candidate)
                 let titleMin = mode == "wide" ? 0.76 : mode == "safe" ? 0.90 : 0.82
                 let artistMin = mode == "wide" ? 0.68 : mode == "safe" ? 0.87 : 0.78
