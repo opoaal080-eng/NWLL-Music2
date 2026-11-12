@@ -83,6 +83,29 @@ enum TransferPreparation {
         guard !unique.isEmpty else { throw fail("В списке нет треков") }
         return String(decoding: try JSONSerialization.data(withJSONObject: unique), as: UTF8.self)
     }
+    /// Try the original query first, then remove uploader decorations and
+    /// featuring credits. This is metadata search, not access to source audio.
+    static func searchQueries(title: String, artist: String) -> [String] {
+        let cleaned = title
+            .replacingOccurrences(of: #"(?i)\\([^)]*(?:official|video|audio|lyrics?|visualizer)[^)]*\\)"#,
+                                  with: " ", options: .regularExpression)
+            .replacingOccurrences(of: #"(?i)\\b(?:feat\\.?|ft\\.?|featuring)\\s+.+$"#,
+                                  with: " ", options: .regularExpression)
+            .replacingOccurrences(of: #"(?i)\\b(?:official|music video|lyrics? video|visualizer|audio)\\b"#,
+                                  with: " ", options: .regularExpression)
+            .replacingOccurrences(of: #"\\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        var queries: [String] = []
+        var seen = Set<String>()
+        for query in [artist + " " + title, artist + " " + cleaned, cleaned, title] {
+            let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !text.isEmpty, seen.insert(key(text)).inserted {
+                queries.append(text)
+            }
+            if queries.count == 3 { break }
+        }
+        return queries
+    }
     private static func csv(_ text: String, delimiter: Character) -> [[String]] {
         let chars = Array(text); var rows: [[String]] = [], row: [String] = [], field = "", quoted = false, i = 0
         while i < chars.count {
