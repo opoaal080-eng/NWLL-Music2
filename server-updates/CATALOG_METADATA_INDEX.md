@@ -4,6 +4,8 @@
 
 ## Как запустить на Windows (Python 3.10+)
 
+**Быстрый способ:** запусти `Build_Nightwell_Catalog.bat` двойным кликом. Он начнёт сохранять метаданные Audius в `nightwell_catalog.sqlite`. Для локального HTTP-поиска после завершения запусти `Start_Nightwell_Catalog_Search.bat`. SoundCloud запускается только отдельно и только при наличии разрешения и официальных API-ключей.
+
 В папке `server-updates`:
 
 ```bat
