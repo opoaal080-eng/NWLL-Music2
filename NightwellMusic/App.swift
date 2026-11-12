@@ -2066,38 +2066,50 @@ struct NightwellNativeTransfer: View {
             let numberFound = matching.filter { ($0["track_id"] as? String) != nil }.count
             job = currentJob(state: "matching", progress: matching.count, total: matching.count,
                              matched: numberFound, message: "Проверяем ненайденные записи через поиск")
-            // Remote music providers may not appear in the initial catalogue.
-            // The server only supplies candidates; the same local matcher
-            // makes the final decision. One query at a time avoids a search storm.
-            for index in matching.indices where matching[index]["track_id"] as? String == nil {
+            // Search requests only. Matching stays on the phone, with three
+            // simultaneous searches at most to protect the music server.
+            let unresolved: [(Int, String, String)] = try matching.enumerated().compactMap { index, row in
+                guard row["track_id"] as? String == nil,
+                      let title = row["title"] as? String,
+                      let artist = row["artist"] as? String else { return nil }
+                let json = try JSONSerialization.data(withJSONObject: [row])
+                return (index, artist + " " + title, String(decoding: json, as: UTF8.self))
+            }
+            let client = store.api
+            for offset in stride(from: 0, to: unresolved.count, by: 3) {
                 try Task.checkCancellation()
-                guard let title = matching[index]["title"] as? String,
-                      let artist = matching[index]["artist"] as? String else { continue }
-                let query = (artist + " " + title).addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed.subtracting(CharacterSet(charactersIn: "&+=?#"))) ?? ""
-                guard !query.isEmpty else { continue }
-                do {
-                    let remote: TrackResult = try await store.api.request("/api/tracks?q=" + query, timeout: 12)
-                    if !remote.tracks.isEmpty {
-                        let sourceRow = matching[index]
-                        let found = try await Task.detached(priority: .utility) {
-                            let original = try JSONSerialization.data(withJSONObject: [sourceRow])
-                            let encoded = try JSONEncoder().encode(remote.tracks)
-                            return try DeviceTransferMatcher.match(
-                                prepared: String(decoding: original, as: UTF8.self),
-                                catalogJSON: encoded, mode: selectedMode)
-                        }.value
-                        if let better = found.first, better["track_id"] as? String != nil {
-                            matching[index] = better
+                let groupRows = Array(unresolved[offset..<min(offset + 3, unresolved.count)])
+                await withTaskGroup(of: (Int, String?, String?, String?).self) { group in
+                    for (index, queryText, original) in groupRows {
+                        group.addTask {
+                            let encoded = queryText.addingPercentEncoding(
+                                withAllowedCharacters: .urlQueryAllowed.subtracting(CharacterSet(charactersIn: "&+=?#"))) ?? ""
+                            guard !encoded.isEmpty else { return (index, nil, nil, nil) }
+                            do {
+                                let remote: TrackResult = try await client.request("/api/tracks?q=" + encoded, timeout: 12)
+                                guard !remote.tracks.isEmpty else { return (index, nil, nil, nil) }
+                                let data = try JSONEncoder().encode(remote.tracks)
+                                let rows = try DeviceTransferMatcher.match(
+                                    prepared: original, catalogJSON: data, mode: selectedMode)
+                                let result = rows.first
+                                return (index, result?["track_id"] as? String,
+                                        result?["found_title"] as? String,
+                                        result?["found_artist"] as? String)
+                            } catch { return (index, nil, nil, nil) }
                         }
                     }
-                } catch is CancellationError { throw CancellationError() }
-                catch { /* Missing tracks remain in the exportable report. */ }
-                if index.isMultiple(of: 8) {
-                    let count = matching.filter { $0["track_id"] as? String != nil }.count
-                    job = currentJob(state: "matching", progress: min(matching.count, index + 1),
-                                     total: matching.count, matched: count,
-                                     message: "Поиск на сервере, проверка на iPhone")
+                    for await (index, id, title, artist) in group {
+                        if let id {
+                            matching[index]["track_id"] = id
+                            matching[index]["found_title"] = title ?? ""
+                            matching[index]["found_artist"] = artist ?? ""
+                            matching[index]["reason"] = ""
+                        }
+                    }
                 }
+                let count = matching.filter { $0["track_id"] as? String != nil }.count
+                job = currentJob(state: "matching", progress: matching.count, total: matching.count,
+                                 matched: count, message: "Дополнительный поиск: \(min(offset + 3, unresolved.count))/\(unresolved.count)")
             }
             try Task.checkCancellation()
             matchedItems = matching
@@ -2133,7 +2145,8 @@ struct NightwellNativeTransfer: View {
             }
             guard let playlistID else { return }
             let available = matchedItems.compactMap { $0["track_id"] as? String }
-            let ids = Array(NSOrderedSet(array: available)) as? [String] ?? available
+            var seenIDs = Set<String>()
+            let ids = available.filter { seenIDs.insert($0).inserted }
             var failures = 0
             for id in ids where !alreadySavedIDs.contains(id) {
                 if Task.isCancelled { throw CancellationError() }
