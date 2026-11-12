@@ -262,36 +262,117 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
  }
  void NativeTransfer(){
   var panel=new StackPanel();
-  var window=Sheet("Перенести музыку",panel,680,false);
+  var window=Sheet("Перенести музыку",panel,720,false);
   panel.Children.Add(Label("Перенести музыку"));
+  panel.Children.Add(new TextBlock{Text="Поиск и нейросетевое сопоставление работают на ПК. Сервер выполняет только поиск треков и обычное сохранение плейлиста.",Foreground=Brushes.White,TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,0,0,9)});
   var name=new TextBox{Text="Перенос музыки",Padding=new Thickness(10)};panel.Children.Add(name);
   panel.Children.Add(Label("Режим поиска"));
   var mode=new ComboBox{ItemsSource=new[]{"Точный","Умный","Максимальный"},SelectedIndex=1};panel.Children.Add(mode);
   var choose=new Button{Content="Открыть JSON, CSV или TXT",Margin=new Thickness(0,12,0,8),Padding=new Thickness(8)};
-  var input=new TextBox{AcceptsReturn=true,VerticalContentAlignment=VerticalAlignment.Top,TextWrapping=TextWrapping.Wrap,VerticalScrollBarVisibility=ScrollBarVisibility.Auto,Height=175};
-  choose.Click+=(_,_)=>{var picker=new OpenFileDialog{Filter="Плейлисты|*.json;*.csv;*.txt|Все файлы|*.*"};if(picker.ShowDialog(this)==true){var data=File.ReadAllBytes(picker.FileName);if(data.Length>1024*1024){MessageBox.Show(this,"Максимальный размер файла 1 МБ");return;}input.Text=System.Text.Encoding.UTF8.GetString(data);}};
+  var input=new TextBox{AcceptsReturn=true,VerticalContentAlignment=VerticalAlignment.Top,TextWrapping=TextWrapping.Wrap,VerticalScrollBarVisibility=ScrollBarVisibility.Auto,Height=145};
+  choose.Click+=(_,_)=>{
+   var picker=new OpenFileDialog{Filter="Плейлисты|*.json;*.csv;*.txt|Все файлы|*.*"};
+   if(picker.ShowDialog(this)==true){
+    var bytes=File.ReadAllBytes(picker.FileName);
+    if(bytes.Length>1024*1024){MessageBox.Show(this,"Максимальный размер файла 1 МБ");return;}
+    input.Text=System.Text.Encoding.UTF8.GetString(bytes);
+   }
+  };
   panel.Children.Add(choose);panel.Children.Add(input);
   var progress=new TextBlock{Foreground=Brushes.White,Margin=new Thickness(0,14,0,12),TextWrapping=TextWrapping.Wrap};panel.Children.Add(progress);
-  var start=new Button{Content="Найти треки",Padding=new Thickness(12)};panel.Children.Add(start);string readyKey="";
+  var start=new Button{Content="Найти треки на устройстве",Padding=new Thickness(12)};panel.Children.Add(start);
+  var missingButton=new Button{Content="Показать ненайденные",Visibility=Visibility.Collapsed,Padding=new Thickness(10),Margin=new Thickness(0,8,0,0)};
+  panel.Children.Add(missingButton);
+  var cancel=new Button{Content="Остановить перенос",Visibility=Visibility.Collapsed,Padding=new Thickness(10),Margin=new Thickness(0,8,0,0)};
+  panel.Children.Add(cancel);
+  List<LocalNeuralTransferMatcher.Result>? matches=null;
+  var saved=new HashSet<string>();string createdPlaylist="";
+  CancellationTokenSource? cancelWork=null;
+  missingButton.Click+=(_,_)=>{
+   if(matches==null)return;
+   var text=string.Join(Environment.NewLine,matches.Where(x=>x.Found==null).Select(x=>x.Original.Artist+" — "+x.Original.Title+" ("+x.Reason+")"));
+   if(text.Length==0)return;
+   Clipboard.SetText(text);
+   MessageBox.Show(this,"Список ненайденных треков скопирован в буфер обмена.","Nightwell Music");
+  };
+  cancel.Click+=(_,_)=>cancelWork?.Cancel();
+  window.Closed+=(_,_)=>cancelWork?.Cancel();
   start.Click+=async(_,_)=>{
    start.IsEnabled=false;
-   try{
-    if(readyKey.Length>0){await api.Request("api/imports/"+readyKey+"/commit","POST",new{});progress.Text="Сохраняем плейлист…";return;}
-    string[] codes={"safe","balanced","wide"};progress.Text="Запускаем поиск…";
-    var response=await api.Request("api/imports","POST",new{provider="yandex",name=name.Text,url="",text=input.Text,mode=codes[mode.SelectedIndex]});
-    string key=response.GetProperty("id").GetString()??"";
-    while(window.IsVisible){
-     var status=await api.Request("api/imports/"+key);
-     var state=status.GetProperty("state").GetString()??"";
-     progress.Text=$"Проверено: {status.GetProperty("progress").GetInt32()} / {status.GetProperty("total").GetInt32()} · Найдено: {status.GetProperty("matched").GetInt32()}";
-     if(state=="ready"||state=="error"){
-      readyKey=key;start.Content="Добавить найденные треки";start.IsEnabled=true;
-      break;
+   cancelWork?.Dispose();cancelWork=new CancellationTokenSource();
+   var token=cancelWork.Token;
+   cancel.Visibility=Visibility.Visible;
+   try {
+    if(matches==null) {
+     string title=name.Text.Trim(),raw=input.Text;
+     if(title.Length==0||raw.Trim().Length==0)throw new InvalidDataException("Укажи название плейлиста и список треков.");
+     var selected=new[]{"safe","balanced","wide"}[mode.SelectedIndex<0?1:mode.SelectedIndex];
+     progress.Text="Разбираем список и обучаем локальную нейросеть…";
+     var rows=await Task.Run(()=>LocalTransferInput.Parse(raw),token);
+     var indexed=catalog.ToList();
+     if(indexed.Count==0) {
+      var response=await api.Request("api/tracks",cancellation:token);
+      indexed=ParseTracks(response);
      }
-     if(state=="done"||state=="cancelled")break;
-     await Task.Delay(1800);
+     if(indexed.Count==0)throw new InvalidDataException("Каталог пуст. Проверь подключение.");
+     var matcher=await Task.Run(()=>new LocalNeuralTransferMatcher(indexed),token);
+     progress.Text="Сопоставляем треки на твоём ПК…";
+     var result=await Task.Run(()=>rows.Select(row=>matcher.Match(row,selected)).ToList(),token);
+     token.ThrowIfCancellationRequested();
+     int extraSearches=0;
+     // Cloud catalogue entries not present in the initial snapshot are found
+     // by plain /api/tracks?q= requests. The NN always ranks results locally.
+     for(int i=0;i<result.Count;i++){
+      token.ThrowIfCancellationRequested();
+      if(!window.IsVisible)return;
+      if(result[i].Found!=null)continue;
+      var limit=selected=="wide"?300:selected=="balanced"?180:80;
+      if(extraSearches>=limit)break;
+      extraSearches++;
+      try {
+       var row=rows[i];
+       var query=row.Artist+" "+row.Title;
+       var response=await api.Request("api/tracks?q="+Uri.EscapeDataString(query),cancellation:token);
+       var choices=ParseTracks(response);
+       var updated=matcher.Match(row,selected,choices);
+       if(updated.Found!=null)result[i]=updated;
+      } catch(OperationCanceledException){throw;}catch {}
+      if(i%4==0)progress.Text=$"Локальный ИИ: проверено {i+1}/{result.Count} · найдено {result.Count(x=>x.Found!=null)}";
+     }
+     matches=result;
+     missingButton.Visibility=matches.Any(x=>x.Found==null)?Visibility.Visible:Visibility.Collapsed;
+     progress.Text=$"Готово: найдено {matches.Count(x=>x.Found!=null)} из {matches.Count}. Ненайденные можно скопировать. Нажми «Добавить» для сохранения.";
+     start.Content="Добавить найденные треки";
+    } else {
+     token.ThrowIfCancellationRequested();
+     var found=matches.Where(x=>x.Found!=null).Select(x=>x.Found!).DistinctBy(t=>t.id).ToList();
+     if(found.Count==0)throw new InvalidDataException("Подходящих треков нет.");
+     if(createdPlaylist.Length==0) {
+      var playlist=await api.Request("api/playlists","POST",new{name=name.Text.Trim()},token);
+      if(!playlist.TryGetProperty("id",out var id))throw new InvalidDataException("Сервер не вернул ID плейлиста.");
+      createdPlaylist=id.GetString()??"";
+     }
+     if(createdPlaylist.Length==0)throw new InvalidDataException("Не удалось создать плейлист.");
+     int failed=0;
+     foreach(var track in found){
+      token.ThrowIfCancellationRequested();
+      if(!window.IsVisible)return;
+      if(saved.Contains(track.id))continue;
+      try {
+       await api.Request("api/playlists/"+Uri.EscapeDataString(createdPlaylist)+"/tracks/"+Uri.EscapeDataString(track.id),"POST",new{},token);
+       saved.Add(track.id);
+      }catch(OperationCanceledException){throw;}catch {failed++;}
+      if((saved.Count+failed)%5==0)progress.Text=$"Сохраняем с этого ПК: {saved.Count}/{found.Count} · ошибок {failed}";
+     }
+     progress.Text=$"Плейлист создан: {saved.Count} треков. Не найдено: {matches.Count(x=>x.Found==null)}. Ошибок сохранения: {failed}.";
+     if(saved.Count==found.Count){
+      start.Content="Перенос завершён";start.IsEnabled=false;
+      _=LoadAccount();
+     }else{start.Content="Повторить сохранение";start.IsEnabled=true;}
     }
-   }catch(Exception ex){progress.Text=ex.Message;start.IsEnabled=true;}
+   }catch(OperationCanceledException){progress.Text="Перенос остановлен. Уже сохранённые треки останутся в плейлисте.";start.IsEnabled=true;}
+   catch(Exception ex){progress.Text="Ошибка: "+ex.Message;start.IsEnabled=true;}
+   finally{cancel.Visibility=Visibility.Collapsed;}
   };
   window.Show();
  }
