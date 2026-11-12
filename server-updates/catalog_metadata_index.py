@@ -8,6 +8,7 @@ Run: python catalog_metadata_index.py index --db ./catalog.sqlite --sources audi
 from __future__ import annotations
 
 import argparse
+import base64
 from difflib import SequenceMatcher
 import json
 import os
@@ -186,6 +187,31 @@ def search_tracks(db: sqlite3.Connection, query: str, limit: int = 25,
     } for row in rows]
 
 
+def soundcloud_token() -> str:
+    """Use an existing OAuth token or the documented client-credentials flow."""
+    existing = os.getenv("SOUNDCLOUD_ACCESS_TOKEN")
+    if existing:
+        return existing
+    client_id = os.getenv("SOUNDCLOUD_CLIENT_ID")
+    client_secret = os.getenv("SOUNDCLOUD_CLIENT_SECRET")
+    if not client_id or not client_secret:
+        raise SystemExit("Set SOUNDCLOUD_ACCESS_TOKEN or SOUNDCLOUD_CLIENT_ID and SOUNDCLOUD_CLIENT_SECRET.")
+    basic = base64.b64encode((client_id + ":" + client_secret).encode()).decode()
+    request = urllib.request.Request(
+        "https://secure.soundcloud.com/oauth/token",
+        data=b"grant_type=client_credentials",
+        method="POST",
+        headers={"Authorization": "Basic " + basic,
+                 "Content-Type": "application/x-www-form-urlencoded",
+                 "Accept": "application/json"})
+    with urllib.request.urlopen(request, timeout=25) as response:
+        data = json.load(response)
+    token = data.get("access_token")
+    if not isinstance(token, str) or not token:
+        raise RuntimeError("SoundCloud OAuth did not return an access token")
+    return token
+
+
 def fetch_json(url: str, token: str | None = None, delay: float = 0.6) -> dict:
     parsed = urllib.parse.urlsplit(url)
     if parsed.scheme != "https" or parsed.hostname not in (
@@ -310,9 +336,7 @@ def index(db: sqlite3.Connection, args) -> None:
             print("SoundCloud indexing disabled: confirm your API usage/storage rights "
                   "and pass --allow-soundcloud-metadata-store.", file=sys.stderr)
             return
-        token = os.getenv("SOUNDCLOUD_ACCESS_TOKEN")
-        if not token:
-            raise SystemExit("Set SOUNDCLOUD_ACCESS_TOKEN obtained through the official OAuth API.")
+        token = soundcloud_token()
         if not queries:
             print("No SoundCloud seed queries. Use --seed or --seed-file.", file=sys.stderr)
         for q in queries:
