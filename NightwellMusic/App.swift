@@ -2080,14 +2080,19 @@ struct NightwellNativeTransfer: View {
             let localCatalog = try JSONEncoder().encode(catalog)
             job = currentJob(state: "matching", progress: 0, total: originals.count, matched: 0,
                              message: useNeuralMatching ? "Обучаем нейросеть на iPhone" : "Ищем совпадения на устройстве")
-            var matching = try await Task.detached(priority: .userInitiated) {
+            let matchingTask = Task.detached(priority: .userInitiated) {
                 if useNeuralMatching {
                     return try DeviceNeuralTransferMatcher.match(
                         prepared: prepared, catalogJSON: localCatalog, mode: selectedMode)
                 }
                 return try DeviceTransferMatcher.match(
                     prepared: prepared, catalogJSON: localCatalog, mode: selectedMode)
-            }.value
+            }
+            var matching = try await withTaskCancellationHandler {
+                try await matchingTask.value
+            } onCancel: {
+                matchingTask.cancel()
+            }
             try Task.checkCancellation()
             let numberFound = matching.filter { ($0["track_id"] as? String) != nil }.count
             job = currentJob(state: "matching", progress: matching.count, total: matching.count,
