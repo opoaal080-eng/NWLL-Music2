@@ -168,10 +168,24 @@ final class DeviceNeuralTransferMatcher {
             for(int k=0;k<Math.min(parts.length,4);k++){
                 if(parts[k].length()>=4)include(possible,byTitle.get(parts[k]),120);
             }
+            // Fuzzy token recovery for missing characters, typos and transliteration.
+            // Only run when the regular index produced too few candidates.
+            if(possible.size()<40){
+                for(Map.Entry<String,ArrayList<Integer>> entry:byTitle.entrySet()){
+                    String token=entry.getKey();
+                    if(token.length()<4||token.indexOf(' ')>=0)continue;
+                    boolean close=false;
+                    for(String part:parts){
+                        if(part.length()>=4&&similarity(part,token)>=.72){close=true;break;}
+                    }
+                    if(close)include(possible,entry.getValue(),80);
+                    if(possible.size()>=900)break;
+                }
+            }
             Candidate best=null;double highest=0,runner=0;
             int checked=0;
             for(int position:possible){
-                if(++checked>260)break;
+                if(++checked>500)break;
                 Candidate candidate=pool.get(position);
                 double[] x=vector(title,artist,duration,candidate);
                 double minTitle=mode.equals("safe")?.90:mode.equals("wide")?.76:.82;
