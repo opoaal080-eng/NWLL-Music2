@@ -33,6 +33,16 @@ final class DeviceTransferMatcher {
         return result;
     }
 
+    private static String coreTitle(String value){
+        ArrayList<String> parts=new ArrayList<>();
+        Set<String> promotional=new HashSet<>(Arrays.asList(
+            "official","audio","video","lyrics","lyric","visualizer","visualiser","hq","hd","4k","clip"));
+        for(String word:value.split(" ")){
+            if(Arrays.asList("feat","ft","featuring").contains(word))break;
+            if(!promotional.contains(word)&&!word.isEmpty())parts.add(word);
+        }
+        return String.join(" ",parts);
+    }
     private static double similar(String a,String b) {
         if(a.equals(b))return 1;
         if(a.isEmpty()||b.isEmpty()||a.length()>160||b.length()>160)return 0;
@@ -89,7 +99,11 @@ final class DeviceTransferMatcher {
         double max=0;
         for(String[] pair:c.variants){
             if(!versions(title).equals(versions(pair[0])))continue;
-            double ts=similar(title,pair[0]),as=similar(artist,pair[1]),overall=.65*ts+.35*as;
+            String shortTitle=coreTitle(title),shortCandidate=coreTitle(pair[0]);
+            double ts=similar(title,pair[0]);
+            if(!shortTitle.isEmpty()&&!shortCandidate.isEmpty())
+                ts=Math.max(ts,.98*similar(shortTitle,shortCandidate));
+            double as=similar(artist,pair[1]),overall=.65*ts+.35*as;
             if(ts>=minTitle&&as>=minArtist&&overall>=minScore)max=Math.max(max,overall);
         }
         return max;
