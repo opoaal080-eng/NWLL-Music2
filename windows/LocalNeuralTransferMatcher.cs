@@ -208,6 +208,17 @@ internal sealed class LocalNeuralTransferMatcher {
   if(titleIndex.TryGetValue(title,out var same))Include(same);
   if(artistIndex.TryGetValue(artist,out var performer))Include(performer);
   foreach(var word in Words(title).Where(x=>x.Length>=3).Take(4))if(titleIndex.TryGetValue(word,out var words))Include(words);
+  // Fuzzy index fallback handles missing letters and small typos.
+  // Only inspect short token keys, keeping expensive scoring local.
+  if(possibilities.Count<40) {
+   var parts=Words(title).Where(x=>x.Length>=4).Take(5).ToArray();
+   if(parts.Length>0)foreach(var pair in titleIndex) {
+    if(pair.Key.Length<4||pair.Key.Contains(' '))continue;
+    if(!parts.Any(part=>Similarity(part,pair.Key)>=.72))continue;
+    Include(pair.Value.Take(80));
+    if(possibilities.Count>=900)break;
+   }
+  }
   if(extra!=null) {
    // Search results are directly relevant to this query: always consider them.
    foreach(var candidate in extra)possibilities[candidate.id]=candidate;
