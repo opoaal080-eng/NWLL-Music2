@@ -5012,6 +5012,7 @@ public final class MainActivity extends Activity {
             }catch(Exception ex){ui.post(()->{if(transferDialog!=dialog||!dialog.isShowing()||ticket!=transferReadGeneration)return;note.setText(ex.getMessage()==null?"Не удалось прочитать файл":ex.getMessage());dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setEnabled(true);});}
         });
     }
+    // Neural transfer is optional and runs locally; the standard path remains the default.
     private String transferMissingReport="";
     private Button transferMissingButton;
     private boolean transferBusy;
