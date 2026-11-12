@@ -40,26 +40,8 @@ enum RecommendationOrder {
             .unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }.map(String.init).joined()
     }
 
-    private static let alternativeVersions = ["remix", "live", "cover", "slowed", "spedup", "nightcore", "karaoke", "instrumental", "acoustic", "radioedit",
-        "ремикс", "лайв", "кавер", "концерт", "караоке", "акустика", "минус", "инструментал", "замедленная", "ускоренная"]
-
     static func searchScore(query: String, title: String, artist: String) -> Int {
-        let wanted = key(query), name = key(title), performer = key(artist)
-        guard !wanted.isEmpty else { return 0 }
-        let combined = key(title + " " + artist)
-        var score = 0
-        if name == wanted { score += 160 }
-        else if name.hasPrefix(wanted) { score += 95 }
-        else if name.contains(wanted) { score += 65 }
-        if performer == wanted { score += 85 }
-        else if performer.hasPrefix(wanted) { score += 40 }
-        if combined.contains(wanted) { score += 35 }
-        let terms = query.split(whereSeparator: { $0.isWhitespace }).map { key(String($0)) }.filter { !$0.isEmpty }
-        if !terms.isEmpty && terms.allSatisfy({ combined.contains($0) }) { score += 40 }
-        for variant in alternativeVersions where name.contains(variant) && !wanted.contains(variant) {
-            score -= 35
-        }
-        return score
+        NightwellSearch.Query(query).score(title:title,artist:artist)
     }
 
     static func rankSearch<T>(_ values: [T], query: String, title: (T) -> String, artist: (T) -> String) -> [T] {

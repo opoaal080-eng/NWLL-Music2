@@ -1,0 +1,592 @@
+[
+  {
+    "name": "exact",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка",
+        "artist": "Северный берег",
+        "duration": 204,
+        "id": "yes"
+      }
+    ],
+    "expected": "yes",
+    "mode": "wide"
+  },
+  {
+    "name": "promotion",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка (Official Audio)",
+        "artist": "Северный берег",
+        "duration": 204,
+        "id": "yes"
+      }
+    ],
+    "expected": "yes",
+    "mode": "wide"
+  },
+  {
+    "name": "lyrics",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка [Lyrics Video 4K]",
+        "artist": "Северный берег",
+        "duration": 204,
+        "id": "yes"
+      }
+    ],
+    "expected": "yes",
+    "mode": "wide"
+  },
+  {
+    "name": "transliteration",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Lunnaya dorozhka",
+        "artist": "Severnyy bereg",
+        "duration": 204,
+        "id": "yes"
+      }
+    ],
+    "expected": "yes",
+    "mode": "wide"
+  },
+  {
+    "name": "title_missing_character",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Лунная доржка",
+        "artist": "Северный берег",
+        "duration": 204,
+        "id": "yes"
+      }
+    ],
+    "expected": "yes",
+    "mode": "wide"
+  },
+  {
+    "name": "artist_typo",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка",
+        "artist": "Северный берг",
+        "duration": 204,
+        "id": "yes"
+      }
+    ],
+    "expected": "yes",
+    "mode": "wide"
+  },
+  {
+    "name": "both_typos",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Лунная доржка",
+        "artist": "Северный берг",
+        "duration": 204,
+        "id": "yes"
+      }
+    ],
+    "expected": "yes",
+    "mode": "wide"
+  },
+  {
+    "name": "missing_spaces",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Луннаядорожка",
+        "artist": "Северныйберег",
+        "duration": 204,
+        "id": "yes"
+      }
+    ],
+    "expected": "yes",
+    "mode": "wide"
+  },
+  {
+    "name": "embedded_performer",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Северный берег — Лунная дорожка",
+        "artist": "Daily Uploads",
+        "duration": 204,
+        "id": "yes"
+      }
+    ],
+    "expected": "yes",
+    "mode": "wide"
+  },
+  {
+    "name": "collaboration",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка",
+        "artist": "Северный берег & Гость",
+        "duration": 204,
+        "id": "yes"
+      }
+    ],
+    "expected": "yes",
+    "mode": "wide"
+  },
+  {
+    "name": "featuring",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка (feat. Гость)",
+        "artist": "Северный берег",
+        "duration": 204,
+        "id": "yes"
+      }
+    ],
+    "expected": "yes",
+    "mode": "wide"
+  },
+  {
+    "name": "credit_order",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег & Гость",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка",
+        "artist": "Гость & Северный берег",
+        "duration": 204,
+        "id": "yes"
+      }
+    ],
+    "expected": "yes",
+    "mode": "wide"
+  },
+  {
+    "name": "reject_Live",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка (Live)",
+        "artist": "Северный берег",
+        "duration": 204,
+        "id": "yes"
+      }
+    ],
+    "expected": null,
+    "mode": "wide"
+  },
+  {
+    "name": "reject_Live Official Audio",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка (Live Official Audio)",
+        "artist": "Северный берег",
+        "duration": 204,
+        "id": "yes"
+      }
+    ],
+    "expected": null,
+    "mode": "wide"
+  },
+  {
+    "name": "reject_DJ North Remix",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка (DJ North Remix)",
+        "artist": "Северный берег",
+        "duration": 204,
+        "id": "yes"
+      }
+    ],
+    "expected": null,
+    "mode": "wide"
+  },
+  {
+    "name": "reject_Acoustic",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка (Acoustic)",
+        "artist": "Северный берег",
+        "duration": 204,
+        "id": "yes"
+      }
+    ],
+    "expected": null,
+    "mode": "wide"
+  },
+  {
+    "name": "reject_Instrumental",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка (Instrumental)",
+        "artist": "Северный берег",
+        "duration": 204,
+        "id": "yes"
+      }
+    ],
+    "expected": null,
+    "mode": "wide"
+  },
+  {
+    "name": "reject_Karaoke",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка (Karaoke)",
+        "artist": "Северный берег",
+        "duration": 204,
+        "id": "yes"
+      }
+    ],
+    "expected": null,
+    "mode": "wide"
+  },
+  {
+    "name": "reject_Sped Up",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка (Sped Up)",
+        "artist": "Северный берег",
+        "duration": 204,
+        "id": "yes"
+      }
+    ],
+    "expected": null,
+    "mode": "wide"
+  },
+  {
+    "name": "reject_Slowed + Reverb",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка (Slowed + Reverb)",
+        "artist": "Северный берег",
+        "duration": 204,
+        "id": "yes"
+      }
+    ],
+    "expected": null,
+    "mode": "wide"
+  },
+  {
+    "name": "different_remix",
+    "query": {
+      "title": "Лунная дорожка (DJ North Remix)",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка (DJ South Remix)",
+        "artist": "Северный берег",
+        "duration": 204,
+        "id": "yes"
+      }
+    ],
+    "expected": null,
+    "mode": "wide"
+  },
+  {
+    "name": "correct_remix",
+    "query": {
+      "title": "Лунная дорожка (DJ North Remix)",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка (DJ North Remix) [Official Audio]",
+        "artist": "Северный берег",
+        "duration": 204,
+        "id": "yes"
+      }
+    ],
+    "expected": "yes",
+    "mode": "wide"
+  },
+  {
+    "name": "preview",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка",
+        "artist": "Северный берег",
+        "duration": 30,
+        "id": "yes"
+      }
+    ],
+    "expected": null,
+    "mode": "wide"
+  },
+  {
+    "name": "same_title_wrong_artist",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка",
+        "artist": "Другой исполнитель",
+        "duration": 204,
+        "id": "yes"
+      }
+    ],
+    "expected": null,
+    "mode": "wide"
+  },
+  {
+    "name": "wrong_song_same_artist",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Другая мелодия",
+        "artist": "Северный берег",
+        "duration": 204,
+        "id": "yes"
+      }
+    ],
+    "expected": null,
+    "mode": "wide"
+  },
+  {
+    "name": "conflicting_isrc",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204,
+      "isrc": "USABC2400001"
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка",
+        "artist": "Северный берег",
+        "duration": 204,
+        "isrc": "USABC2400002",
+        "id": "yes"
+      }
+    ],
+    "expected": null,
+    "mode": "wide"
+  },
+  {
+    "name": "same_isrc",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204,
+      "isrc": "USABC2400001"
+    },
+    "candidates": [
+      {
+        "title": "Лунная",
+        "artist": "Северный берег",
+        "duration": 204,
+        "isrc": "USABC2400001",
+        "id": "yes"
+      }
+    ],
+    "expected": "yes",
+    "mode": "wide"
+  },
+  {
+    "name": "duplicate_uploads",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка",
+        "artist": "Северный берег",
+        "duration": 204,
+        "id": "a"
+      },
+      {
+        "title": "Лунная дорожка",
+        "artist": "Северный берег",
+        "duration": 204,
+        "id": "b"
+      }
+    ],
+    "expected": "a",
+    "mode": "wide"
+  },
+  {
+    "name": "unknown_performer",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка",
+        "artist": "Исполнитель не указан",
+        "duration": 204,
+        "id": "yes"
+      }
+    ],
+    "expected": null,
+    "mode": "wide"
+  },
+  {
+    "name": "live_in_natural_title",
+    "query": {
+      "title": "Live Forever",
+      "artist": "Our Band"
+    },
+    "candidates": [
+      {
+        "title": "Live Forever",
+        "artist": "Our Band",
+        "id": "yes"
+      }
+    ],
+    "expected": "yes",
+    "mode": "wide"
+  },
+  {
+    "name": "very_short_typo",
+    "query": {
+      "title": "Ты",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Мы",
+        "artist": "Северный берег",
+        "duration": 204,
+        "id": "yes"
+      }
+    ],
+    "expected": null,
+    "mode": "wide"
+  },
+  {
+    "name": "ambiguous",
+    "query": {
+      "title": "Лунная дорожку",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка",
+        "artist": "Северный берег",
+        "duration": 204,
+        "id": "a"
+      },
+      {
+        "title": "Лунная дорожки",
+        "artist": "Северный берег",
+        "duration": 204,
+        "id": "b"
+      }
+    ],
+    "expected": null,
+    "mode": "wide"
+  }
+]

@@ -1756,6 +1756,7 @@ struct NightwellNativeTransfer: View {
     @State private var contents = ""
     @State private var selectedFilename = ""
     @State private var mode = "wide"
+    @State private var transferMethod = "neural"
     @State private var etaStage = ""
     @State private var etaStart = Date()
     @State private var etaProgress = 0
@@ -1767,10 +1768,13 @@ struct NightwellNativeTransfer: View {
     @State private var history: [ImportJob] = []
     @State private var historyExpanded = false
     @State private var historyError = ""
-    @State private var observingJobID: String?
+    @State private var transferTask: Task<Void, Never>?
+    @State private var matchedItems: [[String: Any]] = []
+    @State private var draftPlaylistID: String?
+    @State private var alreadySavedIDs: Set<String> = []
     private let activeStates: Set<String> = ["reading", "matching", "saving"]
-    struct ImportJob: Decodable {
-        struct MatchedItem: Decodable {
+    struct ImportJob: Codable {
+        struct MatchedItem: Codable {
             let title: String
             let artist: String
             let track_id: String?
@@ -1791,10 +1795,28 @@ struct NightwellNativeTransfer: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     Text("Перенести музыку").font(.largeTitle.bold())
-                    Text("Поиск и сопоставление треков выполняются на устройстве. Сервер только сохраняет готовый плейлист. Ненайденные треки можно посмотреть и экспортировать.")
+                    Text("Обработка плейлиста проходит на iPhone, сервер выполняет только поиск треков и обычное сохранение плейлиста. Ненайденные треки можно экспортировать.")
                         .foregroundStyle(.secondary)
                     TextField("Название плейлиста", text: $name).focused($nameFieldFocused).submitLabel(.done).onSubmit { nameFieldFocused = false }.padding(14).nightwellLiquidGlass(18)
-                    Picker("Режим поиска", selection: $mode) {
+                    VStack(alignment: .leading, spacing: 9) {
+                        Text("Способ переноса").font(.subheadline.weight(.semibold))
+                        Picker("Способ переноса", selection: $transferMethod) {
+                            Text("Обычный").tag("fast")
+                            Text("С нейросетью").tag("neural")
+                        }
+                        .pickerStyle(.segmented)
+                        .disabled(busy)
+                        if transferMethod == "neural" {
+                            Label("Находит записи с опечатками, разным написанием имён и лишними приписками. Проверяет исполнителя, версию и длительность трека.", systemImage: "sparkles")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        } else {
+                            Text("Быстрый локальный поиск совпадений. Меньше расходует заряд.")
+                                .font(.footnote).foregroundStyle(.secondary)
+                        }
+                    }
+                    Picker("Точность совпадения", selection: $mode) {
                         Text("Точный").tag("safe")
                         Text("Умный").tag("balanced")
                         Text("Максимальный").tag("wide")
@@ -1804,7 +1826,10 @@ struct NightwellNativeTransfer: View {
                         .fixedSize(horizontal: false, vertical: true)
                     Button { showingFile = true } label: { Label(selectedFilename.isEmpty ? "Выбрать JSON, CSV или TXT" : selectedFilename, systemImage: "doc.badge.plus").frame(maxWidth: .infinity).padding(16) }
                         .nightwellLiquidGlass(20)
-                    Button(busy ? "Обрабатываем…" : "Найти треки") { Task { await start() } }
+                    Button(busy ? "Обрабатываем…" : "Найти треки") {
+                        transferTask?.cancel()
+                        transferTask = Task { await start() }
+                    }
                         .buttonStyle(.borderedProminent).tint(Color(white: 0.24)).foregroundStyle(.white).disabled(contents.isEmpty || busy)
                     if let job {
                         VStack(alignment: .leading, spacing: 12) {
@@ -1838,6 +1863,14 @@ struct NightwellNativeTransfer: View {
                                             }
                                             .frame(maxWidth: .infinity, alignment: .leading)
                                         }
+                                        if !activeStates.contains(job.state) {
+                                            Button {
+                                                transferTask?.cancel()
+                                                transferTask = Task { await start(retryMissing:true) }
+                                            } label: {
+                                                Label("Повторить ненайденные", systemImage:"arrow.clockwise")
+                                            }.disabled(busy || saving)
+                                        }
                                         ShareLink(item: missing.map { $0.artist + " — " + $0.title }.joined(separator: "\n")) {
                                             Label("Поделиться списком ненайденных", systemImage: "square.and.arrow.up")
                                         }
@@ -1849,7 +1882,7 @@ struct NightwellNativeTransfer: View {
                                 Button(saving ? "Добавляем…" : "Добавить") { Task { await commit() } }.buttonStyle(.borderedProminent).tint(Color(white: 0.24)).foregroundStyle(.white).disabled(saving)
                             }
                             if activeStates.contains(job.state) {
-                                Button("Остановить") { Task { await cancel() } }.tint(.white)
+                                Button("Остановить") { cancel() }.tint(.white)
                             }
                         }.padding(18).nightwellLiquidGlass(24)
                     }
@@ -1899,7 +1932,8 @@ struct NightwellNativeTransfer: View {
                 }.padding(20)
             }
             .background(Color(red: 0.045, green: 0.045, blue: 0.052))
-            .task { await refreshHistory(); if let current = history.first(where: { activeStates.contains($0.state) }) { job = current; await poll(current.id) } }
+             .task { await refreshHistory() }
+             .onDisappear { transferTask?.cancel() }
             .navigationTitle("Перенос")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Закрыть") { dismiss() } }; ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("Скрыть клавиатуру") { nameFieldFocused = false } } }
@@ -1948,70 +1982,191 @@ struct NightwellNativeTransfer: View {
         default: return status
         }
     }
-    private func refreshHistory() async {
-        struct Response: Decodable { let jobs: [ImportJob] }
-        do {
-            let response: Response = try await store.api.request("api/imports")
-            history = response.jobs
-            historyError = ""
-        } catch { historyError = "Не удалось загрузить историю: " + error.localizedDescription }
+    private var historyKey: String {
+        "nw-transfer-local-history-v2|" + store.origin.absoluteString + "|" + (store.account?.id ?? "")
     }
-    private func start() async {
-        busy = true; defer { busy = false }
-        do {
-            let raw = contents
-            var catalog = store.catalog
-            if catalog.isEmpty {
-                await store.refresh()
-                catalog = store.catalog
-            }
-            guard !catalog.isEmpty else {
-                throw APIError(message: "Каталог ещё не загружен. Проверь подключение и повтори перенос.")
-            }
-            let selectedMode = mode
-            let matching = try await Task.detached(priority: .userInitiated) { () throws -> [[String: Any]] in
-                let prepared = try TransferPreparation.prepare(raw)
-                let localIndex = try JSONEncoder().encode(catalog)
-                return try DeviceTransferMatcher.match(
-                    prepared: prepared, catalogJSON: localIndex, mode: selectedMode)
-            }.value
-            etaStage = ""
-            let result: ImportJob = try await store.api.request("api/imports/client", method: "POST",
-                body: ["provider":"yandex","name":name,"items":matching,"mode":mode])
-            job = result; errorText = ""; await refreshHistory(); await poll(result.id)
-        } catch {
-            errorText = error.localizedDescription
-            await refreshHistory()
-            if let current = history.first(where: { activeStates.contains($0.state) }) {
-                job = current
-                await poll(current.id)
-            }
+    private func refreshHistory() async {
+        guard let data = UserDefaults.standard.data(forKey: historyKey),
+              let saved = try? JSONDecoder().decode([ImportJob].self, from: data) else {
+            history = []; historyError = ""; return
+        }
+        history = saved
+        historyError = ""
+    }
+    private func remember(_ entry: ImportJob) {
+        let summary = ImportJob(id: entry.id, state: entry.state, total: entry.total,
+                                progress: entry.progress, matched: entry.matched, saved: entry.saved,
+                                message: entry.message, name: entry.name, items: nil)
+        history.removeAll { $0.id == entry.id }
+        history.insert(summary, at: 0)
+        history = Array(history.prefix(10))
+        if let data = try? JSONEncoder().encode(history) {
+            UserDefaults.standard.set(data, forKey: historyKey)
         }
     }
-    private func poll(_ id: String) async {
-        guard observingJobID != id else { return }
-        observingJobID = id
-        defer { if observingJobID == id { observingJobID = nil } }
-        while !Task.isCancelled && observingJobID == id {
-            do {
-                let next: ImportJob = try await store.api.request("api/imports/" + id)
-                if job?.id == id { job = next; updateETA(next) }
-                if next.state == "done" { await store.refresh() }
-                if !activeStates.contains(next.state) { await refreshHistory(); return }
-                try await Task.sleep(nanoseconds: 2_500_000_000)
-            } catch { errorText = error.localizedDescription; return }
+    private func currentJob(state: String, progress: Int, total: Int, matched: Int,
+                            saved: Int = 0, message: String, items: [ImportJob.MatchedItem]? = nil) -> ImportJob {
+        ImportJob(id: job?.id ?? UUID().uuidString, state: state, total: total, progress: progress,
+                  matched: matched, saved: saved, message: message, name: name, items: items ?? job?.items)
+    }
+    private func start(retryMissing: Bool = false) async {
+        guard !busy else { return }
+        busy = true
+        defer { busy = false }
+        errorText = ""
+        if !retryMissing {
+            job = nil; matchedItems = []; draftPlaylistID = nil; alreadySavedIDs = []
+        }
+        do {
+            let selectedMode = mode
+            let useNeuralMatching = transferMethod == "neural"
+            var matching: [[String: Any]]
+            if retryMissing {
+                matching = matchedItems
+            } else {
+                let raw = contents
+                job = currentJob(state:"reading",progress:0,total:0,matched:0,message:"Читаем список треков")
+                let prepared = try await Task.detached(priority:.userInitiated) {
+                    try TransferPreparation.prepare(raw)
+                }.value
+                try Task.checkCancellation()
+                let originals = try JSONSerialization.jsonObject(with:Data(prepared.utf8)) as? [[String:Any]] ?? []
+                // The home catalogue is only a partial snapshot. Include known
+                // favorites and cached playlists, and allow an empty snapshot:
+                // the remote search is still able to find the imported tracks.
+                var local = store.catalog + store.favoriteDisplayTracks + store.results
+                for playlist in store.playlists { local += store.cachedPlaylistTracks(playlist.id) ?? [] }
+                var seen = Set<String>()
+                local = local.filter { seen.insert($0.id).inserted }
+                let localCatalog = try JSONEncoder().encode(local)
+                job = currentJob(state:"matching",progress:0,total:originals.count,matched:0,
+                                 message:useNeuralMatching ? "Сопоставляем треки нейросетью" : "Ищем треки в медиатеке")
+                let matchingTask = Task.detached(priority:.userInitiated) {
+                    let rows = try useNeuralMatching
+                        ? DeviceNeuralTransferMatcher.match(prepared:prepared,catalogJSON:localCatalog,mode:selectedMode)
+                        : DeviceTransferMatcher.match(prepared:prepared,catalogJSON:localCatalog,mode:selectedMode)
+                    return try JSONSerialization.data(withJSONObject:rows)
+                }
+                let data = try await withTaskCancellationHandler {
+                    try await matchingTask.value
+                } onCancel: { matchingTask.cancel() }
+                matching = try JSONSerialization.jsonObject(with:data) as? [[String:Any]] ?? []
+            }
+            try Task.checkCancellation()
+            matchedItems = matching
+            let numberFound = matching.filter { $0["track_id"] as? String != nil }.count
+            let unresolved: [(Int,String)] = try matching.enumerated().compactMap { index,row in
+                guard row["track_id"] as? String == nil else { return nil }
+                let data = try JSONSerialization.data(withJSONObject:[row])
+                return (index,String(decoding:data,as:UTF8.self))
+            }
+            job = currentJob(state:"matching",progress:numberFound,total:matching.count,matched:numberFound,
+                             message:"Ищем недостающие треки в источниках")
+            let client = store.api
+            let session = TransferSearchSession { query in
+                let allowed = CharacterSet.urlQueryAllowed.subtracting(CharacterSet(charactersIn:"&+=?#"))
+                let encoded = query.addingPercentEncoding(withAllowedCharacters:allowed) ?? ""
+                let result: TrackResult = try await client.request("/api/tracks?q=" + encoded,timeout:10)
+                return TransferSearchSession.Page(catalogJSON:try JSONEncoder().encode(result.tracks),
+                                                  pending:result.search_pending == true,retryAfter:result.search_retry_after)
+            }
+            for offset in stride(from:0,to:unresolved.count,by:3) {
+                try Task.checkCancellation()
+                let batch = Array(unresolved[offset..<min(offset+3,unresolved.count)])
+                try await withThrowingTaskGroup(of:(Int,Data).self) { group in
+                    for (index,original) in batch {
+                        group.addTask {
+                            let result = try await TransferRemoteSearch.match(prepared:original,mode:selectedMode,
+                                neural:useNeuralMatching,session:session)
+                            return (index,result)
+                        }
+                    }
+                    for try await (index,data) in group {
+                        if let result = try JSONSerialization.jsonObject(with:data) as? [String:Any] { matching[index] = result }
+                        matchedItems = matching
+                    }
+                }
+                let count = matching.filter { $0["track_id"] as? String != nil }.count
+                let checked = numberFound + min(offset+3,unresolved.count)
+                let items = matching.map { row in ImportJob.MatchedItem(title:row["title"] as? String ?? "",
+                    artist:row["artist"] as? String ?? "",track_id:row["track_id"] as? String,reason:row["reason"] as? String) }
+                job = currentJob(state:"matching",progress:checked,total:matching.count,matched:count,
+                                 message:"Дополнительный поиск: \(min(offset+3,unresolved.count))/\(unresolved.count)",items:items)
+                if let job { updateETA(job) }
+            }
+            try Task.checkCancellation()
+            matchedItems = matching
+            let summary = matching.map { row in ImportJob.MatchedItem(title:row["title"] as? String ?? "",
+                artist:row["artist"] as? String ?? "",track_id:row["track_id"] as? String,reason:row["reason"] as? String) }
+            let count = summary.filter { $0.track_id != nil }.count
+            job = currentJob(state:"ready",progress:summary.count,total:summary.count,matched:count,
+                             message:"Найдено \(count) из \(summary.count)",items:summary)
+            etaText = ""
+            if let job { remember(job) }
+        } catch is CancellationError {
+            errorText = "Поиск остановлен"
+            let summary = matchedItems.map { row in ImportJob.MatchedItem(title:row["title"] as? String ?? "",
+                artist:row["artist"] as? String ?? "",track_id:row["track_id"] as? String,reason:row["reason"] as? String) }
+            let count = summary.filter { $0.track_id != nil }.count
+            job = currentJob(state:"cancelled",progress:job?.progress ?? 0,total:summary.count,matched:count,
+                             message:"Остановлено на устройстве",items:summary)
+            if let job { remember(job) }
+        } catch {
+            errorText = error.localizedDescription
+            if let current = job {
+                job = currentJob(state:"error",progress:current.progress,total:current.total,
+                                 matched:current.matched,message:error.localizedDescription)
+            }
         }
     }
     private func commit() async {
-        guard let job, !saving else { return }
-        saving = true; defer { saving = false }
-        do { let next: ImportJob = try await store.api.request("api/imports/" + job.id + "/commit",method:"POST",body:[:]); self.job = next; await refreshHistory(); await poll(job.id) }
-        catch { errorText = error.localizedDescription }
+        guard let current = job, !saving, current.matched > 0 else { return }
+        saving = true
+        defer { saving = false }
+        do {
+            var playlistID = draftPlaylistID
+            if playlistID == nil {
+                let playlist: Playlist = try await store.api.request("/api/playlists",
+                    method: "POST", body: ["name": name])
+                playlistID = playlist.id
+                draftPlaylistID = playlist.id
+            }
+            guard let playlistID else { return }
+            let available = matchedItems.compactMap { $0["track_id"] as? String }
+            var seenIDs = Set<String>()
+            let ids = available.filter { seenIDs.insert($0).inserted }
+            var failures = 0
+            for id in ids where !alreadySavedIDs.contains(id) {
+                if Task.isCancelled { throw CancellationError() }
+                do {
+                    let _: OK = try await store.api.request("/api/playlists/" + playlistID + "/tracks/" + id,
+                                                             method: "POST", body: [:])
+                    alreadySavedIDs.insert(id)
+                } catch is CancellationError { throw CancellationError() }
+                catch { failures += 1 }
+                if (alreadySavedIDs.count + failures).isMultiple(of: 5) {
+                    job = currentJob(state: "saving", progress: ids.count, total: current.total,
+                                     matched: current.matched, saved: alreadySavedIDs.count,
+                                     message: "Сохраняем с iPhone: \(alreadySavedIDs.count)/\(ids.count)")
+                }
+            }
+            let completed = alreadySavedIDs.count == ids.count
+            job = currentJob(state: completed ? "done" : "error", progress: current.total,
+                             total: current.total, matched: current.matched, saved: alreadySavedIDs.count,
+                             message: completed ? "Плейлист готов. Добавлено \(alreadySavedIDs.count) треков." :
+                                "Добавлено \(alreadySavedIDs.count). Не удалось сохранить \(failures). Нажми «Добавить» повторно.")
+            if let job { remember(job) }
+            await store.refresh()
+        } catch {
+            errorText = error.localizedDescription
+            job = currentJob(state: "error", progress: current.total, total: current.total,
+                             matched: current.matched, saved: alreadySavedIDs.count,
+                             message: "Сохранение прервано. Можно повторить.")
+        }
     }
-    private func cancel() async {
-        guard let job else { return }
-        do { let next: ImportJob = try await store.api.request("api/imports/" + job.id + "/cancel",method:"POST",body:[:]); self.job = next; await refreshHistory() }
-        catch { errorText = error.localizedDescription }
+    private func cancel() {
+        transferTask?.cancel()
+        errorText = "Перенос остановлен"
     }
 }
 

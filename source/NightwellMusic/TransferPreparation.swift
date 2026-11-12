@@ -14,29 +14,45 @@ enum TransferPreparation {
         let text = raw.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "\u{FEFF}")))
         guard text.utf8.count <= 1024 * 1024 else { throw fail("Максимальный размер 1 МБ") }
         var tracks: [[String: Any]] = []
-        func append(_ title: String, _ artist: String, _ duration: Double? = nil) throws {
+        func append(_ title: String, _ artist: String, _ duration: Double? = nil, _ isrc: String? = nil) throws {
             let title = title.trimmingCharacters(in: .whitespacesAndNewlines), artist = artist.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !title.isEmpty, !artist.isEmpty, title.count <= 300, artist.count <= 300 else { throw fail("Проверь название и исполнителя трека") }
             var row: [String: Any] = ["title": title, "artist": artist]
             if let duration, duration.isFinite, duration > 0, duration < 86400 { row["duration"] = duration }
+            if let isrc {
+                let code = isrc.uppercased().trimmingCharacters(in: .whitespacesAndNewlines)
+                if code.range(of: #"^[A-Z]{2}[A-Z0-9]{3}[0-9]{7}$"#, options: .regularExpression) != nil { row["isrc"] = code }
+            }
             tracks.append(row)
             guard tracks.count <= 1000 else { throw fail("Раздели список на части до 1000 треков") }
         }
         if text.hasPrefix("[") || text.hasPrefix("{") {
             let value = try JSONSerialization.jsonObject(with: Data(text.utf8))
-            guard let rows = (value as? [[String: Any]]) ?? (value as? [String: Any])?["tracks"] as? [[String: Any]] else { throw fail("В JSON нужен массив tracks") }
+            let document = value as? [String: Any]
+            guard let rows = (value as? [[String: Any]])
+                ?? (document?["tracks"] as? [[String: Any]])
+                ?? (document?["items"] as? [[String: Any]])
+                ?? (document?["audios"] as? [[String: Any]])
+                ?? ((document?["playlist"] as? [String: Any])?["tracks"] as? [[String: Any]])
+                ?? ((document?["response"] as? [String: Any])?["items"] as? [[String: Any]]) else { throw fail("В JSON нужен массив tracks, items или audios") }
             for source in rows {
-                let row = source["track"] as? [String: Any] ?? source
-                let artists = row["artist"] ?? row["artists"]
+                let row = source["track"] as? [String: Any]
+                    ?? source["audio"] as? [String: Any]
+                    ?? source["song"] as? [String: Any] ?? source
+                let artists = row["artist"] ?? row["artists"] ?? row["performer"] ?? row["artist_name"] ?? row["artistName"]
                 let artist: String
                 if let list = artists as? [Any] { artist = list.compactMap { ($0 as? String) ?? ($0 as? [String: Any])?["name"] as? String }.joined(separator: ", ") }
                 else { artist = (artists as? String) ?? (artists as? [String: Any])?["name"] as? String ?? "" }
-                let duration = (row["duration"] as? Double) ?? ((row["duration_ms"] ?? row["durationMs"]) as? Double).map { $0 / 1000 }
+                let duration = (row["duration"] as? NSNumber)?.doubleValue
+                    ?? ((row["duration_ms"] ?? row["durationMs"]) as? NSNumber).map { $0.doubleValue / 1000 }
                 var title = (row["title"] ?? row["name"]) as? String ?? ""
                 if let version = row["version"] as? String, !key(version).isEmpty, !key(title).contains(key(version)) {
                     title += " (" + version.trimmingCharacters(in: .whitespacesAndNewlines) + ")"
                 }
-                try append(title, artist, duration)
+                let isrc = (row["isrc"] as? String)
+                    ?? (row["external_ids"] as? [String: Any])?["isrc"] as? String
+                    ?? (row["externalIds"] as? [String: Any])?["isrc"] as? String
+                try append(title, artist, duration, isrc)
             }
         } else {
             var parsed = false
@@ -48,7 +64,12 @@ enum TransferPreparation {
                       let ai = keys.firstIndex(where: { ["artist","artists","artistname","artistnames","исполнитель","исполнители"].contains($0) }) else { continue }
                 for row in table.dropFirst() where !row.joined().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     guard row.count > max(ti, ai) else { throw fail("Неполная строка CSV") }
-                    try append(row[ti], row[ai])
+                    let isrcIndex = keys.firstIndex(of: "isrc")
+                    let durationIndex = keys.firstIndex(where: { ["duration","durationms","длительность"].contains($0) })
+                    let durationValue = durationIndex.flatMap { $0 < row.count ? Double(row[$0]) : nil }
+                    let seconds = durationIndex.map { keys[$0] == "durationms" } == true ? durationValue.map { $0 / 1000 } : durationValue
+                    try append(row[ti], row[ai], seconds,
+                               isrcIndex.flatMap { $0 < row.count ? row[$0] : nil })
                 }
                 parsed = true; break
             }
@@ -63,6 +84,31 @@ enum TransferPreparation {
         let unique = tracks.filter { seen.insert(key($0["artist"] as? String ?? "") + "\n" + key($0["title"] as? String ?? "")).inserted }
         guard !unique.isEmpty else { throw fail("В списке нет треков") }
         return String(decoding: try JSONSerialization.data(withJSONObject: unique), as: UTF8.self)
+    }
+    /// Provider search is literal: retain separate Cyrillic and Latin queries.
+    /// Broader queries recover uploads with misspelled or missing title words.
+    static func searchQueries(title: String, artist: String, mode: String = "wide") -> [String] {
+        let cleaned = TransferText.cleanTitle(title)
+        let primary = TransferText.primaryArtist(artist)
+        let words = cleaned.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
+        let distinctive = words.enumerated().sorted {
+            $0.element.count == $1.element.count ? $0.offset < $1.offset : $0.element.count > $1.element.count
+        }.prefix(2).sorted { $0.offset < $1.offset }.map(\.element).joined(separator: " ")
+        var options = [artist + " " + title, primary + " " + cleaned]
+        if cleaned.count >= 4 { options.append(cleaned) }
+        options.append(TransferText.key(primary + " " + cleaned))
+        if words.count > 2 { options.append(primary + " " + distinctive) }
+        if primary.count >= 4 { options.append(primary) }
+        if cleaned.count >= 4 { options.append(TransferText.key(cleaned)) }
+        var seen = Set<String>(), result: [String] = []
+        for value in options {
+            let query = TransferText.replace(value, #"\s+"#).trimmingCharacters(in: .whitespacesAndNewlines)
+            // Do not transliterate this deduplication key: providers may return
+            // different uploads for "Кино" and "Kino".
+            let identity = key(query)
+            if !identity.isEmpty, seen.insert(identity).inserted { result.append(query) }
+        }
+        return Array(result.prefix(mode == "safe" ? 3 : mode == "balanced" ? 5 : 7))
     }
     private static func csv(_ text: String, delimiter: Character) -> [[String]] {
         let chars = Array(text); var rows: [[String]] = [], row: [String] = [], field = "", quoted = false, i = 0

@@ -1217,59 +1217,83 @@ private struct AudioQualityDecision: Decodable {
                 try Task.checkCancellation()
                 let local = catalog + indexedPlaylistTracks
                     + favoriteTrackDetails.filter { likes.contains($0.id) }
-                let owned = priorityIDs, key = cacheKey
-                let terms = text.split(whereSeparator: { $0.isWhitespace }).map { RecommendationOrder.key(String($0)) }.filter { !$0.isEmpty }
-                let found = await Task.detached(priority: .userInitiated) {
-                    var matches: [Track] = []
-                    matches.reserveCapacity(160)
-                    for track in local {
-                        if Task.isCancelled { break }
-                        let combined = (track.title + " " + track.artist).folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-                        let compact = RecommendationOrder.key(track.title + " " + track.artist)
-                        if combined.contains(key) || (!terms.isEmpty && terms.allSatisfy({ compact.contains($0) })) {
-                            matches.append(track)
-                            if matches.count >= 180 { break }
+                let owned = priorityIDs
+                let localTask = Task.detached(priority: .userInitiated) {
+                    NightwellSearch.ordered(local,query:text,priorityIDs:owned,limit:140,localOnly:true,
+                        id: { $0.id },title: { $0.title },artist: { $0.artist })
+                }
+                let found = await withTaskCancellationHandler(operation: { await localTask.value },
+                    onCancel: { localTask.cancel() })
+                guard generation == searchGeneration, !Task.isCancelled else { return }
+                var pool = NightwellSearch.Pool<Track>()
+                pool.merge(found + (searchCache[cacheKey] ?? []),id: { $0.id })
+                results = NightwellLibrarySearchOrder.ordered(pool.all,query:text,priorityIDs:owned)
+                refreshSearchArtists(for:text,generation:generation)
+                searchMessage = "Ищем полные версии…"
+                var pendingQueries = Set<String>(), failedQueries = Set<String>()
+                var calls = 0
+                searchVariants: for variant in NightwellSearch.queries(text) {
+                    let encoded = variant.addingPercentEncoding(withAllowedCharacters:
+                        .urlQueryAllowed.subtracting(CharacterSet(charactersIn: "&+=?#"))) ?? ""
+                    for attempt in 0..<9 {
+                        try Task.checkCancellation()
+                        if calls >= 18 { break searchVariants }
+                        calls += 1
+                        do {
+                            let response: TrackResult = try await api.request("/api/tracks?q=" + encoded,timeout:12)
+                            guard generation == searchGeneration, !Task.isCancelled else { return }
+                            pool.merge(response.tracks,id: { $0.id })
+                            let candidates = pool.all
+                            let rankingTask = Task.detached(priority: .userInitiated) {
+                                NightwellLibrarySearchOrder.ordered(candidates,query:text,priorityIDs:owned)
+                            }
+                            let visible = await withTaskCancellationHandler(operation: { await rankingTask.value },
+                                onCancel: { rankingTask.cancel() })
+                            guard generation == searchGeneration, !Task.isCancelled else { return }
+                            if results != visible {
+                                results = visible
+                                refreshSearchArtists(for:text,generation:generation)
+                            }
+                            failedQueries.remove(variant)
+                            if response.search_pending == true { pendingQueries.insert(variant) }
+                            else { pendingQueries.remove(variant) }
+                            searchMessage = response.search_message ?? ""
+                            if response.search_pending != true {
+                                // A complete literal hit does not need extra provider queries.
+                                if visible.contains(where: {
+                                    NightwellSearch.Query(text).score(title:$0.title,artist:$0.artist) >= 9500
+                                }) { break searchVariants }
+                                break
+                            }
+                            if attempt < 8 {
+                                try await Task.sleep(nanoseconds:UInt64(TransferRemoteSearch.delay(response.search_retry_after) * 1_000_000_000))
+                            }
+                        } catch is CancellationError { throw CancellationError() }
+                          catch {
+                            try Task.checkCancellation()
+                            guard generation == searchGeneration else { return }
+                            failedQueries.insert(variant)
+                            if attempt == 0 {
+                                try await Task.sleep(nanoseconds:1_500_000_000)
+                                continue
+                            }
+                            break
                         }
                     }
-                    return NightwellLibrarySearchOrder.ordered(
-                        matches, query: text, priorityIDs: owned)
-                }.value
-                guard generation == searchGeneration, !Task.isCancelled else { return }
-                results = NightwellLibrarySearchOrder.ordered(
-                    found + (searchCache[cacheKey] ?? []),
-                    query: text, priorityIDs: owned)
-                refreshSearchArtists(for: text, generation: generation)
-                searchMessage = "Ищем полные версии…"
-                let encoded = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed.subtracting(CharacterSet(charactersIn: "&+=?#"))) ?? ""
-                for _ in 0..<9 {
-                    let response: TrackResult = try await api.request("/api/tracks?q=" + encoded)
-                    guard generation == searchGeneration, !Task.isCancelled else { return }
-                    let incoming = Array(response.tracks.prefix(250))
-                    let ranked = await Task.detached(priority: .userInitiated) {
-                        Array(RecommendationOrder.rankSearch(incoming, query: text,
-                              title: { $0.title }, artist: { $0.artist }).prefix(140))
-                    }.value
-                    guard generation == searchGeneration, !Task.isCancelled else { return }
-                    let serverVisible = RecommendationOrder.presentedSearchResults(
-                        current: results, incoming: ranked, pending: response.search_pending == true)
-                    let visible = NightwellLibrarySearchOrder.ordered(
-                        found + serverVisible, query: text, priorityIDs: owned)
-                    if results != visible {
-                        results = visible
-                        refreshSearchArtists(for: text, generation: generation)
-                    }
-                    searchMessage = response.search_message ?? ""
-                    if response.search_pending != true {
-                        if searchCache.count >= 20 { searchCache.removeAll(keepingCapacity: true) }
-                        searchCache[cacheKey] = visible; return
-                    }
-                    try await Task.sleep(nanoseconds: UInt64(max(1.5, min(4, response.search_retry_after ?? 2)) * 1_000_000_000))
                 }
-                searchMessage = "Поиск занимает больше времени. Повтори запрос."
+                guard generation == searchGeneration, !Task.isCancelled else { return }
+                if pendingQueries.isEmpty && failedQueries.isEmpty {
+                    if searchCache.count >= 20 { searchCache.removeAll(keepingCapacity:true) }
+                    searchCache[cacheKey] = results
+                    searchMessage = results.isEmpty ? "Совпадений пока нет. Попробуй название вместе с исполнителем" : ""
+                } else {
+                    searchMessage = "Не все источники завершили поиск. Можно повторить запрос"
+                }
             } catch is CancellationError { } catch let failure as URLError where failure.code == .cancelled { }
             catch { if generation == searchGeneration { searchMessage = error.localizedDescription } }
         }
     }
+
     func leaveSearch() {
         searchDebounceTask?.cancel()
         searchTask?.cancel(); artistSearchTask?.cancel()

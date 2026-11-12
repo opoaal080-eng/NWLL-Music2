@@ -1,38 +1,14 @@
 import Foundation
 
-/// Stable ownership-first search ordering: tracks from the user's own library
-/// precede public results even when the server ranks another recording first.
+/// Relevance first; personal-library entries win only between equal matches.
 enum NightwellLibrarySearchOrder {
     static func matching(_ track: Track, query: String) -> Bool {
-        let wanted = RecommendationOrder.key(query)
-        guard !wanted.isEmpty else { return false }
-        let title = RecommendationOrder.key(track.title)
-        let artist = RecommendationOrder.key(track.artist)
-        let combined = title + artist
-        let parts = query.split(whereSeparator: { $0.isWhitespace })
-            .map { RecommendationOrder.key(String($0)) }.filter { !$0.isEmpty }
-        return title.contains(wanted) || artist.contains(wanted)
-            || combined.contains(wanted)
-            || (!parts.isEmpty && parts.allSatisfy { combined.contains($0) })
+        NightwellSearch.Query(query).score(title:track.title,artist:track.artist) > 0
     }
-
     static func ordered(_ tracks: [Track], query: String,
                         priorityIDs: Set<String>, limit: Int = 140) -> [Track] {
-        var unique = Set<String>()
-        let kept = tracks.enumerated().compactMap { offset, track -> (Int, Track)? in
-            guard unique.insert(track.id).inserted else { return nil }
-            return (offset, track)
-        }
-        return kept.sorted { x, y in
-            let ownX = priorityIDs.contains(x.1.id)
-            let ownY = priorityIDs.contains(y.1.id)
-            if ownX != ownY { return ownX }
-            let scoreX = RecommendationOrder.searchScore(query: query,
-                            title: x.1.title, artist: x.1.artist)
-            let scoreY = RecommendationOrder.searchScore(query: query,
-                            title: y.1.title, artist: y.1.artist)
-            return scoreX == scoreY ? x.0 < y.0 : scoreX > scoreY
-        }.prefix(max(0,limit)).map(\.1)
+        NightwellSearch.ordered(tracks,query:query,priorityIDs:priorityIDs,limit:limit,
+            id: { $0.id },title: { $0.title },artist: { $0.artist })
     }
 }
 

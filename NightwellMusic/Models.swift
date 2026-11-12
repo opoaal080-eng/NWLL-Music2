@@ -166,6 +166,10 @@ actor MusicAPI: LyricsService {
         guard let url = URL(string: path, relativeTo: origin), url.host == origin.host, url.scheme == "https" else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
         request.httpMethod = method
+        if method == "GET", url.path == "/api/tracks", url.query != nil {
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        }
         if let timeout { request.timeoutInterval = timeout }
         if method != "GET" {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")

@@ -10,6 +10,7 @@ on:
       - 'project.yml'
       - 'scripts/verify-native-source.py'
       - 'scripts/test-*.swift'
+      - 'scripts/fixtures/**'
       - 'scripts/make-neutral-app-icon.py'
       - '.github/workflows/build-ios.yml'
   push:
@@ -21,6 +22,7 @@ on:
       - 'project.yml'
       - 'scripts/verify-native-source.py'
       - 'scripts/test-*.swift'
+      - 'scripts/fixtures/**'
       - 'scripts/make-neutral-app-icon.py'
       - '.github/workflows/build-ios.yml'
 concurrency:
@@ -47,7 +49,7 @@ jobs:
           swiftc -frontend -parse source/NightwellMusic/*.swift
       - name: Test music search and recommendation controls
         run: |
-          swiftc NightwellMusic/RecommendationOrder.swift NightwellMusic/SkipFeedback.swift scripts/test-recommendations.swift -o /tmp/test-nightwell-recommendations
+          swiftc NightwellMusic/TransferSimilarity.swift NightwellMusic/NightwellSearch.swift NightwellMusic/RecommendationOrder.swift NightwellMusic/SkipFeedback.swift scripts/test-recommendations.swift -o /tmp/test-nightwell-recommendations
           /tmp/test-nightwell-recommendations
       - name: Test remote uploader and performer attribution
         run: |
@@ -71,12 +73,21 @@ jobs:
           /tmp/test-request-retry
       - name: Test playlist parsing on device
         run: |
-          swiftc NightwellMusic/TransferPreparation.swift scripts/test-transfer-preparation.swift -o /tmp/test-transfer-preparation
+          swiftc NightwellMusic/TransferSimilarity.swift NightwellMusic/TransferPreparation.swift scripts/test-transfer-preparation.swift -o /tmp/test-transfer-preparation
           /tmp/test-transfer-preparation
       - name: Test on-device transfer matching
         run: |
-          swiftc NightwellMusic/TransferPreparation.swift NightwellMusic/DeviceTransferMatcher.swift scripts/test-device-transfer-match.swift -o /tmp/test-device-transfer-match
+          swiftc NightwellMusic/TransferSimilarity.swift NightwellMusic/TransferPreparation.swift NightwellMusic/DeviceTransferMatcher.swift scripts/test-device-transfer-match.swift -o /tmp/test-device-transfer-match
           /tmp/test-device-transfer-match
+      - name: Test search recall and trained transfer model
+        run: |
+          swiftc -O NightwellMusic/TransferSimilarity.swift NightwellMusic/NightwellSearch.swift scripts/test-search-recall.swift -o /tmp/test-search-recall
+          /tmp/test-search-recall
+          transfer=(NightwellMusic/TransferSimilarity.swift NightwellMusic/TransferPreparation.swift NightwellMusic/DeviceTransferMatcher.swift NightwellMusic/DeviceNeuralTransferMatcher.swift NightwellMusic/TransferNeuralModel.swift NightwellMusic/TransferRemoteSearch.swift)
+          swiftc -O "${transfer[@]}" scripts/test-transfer-recall.swift -o /tmp/test-transfer-recall
+          /tmp/test-transfer-recall
+          swiftc -O "${transfer[@]}" scripts/test-transfer-search.swift -o /tmp/test-transfer-search
+          /tmp/test-transfer-search
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Select latest installed Xcode

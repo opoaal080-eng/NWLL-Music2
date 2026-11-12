@@ -85,28 +85,30 @@ enum TransferPreparation {
         guard !unique.isEmpty else { throw fail("В списке нет треков") }
         return String(decoding: try JSONSerialization.data(withJSONObject: unique), as: UTF8.self)
     }
-    /// Try the original query first, then remove uploader decorations and
-    /// featuring credits. This is metadata search, not access to source audio.
-    static func searchQueries(title: String, artist: String) -> [String] {
-        let cleaned = title
-            .replacingOccurrences(of: #"(?i)\([^)]*(?:official|video|audio|lyrics?|visualizer)[^)]*\)"#,
-                                  with: " ", options: .regularExpression)
-            .replacingOccurrences(of: #"(?i)\b(?:feat\.?|ft\.?|featuring)\s+.+$"#,
-                                  with: " ", options: .regularExpression)
-            .replacingOccurrences(of: #"(?i)\b(?:official|music video|lyrics? video|visualizer|audio)\b"#,
-                                  with: " ", options: .regularExpression)
-            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        var queries: [String] = []
-        var seen = Set<String>()
-        for query in [artist + " " + title, artist + " " + cleaned, cleaned, title] {
-            let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !text.isEmpty, seen.insert(key(text)).inserted {
-                queries.append(text)
-            }
-            if queries.count == 3 { break }
+    /// Provider search is literal: retain separate Cyrillic and Latin queries.
+    /// Broader queries recover uploads with misspelled or missing title words.
+    static func searchQueries(title: String, artist: String, mode: String = "wide") -> [String] {
+        let cleaned = TransferText.cleanTitle(title)
+        let primary = TransferText.primaryArtist(artist)
+        let words = cleaned.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
+        let distinctive = words.enumerated().sorted {
+            $0.element.count == $1.element.count ? $0.offset < $1.offset : $0.element.count > $1.element.count
+        }.prefix(2).sorted { $0.offset < $1.offset }.map(\.element).joined(separator: " ")
+        var options = [artist + " " + title, primary + " " + cleaned]
+        if cleaned.count >= 4 { options.append(cleaned) }
+        options.append(TransferText.key(primary + " " + cleaned))
+        if words.count > 2 { options.append(primary + " " + distinctive) }
+        if primary.count >= 4 { options.append(primary) }
+        if cleaned.count >= 4 { options.append(TransferText.key(cleaned)) }
+        var seen = Set<String>(), result: [String] = []
+        for value in options {
+            let query = TransferText.replace(value, #"\s+"#).trimmingCharacters(in: .whitespacesAndNewlines)
+            // Do not transliterate this deduplication key: providers may return
+            // different uploads for "Кино" and "Kino".
+            let identity = key(query)
+            if !identity.isEmpty, seen.insert(identity).inserted { result.append(query) }
         }
-        return queries
+        return Array(result.prefix(mode == "safe" ? 3 : mode == "balanced" ? 5 : 7))
     }
     private static func csv(_ text: String, delimiter: Character) -> [[String]] {
         let chars = Array(text); var rows: [[String]] = [], row: [String] = [], field = "", quoted = false, i = 0
