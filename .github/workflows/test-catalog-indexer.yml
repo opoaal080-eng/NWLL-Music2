@@ -1,0 +1,32 @@
+name: Catalog metadata indexer tests
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/search-glow-android-suggestions-ios-20261112
+    paths:
+      - server-updates/catalog_metadata_index.py
+      - server-updates/test_catalog_metadata_index.py
+      - .github/workflows/test-catalog-indexer.yml
+  pull_request:
+    paths:
+      - server-updates/catalog_metadata_index.py
+      - server-updates/test_catalog_metadata_index.py
+
+jobs:
+  offline-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile
+        run: python -m py_compile server-updates/catalog_metadata_index.py
+      - name: Run unit tests without provider API calls
+        working-directory: server-updates
+        run: python -m unittest -v test_catalog_metadata_index.py
