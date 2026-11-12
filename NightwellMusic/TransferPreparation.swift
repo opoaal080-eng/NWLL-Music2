@@ -32,7 +32,9 @@ enum TransferPreparation {
             guard let rows = (value as? [[String: Any]])
                 ?? (document?["tracks"] as? [[String: Any]])
                 ?? (document?["items"] as? [[String: Any]])
-                ?? (document?["audios"] as? [[String: Any]]) else { throw fail("В JSON нужен массив tracks, items или audios") }
+                ?? (document?["audios"] as? [[String: Any]])
+                ?? ((document?["playlist"] as? [String: Any])?["tracks"] as? [[String: Any]])
+                ?? ((document?["response"] as? [String: Any])?["items"] as? [[String: Any]]) else { throw fail("В JSON нужен массив tracks, items или audios") }
             for source in rows {
                 let row = source["track"] as? [String: Any]
                     ?? source["audio"] as? [String: Any]
