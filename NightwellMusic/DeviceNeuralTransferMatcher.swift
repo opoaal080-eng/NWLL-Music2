@@ -187,8 +187,23 @@ enum DeviceNeuralTransferMatcher {
             for word in title.split(separator: " ").prefix(4) where word.count >= 4 {
                 possible.formUnion((byTitle[String(word)] ?? []).prefix(120))
             }
+            // Fuzzy recovery: consider title tokens even if one is misspelled or missing.
+            // Keep the candidate set bounded for mobile CPU/battery use.
+            if possible.count < 40 {
+                let queryWords = title.split(separator: " ").map(String.init)
+                    .filter { $0.count >= 4 }
+                if !queryWords.isEmpty {
+                    for (token, positions) in byTitle {
+                        guard token.count >= 4,
+                              queryWords.contains(where: { similarity($0, token) >= 0.72 })
+                        else { continue }
+                        possible.formUnion(positions.prefix(80))
+                        if possible.count >= 900 { break }
+                    }
+                }
+            }
             var scored: [(Double, Int)] = []
-            for n in possible.sorted().prefix(260) {
+            for n in possible.sorted().prefix(500) {
                 let candidate = candidates[n]
                 let input = vector(title, artist, duration, candidate)
                 let titleMin = mode == "wide" ? 0.76 : mode == "safe" ? 0.90 : 0.82
