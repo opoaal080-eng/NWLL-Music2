@@ -7,11 +7,13 @@ on:
       - feature/search-glow-android-suggestions-ios-20261112
     paths:
       - server-updates/catalog_metadata_index.py
+      - server-updates/catalog_search_service.py
       - server-updates/test_catalog_metadata_index.py
       - .github/workflows/test-catalog-indexer.yml
   pull_request:
     paths:
       - server-updates/catalog_metadata_index.py
+      - server-updates/catalog_search_service.py
       - server-updates/test_catalog_metadata_index.py
 
 jobs:
@@ -26,7 +28,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Compile
-        run: python -m py_compile server-updates/catalog_metadata_index.py
+        run: python -m py_compile server-updates/catalog_metadata_index.py server-updates/catalog_search_service.py
       - name: Run unit tests without provider API calls
         working-directory: server-updates
         run: python -m unittest -v test_catalog_metadata_index.py
