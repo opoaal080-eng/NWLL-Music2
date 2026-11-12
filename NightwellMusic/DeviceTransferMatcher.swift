@@ -135,6 +135,26 @@ enum DeviceTransferMatcher {
             let titleKey = key(title), artistKey = key(artist)
             var possible = Set(byTitle[titleKey] ?? [])
             possible.formUnion((byArtist[artistKey] ?? []).prefix(250))
+            // Resolve exact normalized artist/title before truncating candidate lists.
+            // Identical catalog duplicates are valid matches, not ambiguity.
+            let duration = (item["duration"] as? NSNumber)?.doubleValue ?? 0
+            if let exact = possible.first(where: { index in
+                let entry = entries[index]
+                let durationOK = duration <= 0 || (entry.duration ?? 0) <= 0 ||
+                    abs(duration - (entry.duration ?? 0)) <= max(14, duration * 0.13)
+                return durationOK && entry.variants.contains(where: {
+                    $0.0 == titleKey && $0.1 == artistKey
+                })
+            }) {
+                let winner = entries[exact]
+                var output = item
+                output["track_id"] = winner.id
+                output["found_title"] = winner.title
+                output["found_artist"] = winner.artist
+                output["reason"] = ""
+                results.append(output)
+                continue
+            }
             // The title, rather than a generic uploader, determines whether
             // an item belongs in the candidate pool.
             let candidates = possible.sorted().prefix(500)
