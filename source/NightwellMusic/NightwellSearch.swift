@@ -22,7 +22,13 @@ enum NightwellSearch {
             let cleaned = TransferText.title(rawTitle)
             let core = TransferText.compact(cleaned.core)
             let wanted = TransferText.compact(title.core)
-            let versionPenalty = cleaned.versions.subtracting(title.versions).subtracting(["remaster"]).isEmpty ? 0 : 2200
+            // A requested live/remix version must also outrank a studio recording.
+            // Only penalizing extra tags lets an owned studio track win this tie.
+            let versionMismatch = cleaned.versions.symmetricDifference(title.versions).subtracting(["remaster"])
+            var versionPenalty = versionMismatch.isEmpty ? 0 : 2200
+            if !title.detail.isEmpty && (cleaned.detail.isEmpty || TransferText.similarity(title.detail,cleaned.detail) < 0.92) {
+                versionPenalty += 1200
+            }
             if wanted == core || wanted == a + core || wanted == core + a {
                 return 9500 - versionPenalty
             }
@@ -36,9 +42,14 @@ enum NightwellSearch {
             // Cheap trigrams reject unrelated catalogue entries before edit distance.
             // Very short queries deliberately do not use fuzzy matching.
             guard compact.count >= 5 else { return 0 }
-            let dice = max(TransferText.dice(text,name), TransferText.dice(text,artist))
+            var forms = [(name,n),(artist,a)]
+            if tokens.count >= 2, !n.isEmpty, !a.isEmpty {
+                forms.append((artist + " " + name,a + n))
+                forms.append((name + " " + artist,n + a))
+            }
+            let dice = forms.map { TransferText.dice(text,$0.0) }.max() ?? 0
             guard dice >= 0.32 else { return 0 }
-            let similarity = max(TransferText.similarity(compact,n), TransferText.similarity(compact,a))
+            let similarity = forms.map { TransferText.similarity(compact,$0.1) }.max() ?? 0
             if similarity >= 0.74 { return 3000 + Int(similarity * 1000) - versionPenalty }
             return 0
         }

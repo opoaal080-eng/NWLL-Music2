@@ -14,8 +14,13 @@ import Foundation
   precondition(labelled[0]["title"] as? String == "Song (Live)")
   let txt = try rows("Ёлка — Трек\nЕлка - Трек")
   precondition(txt.count == 1)
+  let recordings = try rows(#"[{"title":"Song","artist":"Artist","isrc":"us-abc-24-00001"},{"title":"Song","artist":"Artist","isrc":"USABC2400002"},{"title":"Song (Official Audio)","artist":"Artist","isrc":"USABC2400001"}]"#)
+  precondition(recordings.count == 2, "Distinct recording identities were lost or one ISRC was duplicated")
+  precondition(recordings[0]["isrc"] as? String == "USABC2400001", "Formatted ISRC was discarded before matching")
+  let codes = try rows("artist,title,isrc\nArtist,Song,US-ABC-24-00001\nArtist,Song,USABC2400002")
+  precondition(codes.count == 2 && codes[0]["isrc"] as? String == "USABC2400001")
   do { _ = try rows("artist,title\nArtist"); fatalError("Malformed CSV accepted") } catch {}
-  print("Transfer parsing, quotes, duplicate removal and duration passed")
+  print("Transfer parsing, quotes, duplicate recording identities, ISRC normalization and duration passed")
  }
 }
 

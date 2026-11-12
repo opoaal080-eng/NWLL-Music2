@@ -52,6 +52,7 @@ enum TransferRemoteSearch {
         var catalog: [String: [String: Any]] = [:]
         var order: [String] = [], last = original
         var pendingQueries = Set<String>(), failedQueries = Set<String>()
+        var completedQueries = Set<String>()
         var calls = 0
         let started = Date()
         func rank() throws -> [String: Any] {
@@ -81,6 +82,7 @@ enum TransferRemoteSearch {
                     if page.pending { pendingQueries.insert(query) }
                     else { pendingQueries.remove(query) }
                     if !page.pending {
+                        completedQueries.insert(query)
                         last = try rank()
                         let method = last["match_method"] as? String
                         // Fuzzy matches are reviewed against the combined search
@@ -103,10 +105,21 @@ enum TransferRemoteSearch {
         }
         try Task.checkCancellation()
         last = try rank()
+        let method = last["match_method"] as? String
+        let incomplete = completedQueries.count < queries.count
+        // Fuzzy candidates require the combined pool to rule out competing
+        // recordings. A pending provider or failed query can still return a
+        // closer match, so leave this entry available for the explicit retry.
+        if incomplete, method != "exact", method != "isrc" {
+            last["track_id"] = NSNull()
+            for field in ["found_title", "found_artist", "match_score", "match_method"] {
+                last.removeValue(forKey: field)
+            }
+        }
         if last["track_id"] as? String == nil {
             if !pendingQueries.isEmpty {
                 last["reason"] = "Источники ещё ищут этот трек. Нажми «Повторить ненайденные»"
-            } else if !failedQueries.isEmpty {
+            } else if !failedQueries.isEmpty || incomplete {
                 last["reason"] = "Часть поисковых запросов не завершилась. Можно повторить ненайденные"
             }
         }

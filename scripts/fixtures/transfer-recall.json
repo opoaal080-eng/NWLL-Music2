@@ -588,5 +588,155 @@
     ],
     "expected": null,
     "mode": "wide"
+  },
+  {
+    "name": "exact_competing_recording_isrc",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка",
+        "artist": "Северный берег",
+        "id": "a",
+        "isrc": "USABC2400001",
+        "duration": 204
+      },
+      {
+        "title": "Лунная дорожка",
+        "artist": "Северный берег",
+        "id": "b",
+        "isrc": "USABC2400002",
+        "duration": 204
+      }
+    ],
+    "expected": null,
+    "mode": "wide"
+  },
+  {
+    "name": "exact_competing_recording_unknown_duration",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег"
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка",
+        "artist": "Северный берег",
+        "id": "a",
+        "isrc": "USABC2400001",
+        "duration": 204
+      },
+      {
+        "title": "Лунная дорожка",
+        "artist": "Северный берег",
+        "id": "b",
+        "isrc": "USABC2400002",
+        "duration": 204
+      }
+    ],
+    "expected": null,
+    "mode": "wide"
+  },
+  {
+    "name": "exact_competing_recording_durations",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег"
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка",
+        "artist": "Северный берег",
+        "id": "a",
+        "duration": 204
+      },
+      {
+        "title": "Лунная дорожка",
+        "artist": "Северный берег",
+        "id": "b",
+        "duration": 220
+      }
+    ],
+    "expected": null,
+    "mode": "wide"
+  },
+  {
+    "name": "exact_recording_duration_disambiguates",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка",
+        "artist": "Северный берег",
+        "id": "a",
+        "isrc": "USABC2400001",
+        "duration": 220
+      },
+      {
+        "title": "Лунная дорожка",
+        "artist": "Северный берег",
+        "id": "b",
+        "isrc": "USABC2400002",
+        "duration": 204
+      }
+    ],
+    "expected": "b",
+    "mode": "wide"
+  },
+  {
+    "name": "known_duration_before_unknown",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка",
+        "artist": "Северный берег",
+        "id": "a"
+      },
+      {
+        "title": "Лунная дорожка",
+        "artist": "Северный берег",
+        "id": "b",
+        "duration": 204
+      }
+    ],
+    "expected": "b",
+    "mode": "wide"
+  },
+  {
+    "name": "exact_isrc_resolves_competing_recordings",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204,
+      "isrc": "USABC2400002"
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка",
+        "artist": "Северный берег",
+        "id": "a",
+        "isrc": "USABC2400001",
+        "duration": 204
+      },
+      {
+        "title": "Лунная дорожка",
+        "artist": "Северный берег",
+        "id": "b",
+        "isrc": "USABC2400002",
+        "duration": 204
+      }
+    ],
+    "expected": "b",
+    "mode": "wide"
   }
 ]

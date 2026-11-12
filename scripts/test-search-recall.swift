@@ -22,8 +22,20 @@ private struct Track {
         let typo = NightwellSearch.Query("Звезда по имени Солнц")
         precondition(typo.score(title:exact.title,artist:exact.artist)>0)
         precondition(NightwellSearch.Query("Blnding Lights").score(title:"Blinding Lights",artist:"Performer")>0)
+        precondition(NightwellSearch.Query("The Weeknd Blnding Lights").score(title:"Blinding Lights",artist:"The Weeknd")>0,
+                     "A typo in an artist-and-title query must retain the intended track")
+        precondition(NightwellSearch.Query("Blnding Lights The Weeknd").score(title:"Blinding Lights",artist:"The Weeknd")>0)
         precondition(NightwellSearch.Query("Live Forever").score(title:"Live Forever",artist:"Group")==10000)
         precondition(NightwellSearch.Query("Song").score(title:"Song (Official Audio)",artist:"Singer")>=9500)
+        let versions = [Track(id:"studio",title:"Song",artist:"Singer"),
+                        Track(id:"live",title:"Song (Live at Wembley)",artist:"Singer")]
+        let requestedLive = NightwellSearch.ordered(versions,query:"Song Live",priorityIDs:["studio"],
+            id:{$0.id},title:{$0.title},artist:{$0.artist})
+        precondition(requestedLive.first?.id == "live", "A requested live version must outrank an owned studio version")
+        let remixQuery = NightwellSearch.Query("Song (DJ One Remix)")
+        precondition(remixQuery.score(title:"Song (DJ One Remix Version)",artist:"Singer") >
+                     remixQuery.score(title:"Song (DJ Two Remix)",artist:"Singer"),
+                     "Requested remix credits must affect relevance")
         var pool = NightwellSearch.Pool<Track>()
         pool.merge([exact],id:{$0.id});pool.merge([partial],id:{$0.id});pool.merge([],id:{$0.id})
         precondition(pool.all.map(\.id)==["exact","owned"], "Later source erased earlier source")

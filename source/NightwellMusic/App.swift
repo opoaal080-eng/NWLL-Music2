@@ -1770,6 +1770,7 @@ struct NightwellNativeTransfer: View {
     @State private var historyError = ""
     @State private var transferTask: Task<Void, Never>?
     @State private var matchedItems: [[String: Any]] = []
+    @State private var matchingJobID: String?
     @State private var draftPlaylistID: String?
     @State private var alreadySavedIDs: Set<String> = []
     private let activeStates: Set<String> = ["reading", "matching", "saving"]
@@ -1805,7 +1806,7 @@ struct NightwellNativeTransfer: View {
                             Text("С нейросетью").tag("neural")
                         }
                         .pickerStyle(.segmented)
-                        .disabled(busy)
+                        .disabled(busy || saving)
                         if transferMethod == "neural" {
                             Label("Находит записи с опечатками, разным написанием имён и лишними приписками. Проверяет исполнителя, версию и длительность трека.", systemImage: "sparkles")
                                 .font(.footnote)
@@ -1820,17 +1821,18 @@ struct NightwellNativeTransfer: View {
                         Text("Точный").tag("safe")
                         Text("Умный").tag("balanced")
                         Text("Максимальный").tag("wide")
-                    }.pickerStyle(.segmented)
+                    }.pickerStyle(.segmented).disabled(busy || saving)
                     Text(mode == "safe" ? "Точный: оригинальная запись, строгое совпадение названия, исполнителя и длительности." : mode == "balanced" ? "Умный: разные варианты написания и поиск исполнителя в названии или поле артиста. Сомнительные записи отсекаются." : "Максимальный: больше поисковых запросов и вариантов названий. Неподтверждённые совпадения требуют проверки.")
                         .font(.footnote).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                     Button { showingFile = true } label: { Label(selectedFilename.isEmpty ? "Выбрать JSON, CSV или TXT" : selectedFilename, systemImage: "doc.badge.plus").frame(maxWidth: .infinity).padding(16) }
                         .nightwellLiquidGlass(20)
+                        .disabled(busy || saving)
                     Button(busy ? "Обрабатываем…" : "Найти треки") {
                         transferTask?.cancel()
                         transferTask = Task { await start() }
                     }
-                        .buttonStyle(.borderedProminent).tint(Color(white: 0.24)).foregroundStyle(.white).disabled(contents.isEmpty || busy)
+                        .buttonStyle(.borderedProminent).tint(Color(white: 0.24)).foregroundStyle(.white).disabled(contents.isEmpty || busy || saving)
                     if let job {
                         VStack(alignment: .leading, spacing: 12) {
                             Text(job.message ?? "Поиск").font(.headline)
@@ -1863,7 +1865,7 @@ struct NightwellNativeTransfer: View {
                                             }
                                             .frame(maxWidth: .infinity, alignment: .leading)
                                         }
-                                        if !activeStates.contains(job.state) {
+                                        if !activeStates.contains(job.state), job.id == matchingJobID {
                                             Button {
                                                 transferTask?.cancel()
                                                 transferTask = Task { await start(retryMissing:true) }
@@ -1878,8 +1880,10 @@ struct NightwellNativeTransfer: View {
                                     }.padding(.top, 8)
                                 }.tint(.white)
                             }
-                            if (job.state == "ready" || job.state == "error") && job.matched > 0 {
-                                Button(saving ? "Добавляем…" : "Добавить") { Task { await commit() } }.buttonStyle(.borderedProminent).tint(Color(white: 0.24)).foregroundStyle(.white).disabled(saving)
+                            if (job.state == "ready" || job.state == "error") && job.matched > 0 && job.id == matchingJobID {
+                                Button(saving ? "Добавляем…" : "Добавить") {
+                                    transferTask = Task { await commit() }
+                                }.buttonStyle(.borderedProminent).tint(Color(white: 0.24)).foregroundStyle(.white).disabled(busy || saving)
                             }
                             if activeStates.contains(job.state) {
                                 Button("Остановить") { cancel() }.tint(.white)
@@ -1923,7 +1927,7 @@ struct NightwellNativeTransfer: View {
                                         Text("Проверено \(entry.progress)/\(entry.total) · Найдено \(entry.matched)")
                                             .font(.caption).foregroundStyle(.secondary)
                                     }.padding(12).nightwellLiquidGlass(18)
-                                }.buttonStyle(.plain)
+                                }.buttonStyle(.plain).disabled(busy || saving)
                             }
                         }
                     }
@@ -2010,12 +2014,15 @@ struct NightwellNativeTransfer: View {
                   matched: matched, saved: saved, message: message, name: name, items: items ?? job?.items)
     }
     private func start(retryMissing: Bool = false) async {
-        guard !busy else { return }
+        guard !busy, !saving else { return }
+        if retryMissing {
+            guard job?.id == matchingJobID, !matchedItems.isEmpty else { return }
+        }
         busy = true
         defer { busy = false }
         errorText = ""
         if !retryMissing {
-            job = nil; matchedItems = []; draftPlaylistID = nil; alreadySavedIDs = []
+            job = nil; matchingJobID = nil; matchedItems = []; draftPlaylistID = nil; alreadySavedIDs = []
         }
         do {
             let selectedMode = mode
@@ -2026,6 +2033,7 @@ struct NightwellNativeTransfer: View {
             } else {
                 let raw = contents
                 job = currentJob(state:"reading",progress:0,total:0,matched:0,message:"Читаем список треков")
+                matchingJobID = job?.id
                 let prepared = try await Task.detached(priority:.userInitiated) {
                     try TransferPreparation.prepare(raw)
                 }.value
@@ -2120,9 +2128,13 @@ struct NightwellNativeTransfer: View {
         }
     }
     private func commit() async {
-        guard let current = job, !saving, current.matched > 0 else { return }
+        guard let current = job, current.id == matchingJobID, !busy, !saving,
+              current.matched > 0, !matchedItems.isEmpty else { return }
         saving = true
         defer { saving = false }
+        job = currentJob(state: "saving", progress: 0, total: current.total,
+                         matched: current.matched, saved: alreadySavedIDs.count,
+                         message: "Сохраняем плейлист…")
         do {
             var playlistID = draftPlaylistID
             if playlistID == nil {

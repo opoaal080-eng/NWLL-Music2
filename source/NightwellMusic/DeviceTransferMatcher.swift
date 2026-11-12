@@ -73,13 +73,34 @@ enum DeviceTransferMatcher {
                 }
             }
             if !exact.isEmpty {
+                func durationDelta(_ n: Int) -> Double {
+                    guard let duration = query.duration else { return 0 }
+                    return entries[n].duration.map { abs(duration - $0) } ?? .infinity
+                }
                 exact.sort { a,b in
-                    let da = query.duration.flatMap { q in entries[a.0].duration.map { abs(q-$0) } } ?? 0
-                    let db = query.duration.flatMap { q in entries[b.0].duration.map { abs(q-$0) } } ?? 0
+                    let da = durationDelta(a.0), db = durationDelta(b.0)
                     return da != db ? da < db : entries[a.0].id < entries[b.0].id
                 }
                 let winner = exact[0]
-                assign(&output, entries[winner.0], score:1, method:winner.1)
+                // Exact spelling is not a recording identity: rerecordings can
+                // share both title and credits while carrying different ISRCs.
+                // Duration may resolve them only when the source has a close,
+                // measured match and the competing duration is clearly worse.
+                let ambiguous = winner.1 != "isrc" && exact.dropFirst().contains { candidate in
+                    guard !TransferSimilarity.sameRecording(entries[winner.0], entries[candidate.0]) else { return false }
+                    if let duration = query.duration,
+                       entries[winner.0].duration != nil, entries[candidate.0].duration != nil {
+                        let tolerance = max(3, duration * 0.02)
+                        if durationDelta(winner.0) <= tolerance,
+                           durationDelta(candidate.0) - durationDelta(winner.0) > tolerance { return false }
+                    }
+                    return true
+                }
+                if ambiguous {
+                    output["reason"] = "Несколько разных записей похожи на исходную, нужна проверка"
+                } else {
+                    assign(&output, entries[winner.0], score:1, method:winner.1)
+                }
                 results.append(output); continue
             }
             for n in exactCandidates { votes[n,default:0] += 20 }
