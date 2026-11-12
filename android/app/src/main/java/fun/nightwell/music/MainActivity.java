@@ -376,6 +376,7 @@ public final class MainActivity extends Activity {
     private AlertDialog transferDialog;
     private EditText transferInput,transferTitle;
     private Spinner transferMode;
+    private Spinner transferMethod;
     private TextView transferNote;
     private int transferReadGeneration;
     private long libraryGeneration,lastResumeRefresh;
@@ -450,7 +451,7 @@ public final class MainActivity extends Activity {
     };
     private final ServiceConnection connection=new ServiceConnection(){public void onServiceConnected(ComponentName n,IBinder b){playback=((PlaybackService.LocalBinder)b).getService();playback.player.addListener(playbackIntentObserver);if(!smokeMode&&pendingDeepLinkTrack.isEmpty())playback.restorePlayback(origin,user);updatePlayback();openPendingTrack();}public void onServiceDisconnected(ComponentName n){playback=null;}};
     @Override public void onCreate(Bundle saved){super.onCreate(saved);if(!getSharedPreferences("nw-first-run",MODE_PRIVATE).getBoolean("done-v1",false)&&!getIntent().getBooleanExtra("nativeSmoke",false)&&getIntent().getData()==null){redirectedToFirstRun=true;startActivity(new Intent(this,FirstRunActivity.class));finish();return;}ArtistTaste.load(this);artworkCache=new ArtworkCache(this);smokeMode=(getApplicationInfo().flags&android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE)!=0&&getIntent().getBooleanExtra("nativeSmoke",false);origin="https://music.nightwell.fun/";user=getSharedPreferences("native-api",MODE_PRIVATE).getString("account","");api=new NativeAPI(this,origin);restoreRecent();if(!smokeMode&&!user.isEmpty()){restoreFavoriteIndex(user);restoreLibrarySnapshot(user);}if(Build.VERSION.SDK_INT>=30)getWindow().setDecorFitsSystemWindows(false);else getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE|View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);if(Build.VERSION.SDK_INT>=28){WindowManager.LayoutParams windowParams=getWindow().getAttributes();windowParams.layoutInDisplayCutoutMode=WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;getWindow().setAttributes(windowParams);}getWindow().setStatusBarColor(Color.TRANSPARENT);getWindow().setNavigationBarColor(Color.TRANSPARENT);if(Build.VERSION.SDK_INT>=29)getWindow().setNavigationBarContrastEnforced(false);getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);bindingRegistered=bindService(new Intent(this,PlaybackService.class).setAction("nightwell.local"),connection,BIND_AUTO_CREATE);build();if(smokeMode){smokeFixture(getIntent().getStringExtra("screen"));}else{acceptDeepLink(getIntent());load();}
-        if(saved!=null&&saved.getBoolean("transfer.open",false)){nativeTransfer();transferTitle.setText(saved.getString("transfer.title","Перенос музыки"));transferInput.setText(getSharedPreferences("transfer-draft",MODE_PRIVATE).getString("text",""));transferMode.setSelection(saved.getInt("transfer.mode",2));}
+        if(saved!=null&&saved.getBoolean("transfer.open",false)){nativeTransfer();transferTitle.setText(saved.getString("transfer.title","Перенос музыки"));transferInput.setText(getSharedPreferences("transfer-draft",MODE_PRIVATE).getString("text",""));transferMode.setSelection(saved.getInt("transfer.mode",2));transferMethod.setSelection(saved.getInt("transfer.method",0));}
     }
     @Override public void onConfigurationChanged(android.content.res.Configuration config){
         super.onConfigurationChanged(config);
@@ -462,7 +463,7 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onSaveInstanceState(Bundle saved){
         if(transferDialog!=null&&transferDialog.isShowing()){
-            saved.putBoolean("transfer.open",true);saved.putString("transfer.title",transferTitle.getText().toString());saved.putInt("transfer.mode",transferMode.getSelectedItemPosition());
+            saved.putBoolean("transfer.open",true);saved.putString("transfer.title",transferTitle.getText().toString());saved.putInt("transfer.mode",transferMode.getSelectedItemPosition());saved.putInt("transfer.method",transferMethod.getSelectedItemPosition());
             // Keep a potentially 1 MB document out of the Activity/Binder state bundle.
             getSharedPreferences("transfer-draft",MODE_PRIVATE).edit().putString("text",transferInput.getText().toString()).apply();
         }
@@ -5025,8 +5026,23 @@ public final class MainActivity extends Activity {
         transferMatches=new JSONArray();transferSavedIDs.clear();transferPlaylistID="";
         LinearLayout panel=column();panel.setPadding(dp(16),dp(10),dp(16),dp(8));
         EditText title=new EditText(this);title.setSingleLine(true);title.setText("Перенос музыки");title.setHint("Название плейлиста");title.setFilters(new InputFilter[]{new InputFilter.LengthFilter(80)});styleField(title);panel.addView(title);transferTitle=title;
+        TextView methodLabel=text("Способ переноса",14);methodLabel.setPadding(0,dp(12),0,dp(4));panel.addView(methodLabel);
+        Spinner method=new Spinner(this);
+        method.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,
+            new String[]{"Обычный, экономит заряд","С нейросетью на устройстве"}));
+        method.setSelection(0);panel.addView(method);transferMethod=method;
+        TextView warning=text("⚠ Нейросеть обучается на телефоне. Возможен сильный расход заряда батареи, нагрев и долгий перенос. Рекомендуется на ПК.",12);
+        warning.setTextColor(0xffffbd70);
+        warning.setPadding(0,dp(7),0,dp(9));warning.setVisibility(View.GONE);panel.addView(warning);
+        method.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){
+            @Override public void onItemSelected(android.widget.AdapterView<?> parent,View selected,int position,long id){
+                warning.setVisibility(position==1?View.VISIBLE:View.GONE);
+            }
+            @Override public void onNothingSelected(android.widget.AdapterView<?> parent){}
+        });
+        TextView searchLabel=text("Точность совпадений",13);searchLabel.setPadding(0,dp(8),0,dp(4));panel.addView(searchLabel);
         Spinner modes=new Spinner(this);String[] modeNames={"Точный","Умный","Максимальный"};modes.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,modeNames));modes.setSelection(2);panel.addView(modes);transferMode=modes;
-        TextView info=text("JSON, CSV или TXT до 1 МБ. Поиск совпадений проходит на телефоне, сервер только ищет кандидатов и сохраняет плейлист.",12);
+        TextView info=text("JSON, CSV или TXT до 1 МБ. Поиск и оценка совпадений проходят на устройстве, сервер ищет кандидатов и сохраняет плейлист.",12);
         info.setPadding(0,dp(8),0,dp(8));panel.addView(info);panel.addView(sheetAction("Выбрать файл",this::choosePlaylistDocument));
         EditText input=new EditText(this);input.setMinLines(3);input.setMaxLines(5);input.setGravity(Gravity.TOP);input.setHint("Список треков");styleField(input);input.setSaveEnabled(false);panel.addView(input);transferInput=input;
         TextView result=text("Разбор и сопоставление выполняются на Android.",13);panel.addView(result);transferNote=result;
@@ -5060,16 +5076,19 @@ public final class MainActivity extends Activity {
             if(raw.trim().isEmpty()||titleText.isEmpty()){result.setText("Укажи название плейлиста и список треков");return;}
             transferBusy=true;final int ticket=++transferGeneration;
             final String mode=new String[]{"safe","balanced","wide"}[modes.getSelectedItemPosition()];
+            final boolean neural=method.getSelectedItemPosition()==1;
             final NativeAPI client=api;final String owner=user;
             dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setEnabled(false);
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);
-            result.setText("Разбираем список и сопоставляем на устройстве…");
+            result.setText(neural?"Обучаем нейросеть и сопоставляем на телефоне…":"Разбираем список и сопоставляем на устройстве…");
             io.execute(()->{
                 try{
                     JSONArray prepared=TransferPreparation.parse(raw);
                     JSONArray index=client.request("api/tracks").optJSONArray("tracks");
                     if(index==null||index.length()==0)throw new java.io.IOException("Каталог пуст, проверь подключение.");
-                    JSONArray rows=DeviceTransferMatcher.match(prepared,index,mode);
+                    JSONArray rows=neural
+                        ?DeviceNeuralTransferMatcher.match(prepared,index,mode)
+                        :DeviceTransferMatcher.match(prepared,index,mode);
                     // The server responds only to ordinary /api/tracks?q= searches.
                     // Each additional result is matched locally, never by import jobs.
                     for(int i=0;i<rows.length();i++){
@@ -5110,7 +5129,7 @@ public final class MainActivity extends Activity {
                         transferBusy=false;transferMatches=rows;transferMissingReport=report;
                         missing.setText("Не найдено: "+missingTotal+" · Показать список");
                         missing.setVisibility(missingTotal>0?View.VISIBLE:View.GONE);
-                        result.setText("Найдено "+ready+" из "+rows.length()+" · все совпадения проверены на телефоне");
+                        result.setText("Найдено "+ready+" из "+rows.length()+" · "+(neural?"нейросеть":"обычный поиск")+" на телефоне");
                         dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setEnabled(true);
                         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(ready>0);
                     });
