@@ -32,8 +32,8 @@ permissions:
   contents: read
 jobs:
   ios:
-    # Build on Apple Silicon to avoid the unavailable Intel runner pool.
-    runs-on: macos-26
+    # Use the current Intel image that successfully provisions for this account.
+    runs-on: macos-26-intel
     steps:
       - uses: actions/checkout@v4
       - name: Verify recovered sources
