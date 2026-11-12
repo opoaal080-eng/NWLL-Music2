@@ -5011,120 +5011,169 @@ public final class MainActivity extends Activity {
             }catch(Exception ex){ui.post(()->{if(transferDialog!=dialog||!dialog.isShowing()||ticket!=transferReadGeneration)return;note.setText(ex.getMessage()==null?"Не удалось прочитать файл":ex.getMessage());dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setEnabled(true);});}
         });
     }
-    private String transferKey="",transferStage="";
     private String transferMissingReport="";
     private Button transferMissingButton;
-    private long transferSampleAt;
-    private int transferSampleProgress;
     private boolean transferBusy;
-    void transferRequest(Work work,Done done,TextView label,AlertDialog dialog){
-        final String owner=user;final NativeAPI client=api;
-        io.execute(()->{try{JSONObject value=work.run();ui.post(()->{if(!isDestroyed()&&dialog.isShowing()&&transferDialog==dialog&&owner.equals(user)&&client==api)done.run(value);});}
-            catch(Exception ex){ui.post(()->{if(dialog.isShowing()&&transferDialog==dialog){transferBusy=false;label.setText(friendly(ex)+"\nНажми «Обновить», чтобы проверить состояние переноса.");dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setEnabled(true);dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setText("Обновить");dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v->{if(transferKey.isEmpty()){transferRequest(()->client.request("api/imports"),r->{JSONArray jobs=r.optJSONArray("jobs");if(jobs!=null&&jobs.length()>0){transferKey=jobs.optJSONObject(0).optString("id");pollTransfer(transferKey,label,dialog);}else{label.setText("Перенос не запущен. Проверь список и повтори поиск.");dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setText("Найти треки");dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener((View.OnClickListener)dialog.getButton(AlertDialog.BUTTON_NEUTRAL).getTag());}},label,dialog);}else pollTransfer(transferKey,label,dialog);});}});}});
-    }
+    private volatile int transferGeneration;
+    private JSONArray transferMatches=new JSONArray();
+    private String transferPlaylistID="";
+    private final java.util.Set<String> transferSavedIDs=new java.util.HashSet<>();
+
     void nativeTransfer(){
         if(transferDialog!=null&&transferDialog.isShowing())transferDialog.dismiss();
-        transferKey="";transferStage="";transferBusy=false;transferMissingReport="";
+        transferGeneration++;transferBusy=false;transferMissingReport="";
+        transferMatches=new JSONArray();transferSavedIDs.clear();transferPlaylistID="";
         LinearLayout panel=column();panel.setPadding(dp(16),dp(10),dp(16),dp(8));
         EditText title=new EditText(this);title.setSingleLine(true);title.setText("Перенос музыки");title.setHint("Название плейлиста");title.setFilters(new InputFilter[]{new InputFilter.LengthFilter(80)});styleField(title);panel.addView(title);transferTitle=title;
         Spinner modes=new Spinner(this);String[] modeNames={"Точный","Умный","Максимальный"};modes.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,modeNames));modes.setSelection(2);panel.addView(modes);transferMode=modes;
-        TextView info=text("JSON, CSV или TXT до 1 МБ. Разбор списка и удаление дублей выполняются на устройстве.",12);info.setPadding(0,dp(8),0,dp(8));panel.addView(info);panel.addView(sheetAction("Выбрать файл",this::choosePlaylistDocument));
+        TextView info=text("JSON, CSV или TXT до 1 МБ. Поиск совпадений проходит на телефоне, сервер только ищет кандидатов и сохраняет плейлист.",12);
+        info.setPadding(0,dp(8),0,dp(8));panel.addView(info);panel.addView(sheetAction("Выбрать файл",this::choosePlaylistDocument));
         EditText input=new EditText(this);input.setMinLines(3);input.setMaxLines(5);input.setGravity(Gravity.TOP);input.setHint("Список треков");styleField(input);input.setSaveEnabled(false);panel.addView(input);transferInput=input;
-        TextView result=text("Поиск выполняется на телефоне. Сервер получает только найденные ID.",13);
-        panel.addView(result);transferNote=result;
-        Button missing=new Button(this);
-        missing.setAllCaps(false);missing.setText("Показать ненайденные треки");
-        missing.setVisibility(View.GONE);
+        TextView result=text("Разбор и сопоставление выполняются на Android.",13);panel.addView(result);transferNote=result;
+        Button missing=new Button(this);missing.setAllCaps(false);missing.setText("Показать ненайденные треки");missing.setVisibility(View.GONE);
         missing.setOnClickListener(v->{
             if(transferMissingReport.isEmpty())return;
             final String report=transferMissingReport;
             String preview=report.length()>14000?report.substring(0,14000)+"\n…":report;
-            new AlertDialog.Builder(this).setTitle("Ненайденные треки")
-                .setMessage(preview)
+            new AlertDialog.Builder(this).setTitle("Ненайденные треки").setMessage(preview)
                 .setNegativeButton("Закрыть",null)
                 .setPositiveButton("Поделиться",(d,which)->{
-                    Intent intent=new Intent(Intent.ACTION_SEND);
-                    intent.setType("text/plain");
+                    Intent intent=new Intent(Intent.ACTION_SEND);intent.setType("text/plain");
                     intent.putExtra(Intent.EXTRA_TEXT,report);
                     startActivity(Intent.createChooser(intent,"Список ненайденных"));
                 }).show();
         });
         transferMissingButton=missing;panel.addView(missing);
         ScrollView form=new ScrollView(this);form.addView(panel);
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Перенести музыку").setView(form).setNegativeButton("Закрыть",null).setNeutralButton("Найти треки",null).setPositiveButton("Добавить",null).create();
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Перенести музыку").setView(form)
+            .setNegativeButton("Закрыть",null).setNeutralButton("Найти треки",null).setPositiveButton("Добавить",null).create();
         transferDialog=dialog;
-        dialog.setOnDismissListener(ignored->{if(transferDialog==dialog){transferReadGeneration++;transferDialog=null;transferInput=null;transferTitle=null;transferMode=null;transferNote=null;}});
-        styleSheet(dialog);dialog.show();dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);
-        View.OnClickListener startTransfer=v->{
+        dialog.setOnDismissListener(ignored->{
+            transferGeneration++;
+            if(transferDialog==dialog){transferReadGeneration++;transferDialog=null;transferInput=null;transferTitle=null;transferMode=null;transferNote=null;}
+        });
+        styleSheet(dialog);dialog.show();
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);
+        dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v->{
             if(transferBusy)return;
-            String raw=input.getText().toString(),name=title.getText().toString().trim();if(raw.trim().isEmpty()||name.isEmpty()){result.setText("Укажи название плейлиста и список треков");return;}
-            String mode=new String[]{"safe","balanced","wide"}[modes.getSelectedItemPosition()];
-            transferBusy=true;transferStage="";dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setEnabled(false);dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);result.setText("Разбираем список на устройстве…");
-            final NativeAPI client=api;
-            transferRequest(()->{
-                JSONArray prepared=TransferPreparation.parse(raw);
-                // One catalog fetch. All matching runs on this phone, not the
-                // Nightwell server and without hundreds of search requests.
-                JSONArray indexed=client.request("api/tracks").optJSONArray("tracks");
-                if(indexed==null||indexed.length()==0)
-                    throw new java.io.IOException("Каталог ещё не загружен. Повтори позже.");
-                JSONArray matched=DeviceTransferMatcher.match(prepared,indexed,mode);
-                return client.request("api/imports/client","POST",
-                    new JSONObject().put("provider","yandex").put("name",name)
-                        .put("items",matched).put("mode",mode));
-            },response->{
-                transferKey=response.optString("id");if(transferKey.isEmpty()){transferBusy=false;result.setText("Сервер не вернул номер переноса");dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setEnabled(true);return;}
-                getSharedPreferences("transfer-draft",MODE_PRIVATE).edit().putString("job|"+origin+"|"+user,transferKey).apply();
-                pollTransfer(transferKey,result,dialog);
-            },result,dialog);
-        };
-        dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setTag(startTransfer);dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(startTransfer);
-        String saved=getSharedPreferences("transfer-draft",MODE_PRIVATE).getString("job|"+origin+"|"+user,"");
-        if(!saved.isEmpty()){transferKey=saved;dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setEnabled(false);pollTransfer(saved,result,dialog);}
-    }
-    private String transferETA(JSONObject job){
-        String stage=job.optString("state");int done=stage.equals("saving")?job.optInt("saved"):job.optInt("progress");int total=stage.equals("saving")?job.optInt("matched"):job.optInt("total");long now=android.os.SystemClock.elapsedRealtime();
-        if(!stage.equals(transferStage)||done<transferSampleProgress){transferStage=stage;transferSampleAt=now;transferSampleProgress=done;}
-        if(!stage.equals("matching")&&!stage.equals("saving"))return "";
-        int delta=done-transferSampleProgress;if(delta<2||now-transferSampleAt<3000)return "\nОцениваем оставшееся время…";
-        long seconds=Math.max(1,Math.round((now-transferSampleAt)/1000.0/delta*Math.max(0,total-done)));
-        return "\nОсталось примерно "+(seconds<60?"меньше минуты":((seconds+59)/60)+" мин");
-    }
-    private void pollTransfer(String key,TextView label,AlertDialog dialog){
-        if(!dialog.isShowing()||!key.equals(transferKey))return;
-        final NativeAPI client=api;
-        transferRequest(()->client.request("api/imports/"+Uri.encode(key)),response->{
-            if(!key.equals(transferKey))return;
-            String state=response.optString("state");
-            label.setText(response.optString("message","Поиск")+"\nПроверено "+response.optInt("progress")+"/"+response.optInt("total")+" · Найдено "+response.optInt("matched")+transferETA(response));
-            JSONArray details=response.optJSONArray("items");
-            if(details!=null&&details.length()>0){
-                StringBuilder missing=new StringBuilder();int count=0;
-                for(int i=0;i<details.length();i++){
-                    JSONObject item=details.optJSONObject(i);
-                    if(item==null||(!item.isNull("track_id")&&item.has("track_id")))continue;
-                    count++;
-                    missing.append(count).append(". ").append(item.optString("artist"))
-                           .append(" — ").append(item.optString("title"));
-                    String reason=item.optString("reason","");
-                    if(!reason.isEmpty())missing.append(" (").append(reason).append(")");
-                    missing.append("\n");
+            String raw=input.getText().toString(),titleText=title.getText().toString().trim();
+            if(raw.trim().isEmpty()||titleText.isEmpty()){result.setText("Укажи название плейлиста и список треков");return;}
+            transferBusy=true;final int ticket=++transferGeneration;
+            final String mode=new String[]{"safe","balanced","wide"}[modes.getSelectedItemPosition()];
+            final NativeAPI client=api;final String owner=user;
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setEnabled(false);
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);
+            result.setText("Разбираем список и сопоставляем на устройстве…");
+            io.execute(()->{
+                try{
+                    JSONArray prepared=TransferPreparation.parse(raw);
+                    JSONArray index=client.request("api/tracks").optJSONArray("tracks");
+                    if(index==null||index.length()==0)throw new java.io.IOException("Каталог пуст, проверь подключение.");
+                    JSONArray rows=DeviceTransferMatcher.match(prepared,index,mode);
+                    // The server responds only to ordinary /api/tracks?q= searches.
+                    // Each additional result is matched locally, never by import jobs.
+                    for(int i=0;i<rows.length();i++){
+                        if(ticket!=transferGeneration||Thread.currentThread().isInterrupted())return;
+                        JSONObject item=rows.optJSONObject(i);
+                        if(item==null||!item.isNull("track_id"))continue;
+                        final int position=i;
+                        String query=item.optString("artist")+" "+item.optString("title");
+                        try{
+                            JSONObject search=client.request("api/tracks?q="+java.net.URLEncoder.encode(query,"UTF-8"));
+                            JSONArray candidates=search.optJSONArray("tracks");
+                            if(candidates!=null&&candidates.length()>0){
+                                JSONArray single=new JSONArray().put(item);
+                                JSONArray accepted=DeviceTransferMatcher.match(single,candidates,mode);
+                                JSONObject match=accepted.optJSONObject(0);
+                                if(match!=null&&!match.isNull("track_id"))rows.put(i,match);
+                            }
+                        }catch(Exception ignored){}
+                        if((position+1)%8==0)ui.post(()->{
+                            if(ticket!=transferGeneration||transferDialog!=dialog||!dialog.isShowing())return;
+                            result.setText("Проверяем новые результаты поиска: "+(position+1)+"/"+rows.length());
+                        });
+                    }
+                    if(ticket!=transferGeneration)return;
+                    int matched=0;StringBuilder unfound=new StringBuilder();int missingCount=0;
+                    for(int i=0;i<rows.length();i++){
+                        JSONObject item=rows.optJSONObject(i);if(item==null)continue;
+                        if(!item.isNull("track_id"))matched++;
+                        else{
+                            missingCount++;
+                            unfound.append(missingCount).append(". ").append(item.optString("artist"))
+                                .append(" — ").append(item.optString("title")).append(" (").append(item.optString("reason","Не найден")).append(")\n");
+                        }
+                    }
+                    final int ready=matched,missingTotal=missingCount;final String report=unfound.toString();
+                    ui.post(()->{
+                        if(ticket!=transferGeneration||transferDialog!=dialog||!dialog.isShowing()||client!=api||!owner.equals(user))return;
+                        transferBusy=false;transferMatches=rows;transferMissingReport=report;
+                        missing.setText("Не найдено: "+missingTotal+" · Показать список");
+                        missing.setVisibility(missingTotal>0?View.VISIBLE:View.GONE);
+                        result.setText("Найдено "+ready+" из "+rows.length()+" · все совпадения проверены на телефоне");
+                        dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setEnabled(true);
+                        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(ready>0);
+                    });
+                }catch(Exception ex){
+                    ui.post(()->{
+                        if(ticket!=transferGeneration||transferDialog!=dialog||!dialog.isShowing())return;
+                        transferBusy=false;result.setText(friendly(ex));
+                        dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setEnabled(true);
+                    });
                 }
-                transferMissingReport=missing.toString();
-                if(transferMissingButton!=null){
-                    transferMissingButton.setText("Не найдено: "+count+" · Показать список");
-                    transferMissingButton.setVisibility(count>0?View.VISIBLE:View.GONE);
+            });
+        });
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+            if(transferBusy||transferMatches.length()==0)return;
+            transferBusy=true;final int ticket=++transferGeneration;final NativeAPI client=api;final String owner=user;
+            final String titleText=title.getText().toString().trim();final JSONArray rows=transferMatches;
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setEnabled(false);
+            result.setText("Сохраняем плейлист с телефона…");
+            io.execute(()->{
+                try{
+                    if(transferPlaylistID.isEmpty()){
+                        JSONObject playlist=client.request("api/playlists","POST",new JSONObject().put("name",titleText));
+                        transferPlaylistID=playlist.optString("id");
+                        if(transferPlaylistID.isEmpty())throw new java.io.IOException("Не удалось создать плейлист.");
+                    }
+                    java.util.LinkedHashSet<String> ids=new java.util.LinkedHashSet<>();
+                    for(int i=0;i<rows.length();i++){
+                        JSONObject row=rows.optJSONObject(i);
+                        if(row!=null&&!row.isNull("track_id"))ids.add(row.optString("track_id"));
+                    }
+                    int failed=0;
+                    for(String id:ids){
+                        if(ticket!=transferGeneration||Thread.currentThread().isInterrupted())return;
+                        if(transferSavedIDs.contains(id))continue;
+                        try{
+                            client.request("api/playlists/"+Uri.encode(transferPlaylistID)+"/tracks/"+Uri.encode(id),
+                                "POST",new JSONObject());
+                            transferSavedIDs.add(id);
+                        }catch(Exception e){failed++;}
+                        final int count=transferSavedIDs.size();
+                        if((count+failed)%5==0)ui.post(()->{
+                            if(ticket!=transferGeneration||transferDialog!=dialog||!dialog.isShowing())return;
+                            result.setText("Сохраняем с устройства: "+count+"/"+ids.size());
+                        });
+                    }
+                    final int total=ids.size(),count=transferSavedIDs.size(),errors=failed;
+                    ui.post(()->{
+                        if(ticket!=transferGeneration||transferDialog!=dialog||!dialog.isShowing()||client!=api||!owner.equals(user))return;
+                        transferBusy=false;
+                        result.setText("Плейлист: "+count+"/"+total+" треков. Ошибок сохранения: "+errors);
+                        if(count<total)dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);
+                        if(count==total)load();
+                    });
+                }catch(Exception e){
+                    ui.post(()->{
+                        if(ticket!=transferGeneration||transferDialog!=dialog||!dialog.isShowing())return;
+                        transferBusy=false;result.setText(friendly(e)+"\nМожно повторить сохранение.");
+                        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);
+                    });
                 }
-            }
-            boolean active=state.equals("matching")||state.equals("reading")||state.equals("saving");transferBusy=active;
-            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setEnabled(!active);
-            if(!active){dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setText("Найти треки");dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener((View.OnClickListener)dialog.getButton(AlertDialog.BUTTON_NEUTRAL).getTag());}
-            boolean canAdd=(state.equals("ready")||state.equals("error"))&&response.optInt("matched")>0;
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(canAdd);
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setText("Добавить");
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{if(transferBusy)return;transferBusy=true;dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setEnabled(false);label.setText("Создаём плейлист…");transferRequest(()->client.request("api/imports/"+Uri.encode(key)+"/commit","POST",new JSONObject()),x->pollTransfer(key,label,dialog),label,dialog);});
-            if(active)ui.postDelayed(()->pollTransfer(key,label,dialog),2000);
-            if(state.equals("done")){label.setText("Плейлист создан. Добавлено треков: "+response.optInt("saved"));getSharedPreferences("transfer-draft",MODE_PRIVATE).edit().remove("job|"+origin+"|"+user).apply();load();}
-        },label,dialog);
+            });
+        });
     }
+
 }
