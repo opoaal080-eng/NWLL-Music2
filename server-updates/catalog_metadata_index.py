@@ -263,14 +263,14 @@ def count_source(db: sqlite3.Connection, source: str) -> int:
 
 
 def run_offset_job(db: sqlite3.Connection, name: str, source: str,
-                   route: str, params: dict, token: str | None, args) -> None:
+                   route: str, params: dict, token: str | None, args, max_pages=None) -> None:
     cursor, done = job_state(db, name)
     if done:
         print(f"Already finished: {name}")
         return
     offset = int(cursor or 0)
     page = 0
-    while page < args.max_pages and count_source(db, source) < args.max_tracks:
+    while page < (max_pages if max_pages is not None else args.max_pages) and count_source(db, source) < args.max_tracks:
         qs = urllib.parse.urlencode({**params, "limit": args.page_size, "offset": offset})
         response = fetch_json(AUDIUS_BASE + route + "?" + qs, token, args.delay)
         data = response.get("data") or []
@@ -297,7 +297,7 @@ def run_soundcloud_job(db: sqlite3.Connection, name: str, query: str,
         "linked_partitioning": "true"})
     url = cursor or initial
     page = 0
-    while page < args.max_pages and count_source(db, "soundcloud") < args.max_tracks and url:
+    while page < args.seed_pages and count_source(db, "soundcloud") < args.max_tracks and url:
         response = fetch_json(url, token, args.delay)
         items = response.get("collection") or []
         if not isinstance(items, list):
@@ -334,7 +334,7 @@ def index(db: sqlite3.Connection, args) -> None:
             if count_source(db, "audius") >= args.max_tracks:
                 break
             run_offset_job(db, "audius:search:" + norm(q), "audius",
-                           "/tracks/search", {"query": q}, token, args)
+                           "/tracks/search", {"query": q}, token, args, args.seed_pages)
     if args.sources in ("soundcloud", "both"):
         if not args.allow_soundcloud_metadata_store:
             print("SoundCloud indexing disabled: confirm your API usage/storage rights "
@@ -359,7 +359,8 @@ def main() -> None:
     idx.add_argument("--seed", action="append", help="Artist/title/genre query (repeatable)")
     idx.add_argument("--seed-file", help="Text file with one query per line")
     idx.add_argument("--max-tracks", type=int, default=50000)
-    idx.add_argument("--max-pages", type=int, default=250, help="Pages per job per run")
+    idx.add_argument("--max-pages", type=int, default=250, help="Pages for latest Audius tracks")
+    idx.add_argument("--seed-pages", type=int, default=2, help="Pages per search query (limit API load)")
     idx.add_argument("--page-size", type=int, default=50)
     idx.add_argument("--delay", type=float, default=0.8)
     idx.add_argument("--allow-soundcloud-metadata-store", action="store_true",
@@ -373,7 +374,7 @@ def main() -> None:
     stats.add_argument("--db", default="./nightwell_catalog.sqlite")
     args = parser.parse_args()
     if args.command == "index":
-        if not 1 <= args.page_size <= 100 or args.max_pages < 1 or args.max_tracks < 1 or args.delay < 0.3:
+        if not 1 <= args.page_size <= 100 or args.max_pages < 1 or args.seed_pages < 1 or args.max_tracks < 1 or args.delay < 0.3:
             parser.error("Invalid limits: page-size 1..100, max-pages/tracks >0, delay >=0.3s")
     with open_db(args.db) as db:
         if args.command == "index":
