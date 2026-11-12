@@ -5,6 +5,7 @@ struct Track: Identifiable, Codable, Equatable {
     var title: String
     var artist: String
     var album: String?
+    var isrc: String?
     var duration: Double?
     var cover_url: String?
     var source: String?
@@ -22,14 +23,14 @@ struct Track: Identifiable, Codable, Equatable {
     var _artist_checked: Bool?
 
     init(id: String, title: String, artist: String, album: String? = nil,
-         duration: Double? = nil, cover_url: String? = nil, source: String? = nil,
+         isrc: String? = nil, duration: Double? = nil, cover_url: String? = nil, source: String? = nil,
          source_url: String? = nil, is_remote: Bool? = nil, _offline: Bool? = nil,
          _offline_account: String? = nil, _offline_lyrics: Lyrics? = nil,
          uploader: String? = nil, performer: String? = nil, artist_credit: String? = nil,
          metadata_artist: String? = nil,
          _artist_checked: Bool? = nil) {
         self.id = id; self.title = title; self.artist = artist
-        self.album = album; self.duration = duration; self.cover_url = cover_url
+        self.album = album; self.isrc = isrc; self.duration = duration; self.cover_url = cover_url
         self.source = source; self.source_url = source_url; self.is_remote = is_remote
         self._offline = _offline; self._offline_account = _offline_account
         self._offline_lyrics = _offline_lyrics
@@ -39,7 +40,7 @@ struct Track: Identifiable, Codable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, title, artist, album, duration, cover_url, source, source_url, is_remote
+        case id, title, artist, album, isrc, duration, cover_url, source, source_url, is_remote
         case _offline, _offline_account, _offline_lyrics, uploader, performer, artist_credit, metadata_artist, _artist_checked
     }
 
@@ -49,6 +50,7 @@ struct Track: Identifiable, Codable, Equatable {
         let title = try c.decode(String.self, forKey: .title)
         let artist = try c.decode(String.self, forKey: .artist)
         let album = try c.decodeIfPresent(String.self, forKey: .album)
+        let isrc = try c.decodeIfPresent(String.self, forKey: .isrc)
         let duration = try c.decodeIfPresent(Double.self, forKey: .duration)
         let cover = try c.decodeIfPresent(String.self, forKey: .cover_url)
         let source = try c.decodeIfPresent(String.self, forKey: .source)
@@ -70,7 +72,7 @@ struct Track: Identifiable, Codable, Equatable {
         self.init(
             id: id, title: previouslyChecked ? title : parsed.title,
             artist: previouslyChecked ? artist : parsed.artist,
-            album: album, duration: duration, cover_url: cover,
+            album: album, isrc: isrc, duration: duration, cover_url: cover,
             source: source, source_url: sourceURL, is_remote: isRemote,
             _offline: offline, _offline_account: offlineAccount, _offline_lyrics: lyrics,
             uploader: storedUploader ?? (previouslyChecked ? nil : parsed.uploader),
