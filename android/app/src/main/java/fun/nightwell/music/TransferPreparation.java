@@ -23,6 +23,10 @@ final class TransferPreparation {
                 array=root.optJSONArray("tracks");
                 if(array==null)array=root.optJSONArray("items");
                 if(array==null)array=root.optJSONArray("audios");
+                if(array==null&&root.optJSONObject("playlist")!=null)
+                    array=root.optJSONObject("playlist").optJSONArray("tracks");
+                if(array==null&&root.optJSONObject("response")!=null)
+                    array=root.optJSONObject("response").optJSONArray("items");
             }
             if(array==null)throw new Exception("В JSON нужен массив tracks");
             for(int i=0;i<array.length();i++) {
