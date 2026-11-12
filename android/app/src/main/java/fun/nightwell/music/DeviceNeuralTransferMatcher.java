@@ -4,6 +4,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import org.json.JSONException;
 import java.util.*;
+import java.util.function.BooleanSupplier;
 
 /**
  * Optional fully on-device neural ranker for imported playlists.
@@ -111,7 +112,9 @@ final class DeviceNeuralTransferMatcher {
         for(int i=0;i<Math.min(max,items.size());i++)destination.add(items.get(i));
     }
 
-    static JSONArray match(JSONArray prepared,JSONArray catalog,String mode)throws JSONException{
+    static JSONArray match(JSONArray prepared,JSONArray catalog,String mode,
+                           BooleanSupplier cancelled)throws JSONException{
+        if(cancelled.getAsBoolean())throw new CancellationException();
         JSONArray matched=DeviceTransferMatcher.match(prepared,catalog,mode);
         boolean unresolved=false;
         for(int i=0;i<matched.length();i++){
@@ -123,6 +126,7 @@ final class DeviceNeuralTransferMatcher {
         ArrayList<Candidate> pool=new ArrayList<>();
         HashMap<String,ArrayList<Integer>> byTitle=new HashMap<>(),byArtist=new HashMap<>();
         for(int i=0;i<Math.min(catalog.length(),80000);i++){
+            if((i&1023)==0&&cancelled.getAsBoolean())throw new CancellationException();
             JSONObject raw=catalog.optJSONObject(i);
             if(raw==null)continue;
             Candidate candidate=new Candidate(raw);
@@ -138,7 +142,9 @@ final class DeviceNeuralTransferMatcher {
         Network network=new Network();
         int count=Math.min(pool.size(),800);
         for(int round=0;round<4;round++){
+            if(cancelled.getAsBoolean())throw new CancellationException();
             for(int i=0;i<count;i++){
+                if((i&63)==0&&cancelled.getAsBoolean())throw new CancellationException();
                 Candidate candidate=pool.get(i),other=pool.get((i+17)%count);
                 network.learn(vector(candidate.title,candidate.artist,candidate.duration,candidate),1);
                 network.learn(vector(candidate.title,candidate.artist,candidate.duration,other),0);
@@ -147,7 +153,7 @@ final class DeviceNeuralTransferMatcher {
         }
 
         for(int i=0;i<matched.length();i++){
-            if(Thread.currentThread().isInterrupted())return matched;
+            if(cancelled.getAsBoolean())throw new CancellationException();
             JSONObject row=matched.optJSONObject(i);
             if(row==null||!row.isNull("track_id"))continue;
             String title=DeviceTransferMatcher.normalize(row.optString("title"));
