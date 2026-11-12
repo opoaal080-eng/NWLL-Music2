@@ -2099,34 +2099,55 @@ struct NightwellNativeTransfer: View {
                              matched: numberFound, message: "Проверяем ненайденные записи через поиск")
             // Search requests only. Matching stays on the phone, with three
             // simultaneous searches at most to protect the music server.
-            let unresolved: [(Int, String, String)] = try matching.enumerated().compactMap { index, row in
+            // Search missing songs using multiple metadata variants.
+            // Matching remains on-device; at most three concurrent requests.
+            let unresolved: [(Int, String, String, String)] = try matching.enumerated().compactMap { index, row in
                 guard row["track_id"] as? String == nil,
                       let title = row["title"] as? String,
                       let artist = row["artist"] as? String else { return nil }
                 let json = try JSONSerialization.data(withJSONObject: [row])
-                return (index, artist + " " + title, String(decoding: json, as: UTF8.self))
+                return (index, title, artist, String(decoding: json, as: UTF8.self))
             }
             let client = store.api
             for offset in stride(from: 0, to: unresolved.count, by: 3) {
                 try Task.checkCancellation()
                 let groupRows = Array(unresolved[offset..<min(offset + 3, unresolved.count)])
                 await withTaskGroup(of: (Int, String?, String?, String?).self) { group in
-                    for (index, queryText, original) in groupRows {
+                    for (index, title, artist, original) in groupRows {
                         group.addTask {
-                            let encoded = queryText.addingPercentEncoding(
-                                withAllowedCharacters: .urlQueryAllowed.subtracting(CharacterSet(charactersIn: "&+=?#"))) ?? ""
-                            guard !encoded.isEmpty else { return (index, nil, nil, nil) }
-                            do {
-                                let remote: TrackResult = try await client.request("/api/tracks?q=" + encoded, timeout: 12)
-                                guard !remote.tracks.isEmpty else { return (index, nil, nil, nil) }
-                                let data = try JSONEncoder().encode(remote.tracks)
-                                let rows = try DeviceTransferMatcher.match(
-                                    prepared: original, catalogJSON: data, mode: selectedMode)
-                                let result = rows.first
-                                return (index, result?["track_id"] as? String,
-                                        result?["found_title"] as? String,
-                                        result?["found_artist"] as? String)
-                            } catch { return (index, nil, nil, nil) }
+                            let variants = TransferPreparation.searchQueries(title: title, artist: artist)
+                            for queryText in variants.prefix(3) {
+                                if Task.isCancelled { break }
+                                let encoded = queryText.addingPercentEncoding(
+                                    withAllowedCharacters: .urlQueryAllowed.subtracting(CharacterSet(charactersIn: "&+=?#"))) ?? ""
+                                if encoded.isEmpty { continue }
+                                do {
+                                    let remote: TrackResult = try await client.request("/api/tracks?q=" + encoded, timeout: 12)
+                                    if remote.tracks.isEmpty { continue }
+                                    let data = try JSONEncoder().encode(remote.tracks)
+                                    let candidateMode = selectedMode == "safe" ? "safe" : "wide"
+                                    var rows = try DeviceTransferMatcher.match(
+                                        prepared: original, catalogJSON: data, mode: candidateMode)
+                                    // If metadata heuristics cannot disambiguate, let the
+                                    // on-device neural ranker try the same candidates.
+                                    if useNeuralMatching, rows.first?["track_id"] as? String == nil,
+                                       remote.tracks.count >= 2 {
+                                        rows = try DeviceNeuralTransferMatcher.match(
+                                            prepared: original, catalogJSON: data, mode: candidateMode)
+                                    }
+                                    if let result = rows.first,
+                                       let id = result["track_id"] as? String {
+                                        return (index, id, result["found_title"] as? String,
+                                                result["found_artist"] as? String)
+                                    }
+                                } catch is CancellationError {
+                                    return (index, nil, nil, nil)
+                                } catch {
+                                    // Retry with a different query, not with an unverified match.
+                                    continue
+                                }
+                            }
+                            return (index, nil, nil, nil)
                         }
                     }
                     for await (index, id, title, artist) in group {
