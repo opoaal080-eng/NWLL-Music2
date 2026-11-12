@@ -1,3 +1,4 @@
+using System.IO;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
@@ -224,7 +225,8 @@ internal sealed class LocalNeuralTransferMatcher {
   }
   scores.Sort((a,b)=>b.S.CompareTo(a.S));
   if(scores.Count==0)return new Result(row,null,0,"Не найдено надёжного совпадения");
-  var first=scores[0],gap=scores.Count>1?first.S-scores[1].S:1;
+  var first=scores[0];
+  double gap=scores.Count>1?first.S-scores[1].S:1;
   double threshold=mode=="safe"?.91:mode=="wide"?.80:.85;
   if(first.S<threshold)return new Result(row,null,first.S,"Совпадение слишком неточное");
   if(gap<.022&&first.S<.985)return new Result(row,null,first.S,"Несколько похожих версий, нужна проверка");
