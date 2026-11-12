@@ -776,17 +776,17 @@ struct FullPlayer: View {
                 viewport.size.height < 650
             if landscape {
                 VStack(spacing: 6) {
-                    playerHeader
-                    HStack(alignment: .center, spacing: 16) {
+                    playerHeader(compact: true)
+                    HStack(alignment: .center, spacing: 12) {
                         artworkInteraction
-                            .frame(width: min(viewport.size.width * 0.40, 260))
+                            .frame(width: min(viewport.size.width * 0.34, 220))
                         // Avoid stacking a full-height cover over transport
                         // controls on iPhones with short landscape viewports.
                         ScrollView(.vertical, showsIndicators: false) {
                             VStack(spacing: 8) {
-                                playerTrackDetails
-                                playerTransport
-                                playerQuickActions
+                                playerTrackDetails(compact: true)
+                                playerTransport(compact: true)
+                                playerQuickActions(compact: true)
                                 playerError
                             }
                             .frame(maxWidth: .infinity)
@@ -795,16 +795,17 @@ struct FullPlayer: View {
                     }
                     .frame(maxHeight: .infinity)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 4)
-                .padding(.bottom, 4)
+                .padding(.leading, max(18, viewport.safeAreaInsets.leading + 10))
+                .padding(.trailing, max(18, viewport.safeAreaInsets.trailing + 10))
+                .padding(.top, 14)
+                .padding(.bottom, 8)
             } else {
                 VStack(spacing: 14) {
-                    playerHeader
+                    playerHeader(compact: false)
                     artworkInteraction
-                    playerTrackDetails
-                    playerTransport
-                    playerQuickActions
+                    playerTrackDetails(compact: false)
+                    playerTransport(compact: false)
+                    playerQuickActions(compact: false)
                     playerError
                 }
                 .padding(.horizontal, 26)
@@ -814,8 +815,19 @@ struct FullPlayer: View {
         }
     }
 
-    @ViewBuilder private var playerHeader: some View {
-                HStack { Button { dismiss() } label: { Image(systemName: "chevron.down").frame(width: 44, height: 44).nightwellLiquidGlass(24) }; Spacer(); NightwellAudioOutputControl(); Spacer(); tools }
+    @ViewBuilder private func playerHeader(compact: Bool) -> some View {
+                HStack {
+                    Button { dismiss() } label: {
+                        Image(systemName: "chevron.down")
+                            .frame(width: compact ? 38 : 44, height: compact ? 38 : 44)
+                            .nightwellLiquidGlass(compact ? 20 : 24)
+                    }
+                    Spacer()
+                    NightwellAudioOutputControl()
+                        .scaleEffect(compact ? 0.86 : 1)
+                    Spacer()
+                    tools.scaleEffect(compact ? 0.86 : 1)
+                }
     }
 
     @ViewBuilder private var artworkInteraction: some View {
@@ -852,10 +864,10 @@ struct FullPlayer: View {
                 }
     }
 
-    @ViewBuilder private var playerTrackDetails: some View {
+    @ViewBuilder private func playerTrackDetails(compact: Bool) -> some View {
                 HStack(spacing: 10) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(clock.displayCurrent?.title ?? "Выбери трек").font(.system(size: 20, weight: .bold)).lineLimit(2)
+                    VStack(alignment: .leading, spacing: compact ? 5 : 8) {
+                        Text(clock.displayCurrent?.title ?? "Выбери трек").font(.system(size: compact ? 17 : 20, weight: .bold)).lineLimit(2)
                         Button {
                             let artists = ArtistNames.split(clock.displayCurrent?.artist ?? "")
                             if artists.count > 1 { showArtistChoices = true }
@@ -884,29 +896,29 @@ struct FullPlayer: View {
                     if let track = clock.displayCurrent {
                         Button { store.toggleRecommendationHidden(track) } label: {
                             Image(systemName: store.isRecommendationHidden(track) ? "hand.thumbsdown.fill" : "hand.thumbsdown")
-                                .font(.system(size: 19))
+                                .font(.system(size: compact ? 16 : 19))
                                 .foregroundStyle(store.isRecommendationHidden(track) ? Color.white : Color.white.opacity(0.65))
-                                .frame(width: 44, height: 44).nightwellLiquidGlass(22)
+                                .frame(width: compact ? 38 : 44, height: compact ? 38 : 44).nightwellLiquidGlass(compact ? 19 : 22)
                         }
                         .accessibilityLabel(store.isRecommendationHidden(track) ? "Вернуть в рекомендации" : "Не рекомендовать")
                         Button { Task { await store.like(track) } } label: {
                             Image(systemName: store.likes.contains(track.id) ? "heart.fill" : "heart")
-                                .font(.system(size: 20)).foregroundStyle(Color.white)
-                                .frame(width: 44, height: 44).nightwellLiquidGlass(22)
+                                .font(.system(size: compact ? 17 : 20)).foregroundStyle(Color.white)
+                                .frame(width: compact ? 38 : 44, height: compact ? 38 : 44).nightwellLiquidGlass(compact ? 19 : 22)
                         }
                         .accessibilityLabel(store.likes.contains(track.id) ? "Убрать из избранного" : "В избранное")
                     }
                 }
     }
 
-    @ViewBuilder private var playerTransport: some View {
-                VStack(spacing: 16) {
-                    VStack(spacing: 8) {
+    @ViewBuilder private func playerTransport(compact: Bool) -> some View {
+                VStack(spacing: compact ? 10 : 16) {
+                    VStack(spacing: compact ? 5 : 8) {
                         GlassSlider(value: Binding(get: { seeking ? scrub : min(clock.displayPosition, clock.displayDuration) }, set: { scrub = $0 }), range: 0...clock.displayDuration, accessibilityStep: 5, label: "Позиция трека", valueText: formatTime(seeking ? scrub : clock.displayPosition), bufferedFraction: CGFloat(clock.bufferFraction), preparing: clock.preparing, knobDiameter: 8) { editing in if editing { scrub = clock.displayPosition; seeking = true } else { NativePlayer.shared.seek(scrub); seeking = false } }
                             // The former stream is still audible during handoff.
                             // Disable scrubbing to avoid seeking the wrong track.
                             .allowsHitTesting(clock.displayID == clock.id)
-                        HStack { Text(formatTime(seeking ? scrub : clock.displayPosition)); Spacer(); Text("−" + formatTime(max(0, clock.displayDuration - (seeking ? scrub : clock.displayPosition)))) }.font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                        HStack { Text(formatTime(seeking ? scrub : clock.displayPosition)); Spacer(); Text("−" + formatTime(max(0, clock.displayDuration - (seeking ? scrub : clock.displayPosition)))) }.font(compact ? .caption2 : .caption).foregroundStyle(.secondary).monospacedDigit()
                     }
                     HStack {
                         Button {
@@ -918,19 +930,19 @@ struct FullPlayer: View {
                         }
                         .accessibilityLabel(["Перемешивание выключено", "Обычное перемешивание", "Умное перемешивание"][shuffleMode]); Spacer()
                         Button { NativePlayer.shared.step(-1) } label: { Image(systemName: "backward.end") }; Spacer()
-                        Button { clock.toggle() } label: { Image(systemName: clock.playing ? "pause" : "play.fill").font(.system(size: 25)).frame(width: 68, height: 68).frostedGlass(34, bordered: false, intensity: 0.20) }; Spacer()
+                        Button { clock.toggle() } label: { Image(systemName: clock.playing ? "pause" : "play.fill") .font(.system(size: compact ? 21 : 25)).frame(width: compact ? 54 : 68, height: compact ? 54 : 68).frostedGlass(compact ? 27 : 34, bordered: false, intensity: 0.20) }; Spacer()
                         Button { NativePlayer.shared.step(1) } label: { Image(systemName: "forward.end") }; Spacer()
                         Button { repeatMode = (repeatMode + 1) % 3; NativePlayer.shared.modes(repeatMode: repeatMode, shuffle: shuffleMode != 0) } label: { Image(systemName: repeatMode == 2 ? "repeat.1" : "repeat").foregroundStyle(repeatMode > 0 ? Color.white : .secondary) }
-                    }.font(.system(size: 20))
+                    }.font(.system(size: compact ? 17 : 20))
                 }
     }
 
-    @ViewBuilder private var playerQuickActions: some View {
+    @ViewBuilder private func playerQuickActions(compact: Bool) -> some View {
                 HStack {
-                    Button { withAnimation { showLyrics.toggle() } } label: { Image(systemName: "text.bubble").frame(maxWidth: .infinity, minHeight: 50) }.accessibilityLabel("Текст песни")
-                    Button { showQueue = true } label: { Image(systemName: "list.bullet").frame(maxWidth: .infinity, minHeight: 50) }.accessibilityLabel("Очередь")
-                    Button { feature = .sound } label: { Image(systemName: "slider.vertical.3").frame(maxWidth: .infinity, minHeight: 50) }.accessibilityLabel("Эквалайзер")
-                }.font(.system(size: 20)).nightwellLiquidGlass(32)
+                    Button { withAnimation { showLyrics.toggle() } } label: { Image(systemName: "text.bubble").frame(maxWidth: .infinity, minHeight: compact ? 38 : 50) }.accessibilityLabel("Текст песни")
+                    Button { showQueue = true } label: { Image(systemName: "list.bullet").frame(maxWidth: .infinity, minHeight: compact ? 38 : 50) }.accessibilityLabel("Очередь")
+                    Button { feature = .sound } label: { Image(systemName: "slider.vertical.3").frame(maxWidth: .infinity, minHeight: compact ? 38 : 50) }.accessibilityLabel("Эквалайзер")
+                }.font(.system(size: compact ? 17 : 20)).nightwellLiquidGlass(compact ? 25 : 32)
     }
 
     @ViewBuilder private var playerError: some View {
