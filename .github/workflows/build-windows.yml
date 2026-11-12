@@ -9,7 +9,7 @@ on:
       - 'scripts/build-provenance.py'
       - '.github/workflows/build-windows.yml'
   push:
-    branches: [main, feature/windows-mobile-parity-20261106]
+    branches: [main, feature/windows-mobile-parity-20261106, feature/search-glow-android-suggestions-ios-20261112]
     paths:
       - 'windows/**'
       - 'scripts/validate-app-sources.py'
