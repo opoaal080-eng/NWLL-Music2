@@ -1857,7 +1857,7 @@ struct NightwellNativeTransfer: View {
                         .pickerStyle(.segmented)
                         .disabled(busy)
                         if transferMethod == "neural" {
-                            Label("Нейросеть обучается и ищет похожие записи прямо на iPhone. Возможен сильный расход заряда и нагрев, перенос может идти дольше. Рекомендуется на ПК.", systemImage: "exclamationmark.batteryblock")
+                            Label("Нейросеть обучается и ищет похожие записи прямо на iPhone. Возможен сильный расход заряда и нагрев, перенос может идти дольше. Рекомендуется на ПК.", systemImage: "exclamationmark.triangle.fill")
                                 .font(.footnote)
                                 .foregroundStyle(.orange)
                                 .fixedSize(horizontal: false, vertical: true)
