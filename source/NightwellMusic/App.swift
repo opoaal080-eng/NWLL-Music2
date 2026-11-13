@@ -2071,10 +2071,10 @@ struct NightwellNativeTransfer: View {
             job = currentJob(state:"matching",progress:numberFound,total:matching.count,matched:numberFound,
                              message:"Ищем недостающие треки в источниках")
             let client = store.api
-            let session = TransferSearchSession { query in
+            let providers = TransferRemoteSearch.providers { provider, query in
                 let allowed = CharacterSet.urlQueryAllowed.subtracting(CharacterSet(charactersIn:"&+=?#"))
                 let encoded = query.addingPercentEncoding(withAllowedCharacters:allowed) ?? ""
-                let result: TrackResult = try await client.request("/api/tracks?q=" + encoded,timeout:10)
+                let result: TrackResult = try await client.request("/api/tracks?q=" + encoded + "&provider=" + provider,timeout:10)
                 return TransferSearchSession.Page(catalogJSON:try JSONEncoder().encode(result.tracks),
                                                   pending:result.search_pending == true,retryAfter:result.search_retry_after)
             }
@@ -2084,6 +2084,8 @@ struct NightwellNativeTransfer: View {
                 try await withThrowingTaskGroup(of:(Int,Data).self) { group in
                     for (index,original) in batch {
                         group.addTask {
+                            let session = TransferRemoteSearch.providerSession(prepared:original,mode:selectedMode,
+                                neural:useNeuralMatching,providers:providers)
                             let result = try await TransferRemoteSearch.match(prepared:original,mode:selectedMode,
                                 neural:useNeuralMatching,session:session)
                             return (index,result)

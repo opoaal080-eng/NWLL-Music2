@@ -1,0 +1,321 @@
+# Sanitized search functions from the supplied server; no configuration or credentials.
+
+def search_text(value):
+    value=unicodedata.normalize('NFKC',value).casefold().replace('ё','е')
+    return ' '.join(re.findall(r'[^\W_]+',value))
+
+# NIGHTWELL_PRIORITY_V2: Audius first; SoundCloud only if Audius has no relevant results.
+@app.get('/api/tracks')
+async def tracks(request:Request,q:str='',provider:str=''):
+    q=q.strip().casefold()[:200];needle=search_text(q);tokens=set(needle.split())
+    provider=provider.strip().casefold()
+    if provider not in ('','audius','soundcloud'):fail(400,'Неизвестный музыкальный источник')
+    found=set();message='';search_state={};account=session(request,False)
+    audius_message='';audius_found=set()
+    if q and account and provider!='soundcloud' and audius_provider.configured():
+        try:
+            discovered=await asyncio.wait_for(
+                asyncio.to_thread(audius_provider.search_tracks,q[:120],25),timeout=4.5)
+            if discovered:
+                await run_in_threadpool(audius_bridge.store_tracks,core.db,discovered)
+                audius_found={str(t['id']) for t in discovered if isinstance(t,dict) and t.get('id')}
+        except asyncio.TimeoutError:
+            audius_message='Audius отвечает слишком долго, проверяем другие источники'
+        except audius_provider.AudiusUnavailable as error:
+            audius_message=str(error)
+        except Exception:
+            audius_message='Audius временно недоступен'
+
+    def relevant(row):
+        text=search_text(row['title']+' '+row['artist']+' '+row['album'])
+        words=set(text.split())
+        # Prevent a vaguely related Audius upload from suppressing the fallback.
+        return bool(needle and (needle in text or tokens <= words))
+    def source(row):
+        return json.loads(row['rights']).get('source') or 'local'
+    with core.db() as c:
+        first=[c.execute('SELECT * FROM tracks WHERE id=?',(tid,)).fetchone() for tid in audius_found]
+    audius_relevant=[row for row in first if row is not None and
+                     json.loads(row['rights']).get('status')=='approved' and relevant(row)]
+    # An empty / insufficient Audius result triggers the existing SoundCloud search.
+    # The provider selector is used by playlist transfers for deterministic two-stage lookup.
+    if q and account and provider!='audius' and sc.configured() and not audius_relevant:
+        queries=list(dict.fromkeys([q,needle]))
+        found,message=await discover_soundcloud(account,[v for v in queries if v],search=True,search_state=search_state)
+    with core.db() as c:rows=c.execute('SELECT * FROM tracks ORDER BY title').fetchall()
+    matched=[r for r in rows if account and json.loads(r['rights']).get('status')=='approved'
+             and (not q or r['id'] in found or relevant(r))
+             and (not provider or not q or source(r)==provider)]
+    if q:
+        def relevance(row):
+            title=search_text(row['title']);artist=search_text(row['artist'])
+            exact=title==needle or search_text(row['artist']+' '+row['title'])==needle or search_text(row['title']+' '+row['artist'])==needle
+            provider_rank={'audius':0,'soundcloud':1}.get(source(row),2)
+            return (provider_rank,not exact,not(needle in title),not(needle in artist),-len(tokens&set((title+' '+artist).split())),title,artist)
+        matched.sort(key=relevance)
+    return {'tracks':[public(r) for r in matched],
+            'soundcloud_message':'' if search_state.get('pending') else message,
+            'search_pending':search_state.get('pending',False),
+            'search_checked':search_state.get('checked',0),
+            'search_total':search_state.get('total',0),
+            'search_retry_after':search_state.get('retry_after',2),
+            'search_message':search_state.get('message',''),
+            'audius_message':audius_message}
+
+async def discover_soundcloud(s,seeds,advance=False,exclude_ids=None,search=False,search_state=None):
+    with core.db() as c:
+        cached=c.execute('SELECT * FROM soundcloud_discovery WHERE user_id=?',(s['user_id'],)).fetchone()
+    old_ids=set(json.loads(cached['track_ids'])) if cached else set()
+    # A second player must not spend its entire request waiting for another search.
+    if SC_DISCOVERY_LOCK.locked() and not search:return old_ids,'SoundCloud: поиск уже выполняется. Повторим запрос.'
+    async with (SC_SEARCH_LIMIT if search else SC_DISCOVERY_LOCK):
+        exclude_ids=exclude_ids or set()
+        if cached and not search:
+            age=time.time()-cached['updated']
+            if (not advance and age<600) or (advance and age<3 and old_ids-exclude_ids):
+                return old_ids,'' if old_ids else 'SoundCloud: поиск не нашёл доступных полных треков'
+        ids=[]
+        try:
+            with core.db() as c:
+                page=c.execute('SELECT * FROM soundcloud_pages WHERE user_id=?',(s['user_id'],)).fetchone()
+                imports=c.execute('SELECT source_id,track_id FROM soundcloud_imports ORDER BY rowid DESC LIMIT 80').fetchall()
+                artists=c.execute('SELECT artist FROM tracks ORDER BY rowid DESC LIMIT 30').fetchall()
+            cursors=json.loads(page['cursors']) if page and not search else {}
+            if not isinstance(cursors,dict):cursors={}
+            with core.db() as c:
+                personal={r[0] for r in c.execute('SELECT track_id FROM likes WHERE user_id=? UNION SELECT track_id FROM listening_sessions WHERE user_id=? AND listened>=30 AND skipped=0',(s['user_id'],s['user_id']))}
+            preferred=[r for r in imports if r['track_id'] in personal] or ([r for r in imports if r['track_id'] in exclude_ids] if not personal else [])
+            related=['related:soundcloud:tracks:'+r['source_id'].rsplit(':',1)[-1] for r in preferred if re.fullmatch(r'(?:soundcloud:tracks:)?[0-9]+',r['source_id'])]
+            pool=seeds if search else list(dict.fromkeys(seeds+related+[r['artist'] for r in artists]+['русский поп','русский хип хоп','pop','indie','electronic','rock','dance','hip hop','rnb','alternative']))
+            # Old versions wrote None permanently. Revisit exhausted searches after a
+            # cooldown, while new related tracks keep expanding the discovery pool.
+            retry=cursors.get('_retry',{})
+            if not isinstance(retry,dict):retry={}
+            pages=cursors.get('_pages',{})
+            if not isinstance(pages,dict):pages={}
+            failures=cursors.get('_failures',{})
+            if not isinstance(failures,dict):failures={}
+            for q in pool:
+                if q in cursors and cursors[q] is None:
+                    if q not in retry:retry[q]=time.time()+900
+                    elif retry[q]<=time.time():cursors.pop(q,None);retry.pop(q,None)
+            active=[q for q in pool if cursors.get(q,'first') is not None and retry.get(q,0)<=time.time()]
+            items=[];had_failure=False
+            for attempt in range(2 if advance else 1):
+                if not active:break
+                selected=active[:2]
+                if search:
+                    batch=await run_in_threadpool(full_search.search,selected,owner=s['user_id'])
+                    if search_state is not None:search_state.update(getattr(batch,'progress',{}))
+                else:batch=await run_in_threadpool(sc.discover,selected,None,dict(cursors)) if cursors else await run_in_threadpool(sc.discover,selected)
+                next_pages=getattr(batch,'next_pages',{})
+                for q,problem in getattr(batch,'failures',{}).items():
+                    had_failure=True;failures[q]=min(4,failures.get(q,0)+1)
+                    delay=max(problem.get('retry_after',10),min(80,10*2**(failures[q]-1)))
+                    retry[q]=time.time()+delay
+                    print(f"[SoundCloud wave] search HTTP {problem.get('status') or 'network'}; retry in {delay}s",flush=True)
+                for q,value in next_pages.items():
+                    page_ids=getattr(batch,'page_ids',{}).get(q)
+                    if page_ids:
+                        fingerprint=hashlib.sha256(json.dumps(page_ids).encode()).hexdigest()
+                        if pages.get(q)==fingerprint:value=None
+                        pages[q]=fingerprint
+                    cursors[q]=value
+                    if value is None:retry[q]=time.time()+900
+                    else:retry.pop(q,None)
+                    failures.pop(q,None)
+                items.extend(batch)
+                with core.db() as c:
+                    existing={r[0]:r[1] for r in c.execute('SELECT source_id,track_id FROM soundcloud_imports')}
+                fresh=[item for item in batch if existing.get(item['source_id']) not in exclude_ids]
+                if fresh or not advance:break
+                # Skip a page containing only already played/unplayable results.
+                active=[q for q in pool if cursors.get(q,'first') is not None and retry.get(q,0)<=time.time()]
+                if not next_pages and not getattr(batch,'failures',{}):break
+            cursors['_retry']=retry;cursors['_pages']=pages;cursors['_failures']=failures
+            if not search:
+                with core.db() as c:c.execute('INSERT OR REPLACE INTO soundcloud_pages VALUES(?,?,?)',(s['user_id'],json.dumps(seeds),json.dumps(cursors)))
+            if not items and (had_failure or any(q in failures and retry.get(q,0)>time.time() for q in pool)):
+                return (set() if search else old_ids),'Музыкальный сервис временно недоступен. Продолжим поиск автоматически.'
+            # Covers have a separate bounded time budget and cannot stall track insertion.
+            items=list({item['source_id']:item for item in items}.values())
+            semaphore=asyncio.Semaphore(4)
+            async def cover(item):
+                if not item.get('artwork_url') or item['source_id'] in existing:return None
+                async with semaphore:
+                    try:return await asyncio.wait_for(asyncio.to_thread(sc.cover_bytes,item['artwork_url']),timeout=5)
+                    except (sc.SoundCloudError,asyncio.TimeoutError):return None
+            covers=[None]*len(items) if search else await asyncio.gather(*(cover(item) for item in items))
+            for item,raw in zip(items,covers):
+                with core.db() as c:
+                    old=c.execute('SELECT track_id FROM soundcloud_imports WHERE source_id=?',(item['source_id'],)).fetchone()
+                if old:
+                    ids.append(old['track_id']);continue
+                tid=secrets.token_hex(16);cover_path=None
+                if raw:
+                    try:cover_path=await save_cover(UploadFile(filename='cover.jpg',file=io.BytesIO(raw)),tid)
+                    except HTTPException:pass
+                rights={'status':'approved','source':'soundcloud','source_url':item['source_url'],'downloadable':item['downloadable'],'artwork_url':item.get('artwork_url')}
+                try:
+                    with core.db() as c:
+                        c.execute('INSERT INTO tracks(id,title,artist,album,duration,file,color,rights,cover) VALUES(?,?,?,?,?,?,?,?,?)',(tid,item['title'],item['artist'],item['album'],item['duration'],'','#8d5cff',json.dumps(rights),str(cover_path.relative_to(core.MEDIA)) if cover_path else ''))
+                        c.execute('INSERT INTO soundcloud_imports VALUES(?,?,?)',(item['source_id'],tid,item['source_url']))
+                        audit(c,s,tid,'soundcloud-discovery')
+                    ids.append(tid)
+                except sqlite3.IntegrityError:
+                    if cover_path:cover_path.unlink(missing_ok=True)
+        except sc.SoundCloudError as error:
+            print('[SoundCloud wave] search failed:',str(error),flush=True)
+            return (set() if search else old_ids),str(error)
+        if not search:
+            with core.db() as c:c.execute('INSERT OR REPLACE INTO soundcloud_discovery VALUES(?,?,?)',(s['user_id'],time.time(),json.dumps(ids)))
+        print(f'[SoundCloud wave] fetched={len(items)} fresh={len(set(ids)-exclude_ids)} queries_left={len(active)}',flush=True)
+        return set(ids),'' if set(ids)-exclude_ids else 'SoundCloud: ищем следующую подборку треков'
+
+
+def schedule_audius_wave():
+    global AUDIUS_WAVE_JOB, AUDIUS_WAVE_REFRESH_AT
+    now=time.monotonic()
+    if now<AUDIUS_WAVE_REFRESH_AT or AUDIUS_WAVE_JOB and not AUDIUS_WAVE_JOB.done():return
+    AUDIUS_WAVE_REFRESH_AT=now+120
+    async def load():
+        try:
+            incoming=await asyncio.to_thread(audius_provider.trending_tracks,20)
+            if incoming:await asyncio.to_thread(audius_bridge.store_tracks,core.db,incoming)
+        except audius_provider.AudiusUnavailable:
+            pass
+        except Exception as error:
+            print('[Audius] discovery error:',type(error).__name__,flush=True)
+    AUDIUS_WAVE_JOB=asyncio.create_task(load())
+
+
+@app.get('/api/recommendations')
+@app.get('/api/wave')
+async def recommendations(request:Request,exclude:str='',mix:str='',character:str='balanced',mood:str='any',language:str='any'):
+    s=session(request,False)
+    if not s:return {'tracks':[],'personalized':False}
+    from wave_preferences import preferences, eligible, boost, seeds as preference_seeds
+    try: settings=preferences({'character':character,'mood':mood,'language':language})
+    except ValueError as error: fail(400,str(error))
+    wave=request.url.path=='/api/wave'
+    if len(exclude)>16000:fail(400,'Слишком длинная очередь')
+    mix=mix[:80]
+    excluded=[tid for tid in exclude.split(',') if re.fullmatch(r'[a-zA-Z0-9_-]{1,80}',tid)][:200]
+    with core.db() as c:
+        rows=c.execute('SELECT * FROM tracks').fetchall()
+        favorites={r[0] for r in c.execute('SELECT track_id FROM likes WHERE user_id=?',(s['user_id'],))}
+        playlist_member_ids={r[0] for r in c.execute('''SELECT DISTINCT pt.track_id FROM playlist_tracks AS pt JOIN playlists AS p ON p.id=pt.playlist_id WHERE p.user_id=?''',(s['user_id'],))}
+        events=c.execute('SELECT * FROM listening_sessions WHERE user_id=? ORDER BY updated DESC LIMIT 3000',(s['user_id'],)).fetchall()
+    rows=[r for r in rows if json.loads(r['rights']).get('status')=='approved']
+    by_id={r['id']:r for r in rows};affinity={};recent={};artist_scores={};album_scores={};word_scores={};now=time.time()
+    def artists(value):return {a.strip().casefold() for a in re.split(r'\s*(?:,|&| feat\.? | ft\.? | и )\s*',value,flags=re.I) if a.strip()}
+    def words(value):return {w for w in re.findall(r'[^\W_]{3,}',value.casefold()) if w not in {'soundcloud','remix','sped','speed',' slowed','feat','official','audio','music','track','the','and','это','как','что'}}
+    from recommendation_signals import event_signal, replay_cooldown
+    # Nightwell recommendation signals v2
+    for tid in favorites:affinity[tid]=12.0
+    for e in events:
+        r=by_id.get(e['track_id'])
+        if not r:continue
+        age=max(0,now-e['updated'])
+        length=max(30,r['duration']);ratio=min(1,e['listened']/length)
+        signal=event_signal(e['listened'],length,e['skipped'],age)
+        affinity[r['id']]=affinity.get(r['id'],0)+signal
+        recent[r['id']]=max(recent.get(r['id'],0),e['updated'])
+    for tid,score in affinity.items():
+        r=by_id.get(tid)
+        if not r:continue
+        score=max(-6,min(15,score))
+        for artist in artists(r['artist']):artist_scores[artist]=artist_scores.get(artist,0)+score
+        for word in words(r['title']):word_scores[word]=word_scores.get(word,0)+score*.3
+        if r['album'] and r['album'].casefold()!='soundcloud':album_scores[r['album'].casefold()]=album_scores.get(r['album'].casefold(),0)+score*.4
+    discovery_ids=set();excluded_set=set(excluded)
+    sc_message="SoundCloud не настроен: задай NW_SC_CLIENT_ID и NW_SC_CLIENT_SECRET в окне запуска сервера"
+    if settings['character']!='favorites':
+        seeds=[a for a,v in sorted(artist_scores.items(),key=lambda pair:pair[1],reverse=True) if v>0][:2]
+        if not seeds:seeds=[r['artist'] for r in rows[:2]] or ['русский поп','русский хип хоп']
+        seeds=preference_seeds(seeds,settings)
+        if audius_provider.configured():
+            try:
+                # Search taste-based seeds BEFORE accessing SoundCloud. Bound the wait.
+                for seed_name in list(dict.fromkeys(seeds))[:2]:
+                    items=await asyncio.wait_for(asyncio.to_thread(audius_provider.search_tracks,seed_name,25),timeout=3.5)
+                    if items:
+                        await run_in_threadpool(audius_bridge.store_tracks,core.db,items)
+                        discovery_ids.update(str(item['id']) for item in items if isinstance(item,dict) and item.get('id'))
+                    if len(discovery_ids)>=20:break
+            except (audius_provider.AudiusUnavailable,asyncio.TimeoutError):
+                pass
+            except Exception as error:
+                print('[Audius wave] search failed:',type(error).__name__,flush=True)
+            # Keep trending warm without delaying response.
+            schedule_audius_wave()
+            with core.db() as c:rows=c.execute('SELECT * FROM tracks').fetchall()
+            rows=[r for r in rows if json.loads(r['rights']).get('status')=='approved']
+        audius_count=sum(1 for r in rows if r['id'] in discovery_ids and r['id'] not in excluded_set
+                         and json.loads(r['rights']).get('source')=='audius'
+                         and eligible(r,settings,favorites,{e['track_id'] for e in events if e['listened']>=10}))
+        # SoundCloud only fills the shortage; ready Audius tracks can start immediately.
+        need_more=audius_count < (20 if wave else 60)
+        if sc.configured() and need_more:
+            if mix and any(r['id'] not in excluded_set for r in rows):
+                with core.db() as c:cached=c.execute('SELECT track_ids FROM soundcloud_discovery WHERE user_id=?',(s['user_id'],)).fetchone()
+                discovery_ids.update(json.loads(cached['track_ids']) if cached else [])
+                sc_message=''
+                schedule_discovery(s,seeds,excluded_set)
+            else:
+                sc_ids,sc_message=await discover_soundcloud(s,seeds,advance=wave or bool(mix),exclude_ids=excluded_set)
+                discovery_ids.update(sc_ids)
+            with core.db() as c:rows=c.execute('SELECT * FROM tracks').fetchall()
+            rows=[r for r in rows if json.loads(r['rights']).get('status')=='approved']
+        elif not need_more:
+            sc_message=''
+    personalized=bool(favorites or any(e['listened']>=10 or e['skipped'] for e in events))
+    # Daily per-account tie breaking supplies exploration without global popularity tracking.
+    def score(r):
+        seed=f"{s['user_id']}:{mix or int(now//86400)}:{r['id']}".encode()
+        exploration=int(hashlib.sha256(seed).hexdigest()[:8],16)/0xffffffff*(6 if mix else 3)
+        value=exploration+min(12,affinity.get(r['id'],0))+sum(max(-6,min(10,artist_scores.get(a,0))) for a in artists(r['artist']))+max(-5,min(4,album_scores.get(r['album'].casefold(),0)))+sum(max(-2,min(2,word_scores.get(w,0))) for w in words(r['title']))
+        if r['id'] in discovery_ids and r['id'] not in affinity:value+=6 if wave else 4
+        value-=replay_cooldown(now-recent[r['id']]) if r['id'] in recent else 0
+        return value+boost(r,settings)
+    heard={e['track_id'] for e in events if e['listened']>=10}
+    # 'Открытия' must never play a track already saved in ANY user's playlist.
+    if settings['character']=='discover':
+        heard.update(playlist_member_ids)
+    rows=[r for r in rows if eligible(r,settings,favorites,heard)]
+    if settings['character']!='favorites':
+        hidden_ids,hidden_artists=sync_preferences(s['user_id'])
+        rows=[r for r in rows if r['id'] not in hidden_ids and normalize_artist(r['artist']) not in hidden_artists]
+    candidates=[r for r in rows if r["id"] not in set(excluded)] if wave or mix else rows
+    # Audius comes first; other permitted sources remain available as fallback.
+    def provider_priority(row):
+        provider=json.loads(row['rights']).get('source')
+        return {'audius':0,'soundcloud':1}.get(provider,2)
+    ranked=sorted(candidates,key=lambda r:(provider_priority(r),-score(r)))
+    # Interleave artists, reserving every fourth slot for an unplayed discovery.
+    result=[];last_artists=set();discoveries=[r for r in ranked if r['id'] not in affinity]
+    while ranked and len(result)<(20 if wave else 60):
+        candidates=discoveries if settings['mood']=='any' and len(result)%4==3 and discoveries and provider_priority(discoveries[0])==provider_priority(ranked[0]) else ranked
+        choice=next((r for r in candidates if not artists(r['artist'])&last_artists),candidates[0])
+        result.append(public(choice));last_artists=artists(choice['artist'])
+        ranked=[r for r in ranked if r['id']!=choice['id']];discoveries=[r for r in discoveries if r['id']!=choice['id']]
+    if settings['character']=='favorites': sc_message=''
+    if not result and any(settings[k] != v for k,v in [('character','balanced'),('mood','any'),('language','any')]): sc_message='Нет подходящих треков. Измени настройки или попробуй позже.'
+    if wave:
+        with PRELOAD_LOCK:
+            old=PRELOAD_PLANS.get(s['user_id'])
+            if old and old[0]>time.monotonic():
+                PRELOAD_PLANS[s['user_id']]=(time.monotonic()+3600,list(dict.fromkeys(old[1]+[t['id'] for t in result]))[:80])
+    return {'tracks':result,'personalized':personalized,'wave_preferences':settings,'soundcloud_message':sc_message,'message':(sc_message or 'Новые треки пока не найдены. Повторим поиск.') if wave and not result else '', 'retry_after':5 if wave and not result else 30}
+
+
+def schedule_discovery(s,seeds,excluded):
+    uid=s['user_id'];old=SC_BACKGROUND.get(uid)
+    if old and not old.done() or len(SC_BACKGROUND)>=16:return
+    async def run():
+        try:await discover_soundcloud({'user_id':uid},list(seeds),advance=True,exclude_ids=set(excluded))
+        except Exception as error:print('[Music discovery] background search failed:',type(error).__name__,flush=True)
+    job=asyncio.create_task(run());SC_BACKGROUND[uid]=job
+    def finished(task):
+        if SC_BACKGROUND.get(uid) is task:SC_BACKGROUND.pop(uid,None)
+    job.add_done_callback(finished)

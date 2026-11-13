@@ -30,7 +30,9 @@ enum NightwellSearch {
                 versionPenalty += 1200
             }
             if wanted == core || wanted == a + core || wanted == core + a {
-                return 9500 - versionPenalty
+                // Featured credits and promotional suffixes do not make an
+                // otherwise exact recording title a weaker search result.
+                return 10_000 - versionPenalty
             }
             if compact == a { return 8500 }
             let combined = name + " " + artist
@@ -56,21 +58,25 @@ enum NightwellSearch {
     }
 
     static func ordered<T>(_ values: [T], query: String, priorityIDs: Set<String> = [],
+                           providerRanks: [String: Int] = [:],
                            limit: Int = 140, localOnly: Bool = false,
                            id: (T) -> String, title: (T) -> String, artist: (T) -> String) -> [T] {
         let wanted = Query(query)
         var seen = Set<String>()
         // Compute each expensive score once, never inside the sort comparator.
-        var ranked: [(value:T,score:Int,owned:Bool,offset:Int)] = []
+        var ranked: [(value:T,score:Int,provider:Int,owned:Bool,offset:Int)] = []
         for (offset,value) in values.enumerated() {
             if offset % 64 == 0 && Task.isCancelled { return [] }
             let identity = id(value)
             guard seen.insert(identity).inserted else { continue }
             let score = wanted.score(title:title(value),artist:artist(value))
-            if !localOnly || score > 0 { ranked.append((value,score,priorityIDs.contains(identity),offset)) }
+            if !localOnly || score > 0 {
+                ranked.append((value,score,providerRanks[identity] ?? Int.max,priorityIDs.contains(identity),offset))
+            }
         }
         return ranked.sorted {
             if $0.score != $1.score { return $0.score > $1.score }
+            if $0.provider != $1.provider { return $0.provider < $1.provider }
             if $0.owned != $1.owned { return $0.owned }
             return $0.offset < $1.offset
         }.prefix(max(0,limit)).map(\.value)
@@ -81,12 +87,104 @@ enum NightwellSearch {
     struct Pool<T> {
         private var values: [String:T] = [:]
         private var ids: [String] = []
+        private var providerSnapshots: [Int:[String]] = [:]
+        private(set) var providerRanks: [String:Int] = [:]
         var all: [T] { ids.compactMap { values[$0] } }
         mutating func merge(_ incoming: [T], id: (T) -> String) {
             for value in incoming {
                 let key = id(value)
                 if values[key] == nil { ids.append(key) }
                 values[key] = value
+            }
+        }
+        /// Provider relevance resolves equal title matches before cached/local
+        /// positions. The literal query takes precedence over broader variants.
+        mutating func mergeProvider(_ incoming: [T], queryPriority: Int, id: (T) -> String) {
+            merge(incoming,id:id)
+            var seen = Set<String>()
+            let fresh = incoming.map(id).filter { seen.insert($0).inserted }
+            let previous = providerSnapshots[queryPriority] ?? []
+            providerSnapshots[queryPriority] = fresh + previous.filter { !seen.contains($0) }
+            providerRanks = [:]
+            var rank = 0
+            for priority in providerSnapshots.keys.sorted() {
+                for key in providerSnapshots[priority] ?? [] where providerRanks[key] == nil {
+                    providerRanks[key] = rank
+                    rank += 1
+                }
+            }
+        }
+    }
+
+    /// Search SoundCloud first. Audius is queried only after the primary
+    /// variants finish without relevant hits, fail, or exhaust their budget.
+    /// Each variant gets one request before another variant is polled again.
+    struct RequestPlan {
+        struct Request {
+            let query: String
+            let provider: String
+            var path: String {
+                let allowed = CharacterSet.urlQueryAllowed.subtracting(CharacterSet(charactersIn:"&+=?#"))
+                return "/api/tracks?q=" + (query.addingPercentEncoding(withAllowedCharacters:allowed) ?? "")
+                    + "&provider=" + provider
+            }
+            let priority: Int
+            let delay: Double
+        }
+        private let queries: [String]
+        private let maxCalls: Int
+        private let primaryBudget: Int
+        private var queue: [Int]
+        private var calls = 0
+        private var primaryCalls = 0
+        private var fallback = false
+        private var hasPrimaryMatch = false
+        private var attempts: [Int:Int] = [:]
+        private var failures: [Int:Int] = [:]
+        private var readyAt: [Int:Double] = [:]
+        private var completed = Set<Int>()
+        var isComplete: Bool {
+            let offset = fallback ? queries.count : 0
+            return queries.indices.allSatisfy { completed.contains(offset + $0) }
+        }
+
+        init(queries: [String], maxCalls: Int = 18) {
+            self.queries = queries
+            self.maxCalls = maxCalls
+            // Keep at least one request per backup variant if the primary
+            // remains pending. Both stages share the same total request cap.
+            self.primaryBudget = max(queries.count, maxCalls - queries.count)
+            queue = Array(queries.indices)
+        }
+        mutating func next(now: Double) -> Request? {
+            if !fallback, queue.isEmpty || primaryCalls >= primaryBudget {
+                guard !hasPrimaryMatch else { return nil }
+                fallback = true
+                queue = queries.indices.map { queries.count + $0 }
+            }
+            guard calls < maxCalls, !queue.isEmpty else { return nil }
+            let priority = queue.removeFirst()
+            calls += 1
+            if !fallback { primaryCalls += 1 }
+            attempts[priority,default:0] += 1
+            return Request(query:queries[priority % queries.count],provider:fallback ? "audius" : "soundcloud",
+                           priority:priority,delay:max(0,(readyAt[priority] ?? now)-now))
+        }
+        mutating func received(_ request: Request, pending: Bool, retryAfter: Double?,
+                               relevant: Bool = false, now: Double) {
+            if request.provider == "soundcloud", relevant { hasPrimaryMatch = true }
+            if !pending { completed.insert(request.priority); return }
+            if attempts[request.priority,default:0] < 9 {
+                let delay = retryAfter.flatMap { $0.isFinite ? max(1,min(4,$0)) : nil } ?? 1.5
+                readyAt[request.priority] = now + delay
+                queue.append(request.priority)
+            }
+        }
+        mutating func failed(_ request: Request, now: Double) {
+            failures[request.priority,default:0] += 1
+            if failures[request.priority] == 1, attempts[request.priority,default:0] < 9 {
+                readyAt[request.priority] = now + 1.5
+                queue.append(request.priority)
             }
         }
     }

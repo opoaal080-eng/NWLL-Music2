@@ -1,0 +1,125 @@
+# Sanitized matching and query-registration excerpts from the supplied worker.
+# No server configuration, provider credentials or network access is included.
+from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
+import re
+import threading
+import time
+import unicodedata
+from types import SimpleNamespace
+
+class Batch(list):
+    def __init__(self,items,next_pages):
+        super().__init__(items)
+        self.next_pages=next_pages
+
+class DeferredPool:
+    def submit(self,*args,**kwargs):
+        pass
+
+sc=SimpleNamespace(DiscoveryBatch=Batch)
+_LOCK=threading.RLock()
+_RECORDS=OrderedDict()
+_MATCHES=OrderedDict()
+_OWNERS=OrderedDict()
+_CATALOG_POOL=DeferredPool()
+_MATCH_POOL=DeferredPool()
+TTL=900
+MAX_QUERIES=32
+_MAX_RESULTS=200
+_RUS='абвгдеёжзийклмнопрстуфхцчшщъыьэюя'
+_LAT=['a','b','v','g','d','e','yo','zh','z','i','y','k','l','m','n','o','p','r','s','t','u','f','kh','ts','ch','sh','shch','','y','','e','yu','ya']
+_TRANSLIT=dict(zip(_RUS,_LAT))
+_DECORATION={'official','audio','video','lyrics','lyric','hd','hq','original','full','version','mp3','wav','официальный','официальное','аудио','видео','оригинал'}
+_VARIANTS={'remix','cover','live','acoustic','slowed','sped','speed','nightcore','instrumental','karaoke','demo','edit','mashup','reverb','extended','ремикс','кавер','минус','акустика','лайв','ускоренная','замедленная'}
+_CLIPS={'preview','snippet','teaser','тизер','отрывок','фрагмент'}
+
+def _scope():
+    return 'test-scope'
+
+def _work(*args):
+    pass
+
+def latin(value):
+    value=unicodedata.normalize('NFKC',str(value or '')).casefold()
+    value=''.join(_TRANSLIT.get(c,c) for c in value)
+    return ' '.join(re.findall(r'[^\W_]+',value))
+
+
+def _tokens(value):return tuple(latin(value).split())
+
+
+_DECORATION={latin(v) for v in _DECORATION}
+_VARIANTS={latin(v) for v in _VARIANTS}
+_CLIPS={latin(v) for v in _CLIPS}
+
+def _artist_tokens(item):
+    return set(_tokens(item.get('artist'))) - _DECORATION - {'soundcloud','music','feat','ft','and'}
+
+
+def song_key(item):
+    artist=_artist_tokens(item)
+    title=tuple(t for t in _tokens(item.get('title')) if t not in artist and t not in _DECORATION)
+    variants=tuple(sorted(set(_tokens(item.get('title')))&_VARIANTS))
+    return (tuple(sorted(artist)),title,variants)
+
+
+def same_recording(reference,candidate):
+    if candidate.get('access','playable')!='playable' or not candidate.get('streamable',False):return False
+    title_tokens=set(_tokens(candidate.get('title')))
+    if title_tokens & _CLIPS:return False
+    ref_artist=_artist_tokens(reference)
+    if not ref_artist:return False
+    ref_title=tuple(t for t in _tokens(reference.get('title')) if t not in ref_artist and t not in _DECORATION)
+    candidate_title=tuple(t for t in _tokens(candidate.get('title')) if t not in ref_artist and t not in _artist_tokens(candidate) and t not in _DECORATION)
+    if not ref_title or candidate_title!=ref_title:return False
+    variants=_VARIANTS
+    if set(_tokens(reference.get('title')))&variants != title_tokens&variants:return False
+    combined=set(_tokens(candidate.get('artist'))+_tokens(candidate.get('title')))
+    distinctive={t for t in ref_artist if len(t)>=5}
+    if not (ref_artist<=combined or distinctive and distinctive&combined):return False
+    try:expected=float(reference.get('duration') or 0);actual=float(candidate.get('duration') or 0)
+    except (TypeError,ValueError):return False
+    if expected<=0 or actual<=0:return False
+    if reference.get('access') in {'preview','blocked'} and expected<=45:return False
+    return abs(expected-actual)<=max(6,min(15,expected*.06)) and actual>=expected*.9
+
+
+def search(queries,transport=None,wait=1,owner=None):
+    global _CATALOG_POOL,_MATCH_POOL
+    queries=list(dict.fromkeys(str(q).strip()[:200] for q in queries if str(q).strip()))[:2]
+    if not queries:return sc.DiscoveryBatch([],{})
+    scope=_scope();key=(scope,tuple(queries));now=time.monotonic()
+    with _LOCK:
+        if owner is not None:
+            previous=_OWNERS.get(owner)
+            if previous and previous!=key and previous in _RECORDS:
+                old=_RECORDS[previous];old['owners'].discard(owner)
+                if not old['owners'] and old['pending']:old['cancel'].set()
+            _OWNERS[owner]=key;_OWNERS.move_to_end(owner)
+            while len(_OWNERS)>256:_OWNERS.popitem(last=False)
+        record=_RECORDS.get(key)
+        if record and not record['pending'] and record['expires']<=now:
+            old_items=dict(record['items']);record=None
+        else:old_items={}
+        if record is None:
+            if _CATALOG_POOL is None:
+                _CATALOG_POOL=ThreadPoolExecutor(max_workers=2,thread_name_prefix='music-catalog')
+                _MATCH_POOL=ThreadPoolExecutor(max_workers=4,thread_name_prefix='music-full-version')
+            record={'items':old_items,'pending':True,'checked':0,'total':0,'retry':0,'expires':now+TTL,'cancel':threading.Event(),'ready':threading.Event(),'last_seen':now,'owners':set()}
+            _RECORDS[key]=record
+            _CATALOG_POOL.submit(_work,record,queries,transport,scope,_MATCH_POOL)
+        record['last_seen']=now
+        if owner is not None:record['owners'].add(owner)
+        _RECORDS.move_to_end(key)
+        while len(_RECORDS)>MAX_QUERIES:
+            _,old=_RECORDS.popitem(last=False);old['cancel'].set()
+    record['ready'].wait(max(0,min(1,wait)))
+    with _LOCK:
+        pending=record['pending'] or bool(record['retry'])
+        progress={'pending':pending,'checked':record['checked'],'total':record['total'],'retry_after':min(10,record['retry']) if record['retry'] else 2,
+                  'message':'Поиск временно недоступен. Повторяем попытку.' if record['retry'] else 'Ищем полные версии…' if pending else 'Доступных полных версий пока не найдено.' if not record['items'] else ''}
+        batch=sc.DiscoveryBatch(list(record['items'].values()),{});batch.progress=progress
+        return batch
+
+

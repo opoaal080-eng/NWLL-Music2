@@ -57,30 +57,45 @@ enum RecommendationOrder {
         pending && incoming.isEmpty ? current : incoming
     }
 
-    static func arrange<T>(_ values: [T], recent: Set<String> = [], hidden: Set<String> = [], hiddenArtists: Set<String> = [], current: String = "", identity: (T) -> String, title: (T) -> String, artist: (T) -> String) -> [T] {
+    // Uploaded/local audio stays usable. Audius fills the backup part of
+    // generated queues after the primary SoundCloud catalogue.
+    static func sourcePriority(_ source: String?) -> Int {
+        source?.lowercased() == "audius" ? 1 : 0
+    }
+
+    static func arrange<T>(_ values: [T], recent: Set<String> = [], hidden: Set<String> = [], hiddenArtists: Set<String> = [], current: String = "", identity: (T) -> String, title: (T) -> String, artist: (T) -> String, source: (T) -> String? = { _ in nil }) -> [T] {
         let taste = tasteWeights()
         var ids = Set<String>(), recordings = Set<String>()
         // Normalize artist names once per candidate, not on every comparison.
         // With 200 tracks the old O(n²) ranking repeatedly folded thousands of strings.
-        var pool: [(rank: Int, value: T, id: String, performer: String)] = []
+        var pool: [(rank: Int, value: T, id: String, performer: String, provider: Int)] = []
         pool.reserveCapacity(min(200, values.count))
+        var candidates: [(rank: Int, value: T, provider: Int)] = []
         for (rank, value) in values.prefix(200).enumerated() {
+            candidates.append((rank, value, sourcePriority(source(value))))
+        }
+        candidates.sort { $0.provider == $1.provider ? $0.rank < $1.rank : $0.provider < $1.provider }
+        for candidate in candidates {
+            let (rank, value, provider) = candidate
             let id = identity(value), name = key(title(value)), performer = key(artist(value))
             guard id != current, !hidden.contains(id), !hiddenArtists.contains(performer),
                   ids.insert(id).inserted else { continue }
             guard name.isEmpty || performer.isEmpty || recordings.insert(performer + ":" + name).inserted else { continue }
-            pool.append((rank: rank, value: value, id: id, performer: performer))
+            pool.append((rank: rank, value: value, id: id, performer: performer, provider: provider))
         }
         var result: [T] = [], counts: [String: Int] = [:], previous = ""
         result.reserveCapacity(pool.count)
         while !pool.isEmpty {
-            func score(_ candidate: (rank: Int, value: T, id: String, performer: String)) -> Double {
+            func score(_ candidate: (rank: Int, value: T, id: String, performer: String, provider: Int)) -> Double {
                 let performer = candidate.performer
                 return 1 / (1 + Double(candidate.rank) * 0.12) + min(0.95, max(-0.85, (taste[performer] ?? 0) * 0.29)) - (recent.contains(candidate.id) ? 2.5 : 0)
                     - (performer.isEmpty ? 0 : Double(counts[performer, default: 0]) * 0.19 + (performer == previous ? 0.85 : 0))
             }
             var best = 0
-            for index in pool.indices.dropFirst() { if score(pool[index]) > score(pool[best]) { best = index } }
+            for index in pool.indices.dropFirst() {
+                if pool[index].provider < pool[best].provider ||
+                   (pool[index].provider == pool[best].provider && score(pool[index]) > score(pool[best])) { best = index }
+            }
             let next = pool.remove(at: best)
             result.append(next.value)
             if !next.performer.isEmpty { counts[next.performer, default: 0] += 1 }

@@ -9,6 +9,9 @@ unknown durations cannot outrank a measured source match. Incomplete searches
 leave fuzzy candidates unresolved so they can be retried after providers finish.
 `test-transfer-preparation.swift` covers formatted ISRCs and preserves separate
 recordings with the same display metadata when their ISRCs differ.
+Russian featuring annotations (`при уч.`, `при уч`, `при участ.`, `при участии`)
+are covered in both track titles and artist credits, including the reported
+«Грустный дэнс» recording and negative cases for a different artist or live version.
 `test-search-recall.swift` checks an exact title after 320 earlier hits and makes
 sure ownership never hides a better match.
 

@@ -1188,8 +1188,11 @@ private struct AudioQualityDecision: Decodable {
         }
         let cacheKey = text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
         let priorityIDs = likes.union(indexedPlaylistIDs)
-        results = NightwellLibrarySearchOrder.ordered(
-            searchCache[cacheKey] ?? [], query: text, priorityIDs: priorityIDs)
+        let cached = searchCache[cacheKey] ?? []
+        let cachedRanks = Dictionary(cached.enumerated().map { ($0.element.id,$0.offset) },
+                                     uniquingKeysWith: { first,_ in first })
+        results = NightwellSearch.ordered(cached,query:text,priorityIDs:priorityIDs,providerRanks:cachedRanks,
+            id: { $0.id },title: { $0.title },artist: { $0.artist })
         artistResults = artistSearchCache[cacheKey] ?? []
         refreshSearchArtists(for: text, generation: generation)
         searchMessage = results.isEmpty ? "Ищем треки…" : ""
@@ -1226,63 +1229,50 @@ private struct AudioQualityDecision: Decodable {
                     onCancel: { localTask.cancel() })
                 guard generation == searchGeneration, !Task.isCancelled else { return }
                 var pool = NightwellSearch.Pool<Track>()
-                pool.merge(found + (searchCache[cacheKey] ?? []),id: { $0.id })
-                results = NightwellLibrarySearchOrder.ordered(pool.all,query:text,priorityIDs:owned)
+                pool.merge(found,id: { $0.id })
+                pool.mergeProvider(cached,queryPriority:Int.max,id: { $0.id })
+                results = NightwellSearch.ordered(pool.all,query:text,priorityIDs:owned,providerRanks:pool.providerRanks,
+                    id: { $0.id },title: { $0.title },artist: { $0.artist })
                 refreshSearchArtists(for:text,generation:generation)
                 searchMessage = "Ищем полные версии…"
-                var pendingQueries = Set<String>(), failedQueries = Set<String>()
-                var calls = 0
-                searchVariants: for variant in NightwellSearch.queries(text) {
-                    let encoded = variant.addingPercentEncoding(withAllowedCharacters:
-                        .urlQueryAllowed.subtracting(CharacterSet(charactersIn: "&+=?#"))) ?? ""
-                    for attempt in 0..<9 {
-                        try Task.checkCancellation()
-                        if calls >= 18 { break searchVariants }
-                        calls += 1
-                        do {
-                            let response: TrackResult = try await api.request("/api/tracks?q=" + encoded,timeout:12)
-                            guard generation == searchGeneration, !Task.isCancelled else { return }
-                            pool.merge(response.tracks,id: { $0.id })
-                            let candidates = pool.all
-                            let rankingTask = Task.detached(priority: .userInitiated) {
-                                NightwellLibrarySearchOrder.ordered(candidates,query:text,priorityIDs:owned)
-                            }
-                            let visible = await withTaskCancellationHandler(operation: { await rankingTask.value },
-                                onCancel: { rankingTask.cancel() })
-                            guard generation == searchGeneration, !Task.isCancelled else { return }
-                            if results != visible {
-                                results = visible
-                                refreshSearchArtists(for:text,generation:generation)
-                            }
-                            failedQueries.remove(variant)
-                            if response.search_pending == true { pendingQueries.insert(variant) }
-                            else { pendingQueries.remove(variant) }
-                            searchMessage = response.search_message ?? ""
-                            if response.search_pending != true {
-                                // A complete literal hit does not need extra provider queries.
-                                if visible.contains(where: {
-                                    NightwellSearch.Query(text).score(title:$0.title,artist:$0.artist) >= 9500
-                                }) { break searchVariants }
-                                break
-                            }
-                            if attempt < 8 {
-                                try await Task.sleep(nanoseconds:UInt64(TransferRemoteSearch.delay(response.search_retry_after) * 1_000_000_000))
-                            }
-                        } catch is CancellationError { throw CancellationError() }
-                          catch {
-                            try Task.checkCancellation()
-                            guard generation == searchGeneration else { return }
-                            failedQueries.insert(variant)
-                            if attempt == 0 {
-                                try await Task.sleep(nanoseconds:1_500_000_000)
-                                continue
-                            }
-                            break
+                var requests = NightwellSearch.RequestPlan(queries:NightwellSearch.queries(text))
+                while let request = requests.next(now:ProcessInfo.processInfo.systemUptime) {
+                    try Task.checkCancellation()
+                    if request.delay > 0 {
+                        try await Task.sleep(nanoseconds:UInt64(request.delay * 1_000_000_000))
+                    }
+                    do {
+                        let response: TrackResult = try await api.request(request.path,timeout:12)
+                        guard generation == searchGeneration, !Task.isCancelled else { return }
+                        pool.mergeProvider(response.tracks,queryPriority:request.priority,id: { $0.id })
+                        let candidates = pool.all
+                        let providerRanks = pool.providerRanks
+                        let rankingTask = Task.detached(priority: .userInitiated) {
+                            NightwellSearch.ordered(candidates,query:text,priorityIDs:owned,providerRanks:providerRanks,
+                                id: { $0.id },title: { $0.title },artist: { $0.artist })
                         }
+                        let visible = await withTaskCancellationHandler(operation: { await rankingTask.value },
+                            onCancel: { rankingTask.cancel() })
+                        guard generation == searchGeneration, !Task.isCancelled else { return }
+                        if results != visible {
+                            results = visible
+                            refreshSearchArtists(for:text,generation:generation)
+                        }
+                        let wanted = NightwellSearch.Query(text)
+                        let relevant = response.tracks.contains { wanted.score(title:$0.title,artist:$0.artist) > 0 }
+                        requests.received(request,pending:response.search_pending == true,
+                            retryAfter:response.search_retry_after,relevant:relevant,
+                            now:ProcessInfo.processInfo.systemUptime)
+                        searchMessage = response.search_message ?? ""
+                    } catch is CancellationError { throw CancellationError() }
+                      catch {
+                        try Task.checkCancellation()
+                        guard generation == searchGeneration else { return }
+                        requests.failed(request,now:ProcessInfo.processInfo.systemUptime)
                     }
                 }
                 guard generation == searchGeneration, !Task.isCancelled else { return }
-                if pendingQueries.isEmpty && failedQueries.isEmpty {
+                if requests.isComplete {
                     if searchCache.count >= 20 { searchCache.removeAll(keepingCapacity:true) }
                     searchCache[cacheKey] = results
                     searchMessage = results.isEmpty ? "Совпадений пока нет. Попробуй название вместе с исполнителем" : ""
@@ -1480,7 +1470,7 @@ private struct AudioQualityDecision: Decodable {
             let fresh = await Task.detached(priority: .userInitiated) {
                 RecommendationOrder.arrange(candidates, recent: recent, hidden: hidden,
                     hiddenArtists: hiddenArtists, current: currentID, identity: { $0.id },
-                    title: { $0.title }, artist: { $0.artist })
+                    title: { $0.title }, artist: { $0.artist }, source: { $0.source })
             }.value
             guard account?.id == mixAccount, !Task.isCancelled else { return }
             if let first = fresh.first {
@@ -1497,6 +1487,11 @@ private struct AudioQualityDecision: Decodable {
         } catch {
             let cooled = SkipFeedback.recentIDs(origin: origin, account: mixAccount ?? "device")
             let cached = lastWave.filter { $0.id != clock.id && !hiddenRecommendationIDs.contains($0.id) && !cooled.contains($0.id) && !blockedArtists.contains(RecommendationOrder.key($0.artist)) }
+                .enumerated().sorted {
+                    let a = RecommendationOrder.sourcePriority($0.element.source)
+                    let b = RecommendationOrder.sourcePriority($1.element.source)
+                    return a == b ? $0.offset < $1.offset : a < b
+                }.map(\.element)
             if let first = cached.first {
                 play(first, in: cached, wave: true)
             } else { self.error = error.localizedDescription }

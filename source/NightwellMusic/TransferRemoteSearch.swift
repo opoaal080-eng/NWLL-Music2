@@ -34,6 +34,23 @@ actor TransferSearchSession {
 
 enum TransferRemoteSearch {
     typealias Pause = @Sendable (Double) async throws -> Void
+    typealias ProviderFetch = @Sendable (String, String) async throws -> TransferSearchSession.Page
+    struct Providers: Sendable {
+        let soundcloud: TransferSearchSession
+        let audius: TransferSearchSession
+    }
+    static func providers(fetch: @escaping ProviderFetch) -> Providers {
+        Providers(soundcloud: TransferSearchSession { try await fetch("soundcloud", $0) },
+                  audius: TransferSearchSession { try await fetch("audius", $0) })
+    }
+    /// Source caches belong to the import; recording validation belongs to one
+    /// original track. A nonempty page alone never decides whether to fall back.
+    static func providerSession(prepared: String, mode: String, neural: Bool,
+                                providers: Providers) -> TransferSearchSession {
+        let selection = TransferProviderSelection(prepared: prepared, mode: mode,
+                                                   neural: neural, providers: providers)
+        return TransferSearchSession { try await selection.page($0) }
+    }
     static func delay(_ value: Double?) -> Double {
         guard let value, value.isFinite else { return 1.5 }
         return max(1,min(4,value))
@@ -73,7 +90,7 @@ enum TransferRemoteSearch {
                     let rows = try JSONSerialization.jsonObject(with: page.catalogJSON) as? [[String: Any]] ?? []
                     // Pending snapshots may contain only the newest provider's
                     // tracks. Merge them instead of discarding earlier candidates.
-                    for row in rows.prefix(500) {
+                    for row in rows.prefix(1000) {
                         guard let id = row["id"] as? String else { continue }
                         if catalog[id] != nil { catalog[id] = row }
                         else if order.count < 2000 { order.append(id); catalog[id] = row }
@@ -124,5 +141,88 @@ enum TransferRemoteSearch {
             }
         }
         return try JSONSerialization.data(withJSONObject:last)
+    }
+}
+
+/// Each transfer worker asks SoundCloud first and uses Audius when no valid
+/// primary recording is available. Pending primary pages get seven polls, the
+/// same bound as the outer query loop; provider calls remain sequential.
+private actor TransferProviderSelection {
+    let prepared: String
+    let mode: String
+    let neural: Bool
+    let providers: TransferRemoteSearch.Providers
+    var pendingAttempts: [String: Int] = [:]
+    var primaryRows: [String: [String: Any]] = [:]
+    var primaryOrder: [String] = []
+    var primaryMatch: Data?
+    var hasPrimaryEvidence = false
+    init(prepared: String, mode: String, neural: Bool, providers: TransferRemoteSearch.Providers) {
+        self.prepared = prepared; self.mode = mode; self.neural = neural; self.providers = providers
+    }
+    func page(_ query: String) async throws -> TransferSearchSession.Page {
+        try Task.checkCancellation()
+        if let primaryMatch { return .init(catalogJSON: primaryMatch, pending: false, retryAfter: nil) }
+        var primary: TransferSearchSession.Page?
+        do {
+            let page = try await providers.soundcloud.page(query)
+            primary = page
+            guard let rows = try JSONSerialization.jsonObject(with: page.catalogJSON) as? [[String: Any]] else {
+                throw TransferPreparation.fail("Неверный ответ поискового источника")
+            }
+            for row in rows.prefix(500) {
+                guard let id = row["id"] as? String else { continue }
+                if primaryRows[id] != nil { primaryRows[id] = row }
+                else if primaryOrder.count < 2000 { primaryOrder.append(id); primaryRows[id] = row }
+            }
+            let data = try JSONSerialization.data(withJSONObject: primaryOrder.compactMap { primaryRows[$0] })
+            let matched = try neural
+                ? DeviceNeuralTransferMatcher.match(prepared: prepared, catalogJSON: data, mode: mode)
+                : DeviceTransferMatcher.match(prepared: prepared, catalogJSON: data, mode: mode)
+            let method = matched.first?["match_method"] as? String
+            if matched.first?["match_ambiguous"] as? Bool == true {
+                hasPrimaryEvidence = true
+                return .init(catalogJSON: data, pending: page.pending, retryAfter: page.retryAfter)
+            }
+            // Exact recording identities in a partial primary snapshot are
+            // already usable. Fuzzy evidence still requires completed sources.
+            if matched.first?["track_id"] as? String != nil,
+               !page.pending || method == "exact" || method == "isrc" {
+                if method == "exact" || method == "isrc" { primaryMatch = data }
+                else { hasPrimaryEvidence = true }
+                return .init(catalogJSON: data, pending: false, retryAfter: nil)
+            }
+            // Once SoundCloud provides a viable fuzzy recording, finish its
+            // remaining variants to detect competitors. Do not pretend those
+            // variants completed by returning the first cached fuzzy page.
+            if hasPrimaryEvidence {
+                return .init(catalogJSON: data, pending: page.pending, retryAfter: page.retryAfter)
+            }
+            if page.pending {
+                pendingAttempts[query, default: 0] += 1
+                if pendingAttempts[query, default: 0] < 7 {
+                    return .init(catalogJSON: data, pending: true, retryAfter: page.retryAfter)
+                }
+            }
+        } catch is CancellationError { throw CancellationError() }
+          catch {
+            try Task.checkCancellation()
+            if hasPrimaryEvidence {
+                let data = try JSONSerialization.data(withJSONObject: primaryOrder.compactMap { primaryRows[$0] })
+                return .init(catalogJSON: data, pending: true, retryAfter: nil)
+            }
+          }
+        // An exhausted, empty, unrelated, or unavailable primary does not block
+        // a completed fallback page, including a valid fuzzy recording match.
+        do {
+            return try await providers.audius.page(query)
+        } catch is CancellationError { throw CancellationError() }
+          catch {
+            try Task.checkCancellation()
+            if let primary {
+                return .init(catalogJSON: primary.catalogJSON, pending: true, retryAfter: primary.retryAfter)
+            }
+            throw error
+        }
     }
 }

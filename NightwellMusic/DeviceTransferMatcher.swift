@@ -40,6 +40,7 @@ enum DeviceTransferMatcher {
             output["track_id"] = NSNull()
             output.removeValue(forKey: "found_title"); output.removeValue(forKey: "found_artist")
             output.removeValue(forKey: "match_score"); output.removeValue(forKey: "match_method")
+            output.removeValue(forKey: "match_ambiguous")
             var votes: [Int: Double] = [:], exactCandidates = Set<Int>()
             for variant in query.variants {
                 exactCandidates.formUnion(byTitle[variant.title.core] ?? [])
@@ -97,6 +98,7 @@ enum DeviceTransferMatcher {
                     return true
                 }
                 if ambiguous {
+                    output["match_ambiguous"] = true
                     output["reason"] = "Несколько разных записей похожи на исходную, нужна проверка"
                 } else {
                     assign(&output, entries[winner.0], score:1, method:winner.1)
@@ -134,6 +136,7 @@ enum DeviceTransferMatcher {
                 let contender = ranked.dropFirst().first { !TransferSimilarity.sameRecording(entries[first.index],entries[$0.index]) }
                 let ambiguous = contender.map { first.score - $0.score < (mode == "safe" ? 0.045 : 0.025) } ?? false
                 if ambiguous {
+                    output["match_ambiguous"] = true
                     output["reason"] = "Несколько разных записей похожи на исходную, нужна проверка"
                 } else {
                     assign(&output, entries[first.index], score:first.score, method:first.method)

@@ -46,12 +46,16 @@ enum NightwellSeededRhythm {
         var ids = Set<String>(), recordings = Set<String>()
         var ranked: [(track: Track, score: Double, order: Int, artist: String)] = []
         ranked.reserveCapacity(min(400, candidates.count))
-        for (i,track) in candidates.enumerated() {
+        let orderedCandidates = candidates.enumerated().sorted {
+            let a = RecommendationOrder.sourcePriority($0.element.source)
+            let b = RecommendationOrder.sourcePriority($1.element.source)
+            return a == b ? $0.offset < $1.offset : a < b
+        }
+        for (i,track) in orderedCandidates {
             let artist = RecommendationOrder.key(track.artist)
             let title = RecommendationOrder.key(track.title)
             guard !seedIDs.contains(track.id), !hidden.contains(track.id),
-                  !blockedArtists.contains(artist), ids.insert(track.id).inserted,
-                  recordings.insert(artist + ":" + title).inserted else { continue }
+                  !blockedArtists.contains(artist) else { continue }
             let album = track.album.map(RecommendationOrder.key) ?? ""
             let sameArtist = !artist.isEmpty && seedArtists.contains(artist)
             let sameAlbum = !album.isEmpty && seedAlbums.contains(album)
@@ -64,11 +68,15 @@ enum NightwellSeededRhythm {
                 + max(-1.2, min(1.0, (taste[artist] ?? 0) * 0.35))
             // Title tokens alone are weak, but permit discovery from unrelated
             // performers without filling the mix with arbitrary tracks.
-            guard score >= 0.7 else { continue }
+            guard score >= 0.7, ids.insert(track.id).inserted,
+                  recordings.insert(artist + ":" + title).inserted else { continue }
             ranked.append((track, score, i, artist))
         }
         ranked.sort {
-            $0.score == $1.score ? $0.order < $1.order : $0.score > $1.score
+            let a = RecommendationOrder.sourcePriority($0.track.source)
+            let b = RecommendationOrder.sourcePriority($1.track.source)
+            if a != b { return a < b }
+            return $0.score == $1.score ? $0.order < $1.order : $0.score > $1.score
         }
         var selected: [Track] = [], picked = Set<String>()
         var artistCount: [String:Int] = [:]
@@ -89,6 +97,10 @@ enum NightwellSeededRhythm {
                 if picked.insert(entry.track.id).inserted { selected.append(entry.track) }
             }
         }
-        return selected
+        return selected.enumerated().sorted {
+            let a = RecommendationOrder.sourcePriority($0.element.source)
+            let b = RecommendationOrder.sourcePriority($1.element.source)
+            return a == b ? $0.offset < $1.offset : a < b
+        }.map(\.element)
     }
 }

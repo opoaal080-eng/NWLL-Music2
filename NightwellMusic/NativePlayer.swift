@@ -1191,7 +1191,7 @@ final class NativePlayer {
                 let removeCount = max(0, self.index - 5)
                 if removeCount > 0 { self.tracks.removeFirst(removeCount); self.index -= removeCount }
                 let ordered = RecommendationOrder.arrange(fresh, recent: Set(recent), hidden: hidden, hiddenArtists: hiddenArtists,
-                    current: self.current?.id ?? "", identity: { $0.id }, title: { $0.title }, artist: { $0.artist })
+                    current: self.current?.id ?? "", identity: { $0.id }, title: { $0.title }, artist: { $0.artist }, source: { $0.source })
                 self.tracks.append(contentsOf: ordered); self.queueRevision += 1
                 if self.waveWaiting && self.wantsPlay {
                     self.waveWaiting = false

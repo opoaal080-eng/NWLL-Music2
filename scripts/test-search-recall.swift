@@ -4,6 +4,7 @@ private struct Track {
     let id: String
     let title: String
     let artist: String
+    var duration: Double? = nil
 }
 @main struct SearchRecallTests {
     static func main() {
@@ -47,6 +48,99 @@ private struct Track {
         let noLocalMatch=NightwellSearch.ordered(all,query:"Unrelated track",localOnly:true,
             id:{$0.id},title:{$0.title},artist:{$0.artist})
         precondition(noLocalMatch.isEmpty)
-        print("Search: exact hit beyond 320 results, relevance before ownership, typography/transliteration, typos, versions and merged source snapshots passed")
+
+        // Metadata from the user's Nightwell/SoundCloud comparison. Local
+        // same-title hits must not hide the provider's relevant original.
+        let screenshotQuery = "грустный дэнс"
+        let localTitles = [Track(id:"instasamka",title:"Грустный дэнс",artist:"INSTASAMKA"),
+                           Track(id:"upload",title:"грустный дэнс",artist:"RusMusiac"),
+                           Track(id:"luna",title:"Грустный Дэнс",artist:"ЛУНА")]
+        let original = Track(id:"artik",title:"Грустный дэнс (при уч. Артем Качер)",artist:"Artik & Anna Asti",duration:189)
+        precondition(NightwellSearch.Query(screenshotQuery).score(title:original.title,artist:original.artist) ==
+                     NightwellSearch.Query(screenshotQuery).score(title:localTitles[0].title,artist:localTitles[0].artist),
+                     "A featuring credit must not demote the original song below a bare same-title upload")
+        var screenshotPool = NightwellSearch.Pool<Track>()
+        screenshotPool.merge(localTitles,id:{$0.id})
+        screenshotPool.mergeProvider([original,localTitles[2]],queryPriority:0,id:{$0.id})
+        screenshotPool.mergeProvider([localTitles[0],original],queryPriority:1,id:{$0.id})
+        let screenshotResults = NightwellSearch.ordered(screenshotPool.all,query:screenshotQuery,
+            priorityIDs:["instasamka"],providerRanks:screenshotPool.providerRanks,
+            id:{$0.id},title:{$0.title},artist:{$0.artist})
+        precondition(screenshotResults.prefix(2).map(\.id) == ["artik","luna"],
+                     "Fresh literal provider relevance must outrank cached/owned positions: \(screenshotResults.map(\.id))")
+        screenshotPool.mergeProvider([Track(id:"unrelated",title:"Другая песня",artist:"Artik")],queryPriority:0,id:{$0.id})
+        let relevanceFirst = NightwellSearch.ordered(screenshotPool.all,query:screenshotQuery,
+            providerRanks:screenshotPool.providerRanks,id:{$0.id},title:{$0.title},artist:{$0.artist})
+        precondition(relevanceFirst.first?.id != "unrelated", "Provider order must not overrule query relevance")
+        var snapshots = NightwellSearch.Pool<Track>()
+        snapshots.merge(localTitles,id:{$0.id})
+        snapshots.mergeProvider([localTitles[0]],queryPriority:0,id:{$0.id})
+        snapshots.mergeProvider([original],queryPriority:0,id:{$0.id})
+        let latestSnapshot = NightwellSearch.ordered(snapshots.all,query:screenshotQuery,
+            providerRanks:snapshots.providerRanks,id:{$0.id},title:{$0.title},artist:{$0.artist})
+        precondition(latestSnapshot.first?.id == "artik" && latestSnapshot.contains(where:{$0.id == "instasamka"}),
+                     "Latest provider order must win without discarding an earlier pending snapshot")
+        precondition(Set(snapshots.providerRanks.values).count == snapshots.providerRanks.count,
+                     "Provider rank collisions must not restore stale local positions")
+
+        let screenshotVariants = NightwellSearch.queries(screenshotQuery)
+        let primaryTargets = screenshotVariants.map { $0+"|soundcloud" }
+        let backupTargets = screenshotVariants.map { $0+"|audius" }
+        var completedPlan = NightwellSearch.RequestPlan(queries:screenshotVariants)
+        var completedQueries: [String] = []
+        while let request = completedPlan.next(now:0) {
+            completedQueries.append(request.query+"|"+request.provider)
+            precondition(request.path.contains("&provider="+request.provider), "Search request omitted its explicit source")
+            completedPlan.received(request,pending:false,retryAfter:nil,relevant:true,now:0)
+        }
+        precondition(completedQueries == primaryTargets && completedPlan.isComplete,
+                     "A valid SoundCloud result must keep Audius as a backup and still search the other primary variants")
+        var emptyPrimary = NightwellSearch.RequestPlan(queries:screenshotVariants)
+        var fallbackOrder: [String] = []
+        while let request = emptyPrimary.next(now:0) {
+            fallbackOrder.append(request.query+"|"+request.provider)
+            emptyPrimary.received(request,pending:false,retryAfter:nil,relevant:request.provider == "audius",now:0)
+        }
+        precondition(fallbackOrder == primaryTargets + backupTargets && emptyPrimary.isComplete,
+                     "Audius must run only after all primary variants have no relevant results")
+        var pendingPlan = NightwellSearch.RequestPlan(queries:screenshotVariants)
+        var pendingQueries: [String] = []
+        while let request = pendingPlan.next(now:0) {
+            pendingQueries.append(request.query+"|"+request.provider)
+            precondition(request.delay.isFinite)
+            pendingPlan.received(request,pending:true,retryAfter:.infinity,now:0)
+        }
+        precondition(Array(pendingQueries.prefix(primaryTargets.count)) == primaryTargets,
+                     "One pending query consumed retries before other primary variants got their first request")
+        precondition(pendingQueries.count == 18 && !pendingPlan.isComplete,
+                     "Pending search must remain incomplete and bounded")
+        precondition(pendingQueries.suffix(backupTargets.count).elementsEqual(backupTargets),
+                     "Primary retries must leave a bounded opportunity for the backup source")
+        var delayedPrimary = NightwellSearch.RequestPlan(queries:[screenshotQuery])
+        let firstRequest = delayedPrimary.next(now:0)!
+        delayedPrimary.received(firstRequest,pending:true,retryAfter:1,relevant:false,now:0)
+        let secondRequest = delayedPrimary.next(now:1)!
+        precondition(secondRequest.provider == "soundcloud", "A pending primary source was skipped")
+        delayedPrimary.received(secondRequest,pending:false,retryAfter:nil,relevant:true,now:1)
+        precondition(delayedPrimary.next(now:1) == nil && delayedPrimary.isComplete,
+                     "Successful delayed primary should not start the backup")
+        var timedOutPrimary = NightwellSearch.RequestPlan(queries:[screenshotQuery])
+        var timeoutOrder: [String] = []
+        while let request = timedOutPrimary.next(now:0) {
+            timeoutOrder.append(request.provider)
+            timedOutPrimary.received(request,pending:request.provider == "soundcloud",retryAfter:1,
+                relevant:request.provider == "audius",now:0)
+        }
+        precondition(timeoutOrder.last == "audius" && timeoutOrder.count <= 18 && timedOutPrimary.isComplete,
+                     "A permanently pending primary must not prevent a completed fallback")
+        var failedPlan = NightwellSearch.RequestPlan(queries:screenshotVariants)
+        var failedCalls = 0
+        while let request = failedPlan.next(now:0) {
+            failedCalls += 1
+            failedPlan.failed(request,now:0)
+        }
+        precondition(failedCalls == min(18,(primaryTargets.count + backupTargets.count) * 2) && !failedPlan.isComplete,
+                     "Each failed query should get one bounded retry, with Audius available after primary failure")
+        print("Search: screenshot recall, featured credits, primary SoundCloud, Audius fallback, snapshots, pending limits and retries passed")
     }
 }
