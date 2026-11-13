@@ -64,6 +64,7 @@ final class NativePlayer {
 
     private func nextAvailableIndex(after failed: Int) -> Int? {
         guard unavailableIDs.count < maxConsecutiveUnavailable else { return nil }
+        if let queued = nextQueuedIndex { return queued }
         let choices = tracks.indices.filter {
             $0 != index && !unavailableIDs.contains(tracks[$0].id)
                 && (!waveActive || $0 > failed)
@@ -248,6 +249,8 @@ final class NativePlayer {
     private func switchDirectly(to destination: Int) {
         guard tracks.indices.contains(destination) else { return }
         index = destination
+        let remaining = queuedIDs.intersection(tracks.dropFirst(index + 1).map { $0.id })
+        if remaining != queuedIDs { queuedIDs = remaining; queueRevision += 1 }
         // Deleted local downloads cannot recover via network retries.
         if let origin, tracks[destination].offline,
            OfflineStore.audio(origin: origin,
@@ -294,6 +297,13 @@ final class NativePlayer {
     var onChange: (() -> Void)?
     private(set) var origin: URL?
     private var tracks: [NativeTrack] = []
+    // Explicit requests take priority over automatic playlist/mix choices.
+    // Keep IDs separate from catalogue metadata and persist them with playback.
+    private var queuedIDs = Set<String>()
+    private var nextQueuedIndex: Int? {
+        PlaybackQueueInsertion.nextQueuedIndex(in: tracks, after: index,
+            queuedIDs: queuedIDs.subtracting(unavailableIDs), id: { $0.id })
+    }
     private(set) var queueRevision = 0
     private var appIsActive = UIApplication.shared.applicationState == .active
     private var offlineAccount = ""
@@ -510,16 +520,7 @@ final class NativePlayer {
 
     func prepare(_ data: [String: Any], origin: URL, cookies: [HTTPCookie]) {
         guard let raw = data["queue"] as? [[String: Any]], let selected = data["id"] as? String else { return }
-        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
-        let queue = raw.prefix(1000).compactMap { item -> NativeTrack? in
-            guard let id = item["id"] as? String, !id.isEmpty,
-                  id.unicodeScalars.allSatisfy({ allowed.contains($0) }) else { return nil }
-            let performer = self.artistCredit(for: item)
-            return NativeTrack(id: id, title: performer.title,
-                artist: performer.artist, album: item["album"] as? String ?? "",
-                duration: (item["duration"] as? NSNumber)?.doubleValue ?? 0, cover: item["cover_url"] as? String, source: item["source"] as? String,
-                sourceURL: item["source_url"] as? String, remote: item["is_remote"] as? Bool ?? false, offline: item["_offline"] as? Bool ?? false, offlineAccount: item["_offline_account"] as? String ?? "", offlineLyrics: item["_offline_lyrics"] as? [String: Any])
-        }
+        let queue = raw.prefix(1000).compactMap { nativeTrack(from: $0) }
         cancelPendingNext()
         directForwardTrackID = nil
         unavailableIDs.removeAll()
@@ -543,7 +544,24 @@ final class NativePlayer {
         waveSeedArtists = Array((data["wave_seed_artists"] as? [String] ?? []).prefix(5))
         waveWaiting = false; waveRetryAt = .distantPast
         tracks = queue; queueRevision += 1; index = selectedIndex; wantsPlay = false
+        queuedIDs = Set(data["queued_ids"] as? [String] ?? [])
+            .intersection(queue.dropFirst(selectedIndex + 1).map { $0.id })
         load(position: max(0, ((data["position"] as? NSNumber)?.doubleValue ?? 0) / 1000))
+    }
+
+    private func nativeTrack(from item: [String: Any]) -> NativeTrack? {
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
+        guard let id = item["id"] as? String, !id.isEmpty,
+              id.unicodeScalars.allSatisfy({ allowed.contains($0) }) else { return nil }
+        let performer = artistCredit(for: item)
+        return NativeTrack(id: id, title: performer.title, artist: performer.artist,
+            album: item["album"] as? String ?? "",
+            duration: (item["duration"] as? NSNumber)?.doubleValue ?? 0,
+            cover: item["cover_url"] as? String, source: item["source"] as? String,
+            sourceURL: item["source_url"] as? String, remote: item["is_remote"] as? Bool ?? false,
+            offline: item["_offline"] as? Bool ?? false,
+            offlineAccount: item["_offline_account"] as? String ?? "",
+            offlineLyrics: item["_offline_lyrics"] as? [String: Any])
     }
 
     private func artistCredit(for item: [String: Any]) -> (title: String, artist: String) {
@@ -862,7 +880,7 @@ final class NativePlayer {
         if let failureObserver { NotificationCenter.default.removeObserver(failureObserver); self.failureObserver = nil }
         independentMeter.cancel()
         eqGeneration = UUID(); eqDownload?.cancel(); eqDownload = nil; enginePlayback.stop(); player.isMuted = false
-        tracks = []; waitingForReady = false; requestedPosition = 0; lastPosition = 0; error = ""
+        tracks = []; queuedIDs.removeAll(); waitingForReady = false; requestedPosition = 0; lastPosition = 0; error = ""
         queueRevision += 1; player.replaceCurrentItem(with: nil); publish()
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
@@ -960,12 +978,37 @@ final class NativePlayer {
         let song = tracks.remove(at: source)
         tracks.insert(song, at: destination)
         queueRevision += 1
+        prewarmNextAsset()
         publish()
     }
 
     func playNextFromQueue(at source: Int) {
-        guard source > index + 1 else { return }
-        moveUpcomingTrack(from: source, to: index + 1)
+        guard tracks.indices.contains(source), source > index,
+              pendingNextIndex == nil, !waveWaiting else { return }
+        if let edit = PlaybackQueueInsertion.inserting(tracks[source], into: tracks,
+                currentIndex: index, queuedIDs: queuedIDs, next: true, id: { $0.id }) {
+            applyQueueEdit(edit)
+        }
+    }
+
+    // Never call prepare/load/play here: a queue edit must leave the current
+    // audio item, playhead, pause state and source recommendation mode intact.
+    @discardableResult
+    func enqueue(_ item: [String: Any], next: Bool = false) -> Bool {
+        guard pendingNextIndex == nil, !waveWaiting, let track = nativeTrack(from: item),
+              let edit = PlaybackQueueInsertion.inserting(track, into: tracks,
+                currentIndex: index, queuedIDs: queuedIDs, next: next, id: { $0.id }) else { return false }
+        applyQueueEdit(edit)
+        return true
+    }
+
+    private func applyQueueEdit(_ edit: PlaybackQueueInsertion.Edit<NativeTrack>) {
+        tracks = edit.tracks
+        index = edit.index
+        queuedIDs = edit.queuedIDs
+        queueRevision += 1
+        prewarmNextAsset()
+        publish()
     }
 
     // Explicit selection from the cover deck is an immediate playback command.
@@ -1071,7 +1114,9 @@ final class NativePlayer {
                 return
             }
             let target: Int
-            if shuffle && tracks.count > 1 {
+            if let queued = nextQueuedIndex {
+                target = queued
+            } else if shuffle && tracks.count > 1 {
                 let choices = waveActive ? tracks.indices.filter { $0 > index } : tracks.indices.filter { $0 != index }
                 target = shuffledIndex(choices)
             } else { target = (index + 1) % tracks.count }
@@ -1116,7 +1161,9 @@ final class NativePlayer {
             publish()
         } else if shuffle || index + 1 < tracks.count || repeatMode == 1 {
             let next: Int
-            if shuffle && tracks.count > 1 {
+            if let queued = nextQueuedIndex {
+                next = queued
+            } else if shuffle && tracks.count > 1 {
                 next = shuffledIndex(tracks.indices.filter { $0 != index })
             } else { next = (index + 1) % tracks.count }
             // Audio has finished; the former stream cannot continue playing.
@@ -1189,7 +1236,9 @@ final class NativePlayer {
                 }
                 self.error = ""; self.waveRetryAt = Date().addingTimeInterval(30)
                 let removeCount = max(0, self.index - 5)
-                if removeCount > 0 { self.tracks.removeFirst(removeCount); self.index -= removeCount }
+                if removeCount > 0 && self.pendingNextIndex == nil {
+                    self.tracks.removeFirst(removeCount); self.index -= removeCount
+                }
                 let ordered = RecommendationOrder.arrange(fresh, recent: Set(recent), hidden: hidden, hiddenArtists: hiddenArtists,
                     current: self.current?.id ?? "", identity: { $0.id }, title: { $0.title }, artist: { $0.artist }, source: { $0.source })
                 self.tracks.append(contentsOf: ordered); self.queueRevision += 1
@@ -1512,6 +1561,7 @@ final class NativePlayer {
             "nextPreparing": pendingNextIndex != nil || waveWaiting, "account": offlineAccount, "ended": ended, "repeat": repeatMode, "shuffle": shuffle, "shuffleMode": shuffleStyle,
             "volume": baseVolume, "smoothTransitions": true, "transitionSeconds": transitionSeconds, "queueRevision": queueRevision, "queueIds": includeQueue ? tracks.map { $0.id } : [], "error": error,
             "wave": waveActive, "waveSupported": true,
+            "queuedIds": tracks.dropFirst(index + 1).filter { queuedIDs.contains($0.id) }.map { $0.id },
             "audioOutput": AVAudioSession.sharedInstance().currentRoute.outputs.map { ["type": $0.portType.rawValue, "name": $0.portName] },
             "audioTap": audioMeter.attached, "independentAuraReady": independentMeter.envelope != nil,
             "queueTracks": (includeQueue ? tracks : []).map { track -> [String: Any] in

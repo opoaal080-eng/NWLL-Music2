@@ -201,8 +201,8 @@ private enum StableNavigationAction {
 
 /// An independently presented, stable scroll view. Playback updates cannot
 /// re-create the menu or send it back to its first item.
-/// A stable two-level navigation sheet. Feature tools are grouped under
-/// "Дополнительно"; core library screens stay one tap away.
+/// A stable two-level sheet for profile, settings and additional tools.
+/// Main screens live in the persistent bottom navigation.
 private struct StableNavigationSheet: View {
     let status: String
     let signedIn: Bool
@@ -329,15 +329,8 @@ private struct StableNavigationSheet: View {
                         }
                         entry("Обращения и поддержка", icon: "envelope", action: .support)
                     } else {
-                        if !signedIn {
-                            entry("Войти", icon: "person.crop.circle", action: .authentication)
-                            entry("Главная", icon: "house", action: .screen(.home))
-                        } else {
-                            entry("Главная", icon: "house", action: .screen(.home))
-                            entry("Избранное", icon: "heart", action: .screen(.likes))
-                            entry("Плейлисты", icon: "music.note.list", action: .screen(.playlists))
-                            entry("Офлайн", icon: "arrow.down.to.line", action: .screen(.offline))
-                        }
+                        entry(signedIn ? "Профиль" : "Войти", icon: "person.crop.circle",
+                              action: signedIn ? .profile : .authentication)
                         Divider().overlay(.white.opacity(0.16)).padding(.vertical, 6)
                         if signedIn {
                             entry("Nightwell Premium", icon: "star", action: .premium)
@@ -567,6 +560,7 @@ struct NativeRoot: View {
     @State private var settings = false
     @State private var navigationMenuPresented = false
     @State private var profilePresented = false
+    @State private var dailyPlaylistsPresented = false
     @State private var profileSigningOut = false
     @State private var pendingNavigation: StableNavigationAction?
     @State private var waveSettingsPresented = false
@@ -576,7 +570,8 @@ struct NativeRoot: View {
     @State private var togetherPresented = false
     @StateObject private var togetherSession = NightwellTogetherSession()
     @State private var favoriteSort = "recent"
-    @State private var collectionScrolled = false
+    @AppStorage("nw-library-section") private var savedLibrarySection = MusicStore.Screen.likes.rawValue
+    @State private var libraryScrollCollapsed: [String: Bool] = [:]
     @StateObject private var artworkPalette = NightwellArtworkPalette()
     @State private var remoteHomeCollapsed = false
     @ObservedObject private var favoritePremium = PremiumFeatureState.shared
@@ -655,22 +650,38 @@ struct NativeRoot: View {
                         .padding(.horizontal, 20)
                         .transition(.move(edge: .top).combined(with: .opacity))
                     }
+                    if isLibraryScreen {
+                        librarySectionTabs(landscape: landscape)
+                    }
                     content
-                    MiniPlayer(clock: store.clock, open: { fullPlayer = true },
-                               compactHeight: landscape)
-                        .padding(.horizontal, landscape ? 18 : 16)
-                        .padding(.bottom, landscape ? 8 : 18)
-                        .overlay(alignment: .bottom) {
-                            if store.screen == .home && !landscape {
-                                HomeLyricLine(model: store.lyrics, clock: store.clock)
-                                    .saturation(0)
-                                    .frame(height: 60)
-                                    .padding(.horizontal, 24)
-                                    .offset(y: -85)
+                    VStack(spacing: landscape ? 4 : 8) {
+                        MiniPlayer(clock: store.clock, open: { fullPlayer = true },
+                                   compactHeight: landscape)
+                            .padding(.horizontal, landscape ? 18 : 16)
+                            .overlay(alignment: .bottom) {
+                                if store.screen == .home && !landscape {
+                                    HomeLyricLine(model: store.lyrics, clock: store.clock)
+                                        .saturation(0)
+                                        .frame(height: 60)
+                                        .padding(.horizontal, 24)
+                                        .offset(y: -85)
+                                }
                             }
-                        }
+                            .overlay(alignment: .top) {
+                                if !store.queueNotice.isEmpty {
+                                    Text(store.queueNotice)
+                                        .font(.system(size: 13, weight: .medium))
+                                        .multilineTextAlignment(.center)
+                                        .padding(.horizontal, 16).padding(.vertical, 10)
+                                        .background(.regularMaterial, in: Capsule())
+                                        .padding(.horizontal, 20)
+                                        .offset(y: -52)
+                                        .allowsHitTesting(false)
+                                }
+                            }
+                        bottomNavigation(landscape: landscape)
+                    }
                 }
-                .ignoresSafeArea(.container, edges: .bottom)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
@@ -737,6 +748,9 @@ struct NativeRoot: View {
         }
         .sheet(item: $feature) { kind in
             PremiumFeatureView(kind: kind).environmentObject(store)
+        }
+        .sheet(isPresented: $dailyPlaylistsPresented) {
+            DailyPublicPlaylistsScreen(store: store)
         }
         .sheet(isPresented: $profilePresented) {
             NavigationStack {
@@ -856,8 +870,9 @@ struct NativeRoot: View {
             }
         })
         .onChange(of: store.screen) { _ in
-            collectionScrolled = false
-            if store.screen != .search { store.leaveSearch() }
+            if isLibraryScreen { savedLibrarySection = store.screen.rawValue }
+            if store.screen == .search { store.scheduleSearch() }
+            else { store.leaveSearch() }
         }
         .onOpenURL { url in
             if let code = NightwellTogetherSession.invitationCode(from: url.absoluteString, origin: store.origin) {
@@ -917,6 +932,80 @@ struct NativeRoot: View {
             }
         }
     }
+    private let libraryScreens: [MusicStore.Screen] = [.likes, .playlists, .offline]
+
+    private var isLibraryScreen: Bool { libraryScreens.contains(store.screen) }
+
+    private var lastLibraryScreen: MusicStore.Screen {
+        let screen = MusicStore.Screen(rawValue: savedLibrarySection) ?? .likes
+        return libraryScreens.contains(screen) ? screen : .likes
+    }
+
+    private var collectionScrolled: Bool {
+        libraryScrollCollapsed[store.screen.rawValue] ?? false
+    }
+
+    private func libraryScrollBinding(for screen: MusicStore.Screen) -> Binding<Bool> {
+        Binding(get: { libraryScrollCollapsed[screen.rawValue] ?? false },
+                set: { libraryScrollCollapsed[screen.rawValue] = $0 })
+    }
+
+    private func librarySectionTabs(landscape: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if !landscape {
+                Text("Медиатека").font(.title2.bold())
+            }
+            Picker("Раздел медиатеки", selection: $store.screen) {
+                ForEach(libraryScreens, id: \.self) { screen in
+                    Text(screen.rawValue).tag(screen)
+                }
+            }
+            .pickerStyle(.segmented)
+        }
+        .padding(.horizontal, 20)
+    }
+
+    private func bottomNavigation(landscape: Bool) -> some View {
+        HStack(spacing: 0) {
+            navigationTab("Главная", icon: "house", selected: store.screen == .home,
+                          landscape: landscape) { store.screen = .home }
+            navigationTab("Поиск", icon: "magnifyingglass", selected: store.screen == .search,
+                          landscape: landscape) { store.screen = .search }
+            navigationTab("Медиатека", icon: "square.stack", selected: isLibraryScreen,
+                          landscape: landscape) { store.screen = lastLibraryScreen }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, landscape ? 0 : 4)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24))
+        .padding(.horizontal, landscape ? 18 : 16)
+        .padding(.bottom, 6)
+    }
+
+    private func navigationTab(_ title: String, icon: String, selected: Bool,
+                               landscape: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Group {
+                if landscape {
+                    HStack(spacing: 7) {
+                        Image(systemName: selected && icon != "magnifyingglass" ? icon + ".fill" : icon)
+                        Text(title).font(.system(size: 12, weight: .medium))
+                    }
+                } else {
+                    VStack(spacing: 4) {
+                        Image(systemName: selected && icon != "magnifyingglass" ? icon + ".fill" : icon)
+                            .font(.system(size: 19, weight: .medium))
+                        Text(title).font(.system(size: 10, weight: .medium))
+                    }
+                }
+            }
+            .foregroundStyle(.white.opacity(selected ? 1 : 0.55))
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
+    }
+
     private var compactCollectionTitle: String? {
         guard collectionScrolled else { return nil }
         switch store.screen {
@@ -936,16 +1025,6 @@ struct NativeRoot: View {
         }
         .frame(height: 0)
         .accessibilityHidden(true)
-    }
-
-    private func updateCollectionScroll(_ y: CGFloat) {
-        guard store.screen == .likes || store.screen == .playlists || store.screen == .offline else { return }
-        let compact = y < -12
-        if collectionScrolled != compact {
-            withAnimation(reducedMotion ? nil : .easeInOut(duration: 0.18)) {
-                collectionScrolled = compact
-            }
-        }
     }
 
     private func header(landscape: Bool) -> some View {
@@ -982,9 +1061,7 @@ struct NativeRoot: View {
             .foregroundStyle(nightwellText)
             .accessibilityLabel("На главную")
             Spacer()
-            Button { if store.screen == .search { store.screen = .home } else { store.screen = .search } } label: { Image(systemName: store.screen == .search ? "xmark" : "magnifyingglass").font(.system(size: 19, weight: .medium)).foregroundStyle(.white).frame(width: 44, height: 44).frostedGlass(22, bordered: false, intensity: 0.20) }.accessibilityLabel(store.screen == .search ? "Закрыть поиск" : "Поиск")
             // Hide the compact handoff button while a collection is scrolled.
-            // Removing it from the HStack makes Search slide to the right.
             if store.hasRemotePlayback && (remoteHomeCollapsed || landscape) && compactCollectionTitle == nil {
                 Button {
                     Task { await store.continuePlaybackHere() }
@@ -1000,9 +1077,7 @@ struct NativeRoot: View {
                 .transition(.asymmetric(insertion: .scale(scale: 0.68, anchor: .trailing).combined(with: .opacity),
                                         removal: .opacity))
             }
-            // Remove the menu opener from layout while the sheet is open.
-            // The search and Continue buttons slide right to fill its space;
-            // closing the sheet restores all three controls to their positions.
+            // Keep the existing avatar menu for profile and additional tools.
             if !navigationMenuPresented {
                 Button { navigationMenuPresented = true } label: {
                     Group {
@@ -1066,8 +1141,25 @@ struct NativeRoot: View {
             return left.title.localizedStandardCompare(right.title) == .orderedAscending
         }
     }
-    @ViewBuilder private var content: some View {
-        switch store.screen {
+    private var content: some View {
+        ZStack {
+            if !isLibraryScreen {
+                screenContent(for: store.screen)
+            }
+            // Keep each library ScrollView alive while switching sections or
+            // tabs, preserving its own scroll position and compact heading.
+            ForEach(libraryScreens, id: \.self) { screen in
+                screenContent(for: screen)
+                    .opacity(store.screen == screen ? 1 : 0)
+                    .allowsHitTesting(store.screen == screen)
+                    .accessibilityHidden(store.screen != screen)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder private func screenContent(for screen: MusicStore.Screen) -> some View {
+        switch screen {
         case .home:
             NativeHome(configureWave: { waveSettingsPresented = true }, clock: store.clock)
         case .search:
@@ -1245,7 +1337,7 @@ struct NativeRoot: View {
                 .padding(.horizontal, 20)
             }
             .coordinateSpace(name: "nightwell-library-scroll")
-            .modifier(NightwellLibraryScrollTracker(collapsed: $collectionScrolled))
+            .modifier(NightwellLibraryScrollTracker(collapsed: libraryScrollBinding(for: .likes)))
             .scrollDismissesKeyboard(.interactively)
         case .playlists:
             ScrollView {
@@ -1260,7 +1352,18 @@ struct NativeRoot: View {
                         .accessibilityLabel("Новый плейлист")
                     }
                     Button("Умные плейлисты · Premium") { feature = .smart }
-                    DailyPublicPlaylistsView(store: store)
+                    Button { dailyPlaylistsPresented = true } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "sparkles")
+                            Text("Подборки дня").font(.headline)
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.caption)
+                        }
+                        .padding(.horizontal, 18).padding(.vertical, 16)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .glass()
+                    }
+                    .buttonStyle(.plain)
                     LazyVStack(spacing: 12) {
                         ForEach(store.playlists) { playlist in
                             HStack {
@@ -1302,7 +1405,7 @@ struct NativeRoot: View {
                 .padding(.horizontal, 20)
             }
             .coordinateSpace(name: "nightwell-library-scroll")
-            .modifier(NightwellLibraryScrollTracker(collapsed: $collectionScrolled))
+            .modifier(NightwellLibraryScrollTracker(collapsed: libraryScrollBinding(for: .playlists)))
             .scrollDismissesKeyboard(.interactively)
         case .offline:
             ScrollView {
@@ -1342,7 +1445,7 @@ struct NativeRoot: View {
                 .padding(.horizontal, 20)
             }
             .coordinateSpace(name: "nightwell-library-scroll")
-            .modifier(NightwellLibraryScrollTracker(collapsed: $collectionScrolled))
+            .modifier(NightwellLibraryScrollTracker(collapsed: libraryScrollBinding(for: .offline)))
             .scrollDismissesKeyboard(.interactively)
         }
     }
@@ -1404,13 +1507,17 @@ struct NativeTrackRow: View {
     let queue: [Track]
     @ObservedObject var status: TrackStatus
     var playlist: Playlist?
+    var onPlay: (() -> Void)? = nil
     @State private var selectedArtist: ArtistSelection?
     @State private var showArtistChoices = false
     var body: some View {
         HStack(spacing: 0) {
             // One large hit target so tapping the thumbnail, title, artist,
             // playback indicator, or empty area starts the song.
-            Button { store.play(track, in: queue) } label: {
+            Button {
+                if let onPlay { onPlay() }
+                else { store.play(track, in: queue) }
+            } label: {
                 HStack(spacing: 12) {
                     Cover(track: track, origin: store.origin)
                         .frame(width: 46, height: 46)
@@ -1435,6 +1542,7 @@ struct NativeTrackRow: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Воспроизвести " + track.title)
             Menu {
+                QueueTrackActions(track: track)
                 if ArtistAttribution.isKnown(track.artist) {
                     let names = ArtistNames.split(track.artist)
                     if names.count == 1, let name = names.first {

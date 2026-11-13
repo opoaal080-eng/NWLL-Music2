@@ -10,6 +10,7 @@ struct PlaybackMemory: Codable {
     var repeatMode: Int
     var shuffle: Bool
     var wave: Bool
+    var queuedIDs: [String]? = nil
     var savedAt: Date? = nil
 
     private struct PositionCheckpoint: Codable {

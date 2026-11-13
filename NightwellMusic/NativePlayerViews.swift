@@ -1009,6 +1009,11 @@ struct FullPlayer: View {
                     refreshNativeMenu()
                 }
             },
+            onEnqueue: { track, next in
+                if store.enqueue(track, next: next) {
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                }
+            },
             onAddPlaylist: { track, list in
                 Task { await store.add(track, playlist: list) }
             },
@@ -1129,7 +1134,8 @@ struct PlaybackQueue: View {
                                             HStack(spacing: 8) {
                                                 NativeTrackRow(
                                                     track: track, queue: clock.queue,
-                                                    status: clock.status, playlist: nil
+                                                    status: clock.status, playlist: nil,
+                                                    onPlay: { NativePlayer.shared.playQueueTrackNow(trackID: track.id) }
                                                 )
                                                 if index > currentIndex + 1 && currentIndex >= 0 {
                                                     Button {

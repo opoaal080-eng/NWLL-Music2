@@ -23,6 +23,7 @@ struct NightwellPlayerActionsOverlay: View {
     let onClip: (URL, Track) -> Void
     let onHide: (Track) -> Void
     let onDownload: (Track) -> Void
+    let onEnqueue: (Track, Bool) -> Void
     let onAddPlaylist: (Track, Playlist) -> Void
     let onQuality: (String) -> Void
 
@@ -100,6 +101,18 @@ struct NightwellPlayerActionsOverlay: View {
                                 }
                             }
                             if let track = snapshot.track {
+                                Button {
+                                    onEnqueue(track, true)
+                                    onClose()
+                                } label: {
+                                    actionLabel("Играть следующим", icon: "text.line.first.and.arrowtriangle.forward")
+                                }
+                                Button {
+                                    onEnqueue(track, false)
+                                    onClose()
+                                } label: {
+                                    actionLabel("Добавить в очередь", icon: "text.badge.plus")
+                                }
                                 Button { onSeededRhythm(track) } label: {
                                     actionLabel("Твой ритм по треку", icon: "waveform.path")
                                 }

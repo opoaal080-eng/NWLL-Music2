@@ -141,6 +141,7 @@ private struct AudioQualityDecision: Decodable {
     @Published var query = ""
     @Published var searchMessage = ""
     @Published var audioQualityNotice = ""
+    @Published private(set) var queueNotice = ""
     @Published var error: String?
     @Published var loading = false
     @Published private(set) var connectionStatus = "Загрузка…"
@@ -157,6 +158,7 @@ private struct AudioQualityDecision: Decodable {
     private var artistSearchTask: Task<Void, Never>?
     private var searchArtistSuggestionTask: Task<Void, Never>?
     private var qualityNoticeTask: Task<Void, Never>?
+    private var queueNoticeTask: Task<Void, Never>?
     private var artistSearchCache: [String: [ArtistDirectoryItem]] = [:]
     private var searchGeneration = UUID()
     private var searchCache: [String: [Track]] = [:]
@@ -802,7 +804,8 @@ private struct AudioQualityDecision: Decodable {
         let memory = PlaybackMemory(id: current.id,
             tracks: Array(clock.queue.prefix(1000)),
             position: clock.position, repeatMode: state["repeat"] as? Int ?? 0,
-            shuffle: state["shuffle"] as? Bool ?? false, wave: state["wave"] as? Bool ?? false)
+            shuffle: state["shuffle"] as? Bool ?? false, wave: state["wave"] as? Bool ?? false,
+            queuedIDs: state["queuedIds"] as? [String])
         if force { memory.save(origin, owner) }
         else { Task.detached(priority: .utility) { memory.save(origin, owner) } }
     }
@@ -813,7 +816,7 @@ private struct AudioQualityDecision: Decodable {
             if offlineOnly { return local[track.id] }; return track
         }
         guard items.contains(where: { $0.id == memory.id }) else { return }
-        NativePlayer.shared.prepare(["id": memory.id, "queue": items.map(\.dictionary), "account": account?.id ?? "device", "position": memory.position * 1000, "wave": memory.wave, "wave_preferences": WaveSettings.read(origin, account?.id ?? "device").dictionary], origin: origin, cookies: HTTPCookieStorage.shared.cookies(for: origin) ?? [])
+        NativePlayer.shared.prepare(["id": memory.id, "queue": items.map(\.dictionary), "account": account?.id ?? "device", "position": memory.position * 1000, "wave": memory.wave, "queued_ids": memory.queuedIDs ?? [], "wave_preferences": WaveSettings.read(origin, account?.id ?? "device").dictionary], origin: origin, cookies: HTTPCookieStorage.shared.cookies(for: origin) ?? [])
         NativePlayer.shared.modes(repeatMode: memory.repeatMode, shuffle: memory.shuffle)
     }
     private func reportListening(skipped: Bool = false) {
@@ -1319,34 +1322,84 @@ private struct AudioQualityDecision: Decodable {
         play(track, in: [track])
     }
     private var pendingSharedTrackID: String?
+    // Use the same download/authentication checks for starting playback and
+    // requesting a song without replacing the active source queue.
+    private func playbackSelection(_ track: Track, downloaded: [String: Track]) -> Track? {
+        let selected = downloaded[track.id] ?? track
+        let scope = selected._offline_account ?? account?.id ?? "device"
+        let damaged = selected._offline == true &&
+            OfflineStore.audio(origin: origin, account: scope, id: selected.id) == nil
+        if damaged && (selected.id.hasPrefix("local_") || account == nil || !hasNetworkPath) {
+            error = "Скачанный файл повреждён или удалён. Подключись к интернету и скачай его снова."
+            return nil
+        }
+        if account == nil && selected._offline != true { authPresented = true; return nil }
+        if damaged {
+            error = "Офлайн-копия недоступна. Воспроизводим через интернет. Загрузи трек повторно."
+        }
+        return verifiedPlaybackTrack(selected)
+    }
+
+    private func verifiedPlaybackTrack(_ candidate: Track) -> Track {
+        guard candidate._offline == true else { return candidate }
+        let owner = candidate._offline_account ?? account?.id ?? "device"
+        guard OfflineStore.audio(origin: origin, account: owner, id: candidate.id) == nil else { return candidate }
+        var remote = candidate
+        remote._offline = false
+        remote._offline_account = nil
+        return remote
+    }
+
+    @discardableResult
+    func enqueue(_ track: Track, next: Bool = false) -> Bool {
+        let downloaded = Dictionary(offline.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        guard let selected = playbackSelection(track, downloaded: downloaded) else { return false }
+        let player = NativePlayer.shared
+        let state = player.snapshot(includeQueue: false)
+        if (state["id"] as? String ?? "").isEmpty {
+            // Build an initially paused queue. Enqueue is never Play.
+            player.prepare(["id": selected.id, "queue": [selected.dictionary],
+                            "account": account?.id ?? "device"], origin: origin,
+                           cookies: HTTPCookieStorage.shared.cookies(for: origin) ?? [])
+        } else {
+            guard state["id"] as? String != selected.id else {
+                showQueueNotice("Этот трек уже играет")
+                return false
+            }
+            guard state["nextPreparing"] as? Bool != true else {
+                showQueueNotice("Дождись переключения трека и добавь ещё раз")
+                return false
+            }
+            guard player.enqueue(selected.dictionary, next: next) else {
+                showQueueNotice("Очередь заполнена — сначала прослушай несколько треков")
+                return false
+            }
+        }
+        clock.sync()
+        savePlayback(force: true)
+        // Editing a local queue must not steal playback from another device.
+        Task { await publishLiveSync(takeover: false) }
+        showQueueNotice(next ? "Будет играть следующим" : "Добавлено в очередь")
+        return true
+    }
+
+    private func showQueueNotice(_ text: String) {
+        queueNoticeTask?.cancel()
+        queueNotice = text
+        queueNoticeTask = Task { [weak self] in
+            do { try await Task.sleep(nanoseconds: 2_500_000_000) } catch { return }
+            self?.queueNotice = ""
+        }
+    }
+
     func play(_ track: Track, in queue: [Track], wave: Bool = false,
               seedArtists: [String] = []) {
         // Reuse the downloaded audio for tracks listed in favorites or playlists.
         let downloaded = Dictionary(offline.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let selected = downloaded[track.id] ?? track
-        let scope = selected._offline_account ?? account?.id ?? "device"
-        let damagedSelected = selected._offline == true &&
-            OfflineStore.audio(origin: origin, account: scope, id: selected.id) == nil
-        if damagedSelected && (selected.id.hasPrefix("local_") || account == nil || !hasNetworkPath) {
-            error = "Скачанный файл повреждён или удалён. Подключись к интернету и скачай его снова."
-            return
-        }
-        if account == nil && selected._offline != true { authPresented = true; return }
+        guard let selected = playbackSelection(track, downloaded: downloaded) else { return }
         // Old restored queues may contain an _offline marker for a file that no
         // longer exists. Fall back to the online source instead of silence.
-        func verified(_ candidate: Track) -> Track {
-            guard candidate._offline == true else { return candidate }
-            let owner = candidate._offline_account ?? account?.id ?? "device"
-            guard OfflineStore.audio(origin: origin, account: owner, id: candidate.id) == nil else { return candidate }
-            var remote = candidate
-            remote._offline = false
-            remote._offline_account = nil
-            return remote
-        }
-        let localQueue = queue.map { verified(downloaded[$0.id] ?? $0) }
-        if damagedSelected {
-            error = "Офлайн-копия недоступна. Воспроизводим через интернет. Загрузи трек повторно."
-        }
+        let localQueue = queue.map { verifiedPlaybackTrack(downloaded[$0.id] ?? $0) }
         NativePlayer.shared.prepare(["id": selected.id, "queue": localQueue.map(\.dictionary), "account": account?.id ?? "device", "wave": wave, "wave_seed_artists": seedArtists, "wave_preferences": WaveSettings.read(origin, account?.id ?? "device").dictionary], origin: origin, cookies: HTTPCookieStorage.shared.cookies(for: origin) ?? [])
         NativePlayer.shared.play()
         Task { await publishLiveSync(takeover: true) }
