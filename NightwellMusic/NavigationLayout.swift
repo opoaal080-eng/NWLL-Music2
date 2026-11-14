@@ -18,7 +18,7 @@ enum NavigationLayout: String, CaseIterable, Identifiable {
     var detail: String {
         switch self {
         case .belowPlayer: return "Главная, поиск и медиатека — под миниплеером."
-        case .menu: return "Главная, поиск и медиатека открываются через меню профиля."
+        case .menu: return "Главная, поиск, медиатека и другие разделы открываются через кнопку меню. Аватарка сразу открывает профиль."
         }
     }
 
