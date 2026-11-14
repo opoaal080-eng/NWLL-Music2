@@ -36,6 +36,71 @@ public partial class MainWindow {
    // A temporary HTTP failure must not rebuild the navigation bar.
   }
  }
+ async Task<bool> RegisterAccountDeviceAsync(){
+  if(account.Length==0)return true;
+  try{
+   await api.Request("api/devices/register","POST",new{
+    device_id=NativeAPI.DeviceID,platform="windows",name=NativeAPI.DeviceLabel
+   });
+   return true;
+  }catch(IOException error)when(error.Message.Contains("HTTP 404")){
+   // The device module has not been installed on an older server yet.
+   return true;
+  }catch(Exception error){
+   Status.Text="Не удалось зарегистрировать устройство: "+error.Message;
+   return false;
+  }
+ }
+ void AccountDevicesWindow(){
+  if(account.Length==0){Login();return;}
+  var panel=new StackPanel{Margin=new Thickness(22,12,22,12)};
+  var status=new TextBlock{Text="Загружаем устройства…",TextWrapping=TextWrapping.Wrap,
+   Margin=new Thickness(0,0,0,12)};
+  panel.Children.Add(status);
+  var list=new StackPanel();
+  var scroll=new ScrollViewer{Content=list,MaxHeight=390,
+   VerticalScrollBarVisibility=ScrollBarVisibility.Auto};
+  panel.Children.Add(scroll);
+  var window=Sheet("Мои устройства",panel,590,false);
+  async Task Reload(){
+   try{
+    var response=await api.Request("api/devices");
+    if(!window.IsVisible)return;
+    var count=response.GetProperty("count").GetInt32();
+    var limit=response.GetProperty("limit").GetInt32();
+    status.Text=$"Подключено: {count} из {limit}";
+    list.Children.Clear();
+    foreach(var item in response.GetProperty("devices").EnumerateArray()){
+     string id=item.GetProperty("id").GetString()??"";
+     string name=item.GetProperty("name").GetString()??"Устройство";
+     bool current=item.GetProperty("current").GetBoolean();
+     bool blocked=item.GetProperty("blocked").GetBoolean();
+     var row=new StackPanel{Margin=new Thickness(0,8,0,8)};
+     row.Children.Add(new TextBlock{Text=name+(current?" · Это устройство":"")+
+       (blocked?" · Недоступно":""),FontWeight=FontWeights.SemiBold,
+       TextWrapping=TextWrapping.Wrap});
+     var remove=new Button{Content="Отключить устройство",
+       Margin=new Thickness(0,6,0,0),
+       Style=(Style)FindResource("QuietButton")};
+     remove.Click+=async(_,_)=>{
+      remove.IsEnabled=false;
+      try{
+       await api.Request("api/devices/"+Uri.EscapeDataString(id),"DELETE");
+       await Reload();
+      }catch(Exception error){
+       status.Text="Не удалось удалить устройство: "+error.Message;
+      }finally{remove.IsEnabled=true;}
+     };
+     row.Children.Add(remove);
+     list.Children.Add(row);
+    }
+   }catch(Exception error){
+    status.Text="Управление устройствами недоступно. Проверь сервер: "+error.Message;
+   }
+  }
+  window.Show();
+  _=Reload();
+ }
  void ProfileWindow(){
   if(account.Length==0){Login();return;}
   var panel=new StackPanel{Margin=new Thickness(22,12,22,12)};
@@ -46,6 +111,10 @@ public partial class MainWindow {
    premium.Click+=(_,_)=>PremiumWindow();
    panel.Children.Add(premium);
   }
+  var devices=new Button{Content="Мои устройства",Style=(Style)FindResource("QuietButton"),
+   Margin=new Thickness(0,12,0,0)};
+  devices.Click+=(_,_)=>AccountDevicesWindow();
+  panel.Children.Add(devices);
   var logout=new Button{Content="Выйти из аккаунта",
    Style=(Style)FindResource("QuietButton"),Margin=new Thickness(0,14,0,0)};
   panel.Children.Add(logout);
