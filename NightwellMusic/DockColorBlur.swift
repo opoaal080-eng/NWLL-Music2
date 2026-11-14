@@ -33,7 +33,7 @@ private struct NightwellDockColorBlur: ViewModifier {
                 blurRegion.maxX.isFinite && blurRegion.maxY.isFinite
             let enabled = validFrame && validRegion && frame.intersects(blurRegion)
 
-            effect.layerEffect(
+            return effect.layerEffect(
                 ShaderLibrary.nightwellDockColorBlur(
                     .float2(Float(validFrame ? frame.minX : 0), Float(validFrame ? frame.minY : 0)),
                     .float(Float(enabled ? blurRegion.minY : 0)),
