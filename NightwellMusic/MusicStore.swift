@@ -115,6 +115,22 @@ private struct AudioQualityDecision: Decodable {
     let source: String?
 }
 
+struct NightwellAccountDevice: Identifiable, Decodable {
+    let id: String
+    let name: String
+    let platform: String
+    let created_at: Double
+    let last_seen: Double
+    let current: Bool
+    let blocked: Bool
+}
+
+struct NightwellAccountDevicesResponse: Decodable {
+    let limit: Int
+    let count: Int
+    let devices: [NightwellAccountDevice]
+}
+
 @MainActor final class MusicStore: ObservableObject {
     enum Screen: String, CaseIterable { case home = "Главная", search = "Поиск", library = "Медиатека", likes = "Избранное", playlists = "Плейлисты", offline = "Офлайн" }
     @Published var screen: Screen = .home
@@ -132,6 +148,59 @@ private struct AudioQualityDecision: Decodable {
     @Published private(set) var favoriteOrder: [String] = []
     @Published private(set) var favoriteTrackDetails: [Track] = []
     @Published var account: Account?
+    @Published private(set) var accountDevices: [NightwellAccountDevice] = []
+    @Published private(set) var accountDeviceLimit = 2
+    @Published var accountDeviceNotice = ""
+    @Published private(set) var accountDeviceSupported = false
+
+    func registerAccountDevice() async {
+        guard account != nil else { return }
+        do {
+            let _: OK = try await api.request("/api/devices/register", method: "POST", body: [
+                "device_id": NightwellClientDevice.id,
+                "platform": "ios",
+                "name": NightwellClientDevice.label,
+            ], timeout: 10)
+            accountDeviceSupported = true
+            accountDeviceNotice = ""
+            await refreshAccountDevices()
+        } catch {
+            if let server = error as? RequestRetry.HTTPFailure, server.status == 404 {
+                accountDeviceSupported = false
+                accountDeviceNotice = "Обнови сервер Nightwell, чтобы управлять устройствами."
+            } else {
+                accountDeviceNotice = error.localizedDescription
+                if let server = error as? RequestRetry.HTTPFailure, server.status == 409 {
+                    self.error = "Достигнут лимит устройств. Открой профиль и отключи старое устройство."
+                }
+            }
+        }
+    }
+
+    func refreshAccountDevices() async {
+        guard account != nil else { accountDevices = []; accountDeviceSupported = false; return }
+        do {
+            let result: NightwellAccountDevicesResponse = try await api.request("/api/devices", timeout: 10)
+            accountDevices = result.devices
+            accountDeviceLimit = result.limit
+            accountDeviceSupported = true
+            accountDeviceNotice = ""
+        } catch {
+            accountDeviceSupported = false
+            accountDeviceNotice = error.localizedDescription
+        }
+    }
+
+    func removeAccountDevice(_ id: String) async {
+        guard account != nil, !id.isEmpty else { return }
+        do {
+            let _: OK = try await api.request("/api/devices/" + id, method: "DELETE", timeout: 10)
+            await refreshAccountDevices()
+        } catch {
+            accountDeviceNotice = error.localizedDescription
+        }
+    }
+
     @Published var profileNickname = ""
     @Published var profileAvatar: UIImage?
     @Published var profileLoadError: String?
@@ -752,6 +821,7 @@ private struct AudioQualityDecision: Decodable {
             cacheAccount()
             await client.setCSRF(identity.csrf)
             guard generation == sessionGeneration, !Task.isCancelled else { return }
+            if account != nil { await registerAccountDevice() }
             // This is required even if /api/me returns the same cached account ID.
             // SwiftUI's onChange(account.id) won't fire on that common startup path.
             if account != nil {
@@ -1051,6 +1121,7 @@ private struct AudioQualityDecision: Decodable {
         emailChallenge = nil
         cacheAccount()
         await api.setCSRF(response.csrf)
+        await registerAccountDevice()
         let signedInGeneration = sessionGeneration
         Task { [weak self] in
             guard let self, self.sessionGeneration == signedInGeneration else { return }
@@ -1113,6 +1184,7 @@ private struct AudioQualityDecision: Decodable {
             sessionGeneration = UUID(); starting = false; snapshotSaveTask?.cancel(); libraryRefresh.cancel()
             connectionCheck?.cancel(); connectionCheck = nil; connectionCheckGeneration = UUID(); sessionReady = false
             stopLiveSync()
+            accountDevices = []; accountDeviceNotice = ""; accountDeviceSupported = false
             account = nil; profileNickname = ""; profileAvatar = nil; restoreAutoFavoritesSetting(); mixRecentIDs = []; cacheAccount(); catalog = []; results = []; likes = []; favoriteOrder = []; playlists = []; lastWave = []; query = ""; await api.setCSRF(nil)
         } catch { self.error = error.localizedDescription }
     }
