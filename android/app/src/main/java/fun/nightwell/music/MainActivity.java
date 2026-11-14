@@ -24,7 +24,7 @@ public final class MainActivity extends Activity {
     private TextView liveHandoff, compactHandoff;
     private boolean handoffCollapsed = false;
     private Runnable handoffCollapseTask;
-    private TextView nightwellBadge, nightwellMenuStatus;
+    private TextView nightwellBadge, nightwellMenuStatus, nightwellMenuMessage;
     private ProgressBar nightwellMenuSpinner;
     private String nightwellStatus = "Проверка…";
     private final Runnable nightwellProbe = new Runnable() {
@@ -85,6 +85,14 @@ public final class MainActivity extends Activity {
         }
         if (nightwellMenuSpinner != null)
             nightwellMenuSpinner.setVisibility(connecting?View.VISIBLE:View.GONE);
+        if (nightwellMenuMessage != null) {
+            String message=value.equals("Онлайн")?"API доступен. Подключено":
+                value.equals("Ограничен")?"API ограничен. Подключение нестабильно":
+                value.equals("Оффлайн")?"API недоступен. Нет подключения":
+                "Проверка API. Подключаемся";
+            nightwellMenuMessage.setText(message);
+            nightwellMenuMessage.setContentDescription("Подключение Nightwell: "+message);
+        }
     }
     private JSONObject liveRemote;
     private boolean liveOwner, liveBusy;
@@ -370,7 +378,7 @@ public final class MainActivity extends Activity {
     private Runnable pendingSearch;
     private Dialog navigationPopup;
     private android.widget.ImageView profileAvatarButton;
-    private TextView librarySettingsButton,libraryExtraButton,premiumTabButton;
+    private TextView libraryBackButton,librarySettingsButton,libraryExtraButton,premiumTabButton;
     private View headerBrandButton;
     private android.graphics.Bitmap cachedProfileAvatar;
     private String cachedProfileUser="", cachedProfileNickname="";
@@ -1090,6 +1098,10 @@ public final class MainActivity extends Activity {
         scene.addView(root,new android.widget.FrameLayout.LayoutParams(-1,-1));setContentView(scene);
         root.setOnApplyWindowInsetsListener((v,insets)->{int top,bottom;if(Build.VERSION.SDK_INT>=30){android.graphics.Insets bars=insets.getInsets(WindowInsets.Type.systemBars());top=bars.top;bottom=Math.max(bars.bottom,insets.getInsets(WindowInsets.Type.ime()).bottom);}else{top=insets.getSystemWindowInsetTop();bottom=insets.getSystemWindowInsetBottom();}v.setPadding(dp(isLandscapeLayout()?10:20),dp(isLandscapeLayout()?0:8)+top,dp(isLandscapeLayout()?10:20),bottom);return insets;});root.requestApplyInsets();
         head=row();
+        libraryBackButton=iconButton("‹",()->navigate("Главная"));
+        libraryBackButton.setContentDescription("Назад");
+        libraryBackButton.setVisibility(isCollectionScreen()?View.VISIBLE:View.GONE);
+        head.addView(libraryBackButton,new LinearLayout.LayoutParams(dp(40),dp(44)));
         librarySettingsButton=iconButton("⚙",this::settings);
         librarySettingsButton.setContentDescription("Настройки");
         librarySettingsButton.setVisibility(isCollectionScreen()?View.VISIBLE:View.GONE);
@@ -1117,7 +1129,7 @@ public final class MainActivity extends Activity {
         compactHandoff.setContentDescription("Продолжить на этом устройстве");
         compactHandoff.setVisibility(View.GONE);
         head.addView(compactHandoff,new LinearLayout.LayoutParams(dp(42),dp(44)));
-        android.widget.ImageView menuButton=new android.widget.ImageView(this);menuButton.setImageResource(android.R.drawable.ic_menu_myplaces);menuButton.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);menuButton.setPadding(dp(8),dp(8),dp(8),dp(8));menuButton.setBackground(touchSurface(0x40202228,22));menuButton.setOnClickListener(v->menu());menuButton.setContentDescription("Меню профиля");profileAvatarButton=menuButton;
+        android.widget.ImageView menuButton=new android.widget.ImageView(this);menuButton.setImageResource(android.R.drawable.ic_menu_myplaces);menuButton.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);menuButton.setPadding(dp(8),dp(8),dp(8),dp(8));menuButton.setBackground(touchSurface(0x40202228,22));menuButton.setOnClickListener(v->{if(user.isEmpty())auth();else profile();});menuButton.setContentDescription("Открыть профиль");profileAvatarButton=menuButton;
         head.setLayoutTransition(new android.animation.LayoutTransition());
         head.addView(menuButton,new LinearLayout.LayoutParams(dp(44),dp(44)));
         libraryExtraButton=iconButton("☰",()->menu(true));
@@ -1256,9 +1268,6 @@ public final class MainActivity extends Activity {
         shell.setPadding(0,dp(12),0,dp(12));
         shell.setBackground(glass(32));
         LinearLayout top=row();top.setPadding(dp(20),dp(12),dp(20),dp(12));
-        TextView title=text(startAdditional?"Дополнительно":"Меню",24);title.setTypeface(null,android.graphics.Typeface.BOLD);
-        title.setSingleLine(true);
-        top.addView(title,new LinearLayout.LayoutParams(0,dp(42),1));
         nightwellMenuStatus=text("●",14);
         nightwellMenuStatus.setGravity(Gravity.CENTER);
         top.addView(nightwellMenuStatus,new LinearLayout.LayoutParams(dp(21),dp(36)));
@@ -1267,23 +1276,11 @@ public final class MainActivity extends Activity {
         nightwellMenuSpinner.setIndeterminateTintList(
             android.content.res.ColorStateList.valueOf(0xff67a8ff));
         top.addView(nightwellMenuSpinner,new LinearLayout.LayoutParams(dp(17),dp(24)));
-        TextView additional=iconButton(startAdditional?"‹":"⊞",()->{});
-        additional.setVisibility(startAdditional?View.VISIBLE:View.GONE);
-        additional.setTextSize(18);
-        additional.setContentDescription("Дополнительно");
-        LinearLayout.LayoutParams moreParams=new LinearLayout.LayoutParams(dp(42),dp(42));
-        moreParams.leftMargin=dp(7);top.addView(additional,moreParams);
-        android.widget.ImageView avatar=new android.widget.ImageView(this);
-        if(cachedProfileAvatar!=null&&!user.isEmpty()){
-            avatar.setImageBitmap(cachedProfileAvatar);
-            avatar.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
-            avatar.setClipToOutline(true);
-        }else avatar.setImageResource(android.R.drawable.ic_menu_myplaces);
-        avatar.setPadding(dp(5),dp(5),dp(5),dp(5));
-        avatar.setBackground(touchSurface(0x9d303237,22));
-        avatar.setContentDescription(user.isEmpty()?"Войти":"Открыть профиль");
-        LinearLayout.LayoutParams avatarParams=new LinearLayout.LayoutParams(dp(42),dp(42));
-        avatarParams.leftMargin=dp(7);top.addView(avatar,avatarParams);
+        nightwellMenuMessage=text("",14);
+        nightwellMenuMessage.setTextColor(0xffd6d7dd);
+        nightwellMenuMessage.setGravity(Gravity.CENTER_VERTICAL);
+        nightwellMenuMessage.setMaxLines(2);
+        top.addView(nightwellMenuMessage,new LinearLayout.LayoutParams(0,dp(42),1));
         shell.addView(top);
         View headerDivider=new View(this);
         headerDivider.setBackgroundColor(0x26ffffff);
@@ -1321,15 +1318,15 @@ public final class MainActivity extends Activity {
             if(navigationPopup==popup)navigationPopup=null;
             nightwellMenuStatus=null;
             nightwellMenuSpinner=null;
+            nightwellMenuMessage=null;
             if(opener!=null&&opener.isAttachedToWindow()){
                 opener.setVisibility(View.VISIBLE);
                 opener.animate().alpha(1f).setDuration(180).start();
             }
         });
-        final boolean[] extra={startAdditional};
         Runnable render=()->{
             entries.removeAllViews();
-            String[] tabs=extra[0]
+            String[] tabs=startAdditional
                 ? (user.isEmpty()?new String[]{"Слушать вместе","Обращения"}:
                     new String[]{"Слушать вместе","Моя статистика","Перенос плейлистов","Обращения"})
                 : (user.isEmpty()?new String[]{"Войти","Главная"}:
@@ -1373,22 +1370,6 @@ public final class MainActivity extends Activity {
             }
             entries.requestLayout();
         };
-        additional.setOnClickListener(v->{
-            extra[0]=!extra[0];
-            title.setText(extra[0]?"Дополнительно":"Меню");
-            additional.setText(extra[0]?"‹":"⊞");
-            additional.setContentDescription(extra[0]?"Назад в меню":"Дополнительно");
-            render.run();
-            entries.animate().cancel();
-            entries.setAlpha(.35f);
-            entries.setTranslationX(extra[0]?dp(12):-dp(12));
-            entries.animate().alpha(1f).translationX(0f).setDuration(200)
-                .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
-        });
-        avatar.setOnClickListener(v->{
-            popup.dismiss();
-            if(user.isEmpty())auth();else profile();
-        });
         render.run();
         setNightwellStatus(nightwellStatus);
         popup.show();
@@ -1969,6 +1950,7 @@ public final class MainActivity extends Activity {
         collectionActions=null;
         offlineActions=null;
         playlistCollectionScroll=null;
+        if(libraryBackButton!=null)libraryBackButton.setVisibility(isCollectionScreen()?View.VISIBLE:View.GONE);
         if(librarySettingsButton!=null)librarySettingsButton.setVisibility(isCollectionScreen()?View.VISIBLE:View.GONE);
         if(libraryExtraButton!=null)libraryExtraButton.setVisibility(isCollectionScreen()?View.VISIBLE:View.GONE);
         if(profileAvatarButton!=null)profileAvatarButton.setVisibility(isCollectionScreen()?View.GONE:View.VISIBLE);
