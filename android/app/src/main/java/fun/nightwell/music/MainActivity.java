@@ -673,7 +673,23 @@ public final class MainActivity extends Activity {
         return new android.graphics.drawable.RippleDrawable(
             android.content.res.ColorStateList.valueOf(0x24ffffff),fill,null);
     }
-    TextView sheetAction(String label,Runnable run){TextView v=action(label,run);v.setTextSize(14);v.setMaxLines(2);v.setEllipsize(android.text.TextUtils.TruncateAt.END);v.setGravity(Gravity.CENTER_VERTICAL);v.setTextColor(0xfff4f4f6);v.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));v.setPadding(dp(14),dp(10),dp(14),dp(10));v.setMinHeight(dp(46));v.setBackground(buttonRipple());return v;}
+    TextView sheetAction(String label,Runnable run){
+        TextView v=action(NightwellGlyphDrawable.cleanLabel(label),run);
+        v.setTextSize(14);
+        v.setMaxLines(2);
+        v.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        v.setGravity(Gravity.CENTER_VERTICAL);
+        v.setTextColor(0xfff4f4f6);
+        v.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));
+        v.setPadding(dp(14),dp(10),dp(14),dp(10));
+        v.setMinHeight(dp(46));
+        NightwellGlyphDrawable glyph=NightwellGlyphDrawable.forLabel(this,label);
+        glyph.setInk(0xffbcbfc9);
+        v.setCompoundDrawablesWithIntrinsicBounds(glyph,null,null,null);
+        v.setCompoundDrawablePadding(dp(13));
+        v.setBackground(buttonRipple());
+        return v;
+    }
     android.graphics.drawable.Drawable buttonRipple(){return new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x28ffffff),null,null);}
     TextView action(String label,Runnable run){TextView v=NativeIconButton.isIcon(label)?new NativeIconButton(this):text(label,16);v.setText(label);v.setTextColor(0xfff3f3f5);v.setTextSize(NativeIconButton.isIcon(label)?20:16);if(NativeIconButton.isIcon(label))v.setContentDescription(iconLabel(label));v.setGravity(Gravity.CENTER);v.setPadding(dp(12),dp(9),dp(12),dp(9));v.setMinHeight(dp(48));v.setBackground(buttonRipple());v.setOnClickListener(x->run.run());return v;}
     TextView iconButton(String label,Runnable run){TextView v=action(label,run);v.setPadding(0,0,0,0);v.setTextSize(19);v.setTextColor(0xfff1f1f6);v.setBackground(buttonRipple());return v;}
@@ -4471,16 +4487,14 @@ public final class MainActivity extends Activity {
         boolean animate=getSharedPreferences("appearance",MODE_PRIVATE)
             .getBoolean("nw-animated-album-artwork",true);
         java.util.List<String> options=new java.util.ArrayList<>();
-        options.add("Твой ритм по треку");
-        options.add(video?"Клип":"Найти клип");
+        options.add("Действия с треком");
         options.add("Качество звука");
         options.add("Эквалайзер");
         if(!classic)options.add(animate?"Отключить анимацию обложки":"Включить анимацию обложки");
         options.add("Действия с треком");
         nightwellOptions("Плеер",options.toArray(new String[0]),n->{
             String item=options.get(n);
-            if(item.equals("Твой ритм по треку"))seededRhythmByTrack(track);
-            else if(item.equals("Клип")||item.equals("Найти клип"))openClip(track);
+            if(item.equals("Действия с треком"))trackMenu(track);
             else if(item.equals("Качество звука"))qualityPlayerMenu();
             else if(item.equals("Эквалайзер"))feature("sound");
             else if(item.contains("анимацию обложки")){
@@ -4509,54 +4523,99 @@ public final class MainActivity extends Activity {
         });
     }
     void trackMenu(JSONObject track){
+        if(track==null||track.optString("id").isEmpty())return;
+        final String id=track.optString("id");
+        final boolean downloaded=OfflineStore.audio(this,origin,user,id)!=null;
+        final String favorite=likes.contains(id)?"Убрать из избранного":"В избранное";
+        final String download=downloaded?"Удалить загрузку":"Скачать";
+        // Keep only six common choices visible. Advanced preferences,
+        // clips and recommendation controls remain in a second level.
+        String[] options={
+            "Играть следующим",favorite,"Добавить в плейлист",
+            download,"Поделиться","Ещё"
+        };
+        nightwellOptions(track.optString("title","Трек"),options,choice->{
+            switch(choice){
+                case 0:enqueueTrack(track,true);break;
+                case 1:toggleFavorite(track);break;
+                case 2:addTrackToPlaylist(track);break;
+                case 3:changeTrackDownload(track,downloaded);break;
+                case 4:share(origin+"track/"+id);break;
+                case 5:moreTrackActions(track);break;
+                default:break;
+            }
+        });
+    }
+
+    private void addTrackToPlaylist(JSONObject track){
+        if(user.isEmpty()){auth();return;}
+        if(playlists==null||playlists.length()==0){
+            if(status!=null)status.setText("Сначала создай плейлист в медиатеке");
+            return;
+        }
+        String[] names=new String[playlists.length()];
+        for(int i=0;i<names.length;i++){
+            JSONObject playlist=playlists.optJSONObject(i);
+            names[i]=playlist==null?"Плейлист":playlist.optString("name","Плейлист");
+        }
+        AlertDialog choose=new AlertDialog.Builder(this)
+            .setTitle("Добавить в плейлист")
+            .setItems(names,(dialog,which)->{
+                JSONObject playlist=playlists.optJSONObject(which);
+                if(playlist==null)return;
+                String id=playlist.optString("id");
+                String trackId=track.optString("id");
+                if(id.isEmpty()||trackId.isEmpty())return;
+                task(()->api.request("api/playlists/"+id+"/tracks/"+trackId,"POST",null),
+                    result->{if(status!=null)status.setText("Добавлено в плейлист");});
+            }).create();
+        styleSheet(choose);
+        choose.show();
+    }
+
+    private void changeTrackDownload(JSONObject track,boolean downloaded){
+        if(track==null)return;
         String id=track.optString("id");
-        final boolean video=foundClip(track)!=null;
-        java.util.List<String> actionsList=new java.util.ArrayList<>();
-        actionsList.add("Играть следующим");
-        actionsList.add("Добавить в очередь");
-        actionsList.add("Твой ритм по треку");
-        actionsList.add(video?"Клип":"Найти клип");
-        boolean downloaded=OfflineStore.audio(this,origin,user,id)!=null;
-        actionsList.addAll(java.util.Arrays.asList(
-            likes.contains(id)?"Убрать из избранного":"В избранное",
-            downloaded?"Удалить загрузку":"Скачать","Поделиться","Добавить в плейлист",
-            hiddenRecommendations().contains(id)?"Вернуть в рекомендации":"Не рекомендовать",
-            isArtistHidden(track)?"Вернуть исполнителя":"Не рекомендовать исполнителя"));
+        if(downloaded){
+            task(()->new JSONObject(OfflineStore.operation(this,origin,
+                new JSONObject().put("op","remove").put("account",user)
+                    .put("id",id).toString())),
+                result->{
+                    if(status!=null)status.setText("Загрузка удалена");
+                    if("Офлайн".equals(screen))showScreen();
+                });
+        }else download(new JSONArray().put(track));
+    }
+
+    private void moreTrackActions(JSONObject track){
+        if(track==null)return;
+        String id=track.optString("id");
+        java.util.List<String> options=new java.util.ArrayList<>();
+        options.add("Добавить в очередь");
+        options.add("Твой ритм по треку");
+        options.add(foundClip(track)!=null?"Клип":"Найти клип");
+        options.add(hiddenRecommendations().contains(id)
+            ?"Вернуть в рекомендации":"Не рекомендовать");
+        options.add(isArtistHidden(track)
+            ?"Вернуть исполнителя":"Не рекомендовать исполнителя");
         if(!togetherCode.isEmpty()&&!user.isEmpty())
-            actionsList.add("Добавить в совместное прослушивание");
-        nightwellOptions(track.optString("title","Действия с треком"),
-            actionsList.toArray(new String[0]),chosen->{
-                if(chosen==0){enqueueTrack(track,true);return;}
-                if(chosen==1){enqueueTrack(track,false);return;}
-                if(chosen==2){seededRhythmByTrack(track);return;}
-                if(chosen==3){openClip(track);return;}
-                if("Добавить в совместное прослушивание".equals(actionsList.get(chosen))){
-                    addToTogetherQueue(track);
-                    return;
-                }
-                int n=chosen-4;
-                if(n==0)toggleFavorite(track);
-                else if(n==1){
-                    if(downloaded){
-                        task(()->new JSONObject(OfflineStore.operation(this,origin,
-                            new JSONObject().put("op","remove").put("account",user)
-                                .put("id",id).toString())),
-                            result->{status.setText("Загрузка удалена");if(screen.equals("Офлайн"))showScreen();});
-                    }else download(new JSONArray().put(track));
-                }
-                else if(n==2)share(origin+"track/"+id);
-                else if(n==4)toggleRecommendationHidden(track);
-                else if(n==5)toggleArtistHidden(track);
-                else {
-                    String[] names=new String[playlists.length()];
-                    for(int i=0;i<names.length;i++)names[i]=playlists.optJSONObject(i).optString("name");
-                    AlertDialog choose=new AlertDialog.Builder(this).setTitle("В плейлист")
-                        .setItems(names,(x,i)->task(()->api.request(
-                            "api/playlists/"+playlists.optJSONObject(i).getString("id")+"/tracks/"+id,
-                            "POST",null),v->{})).create();
-                    styleSheet(choose);choose.show();
-                }
-            });
+            options.add("Добавить в совместное прослушивание");
+        options.add("Назад");
+        nightwellOptions("Ещё",options.toArray(new String[0]),which->{
+            String chosen=options.get(which);
+            switch(chosen){
+                case "Добавить в очередь":enqueueTrack(track,false);break;
+                case "Твой ритм по треку":seededRhythmByTrack(track);break;
+                case "Клип":case "Найти клип":openClip(track);break;
+                case "Вернуть в рекомендации":case "Не рекомендовать":
+                    toggleRecommendationHidden(track);break;
+                case "Вернуть исполнителя":case "Не рекомендовать исполнителя":
+                    toggleArtistHidden(track);break;
+                case "Добавить в совместное прослушивание":addToTogetherQueue(track);break;
+                case "Назад":trackMenu(track);break;
+                default:break;
+            }
+        });
     }
     void enqueueTrack(JSONObject track,boolean next){
         if(track==null)return;
@@ -4614,22 +4673,34 @@ public final class MainActivity extends Activity {
         });
     }
     void nightwellOptions(String title,String[] options,java.util.function.IntConsumer selected){
-        LinearLayout panel=column();panel.setPadding(dp(20),dp(14),dp(20),dp(22));
-        TextView heading=text(title,24);heading.setTextColor(0xffeeeeee);
-        heading.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
-        heading.setPadding(0,dp(10),0,dp(18));panel.addView(heading);
-        AlertDialog dialog=new AlertDialog.Builder(this).setView(panel).create();
+        LinearLayout panel=column();
+        panel.setPadding(dp(16),dp(9),dp(16),dp(12));
+        TextView heading=text(title,19);
+        heading.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));
+        heading.setTextColor(0xfff2f2f5);
+        heading.setMaxLines(2);
+        heading.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        heading.setPadding(dp(9),dp(9),dp(9),dp(12));
+        panel.addView(heading,new LinearLayout.LayoutParams(-1,-2));
+        ScrollView scroll=new ScrollView(this);
+        scroll.setFillViewport(false);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.addView(panel);
+        AlertDialog dialog=new AlertDialog.Builder(this).setView(scroll).create();
         for(int index=0;index<options.length;index++){
             final int choice=index;
-            TextView entry=sheetAction(options[index],()->{dialog.dismiss();selected.accept(choice);});
-            entry.setTextSize(16);
-            entry.setMinHeight(dp(49));
-            entry.setPadding(dp(16),0,dp(16),0);
-            entry.setBackground(buttonRipple());
-            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(49));
-            lp.setMargins(0,dp(4),0,dp(4));panel.addView(entry,lp);
+            TextView entry=sheetAction(options[index],()->{
+                dialog.dismiss();selected.accept(choice);
+            });
+            entry.setTextSize(15);
+            entry.setMinHeight(dp(47));
+            entry.setPadding(dp(11),dp(6),dp(9),dp(6));
+            LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,dp(47));
+            if(index>0)params.topMargin=dp(2);
+            panel.addView(entry,params);
         }
-        styleNavigationSheet(dialog);dialog.show();
+        styleNavigationSheet(dialog);
+        dialog.show();
     }
     void collectionMenu(String kind,String id){
         String[] options=kind.equals("playlist")
