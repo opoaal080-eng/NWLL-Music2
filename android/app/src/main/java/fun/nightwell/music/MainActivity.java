@@ -1586,6 +1586,9 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams a1=new LinearLayout.LayoutParams(-1,dp(53));
         a1.bottomMargin=dp(9);panel.addView(editAvatar,a1);
         panel.addView(editNick,new LinearLayout.LayoutParams(-1,dp(53)));
+        TextView devicesButton=sheetAction("▣    Мои устройства    ›",this::accountDevices);
+        LinearLayout.LayoutParams deviceParams=new LinearLayout.LayoutParams(-1,dp(53));
+        deviceParams.topMargin=dp(9);panel.addView(devicesButton,deviceParams);
         if(premiumAllowed()){
             TextView activePremium=sheetAction("✧    Nightwell Premium · Подписка активна    ›",this::premium);
             LinearLayout.LayoutParams premiumParams=new LinearLayout.LayoutParams(-1,dp(53));
@@ -1608,6 +1611,70 @@ public final class MainActivity extends Activity {
                 selectMenu("Выйти");
             }).show());
         styleNavigationSheet(sheet);sheet.show();
+    }
+
+    /** Manage registered sessions without revealing another user's device IDs. */
+    void accountDevices(){
+        if(user.isEmpty()){auth();return;}
+        LinearLayout panel=column();
+        panel.setPadding(dp(17),dp(14),dp(17),dp(14));
+        TextView message=text("Загружаем список устройств…",14);
+        panel.addView(message);
+        LinearLayout entries=column();
+        panel.addView(entries);
+        ScrollView scroll=new ScrollView(this);
+        scroll.addView(panel);
+        AlertDialog dialog=new AlertDialog.Builder(this)
+            .setTitle("Мои устройства")
+            .setView(scroll)
+            .setPositiveButton("Готово",null).create();
+        styleNavigationSheet(dialog);
+        dialog.show();
+        String owner=user;
+        io.execute(()->{
+            try{
+                JSONObject data=api.request("api/devices");
+                JSONArray devices=data.optJSONArray("devices");
+                int limit=data.optInt("limit",2);
+                ui.post(()->{
+                    if(isDestroyed()||!dialog.isShowing()||!owner.equals(user))return;
+                    message.setText("Подключено: "+(devices==null?0:devices.length())+" из "+limit);
+                    entries.removeAllViews();
+                    if(devices==null)return;
+                    for(int i=0;i<devices.length();i++){
+                        JSONObject device=devices.optJSONObject(i);
+                        if(device==null)continue;
+                        String id=device.optString("id");
+                        String deviceName=device.optString("name","Устройство");
+                        String platform=device.optString("platform","");
+                        boolean current=device.optBoolean("current");
+                        String label=(platform.equals("ios")?"iPhone":platform.equals("android")?"Android":"Windows")
+                            +" · "+deviceName+(current?" · Это устройство":"")
+                            +(device.optBoolean("blocked")?" · Недоступно":"");
+                        TextView remove=sheetAction(label+"    ×",()->{
+                            new AlertDialog.Builder(this)
+                                .setTitle("Удалить устройство?")
+                                .setMessage("После отвязки потребуется зарегистрировать его заново.")
+                                .setNegativeButton("Отмена",null)
+                                .setPositiveButton("Удалить",(ask,which)->io.execute(()->{
+                                    try{
+                                        api.request("api/devices/"+id,"DELETE",null);
+                                        ui.post(()->{if(dialog.isShowing())dialog.dismiss();accountDevices();});
+                                    }catch(Exception error){
+                                        ui.post(()->message.setText("Не удалось удалить: "+friendly(error)));
+                                    }
+                                })).show();
+                        });
+                        LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,dp(58));
+                        params.topMargin=dp(8);
+                        entries.addView(remove,params);
+                    }
+                });
+            }catch(Exception e){
+                ui.post(()->{if(!isDestroyed()&&dialog.isShowing())
+                    message.setText("Не удалось загрузить устройства. Обнови сервер: "+friendly(e));});
+            }
+        });
     }
 
     void selectMenu(String tab){
@@ -2604,6 +2671,20 @@ public final class MainActivity extends Activity {
             try {
                 JSONObject me=api.request("api/me");
                 api.updateCSRF(me.optString("csrf",""));
+                JSONObject signedIn=me.optJSONObject("user");
+                String accountDeviceError="";
+                if(signedIn!=null){
+                    try{
+                        api.request("api/devices/register","POST",
+                            new JSONObject()
+                                .put("device_id",NativeAPI.deviceID(this))
+                                .put("platform","android")
+                                .put("name",NativeAPI.deviceLabel()));
+                    }catch(NetworkRetry.HttpFailure ex){
+                        if(ex.status!=404)accountDeviceError=ex.getMessage();
+                    }
+                }
+                final String deviceRegistrationError=accountDeviceError;
                 ui.post(()->{
                     if(isDestroyed()||!accountRequest.complete(ticket))return;
                     connectionRecoveryAttempts=0;
@@ -2625,7 +2706,8 @@ public final class MainActivity extends Activity {
                     if(playback!=null&&pendingDeepLinkTrack.isEmpty())playback.restorePlayback(origin,user);
                     if(!full&&!screen.equals("Поиск"))showScreen();
                     openPendingTrack();
-                    if(!user.isEmpty())loadLibrary(user);
+                    if(!user.isEmpty()&&deviceRegistrationError.isEmpty())loadLibrary(user);
+                    if(!deviceRegistrationError.isEmpty())status.setText("Устройства: "+deviceRegistrationError);
                 });
             }catch(Exception ex){
                 ui.post(()->{
