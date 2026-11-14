@@ -2,7 +2,7 @@
  Title="Nightwell Music" Width="1120" Height="800" MinWidth="800" MinHeight="620" WindowStartupLocation="CenterScreen" Style="{StaticResource {x:Type Window}}" PreviewKeyDown="InterfaceKeyDown">
  <Window.Resources><local:TrackMatchConverter x:Key="TrackMatch"/><local:CurrentArtworkConverter x:Key="CurrentCover"/><local:TrackCountConverter x:Key="TrackCount"/></Window.Resources>
  <Grid Background="{StaticResource WindowBrush}" Margin="24,18,24,20">
-  <Grid.RowDefinitions><RowDefinition x:Name="HeaderRow" Height="58"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+  <Grid.RowDefinitions><RowDefinition x:Name="HeaderRow" Height="58"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
   <Grid x:Name="Header" Margin="0,0,0,16">
    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
    <Button x:Name="LogoHome" Click="LogoHomeClick" Style="{StaticResource QuietButton}" HorizontalAlignment="Left" VerticalAlignment="Center" Padding="4,0" Margin="-4,0,0,0" ToolTip="На главную" AutomationProperties.Name="Nightwell Music, на главную">
@@ -202,7 +202,13 @@
     <Border x:Name="MiniProgress" Background="#939393" HorizontalAlignment="Left" Width="0" Height="2" VerticalAlignment="Bottom" Margin="0,0,0,-9" Grid.ColumnSpan="3" IsHitTestVisible="False" CornerRadius="1"/>
    </Grid>
   </Border>
-  <Grid x:Name="EmbeddedSheetLayer" Grid.RowSpan="4" Panel.ZIndex="200" Visibility="Collapsed">
+  <StackPanel x:Name="BottomTabs" Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,5,0,0">
+   <Button Content="Главная" Click="LogoHomeClick" Style="{StaticResource QuietButton}" Margin="0,0,6,0" ToolTip="Главная"/>
+   <Button Content="Поиск" Click="SearchClick" Style="{StaticResource QuietButton}" Margin="0,0,6,0" ToolTip="Поиск"/>
+   <Button Content="Медиатека" Click="BottomLibraryClick" Style="{StaticResource QuietButton}" Margin="0,0,6,0" ToolTip="Медиатека"/>
+   <Button x:Name="PremiumDockButton" Content="✧  Premium" Click="PremiumClick" Style="{StaticResource QuietButton}" ToolTip="Nightwell Premium"/>
+  </StackPanel>
+  <Grid x:Name="EmbeddedSheetLayer" Grid.RowSpan="5" Panel.ZIndex="200" Visibility="Collapsed">
    <Border Background="#C9000000" MouseDown="EmbeddedSheetOutsideClick"/>
    <Border x:Name="EmbeddedSheetFrame" Width="560" Height="570" MaxWidth="680"
            HorizontalAlignment="Center" VerticalAlignment="Center"
