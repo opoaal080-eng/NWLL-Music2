@@ -24,6 +24,9 @@ permissions:
   contents: read
 jobs:
   windows:
+    # Android-only work on this shared PR must not launch windows builds.
+    # Push builds and PRs from other branches are unaffected.
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.ref != 'fix/ios-search-transfer-regressions-20261112' }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
