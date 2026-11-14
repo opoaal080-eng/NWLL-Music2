@@ -1,4 +1,4 @@
-"""Install or update the account-device registry on a compatible FastAPI server.
+r"""Install or update the account-device registry on a compatible FastAPI server.
 
 Usage:
     python install_account_devices.py --check --target "C:\Nightwell\Server"
