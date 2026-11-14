@@ -1268,6 +1268,7 @@ public final class MainActivity extends Activity {
             android.content.res.ColorStateList.valueOf(0xff67a8ff));
         top.addView(nightwellMenuSpinner,new LinearLayout.LayoutParams(dp(17),dp(24)));
         TextView additional=iconButton(startAdditional?"‹":"⊞",()->{});
+        additional.setVisibility(startAdditional?View.VISIBLE:View.GONE);
         additional.setTextSize(18);
         additional.setContentDescription("Дополнительно");
         LinearLayout.LayoutParams moreParams=new LinearLayout.LayoutParams(dp(42),dp(42));
