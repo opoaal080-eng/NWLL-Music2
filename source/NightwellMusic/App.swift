@@ -1209,7 +1209,7 @@ struct NativeRoot: View {
                         }
                         .accessibilityLabel("Новый плейлист")
                     }
-                    Button("Умные плейлисты · Premium") { feature = .smart }
+                    Button((favoritePremium.allowed || !favoritePremium.entitlementVerified) ? "Умные плейлисты" : "Умные плейлисты · Premium") { feature = .smart }
                     DailyPublicPlaylistsView(store: store)
                     LazyVStack(spacing: 12) {
                         ForEach(store.playlists) { playlist in
