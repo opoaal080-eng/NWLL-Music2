@@ -1027,14 +1027,20 @@ struct NativeRoot: View {
 
     private func libraryHeader(landscape: Bool) -> some View {
         HStack {
-            Button {
-                if store.screen == .library { navigationMenuPresented = true }
-                else { navigate(to: .library) }
-            } label: {
-                Group {
-                    if store.screen != .library {
+            if store.screen != .library {
+                Button { navigate(to: .library) } label: {
                         Image(systemName: "chevron.left").font(.system(size: 20, weight: .medium))
-                    } else if let avatar = store.profileAvatar {
+                        .frame(width: 44, height: 44).contentShape(Rectangle())
+                }
+                .accessibilityLabel("Назад в медиатеку")
+            } else {
+                Color.clear.frame(width: 44, height: 44)
+                    .allowsHitTesting(false).accessibilityHidden(true)
+            }
+            Spacer()
+            Button { navigationMenuPresented = true } label: {
+                Group {
+                    if let avatar = store.profileAvatar {
                         Image(uiImage: avatar).resizable().scaledToFill()
                             .frame(width: 30, height: 30).clipShape(Circle())
                     } else {
@@ -1043,13 +1049,7 @@ struct NativeRoot: View {
                 }
                 .frame(width: 44, height: 44).contentShape(Rectangle())
             }
-            .accessibilityLabel(store.screen == .library ? "Меню и профиль" : "Назад в медиатеку")
-            Spacer()
-            Button { navigate(to: .search) } label: {
-                Image(systemName: "magnifyingglass").font(.system(size: 22, weight: .regular))
-                    .frame(width: 44, height: 44).contentShape(Rectangle())
-            }
-            .accessibilityLabel("Поиск")
+            .accessibilityLabel("Меню и профиль")
         }
         .buttonStyle(.plain)
         .foregroundStyle(.white)
@@ -1464,18 +1464,6 @@ struct NativeRoot: View {
                         .accessibilityLabel("Новый плейлист")
                     }
                     Button("Умные плейлисты · Premium") { feature = .smart }
-                    Button { dailyPlaylistsPresented = true } label: {
-                        HStack(spacing: 12) {
-                            Image(systemName: "sparkles")
-                            Text("Подборки дня").font(.headline)
-                            Spacer()
-                            Image(systemName: "chevron.right").font(.caption)
-                        }
-                        .padding(.horizontal, 18).padding(.vertical, 16)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .glass()
-                    }
-                    .buttonStyle(.plain)
                     LazyVStack(spacing: 12) {
                         ForEach(store.playlists) { playlist in
                             HStack {
@@ -1645,7 +1633,7 @@ struct NativeTrackRow: View {
                 else { store.play(track, in: queue) }
             } label: {
                 HStack(spacing: 12) {
-                    Cover(track: track, origin: store.origin)
+                    Cover(track: track, origin: store.origin, pixelWidth: libraryPreview ? 224 : 160)
                         .frame(width: libraryPreview ? 56 : 46, height: libraryPreview ? 56 : 46)
                         .clipShape(RoundedRectangle(cornerRadius: libraryPreview ? 8 : 12))
                     VStack(alignment: .leading, spacing: 5) {
@@ -1710,6 +1698,7 @@ struct NativeTrackRow: View {
             .padding(.trailing, 5)
             .accessibilityLabel("Действия с треком " + track.title)
         }
+        .padding(.horizontal, libraryPreview ? 8 : 0)
         .background(status.id == track.id ? pumpkin.opacity(0.12) : libraryPreview ? .clear : .white.opacity(0.035),
                     in: RoundedRectangle(cornerRadius: 18))
         .confirmationDialog("Выбери исполнителя", isPresented: $showArtistChoices, titleVisibility: .visible) {
@@ -1913,28 +1902,35 @@ struct Cover: View {
     let origin: URL
     var pixelWidth = 160
     @State private var artwork: UIImage?
+    @State private var loadedArtworkURL: URL?
 
     private var coverURL: URL? {
         track.flatMap { CoverImagePipeline.coverURL(for: $0, origin: origin) }
     }
     var body: some View {
-        ZStack {
-            if let artwork {
-                Image(uiImage: artwork).resizable().scaledToFill()
-            } else {
+        GeometryReader { box in
+            ZStack {
                 Color.white.opacity(0.08)
-                Image(systemName: "music.note")
-                    .font(.title)
-                    .foregroundStyle(.white.opacity(0.7))
+                if let artwork, loadedArtworkURL == coverURL {
+                    Image(uiImage: artwork).resizable().scaledToFill()
+                        .frame(width: box.size.width, height: box.size.height)
+                        .clipped()
+                } else {
+                    Image(systemName: "music.note")
+                        .font(.title)
+                        .foregroundStyle(.white.opacity(0.7))
+                }
             }
+            .frame(width: box.size.width, height: box.size.height)
+            .clipped()
         }
-        .clipped()
         .task(id: "\(coverURL?.absoluteString ?? "")#\(pixelWidth)") {
-            artwork = nil
-            guard let coverURL else { return }
+            guard let coverURL else { artwork = nil; loadedArtworkURL = nil; return }
+            if loadedArtworkURL != coverURL { artwork = nil; loadedArtworkURL = nil }
             let image = await CoverImagePipeline.shared.image(for: coverURL, maxPixel: pixelWidth)
             guard !Task.isCancelled else { return }
             artwork = image
+            loadedArtworkURL = image == nil ? nil : coverURL
         }
     }
 }

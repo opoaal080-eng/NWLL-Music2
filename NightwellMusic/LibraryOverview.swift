@@ -90,7 +90,7 @@ struct LibraryOverview: View {
                     .accessibilityHidden(true)
 
                 VStack(alignment: .leading, spacing: 7) {
-                    Text("Мне нравится")
+                    Text("Избранное")
                         .font(.title2.bold())
                         .foregroundStyle(.white)
                         .fixedSize(horizontal: false, vertical: true)
@@ -112,9 +112,9 @@ struct LibraryOverview: View {
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Мне нравится")
+        .accessibilityLabel("Избранное")
         .accessibilityValue(countText(store.likes.count))
-        .accessibilityHint("Открывает все понравившиеся треки")
+        .accessibilityHint("Открывает все треки в избранном")
     }
 
     private func libraryTile(_ title: String, icon: String, detail: String,
