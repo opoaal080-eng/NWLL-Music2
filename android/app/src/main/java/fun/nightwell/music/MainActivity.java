@@ -24,7 +24,7 @@ public final class MainActivity extends Activity {
     private TextView liveHandoff, compactHandoff;
     private boolean handoffCollapsed = false;
     private Runnable handoffCollapseTask;
-    private TextView nightwellBadge, nightwellMenuStatus, nightwellMenuMessage;
+    private TextView nightwellBadge, nightwellMenuStatus, nightwellMenuMessage, headerConnectionBrandName;
     private ProgressBar nightwellMenuSpinner;
     private String nightwellStatus = "Проверка…";
     private final Runnable nightwellProbe = new Runnable() {
@@ -72,6 +72,7 @@ public final class MainActivity extends Activity {
         boolean connecting = value.equals("Загрузка…") || value.equals("Проверка…");
         int color = connecting ? 0xff67a8ff : value.equals("Онлайн") ? 0xff5fe7a3 :
                     value.equals("Ограничен") ? 0xffffc076 : 0xffa7abb7;
+        updateWordmarkStatusDot(color);
         if (nightwellBadge != null) {
             nightwellBadge.setText("●");
             nightwellBadge.setTextColor(color);
@@ -93,6 +94,15 @@ public final class MainActivity extends Activity {
             nightwellMenuMessage.setText(message);
             nightwellMenuMessage.setContentDescription("Подключение Nightwell: "+message);
         }
+    }
+    // Recolor the combining dot that belongs to the lowercase i, not an
+    // additional circle sitting above the Nightwell wordmark.
+    private void updateWordmarkStatusDot(int color) {
+        if (headerConnectionBrandName == null) return;
+        android.text.SpannableString title=new android.text.SpannableString("Nı\u0307ghtwell");
+        title.setSpan(new android.text.style.ForegroundColorSpan(color),2,3,
+            android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        headerConnectionBrandName.setText(title);
     }
     private JSONObject liveRemote;
     private boolean liveOwner, liveBusy;
@@ -1121,7 +1131,7 @@ public final class MainActivity extends Activity {
         headerBrandButton=brand;
         brand.setVisibility(isCollectionScreen()?View.GONE:View.VISIBLE);
         LinearLayout wordmark=column();wordmark.setGravity(Gravity.CENTER_VERTICAL);wordmark.setPadding(dp(9),0,0,0);
-        TextView brandName=text("Nightwell",25);brandName.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);brandName.setTextColor(0xfff3f3f5);brandName.setIncludeFontPadding(false);brandName.setSingleLine(true);brandName.setAutoSizeTextTypeUniformWithConfiguration(18,25,1,android.util.TypedValue.COMPLEX_UNIT_SP);
+        TextView brandName=text("Nı\u0307ghtwell",25);headerConnectionBrandName=brandName;brandName.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);brandName.setTextColor(0xfff3f3f5);brandName.setIncludeFontPadding(false);brandName.setSingleLine(true);brandName.setAutoSizeTextTypeUniformWithConfiguration(18,25,1,android.util.TypedValue.COMPLEX_UNIT_SP);
         wordmark.addView(brandName,new LinearLayout.LayoutParams(-1,dp(landscape?27:31)));
         TextView brandCaption=text("M U S I C",12);brandCaption.setIncludeFontPadding(false);brandCaption.setSingleLine(true);brandCaption.setTextColor(0xff92959f);LinearLayout.LayoutParams captionParams=new LinearLayout.LayoutParams(-1,-2);captionParams.topMargin=dp(1);wordmark.addView(brandCaption,captionParams);
         wordmark.setOnClickListener(v->navigate("Главная"));wordmark.setContentDescription("Nightwell Music, на главный экран");headerWordmark=wordmark;head.addView(wordmark,new LinearLayout.LayoutParams(0,-2,1));wordmark.setVisibility(isCollectionScreen()?View.INVISIBLE:View.VISIBLE);if(landscape){brandName.setTextSize(20);brandCaption.setTextSize(9);}TextView searchButton=iconButton("⌕",()->navigate("Поиск"));searchButton.setBackground(touchSurface(0x40202228,22));head.addView(searchButton,new LinearLayout.LayoutParams(dp(44),dp(44)));
