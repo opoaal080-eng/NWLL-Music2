@@ -279,6 +279,8 @@ public final class MainActivity extends Activity {
     private final Set<String> favoritePending=new HashSet<>();
     private final java.util.Map<String,Long> favoriteRecoveryAttempts=new java.util.HashMap<>();
     private final ExecutorService favoriteLookup=Executors.newSingleThreadExecutor();
+    // At most three parallel legacy metadata lookups, independent from playback IO.
+    private final ExecutorService favoriteMetadataNetwork=Executors.newFixedThreadPool(3);
     private long favoriteRevision;
     private long favoriteLastRecovery;
     private int favoriteRecoveryGeneration;
@@ -508,7 +510,7 @@ public final class MainActivity extends Activity {
 
     @Override protected void onResume(){super.onResume();if(redirectedToFirstRun)return;restoreRecent();visible=true;ui.removeCallbacks(nightwellProbe);ui.post(nightwellProbe);if(!smokeMode&&sessionReady&&SystemClock.elapsedRealtime()-lastResumeRefresh>30000)load();if(premiumRefresh!=null)premiumRefresh.run();BackgroundDownloads.reconcile(this);if(ribbon!=null)ribbon.running(!smokeMode&&!full&&screen.equals("Главная"));ui.removeCallbacks(tick);if(!smokeMode)ui.post(tick);ui.removeCallbacks(homeKineticTicker);if(!smokeMode)ui.post(homeKineticTicker);if(!smokeMode&&lyricsText!=null){ui.removeCallbacks(lyricTicker);ui.post(lyricTicker);}}
     @Override protected void onPause(){super.onPause();if(redirectedToFirstRun)return;ui.removeCallbacks(nightwellProbe);ui.removeCallbacks(connectionRecovery);if(navigationPopup!=null)navigationPopup.dismiss();if(playback!=null)playback.persistPlayback(true);visible=false;if(ribbon!=null)ribbon.running(false);ui.removeCallbacks(tick);ui.removeCallbacks(homeKineticTicker);ui.removeCallbacks(lyricTicker);}
-    @Override protected void onDestroy(){if(redirectedToFirstRun){super.onDestroy();return;}ui.removeCallbacks(nightwellProbe);generation++;cancelMix();accountRequest.cancel();if(api!=null)api.close();ui.removeCallbacksAndMessages(null);if(artworkCache!=null)artworkCache.close();favoriteRecoveryGeneration++;favoriteLookup.shutdownNow();io.shutdownNow();waveIO.shutdownNow();prefetch.shutdownNow();playlistIndexer.shutdownNow();if(playback!=null)playback.player.removeListener(playbackIntentObserver);if(bindingRegistered){unbindService(connection);bindingRegistered=false;}super.onDestroy();}
+    @Override protected void onDestroy(){if(redirectedToFirstRun){super.onDestroy();return;}ui.removeCallbacks(nightwellProbe);generation++;cancelMix();accountRequest.cancel();if(api!=null)api.close();ui.removeCallbacksAndMessages(null);if(artworkCache!=null)artworkCache.close();favoriteRecoveryGeneration++;favoriteLookup.shutdownNow();favoriteMetadataNetwork.shutdownNow();io.shutdownNow();waveIO.shutdownNow();prefetch.shutdownNow();playlistIndexer.shutdownNow();if(playback!=null)playback.player.removeListener(playbackIntentObserver);if(bindingRegistered){unbindService(connection);bindingRegistered=false;}super.onDestroy();}
     int dp(float n){return (int)(n*getResources().getDisplayMetrics().density+.5f);}
     boolean isLandscapeLayout(){
         android.content.res.Configuration c=getResources().getConfiguration();
@@ -2679,7 +2681,7 @@ public final class MainActivity extends Activity {
             if(previous!=null&&now-previous<180000)continue;
             pending.add(id);
             favoriteRecoveryAttempts.put(id,now);
-            if(pending.size()>=10)break;
+            if(pending.size()>=12)break;
         }
         if(pending.isEmpty()){
             long nextAt=Long.MAX_VALUE;
@@ -2757,21 +2759,43 @@ public final class MainActivity extends Activity {
                         for(JSONObject item:candidates)resolved.add(item.optString("id"));
                     }catch(Exception ignored){}
 
-                    // Legacy fallback. Keep a bounded batch to avoid flooding
-                    // SoundCloud/Audius/Cloud APIs behind the Nightwell server.
+                    // Resolve only the remaining legacy IDs. A bounded three-worker
+                    // batch is significantly faster than 12 serial requests,
+                    // without flooding the Nightwell metadata endpoint.
+                    java.util.ArrayList<java.util.concurrent.Callable<JSONObject>> jobs=
+                        new java.util.ArrayList<>();
                     for(String id:pending){
-                        if(resolved.contains(id)||Thread.currentThread().isInterrupted())continue;
+                        if(resolved.contains(id))continue;
+                        jobs.add(()->{
+                            NativeAPI lookup=new NativeAPI(this,server);
+                            try{
+                                JSONObject response=lookup.request("api/shared-track/"+
+                                    java.net.URLEncoder.encode(id,"UTF-8"));
+                                java.util.ArrayList<JSONObject> matches=new java.util.ArrayList<>();
+                                appendFavoriteMetadata(matches,response);
+                                for(JSONObject item:matches)
+                                    if(id.equals(item.optString("id")))return item;
+                            }catch(Exception ignored){}
+                            finally{lookup.close();}
+                            return null;
+                        });
+                    }
+                    if(!jobs.isEmpty()){
                         try{
-                            JSONObject response=client.request("api/shared-track/"+
-                                java.net.URLEncoder.encode(id,"UTF-8"));
-                            java.util.ArrayList<JSONObject> matches=new java.util.ArrayList<>();
-                            appendFavoriteMetadata(matches,response);
-                            for(JSONObject item:matches)if(id.equals(item.optString("id"))){
-                                candidates.add(item);
-                                resolved.add(id);
-                                break;
+                            java.util.List<java.util.concurrent.Future<JSONObject>> results=
+                                favoriteMetadataNetwork.invokeAll(jobs,18,
+                                    java.util.concurrent.TimeUnit.SECONDS);
+                            for(java.util.concurrent.Future<JSONObject> future:results){
+                                if(future.isCancelled())continue;
+                                try{
+                                    JSONObject item=future.get();
+                                    if(item!=null&&resolved.add(item.optString("id")))
+                                        candidates.add(item);
+                                }catch(Exception ignored){}
                             }
-                        }catch(Exception ignored){}
+                        }catch(InterruptedException interrupted){
+                            Thread.currentThread().interrupt();
+                        }
                     }
                 }finally{client.close();}
             }catch(Exception ignored){
