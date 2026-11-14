@@ -771,6 +771,9 @@ struct NativeRoot: View {
 
     private var navigationSheetsScene: some View {
         artworkScene
+        .task(id: store.account?.id) {
+            await favoritePremium.refresh(store)
+        }
         .animation(.spring(response: 0.3, dampingFraction: 0.86), value: settings)
         .animation(.spring(response: 0.3, dampingFraction: 0.86), value: store.authPresented)
         .tint(pumpkin)
@@ -874,12 +877,16 @@ struct NativeRoot: View {
                 }
             }
             .preferredColorScheme(.dark)
-            .sheet(isPresented: $profilePremiumPresented) { PremiumView(api: store.api) }
+            .sheet(isPresented: $profilePremiumPresented, onDismiss: {
+                Task { await favoritePremium.refresh(store) }
+            }) { PremiumView(api: store.api) }
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
             .presentationBackground(.clear)
         }
-        .sheet(isPresented: $premiumPresented) { PremiumView(api: store.api) }
+        .sheet(isPresented: $premiumPresented, onDismiss: {
+            Task { await favoritePremium.refresh(store) }
+        }) { PremiumView(api: store.api) }
         .sheet(isPresented: $togetherPresented) {
             NightwellTogetherSheet(session: togetherSession, store: store)
         }
