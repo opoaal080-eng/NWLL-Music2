@@ -14,6 +14,8 @@ namespace Nightwell.Native;
 public partial class MainWindow:Window {
  NativeAPI api=null!;StreamProxy proxy=null!;LibVLC vlc=null!;LibVLCSharp.Shared.MediaPlayer player=null!;
  readonly DispatcherTimer timer=new(){Interval=TimeSpan.FromMilliseconds(400)};
+ readonly DispatcherTimer brandStatusTimer=new(){Interval=TimeSpan.FromSeconds(12)};
+ bool brandStatusProbeRunning;
  int savePending;
  int normalization=0;
  double userVolume=1.0;
@@ -89,7 +91,7 @@ vlc=new LibVLC(audioArgs.ToArray());player=new LibVLCSharp.Shared.MediaPlayer(vl
 VolumeSlider.Value=FullVolumeSlider.Value=userVolume*100;
 MiniVolumeValue.Text=FullVolumeValue.Text=Math.Round(userVolume*100).ToString("0")+"%";
 volumeSettingReady=true;
-player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatcher.InvokeAsync(()=>Advance());player.EncounteredError+=(_,_)=>Dispatcher.InvokeAsync(()=>Status.Text="Не удалось воспроизвести трек. Проверь подключение и повтори попытку.");timer.Tick+=(_,_)=>Tick();timer.Start();StartLyricClock();
+player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatcher.InvokeAsync(()=>Advance());player.EncounteredError+=(_,_)=>Dispatcher.InvokeAsync(()=>Status.Text="Не удалось воспроизвести трек. Проверь подключение и повтори попытку.");timer.Tick+=(_,_)=>Tick();timer.Start();StartLyricClock();brandStatusTimer.Tick+=async(_,_)=>await CheckBrandConnectionAsync();brandStatusTimer.Start();_=CheckBrandConnectionAsync();
  Home.SizeChanged+=(_,_)=>{
   if(HomeKineticText!=null)
    HomeKineticText.FontSize=Home.ActualHeight<400?17:Home.ActualWidth>1000?28:24;
@@ -97,8 +99,30 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
  if(Environment.GetCommandLineArgs().Contains("--native-smoke")){
   await Task.Delay(1200);var bitmap=new RenderTargetBitmap((int)ActualWidth,(int)ActualHeight,96,96,PixelFormats.Pbgra32);bitmap.Render(this);var encoder=new PngBitmapEncoder();encoder.Frames.Add(BitmapFrame.Create(bitmap));using(var file=File.Create("windows-native-smoke.png"))encoder.Save(file);Close();
  }else {await LoadAccount();await RestorePlaybackAsync();await InitializeMobileFeatures();}
-}catch(Exception ex){Status.Text="Не удалось запустить плеер: "+ex.Message;if(IsDesignPreview||Environment.GetCommandLineArgs().Contains("--native-smoke")){File.WriteAllText("ui-preview-error.txt",ex.ToString());Environment.ExitCode=1;Close();}}};Closed+=(_,_)=>{if(!IsDesignPreview)QueueSavePlayback();timer.Stop();StopLyricClock();searchCancellation?.Cancel();lyricsCancellation?.Cancel();homeLyricsCancellation?.Cancel();lifetime.Cancel();_ = Task.Run(()=>{player?.Stop();player?.Dispose();vlc?.Dispose();proxy?.Dispose();api?.Dispose();});};}
+}catch(Exception ex){Status.Text="Не удалось запустить плеер: "+ex.Message;if(IsDesignPreview||Environment.GetCommandLineArgs().Contains("--native-smoke")){File.WriteAllText("ui-preview-error.txt",ex.ToString());Environment.ExitCode=1;Close();}}};Closed+=(_,_)=>{if(!IsDesignPreview)QueueSavePlayback();timer.Stop();brandStatusTimer.Stop();StopLyricClock();searchCancellation?.Cancel();lyricsCancellation?.Cancel();homeLyricsCancellation?.Cancel();lifetime.Cancel();_ = Task.Run(()=>{player?.Stop();player?.Dispose();vlc?.Dispose();proxy?.Dispose();api?.Dispose();});};}
  async Task Guard(Func<Task> action){try{await action();}catch(OperationCanceledException){}catch(Exception e){Status.Text=e.Message;}}
+ // Draw status on the actual typographic dot belonging to Nightwell's i.
+ async Task CheckBrandConnectionAsync(){
+  if(api==null||brandStatusProbeRunning||IsDesignPreview||lifetime.IsCancellationRequested)return;
+  brandStatusProbeRunning=true;
+  try{
+   using var timeout=CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+   timeout.CancelAfter(TimeSpan.FromSeconds(5));
+   using var response=await api.HTTP.GetAsync("api/me",timeout.Token);
+   bool json=response.Content.Headers.ContentType?.MediaType?.Contains("json",StringComparison.OrdinalIgnoreCase)==true;
+   bool reachable=json&&(response.IsSuccessStatusCode||
+    response.StatusCode==System.Net.HttpStatusCode.Unauthorized);
+   BrandConnectionDot.Foreground=reachable?Brushes.LightGreen:Brushes.Orange;
+  }catch(OperationCanceledException)when(lifetime.IsCancellationRequested){
+   return;
+  }catch(Exception){
+   BrandConnectionDot.Foreground=System.Net.NetworkInformation.NetworkInterface.GetIsNetworkAvailable()
+    ?Brushes.Orange:Brushes.Gray;
+  }finally{
+   brandStatusProbeRunning=false;
+  }
+ }
+
  List<Track> ParseTracks(JsonElement json)=>json.GetProperty("tracks").Deserialize<List<Track>>()??[];
  async Task LoadAccount(){
   await Guard(async()=>{
