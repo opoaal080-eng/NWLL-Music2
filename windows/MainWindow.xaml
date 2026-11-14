@@ -28,7 +28,12 @@
     <Border x:Name="LibrarySidebar" Grid.Column="0" Visibility="Collapsed" Background="#E0121212" BorderBrush="#343434" BorderThickness="0,0,1,0" Padding="16,20">
      <DockPanel LastChildFill="True">
       <StackPanel DockPanel.Dock="Top">
-       <TextBlock Text="МЕДИАТЕКА" Style="{StaticResource Caption}" FontSize="11" Margin="6,0,0,20" Foreground="#B2B2B2"/>
+       <Grid Margin="0,0,0,14">
+         <Grid.ColumnDefinitions><ColumnDefinition Width="40"/><ColumnDefinition Width="*"/><ColumnDefinition Width="40"/></Grid.ColumnDefinitions>
+         <Button Grid.Column="0" Content="⚙" Style="{StaticResource IconButton}" Click="SettingsClick" ToolTip="Настройки" FontSize="20"/>
+         <TextBlock Grid.Column="1" Text="МЕДИАТЕКА" Style="{StaticResource Caption}" FontSize="11" VerticalAlignment="Center" TextAlignment="Center" Foreground="#B2B2B2"/>
+         <Button Grid.Column="2" Content="☰" Style="{StaticResource IconButton}" Click="LibraryAdditionalClick" ToolTip="Дополнительно" FontSize="18"/>
+        </Grid>
        <Button Content="♡    Избранное" Style="{StaticResource QuietButton}" HorizontalContentAlignment="Left" Padding="14,12" Margin="0,0,0,4" Click="SidebarFavoritesClick" ToolTip="Открыть избранные треки"/>
        <Button Content="♫    Плейлисты" Style="{StaticResource QuietButton}" HorizontalContentAlignment="Left" Padding="14,12" Margin="0,0,0,14" Click="SidebarPlaylistsClick" ToolTip="Открыть свои плейлисты"/>
        <Grid Margin="8,0,4,12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
