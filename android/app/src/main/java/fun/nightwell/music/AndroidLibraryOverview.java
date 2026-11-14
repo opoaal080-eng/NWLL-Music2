@@ -33,6 +33,8 @@ final class AndroidLibraryOverview extends ScrollView {
     interface CoverBinder { void bind(ImageView image, JSONObject track); }
 
     private final LinearLayout content;
+    private TextView smartDetail;
+    private View smartTile;
 
     AndroidLibraryOverview(Context context, JSONArray favorites, int totalLikes,
                            int playlistCount, int offlineCount, Actions actions,
@@ -113,6 +115,14 @@ final class AndroidLibraryOverview extends ScrollView {
         }
     }
 
+    /** Reflect a verified paid tier without rebuilding or losing the overview scroll. */
+    void setSmartAvailable(boolean available) {
+        if (smartDetail == null || smartTile == null) return;
+        String detail = available ? "Для тебя" : "Premium";
+        smartDetail.setText(detail);
+        smartTile.setContentDescription("Умные плейлисты, " + detail);
+    }
+
     void setBottomInset(int px) {
         content.setPadding(0, dp(4), 0, Math.max(dp(16), px));
     }
@@ -133,6 +143,10 @@ final class AndroidLibraryOverview extends ScrollView {
         subtitle.setPadding(0, dp(4), 0, 0);
         labels.addView(subtitle);
         tile.addView(labels, new LinearLayout.LayoutParams(0, -2, 1));
+        if ("Умные плейлисты".equals(title)) {
+            smartDetail = subtitle;
+            smartTile = tile;
+        }
         clickable(tile, title + ", " + detail, action);
         return tile;
     }
