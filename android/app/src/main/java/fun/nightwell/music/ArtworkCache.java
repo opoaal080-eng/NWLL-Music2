@@ -84,6 +84,31 @@ final class ArtworkCache {
         load(target, origin, remote && id.matches("[A-Za-z0-9_-]{1,160}")
             ? "/api/covers/" + id : null);
     }
+    /** Bind playlist and queue artwork from either a server path or an HTTPS URL. */
+    void loadCoverUrl(ImageView target, String origin, String raw) {
+        if (raw == null || raw.length() > 2048) {
+            load(target, origin, null);
+            return;
+        }
+        String value = raw.trim();
+        if (valid(value)) {
+            load(target, origin, value);
+            return;
+        }
+        try {
+            URL url = new URL(value);
+            if ("https".equalsIgnoreCase(url.getProtocol())
+                    && url.getUserInfo() == null && !url.getHost().isEmpty()) {
+                if (ServerAddress.sameOrigin(origin, url.toExternalForm()) && valid(url.getPath()))
+                    load(target, origin, url.getFile());
+                else
+                    loadArtist(target, url.toExternalForm());
+                return;
+            }
+        } catch (Exception ignored) {}
+        load(target, origin, null);
+    }
+
     void load(ImageView target, String origin, String path) {
         if (!valid(path)) { target.setTag(null); target.setImageDrawable(null); return; }
         String identity = key(origin,path);
