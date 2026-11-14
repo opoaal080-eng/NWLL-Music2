@@ -207,7 +207,7 @@
    <Button Content="Главная" Click="LogoHomeClick" Style="{StaticResource QuietButton}" Margin="0,0,6,0" ToolTip="Главная"/>
    <Button Content="Поиск" Click="SearchClick" Style="{StaticResource QuietButton}" Margin="0,0,6,0" ToolTip="Поиск"/>
    <Button Content="Медиатека" Click="BottomLibraryClick" Style="{StaticResource QuietButton}" Margin="0,0,6,0" ToolTip="Медиатека"/>
-   <Button x:Name="PremiumDockButton" Content="✧  Premium" Click="PremiumClick" Style="{StaticResource QuietButton}" ToolTip="Nightwell Premium"/>
+   <Button x:Name="PremiumDockButton" Visibility="Collapsed" Content="✧  Premium" Click="PremiumClick" Style="{StaticResource QuietButton}" ToolTip="Nightwell Premium"/>
   </StackPanel>
   <Grid x:Name="EmbeddedSheetLayer" Grid.RowSpan="5" Panel.ZIndex="200" Visibility="Collapsed">
    <Border Background="#C9000000" MouseDown="EmbeddedSheetOutsideClick"/>
