@@ -1,10 +1,10 @@
-"""Install the account device registry alongside the current Nightwell FastAPI server.
+"""Install or update the account-device registry on a compatible FastAPI server.
 
 Usage:
-    python install_account_devices.py --target "C:\Nightwell\Server"
     python install_account_devices.py --check --target "C:\Nightwell\Server"
+    python install_account_devices.py --target "C:\Nightwell\Server"
 
-Restarts are not automatic. The installer creates a timestamped copy of app.py.
+The installer does not restart the server. Every change is backed up.
 """
 import argparse
 import ast
@@ -34,17 +34,23 @@ MARKER = "# Nightwell per-account device registry"
 
 
 def patch(source):
+    """Append the hook once, without touching existing application routes."""
+    if MARKER in source:
+        return source
     tree = ast.parse(source, filename="app.py")
     defined = {node.name for node in tree.body
                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
-    assigned = {target.id for node in tree.body if isinstance(node, ast.Assign)
-                for target in node.targets if isinstance(target, ast.Name)}
+    assigned = set()
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            assigned.update(target.id for target in node.targets
+                            if isinstance(target, ast.Name))
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            assigned.add(node.target.id)
     if "premium_service" not in assigned or "premium_csrf" not in defined:
         raise RuntimeError("Не найдена действующая проверка Premium и CSRF. Сервер не изменён.")
     if "app" not in assigned or "identity" not in defined:
         raise RuntimeError("Нужны действующие app и identity(request). Сервер не изменён.")
-    if MARKER in source:
-        return source
     if "/api/devices" in source:
         raise RuntimeError("У сервера уже есть маршруты /api/devices; проверь их вручную.")
     headers = "from pathlib import Path\n" if not any(
@@ -66,28 +72,51 @@ def install(target, check=False):
     module = Path(__file__).with_name("account_devices.py")
     if not path.is_file() or not module.is_file():
         raise RuntimeError("Не найден app.py или модуль account_devices.py.")
+
     original = path.read_text(encoding="utf-8-sig")
     changed = patch(original)
-    if check:
-        return "Совместимо; требуется обновление." if changed != original else "Модуль уже установлен."
-    if changed == original:
-        return "Уже установлен; файлы не менялись."
-    backup = target / "backups" / ("account-devices-" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
-    backup.mkdir(parents=True)
-    shutil.copy2(path, backup / "app.py")
     other = target / "account_devices.py"
-    if other.exists():
+    needs_hook = changed != original
+    needs_module = not other.is_file() or other.read_bytes() != module.read_bytes()
+
+    if check:
+        if not needs_hook and not needs_module:
+            return "Установлено, серверный модуль актуален."
+        return "Совместимо; требуется " + ("установка." if needs_hook else "обновление модуля.")
+    if not needs_hook and not needs_module:
+        return "Уже установлено; файлы не менялись."
+
+    # Microseconds avoid collisions between consecutive deployment attempts.
+    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
+    backup = target / "backups" / ("account-devices-" + stamp)
+    backup.mkdir(parents=True, exist_ok=False)
+    shutil.copy2(path, backup / "app.py")
+    previous_module = other.is_file()
+    if previous_module:
         shutil.copy2(other, backup / "account_devices.py")
-    pending = target / "app.py.account-devices.tmp"
+
+    pending_app = target / "app.py.account-devices.tmp"
+    pending_module = target / "account_devices.py.account-devices.tmp"
     try:
-        shutil.copy2(module, other)
-        pending.write_text(changed, encoding="utf-8")
-        os.replace(pending, path)
+        if needs_module:
+            shutil.copy2(module, pending_module)
+            os.replace(pending_module, other)
+        if needs_hook:
+            pending_app.write_text(changed, encoding="utf-8")
+            os.replace(pending_app, path)
     except Exception:
-        pending.unlink(missing_ok=True)
+        # If either replacement fails, restore both files, including the module.
         shutil.copy2(backup / "app.py", path)
+        if previous_module:
+            shutil.copy2(backup / "account_devices.py", other)
+        else:
+            other.unlink(missing_ok=True)
         raise
-    return "Установлено. Перезапусти сервер. Резервная копия: " + str(backup)
+    finally:
+        pending_app.unlink(missing_ok=True)
+        pending_module.unlink(missing_ok=True)
+
+    return "Установлено/обновлено. Перезапусти сервер. Резервная копия: " + str(backup)
 
 
 if __name__ == "__main__":
