@@ -765,6 +765,7 @@ struct NativeRoot: View {
     private var artworkScene: some View {
         mainScene
             .environmentObject(artworkPalette)
+            .environmentObject(togetherSession)
             .overlay { modalScene }
             .task(id: artworkRefreshKey) {
                 await artworkPalette.refresh(track: store.clock.current, origin: store.origin)
@@ -1657,6 +1658,7 @@ struct TrackList: View {
 }
 struct NativeTrackRow: View {
     @EnvironmentObject var store: MusicStore
+    @EnvironmentObject private var togetherSession: NightwellTogetherSession
     let track: Track
     let queue: [Track]
     @ObservedObject var status: TrackStatus
@@ -1698,6 +1700,11 @@ struct NativeTrackRow: View {
             .accessibilityLabel("Воспроизвести " + track.title)
             Menu {
                 QueueTrackActions(track: track)
+                if togetherSession.joined {
+                    Button("Добавить в совместное прослушивание", systemImage: "person.2.wave.2") {
+                        Task { await togetherSession.add(trackID: track.id, store: store) }
+                    }
+                }
                 if ArtistAttribution.isKnown(track.artist) {
                     let names = ArtistNames.split(track.artist)
                     if names.count == 1, let name = names.first {
