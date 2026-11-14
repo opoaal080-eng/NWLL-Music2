@@ -1759,7 +1759,7 @@ public final class MainActivity extends Activity {
             avatar.setImageBitmap(cachedProfileAvatar);
             avatar.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
         }else{
-            avatar.setImageResource(android.R.drawable.ic_menu_myplaces);
+            avatar.setImageDrawable(new AvatarPlaceholderDrawable());
             avatar.setPadding(dp(13),dp(13),dp(13),dp(13));
         }
         avatar.setBackground(fieldSurface(0xff292b30,34));
@@ -3513,6 +3513,22 @@ public final class MainActivity extends Activity {
     void toggle(){cancelMix();if(playback!=null){if(playback.player.getPlayWhenReady())playback.pause();else playback.play();updatePlayback();if(liveOwner)publishLive(false);}}
     private long lastPrevious;private String previousID="";
     void nextTrack(){trackTransitionDirection=1;cancelMix();if(playback!=null)playback.requestPreparedNext();}
+    // The swipe always advances a track, unlike a Previous button that can
+    // restart a song after the first three seconds.
+    private void swipeMiniNext(){
+        if(playback==null)return;
+        nextTrack();
+        updatePlayback(); // pending displayID changes before the audio is ready
+    }
+    private void swipeMiniPrevious(){
+        if(playback==null)return;
+        int destination=playback.player.getPreviousMediaItemIndex();
+        if(destination<0)return;
+        trackTransitionDirection=-1;
+        cancelMix();
+        playback.selectTrack(playback.player.getMediaItemAt(destination).mediaId);
+        updatePlayback();
+    }
     void previous(){trackTransitionDirection=-1;cancelMix();if(playback==null)return;long now=SystemClock.uptimeMillis();if(playback.player.getCurrentPosition()>3000&&!(currentID.equals(previousID)&&now-lastPrevious<3000)){previousID=currentID;lastPrevious=now;playback.seek(0);}else{previousID="";playback.player.seekToPreviousMediaItem();}}
     void waveSettings(){
         if(user.isEmpty()){auth();return;}
@@ -3561,7 +3577,7 @@ public final class MainActivity extends Activity {
         final java.util.Set<String> hidden=hiddenRecommendations();
         hidden.addAll(SkipFeedback.recentIDs(this,origin,account));
         final java.util.Set<String> blockedArtists=hiddenArtists();
-        setMixing(true);status.setText("Подбираем…");
+        setMixing(true);if(status!=null)status.setText("");
         final java.util.LinkedHashSet<String> excluded=new java.util.LinkedHashSet<>(mixRecent);
         for(int i=0;i<Math.min(8,queue.length());i++)excluded.add(queue.optJSONObject(i).optString("id"));
         if(!playingID.isEmpty())excluded.add(playingID);
@@ -3608,7 +3624,26 @@ public final class MainActivity extends Activity {
         if(queueChanged&&!user.isEmpty()&&!smokeMode){
             if(favoriteTracks.rememberLikedAndCount(queue,likes)>0)saveFavoriteIndex();
         }
-        JSONObject t=null;if(queueChanged){for(int i=0;i<queue.length();i++){JSONObject item=queue.optJSONObject(i);if(item!=null&&next.equals(item.optString("id"))){t=item;break;}}setLabel(miniTitle,t==null?"Выбери трек":t.optString("title"));setLabel(miniArtist,t==null?"Nightwell Music":t.optString("artist"));}if(miniProgressRing!=null){
+        String miniId=state.optString("displayID",next);
+        if(miniId.isEmpty())miniId=next;
+        boolean miniChanged=!miniId.equals(displayedMiniId);
+        JSONObject t=null;
+        if(queueChanged||miniChanged){
+            JSONObject preview=null;
+            for(int i=0;i<queue.length();i++){
+                JSONObject item=queue.optJSONObject(i);
+                if(item==null)continue;
+                if(next.equals(item.optString("id")))t=item;
+                if(miniId.equals(item.optString("id")))preview=item;
+                if(t!=null&&preview!=null)break;
+            }
+            if(preview==null)preview=t;
+            displayedMiniId=miniId;
+            setLabel(miniTitle,preview==null?"Выбери трек":preview.optString("title"));
+            setLabel(miniArtist,preview==null?"Nightwell Music":preview.optString("artist"));
+            loadMiniCover(preview);
+        }
+        if(miniProgressRing!=null){
         boolean pending=state.optBoolean("nextPreparing");
         boolean buffering=state.optBoolean("buffering");
         miniProgressRing.setPlaybackState(
@@ -3622,7 +3657,7 @@ public final class MainActivity extends Activity {
                 "Подготовка следующего трека"):
             buffering?"Подготовка аудио":
                 (state.optBoolean("playing")?"Пауза":"Воспроизвести"));
-    }setLabel(miniPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(homePlay!=null)setLabel(homePlay,state.optBoolean("playing")?"Ⅱ":"▶");if(fullPlay!=null)setLabel(fullPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(ribbon!=null)ribbon.playing(state.optBoolean("playing"));if(trackChanged){currentID=next;updateCoverBackdrop();refreshFavoriteButtons();if(!next.isEmpty()){rememberRecent(next);checkTrackAudioQuality(t);}activeLyrics=null;homeLine="";homeWord=-2;homeKineticSpans.clear();if(homeLyric!=null)homeLyric.setText("");loadMiniCover(t);fetchLyricsAndPreload();animateTrackTransition();updateList();if(full)openPlayer();}if(seek!=null&&!seek.isPressed()){int duration=(int)Math.max(1,state.optDouble("duration"));seek.setMax(duration);seek.setProgress((int)state.optDouble("position"));seek.setSecondaryProgress((int)(duration*state.optDouble("bufferFraction")));if(seek instanceof PreparingSeekBar)((PreparingSeekBar)seek).setPreparation(state.optBoolean("nextPreparing")||state.optBoolean("buffering"),state.optBoolean("nextPreparing")?state.optDouble("preparationFraction"):state.optDouble("bufferFraction"));}if(fullTime!=null)setLabel(fullTime,time(state.optDouble("position"))+"     /     "+time(state.optDouble("duration")));String playbackError=state.optString("error");
+    }setLabel(miniPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(homePlay!=null)setLabel(homePlay,state.optBoolean("playing")?"Ⅱ":"▶");if(fullPlay!=null)setLabel(fullPlay,state.optBoolean("playing")?"Ⅱ":"▶");if(ribbon!=null)ribbon.playing(state.optBoolean("playing"));if(trackChanged){currentID=next;updateCoverBackdrop();refreshFavoriteButtons();if(!next.isEmpty()){rememberRecent(next);checkTrackAudioQuality(t);}activeLyrics=null;homeLine="";homeWord=-2;homeKineticSpans.clear();if(homeLyric!=null)homeLyric.setText("");fetchLyricsAndPreload();animateTrackTransition();updateList();if(full)openPlayer();}if(seek!=null&&!seek.isPressed()){int duration=(int)Math.max(1,state.optDouble("duration"));seek.setMax(duration);seek.setProgress((int)state.optDouble("position"));seek.setSecondaryProgress((int)(duration*state.optDouble("bufferFraction")));if(seek instanceof PreparingSeekBar)((PreparingSeekBar)seek).setPreparation(state.optBoolean("nextPreparing")||state.optBoolean("buffering"),state.optBoolean("nextPreparing")?state.optDouble("preparationFraction"):state.optDouble("bufferFraction"));}if(fullTime!=null)setLabel(fullTime,time(state.optDouble("position"))+"     /     "+time(state.optDouble("duration")));String playbackError=state.optString("error");
         if(!playbackError.isEmpty()&&status!=null){
             status.setText(playbackError);
             lastDisplayedPlayerError=playbackError;
@@ -4752,7 +4787,7 @@ public final class MainActivity extends Activity {
         },saved->{cachedProfileUser="";refreshProfileAvatar();status.setText("Аватар обновлён");});
     }
     private void refreshProfileAvatar(){
-        if(user.isEmpty()){cachedProfileUser="";cachedProfileNickname="";cachedProfileAvatar=null;return;}
+        if(user.isEmpty()){cachedProfileUser="";cachedProfileNickname="";cachedProfileAvatar=null;if(profileAvatarButton!=null){profileAvatarButton.setPadding(dp(9),dp(9),dp(9),dp(9));profileAvatarButton.setImageDrawable(new AvatarPlaceholderDrawable());}return;}
         if(user.equals(cachedProfileUser)){
             if(cachedProfileAvatar!=null&&profileAvatarButton!=null){
                 profileAvatarButton.setPadding(0,0,0,0);
@@ -4786,8 +4821,14 @@ public final class MainActivity extends Activity {
                 final android.graphics.Bitmap ready=image;
                 ui.post(()->{if(!requestedUser.equals(user))return;
                     cachedProfileNickname=nickname;cachedProfileAvatar=ready;
-                    if(profileAvatarButton!=null&&ready!=null){
-                        profileAvatarButton.setPadding(0,0,0,0);profileAvatarButton.setImageBitmap(ready);
+                    if(profileAvatarButton!=null){
+                        if(ready!=null){
+                            profileAvatarButton.setPadding(0,0,0,0);
+                            profileAvatarButton.setImageBitmap(ready);
+                        }else{
+                            profileAvatarButton.setPadding(dp(9),dp(9),dp(9),dp(9));
+                            profileAvatarButton.setImageDrawable(new AvatarPlaceholderDrawable());
+                        }
                     }
                 });
             }catch(Exception ignored){cachedProfileUser="";}
