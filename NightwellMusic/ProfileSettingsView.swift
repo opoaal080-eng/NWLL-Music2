@@ -272,6 +272,7 @@ struct ProfileSettingsView: View {
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var notice = ""
     @State private var busy = false
+    @State private var devicesPresented = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 11) {
@@ -343,6 +344,16 @@ struct ProfileSettingsView: View {
             .buttonStyle(.plain)
             .disabled(busy || nickname.trimmingCharacters(in: .whitespacesAndNewlines).count < 2)
             .opacity(busy || nickname.trimmingCharacters(in: .whitespacesAndNewlines).count < 2 ? 0.55 : 1)
+            Button {
+                devicesPresented = true
+            } label: {
+                Label("Мои устройства", systemImage: "laptopcomputer.and.iphone")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14).padding(.vertical, 11)
+                    .nightwellMonochromeGlass(radius: 15)
+            }
+            .buttonStyle(.plain)
             if !notice.isEmpty {
                 Text(notice)
                     .font(.caption)
@@ -353,6 +364,9 @@ struct ProfileSettingsView: View {
         .padding(.vertical, 15)
         .frame(maxWidth: .infinity, alignment: .leading)
         .nightwellMonochromeGlass(radius: 25)
+        .sheet(isPresented: $devicesPresented) {
+            NightwellDevicesView().environmentObject(store)
+        }
         .task { await store.refreshProfile(); nickname = store.profileNickname }
         .onChange(of:selectedPhoto) { next in
             guard let next, !busy else { return }
