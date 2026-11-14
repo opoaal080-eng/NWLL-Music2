@@ -382,37 +382,7 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
   window.Show();
  }
 
- void MenuClick(object sender,RoutedEventArgs e){
-  var menu=new ContextMenu{
-   MaxHeight=Math.Min(390,SystemParameters.WorkArea.Height-120),
-   MaxWidth=260,
-   MinWidth=205,
-   PlacementTarget=(UIElement)sender,
-   Placement=System.Windows.Controls.Primitives.PlacementMode.Bottom,
-   StaysOpen=false
-  };
-  string[] entries=account.Length==0
-   ?new[]{"Войти","Главная"}
-   :new[]{"Главная","Избранное","Плейлисты","Офлайн","Профиль","Выйти"};
-  foreach(var label in entries){
-   var name=label;
-   var item=new MenuItem{Header=name,Padding=new Thickness(12,9,12,9)};
-   item.Click+=async(_,_)=>{
-    if(name=="Профиль")ProfileWindow();
-    else if(name=="Войти")Login();
-    else if(name=="Выйти")await Guard(async()=>{
-     await api.Request("api/logout","POST");api.Clear();
-     await AudioCommand(()=>player.Stop());roomCode="";roomCancellation?.Cancel();
-     queue=[];catalog=[];likes=[];playlists=[];account="";
-     NavigationAvatar.Source=null;profileNickname="";premiumSortAllowed=false;
-     PremiumDockButton.Visibility=Visibility.Visible;Show("Главная");
-    });
-    else Show(name);
-   };
-   menu.Items.Add(item);
-  }
-  menu.IsOpen=true;
- }
+ void MenuClick(object sender,RoutedEventArgs e)=>ProfileWindow();
  async void WaveClick(object sender,RoutedEventArgs e)=>await NewWave();
  async Task NewWave(){if(mixing)return;if(account.Length==0){Login();return;}seededWaveArtists.Clear();mixing=true;Status.Text="Подбираем…";try{await Guard(async()=>{var exclude=mixRecent.Concat(queue.Take(8).Select(t=>t.id)).Append(currentID).Where(id=>id.Length>0).Distinct().TakeLast(200);string nonce=Guid.NewGuid().ToString("N");var result=await api.Request(WaveRoute+"?mix="+nonce+WaveQuery+"&exclude="+Uri.EscapeDataString(string.Join(',',exclude)));var next=ParseTracks(result).Where(t=>t.id!=currentID&&!hiddenTracks.Contains(t.id)).ToList();if(next.Count==0&&currentID.Length>0)next=ParseTracks(await api.Request(WaveRoute+"?mix="+nonce+WaveQuery+"&exclude="+currentID)).Where(t=>t.id!=currentID).ToList();if(next.Count==0){Status.Text="Новых треков пока нет. Попробуй чуть позже.";return;}queue=next;index=0;wave=true;TakePlaybackHere();PlayCurrent();Status.Text="";});}finally{mixing=false;}}
 
