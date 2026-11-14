@@ -104,3 +104,42 @@ jobs:
           path: android/app/build/outputs/bundle/release/*.aab
           if-no-files-found: error
           retention-days: 7
+
+  emulator-screenshots:
+    name: Emulator UI screenshots (Pixel 6, API 35)
+    needs: android
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download installable debug APK
+        uses: actions/download-artifact@v4
+        with:
+          name: Nightwell-Music-Android-debug
+          path: android/native-smoke/apk
+      - name: Enable KVM for Android emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Start emulator and capture actual UI
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          ram-size: 3072M
+          heap-size: 512M
+          disable-animations: true
+          script: |
+            adb install -r android/native-smoke/apk/app-debug.apk
+            python3 android/capture-emulator-screens.py
+      - name: Publish emulator screenshots and HTML gallery
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nightwell-Music-Android-emulator-screenshots
+          path: android/native-smoke/screenshots/
+          if-no-files-found: warn
+          retention-days: 14
