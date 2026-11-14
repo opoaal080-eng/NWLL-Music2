@@ -182,11 +182,16 @@ private struct TogetherRoomResponse: Decodable {
     }
 
     func addCurrent(store: MusicStore) async {
-        guard !code.isEmpty, !store.clock.id.isEmpty else { return }
+        await add(trackID: store.clock.id, store: store)
+    }
+
+    /// Adds the selected track, not necessarily the one playing locally.
+    func add(trackID: String, store: MusicStore) async {
+        guard joined, !trackID.isEmpty else { return }
         do {
             let _: OK = try await store.api.request(
                 "/api/together/rooms/" + code + "/queue", method: "POST",
-                body: ["track_id": store.clock.id], timeout: 10
+                body: ["track_id": trackID], timeout: 10
             )
             await refresh(store: store)
         } catch {
