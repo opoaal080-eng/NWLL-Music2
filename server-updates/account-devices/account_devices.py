@@ -1,8 +1,8 @@
 """Account-scoped Nightwell device registry for a compatible FastAPI server.
 
-Install AFTER existing authentication routes:
+Install AFTER existing authentication routes and provide the host premium/CSRF callbacks:
     from account_devices import install
-    install(app, identity, "data/account_devices.sqlite3")
+    install(app, identity, "data/account_devices.sqlite3", premium_for_account, premium_csrf)
 
 The existing /api/me (CSRF) and /api/premium/me (subscription) are consulted
 in-process. Native clients send X-NW-Device-ID and X-NW-Device-Platform.
@@ -26,7 +26,7 @@ EXEMPT_ROUTES = frozenset({
 })
 
 
-def install(app, identity, db_path, premium_for_account=None):
+def install(app, identity, db_path, premium_for_account=None, csrf_verifier=None):
     """Use the host app's authenticated identity, not a client-supplied owner."""
     if getattr(app.state, "nw_device_registry_installed", False):
         return
@@ -66,6 +66,15 @@ def install(app, identity, db_path, premium_for_account=None):
             return {}
 
     async def require_csrf(request):
+        # The production Nightwell server already exposes premium_csrf(request).
+        # Use it directly: its proxy guard rejects nested in-process HTTP calls.
+        if csrf_verifier is not None:
+            valid = csrf_verifier(request)
+            if inspect.isawaitable(valid):
+                valid = await valid
+            if not valid:
+                raise HTTPException(403, "Недействительный токен защиты сессии")
+            return
         sent = request.headers.get("x-csrf-token", "")
         profile = await internal_api(request, "/api/me")
         expected = profile.get("csrf")
