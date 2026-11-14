@@ -59,7 +59,7 @@ struct LibraryOverview: View {
                                 detail: "Для тебя", action: openDailyPlaylists)
                         .id("library-daily")
                     libraryTile("Умные плейлисты", icon: "waveform.path",
-                                detail: premium.allowed ? "Для тебя" : "Premium", action: openSmartPlaylists)
+                                detail: (premium.allowed || !premium.entitlementVerified) ? "Для тебя" : "Premium", action: openSmartPlaylists)
                         .id("library-smart")
                 }
                 .scrollTargetLayout()
