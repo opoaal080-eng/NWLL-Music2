@@ -418,7 +418,7 @@ private struct AudioQualityDecision: Decodable {
 
     private var favoriteOrderKey: String? {
         guard let id = account?.id else { return nil }
-        return "nw-favorites-order-v1|" + origin.absoluteString + "|" + id
+        return "nw-favorites-order-v3|" + origin.absoluteString + "|" + id
     }
 
     private func saveFavoriteOrder() {
@@ -427,17 +427,18 @@ private struct AudioQualityDecision: Decodable {
     }
 
     // Keep the user's explicit add chronology across app restarts.
-    // /api/likes supplies newest-first IDs. Reinstallation must not reverse them.
+    // Legacy /api/likes supplies IDs in insertion order (oldest first).
+    // Version the local key so incorrectly inverted prior snapshots cannot win.
     private func reconcileFavoriteOrder(_ serverIDs: [String], newestID: String? = nil) {
         let valid = Set(serverIDs)
         let saved = favoriteOrderKey.flatMap {
             UserDefaults.standard.stringArray(forKey: $0)
         } ?? []
         var seen = Set<String>()
-        let previous = (saved + favoriteOrder).filter {
+        let previous = (saved + (saved.isEmpty ? [] : favoriteOrder)).filter {
             valid.contains($0) && seen.insert($0).inserted
         }
-        let unseen = serverIDs.filter {
+        let unseen = serverIDs.reversed().filter {
             valid.contains($0) && seen.insert($0).inserted
         }
         var result = previous + unseen
@@ -478,11 +479,15 @@ private struct AudioQualityDecision: Decodable {
         catalog = cache.tracks
         likes = Set(cache.likes)
         if account?.id == owner {
-            reconcileFavoriteOrder(cache.likes)
+            // Session snapshots already preserve the displayed newest-first order.
+            // Do not interpret them as the server\'s oldest-first API payload.
+            let saved = favoriteOrderKey.flatMap { UserDefaults.standard.stringArray(forKey: $0) } ?? []
+            var seen = Set<String>()
+            favoriteOrder = (saved + cache.likes).filter { likes.contains($0) && seen.insert($0).inserted }
         } else if let owner {
             // Display the last authorized user's local library without treating
             // the cached identity as an authenticated network session.
-            let key = "nw-favorites-order-v1|" + origin.absoluteString + "|" + owner
+            let key = "nw-favorites-order-v3|" + origin.absoluteString + "|" + owner
             let saved = UserDefaults.standard.stringArray(forKey: key) ?? []
             var seen = Set<String>()
             favoriteOrder = (saved + cache.likes).filter {
