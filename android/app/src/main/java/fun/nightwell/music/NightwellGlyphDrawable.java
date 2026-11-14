@@ -44,6 +44,11 @@ final class NightwellGlyphDrawable extends Drawable {
         String value=cleanLabel(title).toLowerCase(Locale.ROOT);
         String kind;
         if(value.equals("главная"))kind="home";
+        else if(value.equals("офлайн"))kind="download";
+        else if(value.equals("подборки дня")||value.startsWith("умные плейлисты"))kind="sparkle";
+        else if(value.equals("настройки"))kind="sliders";
+        else if(value.equals("о приложении"))kind="info";
+        else if(value.equals("действия с треком"))kind="more";
         else if(value.equals("поиск"))kind="search";
         else if(value.contains("статистик"))kind="equalizer";
         else if(value.equals("назад"))kind="back";
