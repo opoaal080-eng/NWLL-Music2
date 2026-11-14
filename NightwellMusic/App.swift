@@ -209,6 +209,7 @@ private struct StableNavigationSheet: View {
     let libraryScreen: MusicStore.Screen
     let showsMainNavigation: Bool
     let opensAdditional: Bool
+    let showsPremiumEntry: Bool
     let select: (StableNavigationAction) -> Void
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var store: MusicStore
@@ -276,28 +277,28 @@ private struct StableNavigationSheet: View {
 
             ScrollView(.vertical, showsIndicators: false) {
                 LazyVStack(alignment: .leading, spacing: 8) {
-                    if opensAdditional {
-                        Text("Совместное прослушивание и другие возможности Nightwell")
-                            .font(.system(size: 13))
-                            .foregroundStyle(.white.opacity(0.65))
-                            .padding(.horizontal, 16)
-                            .padding(.bottom, 8)
+                    if showsMainNavigation {
+                        entry("Главная", icon: "house", action: .screen(.home))
+                        entry("Поиск", icon: "magnifyingglass", action: .screen(.search))
+                        entry("Медиатека", icon: "square.stack", action: .screen(libraryScreen))
+                        if showsPremiumEntry {
+                            entry("Nightwell Premium", icon: "star", action: .premium)
+                        }
+                        entry("Настройки", icon: "gearshape", action: .settings)
+                        Divider().overlay(.white.opacity(0.16)).padding(.vertical, 6)
+                    }
+                    if showsMainNavigation || opensAdditional {
                         entry("Слушать вместе", icon: "person.2.wave.2", action: .together)
                         if signedIn {
                             entry("Моя статистика", icon: "chart.bar", action: .statistics)
                             entry("Перенос плейлистов", icon: "square.and.arrow.down", action: .transfer)
                         }
                         entry("Обращения и поддержка", icon: "envelope", action: .support)
-                    } else {
-                        if showsMainNavigation {
-                            entry("Главная", icon: "house", action: .screen(.home))
-                            entry("Поиск", icon: "magnifyingglass", action: .screen(.search))
-                            entry("Медиатека", icon: "square.stack", action: .screen(libraryScreen))
-                            Divider().overlay(.white.opacity(0.16)).padding(.vertical, 6)
-                        }
+                    }
+                    if showsMainNavigation || !opensAdditional {
+                        Divider().overlay(.white.opacity(0.16)).padding(.vertical, 6)
                         entry(signedIn ? "Профиль" : "Войти", icon: "person.crop.circle",
                               action: signedIn ? .profile : .authentication)
-                        Divider().overlay(.white.opacity(0.16)).padding(.vertical, 6)
                     }
                 }
                 .padding(.horizontal, 20).padding(.bottom, 24)
@@ -521,6 +522,7 @@ struct NativeRoot: View {
     @State private var feature: PremiumFeatureView.Kind?
     @State private var settings = false
     @State private var navigationMenuPresented = false
+    @State private var initialSessionLoaded = false
     @State private var profilePresented = false
     @State private var dailyPlaylistsPresented = false
     @State private var profileSigningOut = false
@@ -728,7 +730,8 @@ struct NativeRoot: View {
             StableNavigationSheet(status: store.connectionStatus, signedIn: store.account != nil,
                                   libraryScreen: libraryDestination,
                                   showsMainNavigation: !navigationLayout.showsTabs,
-                                  opensAdditional: libraryMenuStartsAdditional) { action in
+                                  opensAdditional: libraryMenuStartsAdditional,
+                                  showsPremiumEntry: initialSessionLoaded && favoritePremium.shouldOfferPremium(for: store.account?.id)) { action in
                 pendingNavigation = action
                 navigationMenuPresented = false
             }
@@ -862,6 +865,7 @@ struct NativeRoot: View {
             Task { await store.refreshProfile() }
         }
         .task { await store.start()
+            initialSessionLoaded = true
             #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("--native-smoke-focus") { backgroundOnly = true }
             if ProcessInfo.processInfo.arguments.contains("--native-smoke-settings") { settings = true }
@@ -1016,7 +1020,7 @@ struct NativeRoot: View {
             .accessibilityLabel("Настройки")
             Spacer()
             Button {
-                libraryMenuStartsAdditional = true
+                libraryMenuStartsAdditional = navigationLayout.showsTabs
                 navigationMenuPresented = true
             } label: {
                 Image(systemName: "line.3.horizontal")
@@ -1050,7 +1054,7 @@ struct NativeRoot: View {
                           landscape: landscape) { navigate(to: .search) }
             navigationTab("Медиатека", icon: "square.stack", selected: isLibraryScreen,
                           landscape: landscape) { navigate(to: libraryDestination) }
-            if !favoritePremium.allowed {
+            if initialSessionLoaded && favoritePremium.shouldOfferPremium(for: store.account?.id) {
                 navigationTab("Premium", icon: "star", selected: false,
                               landscape: landscape) { premiumPresented = true }
             }
@@ -1163,6 +1167,17 @@ struct NativeRoot: View {
                         .frostedGlass(22, bordered: false, intensity: 0.20)
                 }
                 .accessibilityLabel(store.screen == .search ? "Закрыть поиск" : "Поиск")
+                Button {
+                    libraryMenuStartsAdditional = false
+                    navigationMenuPresented = true
+                } label: {
+                    Image(systemName: "line.3.horizontal")
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundStyle(.white)
+                        .frame(width: 44, height: 44)
+                        .frostedGlass(22, bordered: false, intensity: 0.20)
+                }
+                .accessibilityLabel("Открыть меню навигации")
             }
             // Hide the compact handoff button while a collection is scrolled.
             if store.hasRemotePlayback && (remoteHomeCollapsed || landscape) && compactCollectionTitle == nil {
