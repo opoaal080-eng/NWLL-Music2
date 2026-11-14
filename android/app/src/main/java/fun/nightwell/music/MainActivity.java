@@ -1204,7 +1204,7 @@ public final class MainActivity extends Activity {
             addBottomNavigationTab(navigation,"⌕","Поиск",()->navigate("Поиск"));
             addBottomNavigationTab(navigation,"▤","Медиатека",()->navigate("Избранное"));
             premiumTabButton=addBottomNavigationTab(navigation,"✧","Premium",this::premium);
-            premiumTabButton.setVisibility(premiumAllowed()?View.GONE:View.VISIBLE);
+            premiumTabButton.setVisibility(!user.isEmpty()&&(!premiumVerified||premiumAllowed())?View.GONE:View.VISIBLE);
             root.addView(navigation,new LinearLayout.LayoutParams(-1,dp(51)));
         }
         android.view.GestureDetector miniGestures=gestures(false);labels.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));dock.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));
@@ -4699,7 +4699,7 @@ public final class MainActivity extends Activity {
         styleNavigationSheet(dialog);dialog.show();
     }
 
-    private JSONObject premiumPrefs=new JSONObject();private String premiumOwner="";private long premiumUntil,premiumChecked;private boolean premiumLoading;
+    private JSONObject premiumPrefs=new JSONObject();private String premiumOwner="";private long premiumUntil,premiumChecked;private boolean premiumLoading,premiumVerified;
     String premiumFeatureLabel(String title){return premiumAllowed()?title:title+" · Premium";}
     boolean premiumAllowed(){return !user.isEmpty()&&user.equals(premiumOwner)&&System.currentTimeMillis()<premiumUntil;}
     void applyPremium(){
@@ -4711,14 +4711,67 @@ public final class MainActivity extends Activity {
             ribbon.setAuraResponse(aura.getBoolean(user+"|aura_voice",true),aura.getBoolean(user+"|aura_low",true),aura.getBoolean(user+"|aura_mid",true),aura.getBoolean(user+"|aura_high",true));
         }
         if(root!=null){String theme=allowed?premiumPrefs.optString("theme"):"";int tint=theme.equals("aurora")?0x66105a45:theme.equals("ocean")?0x660c3f73:theme.equals("sunset")?0x6682282d:Color.TRANSPARENT;root.setBackgroundColor(tint);}
-        if(premiumTabButton!=null)premiumTabButton.setVisibility(allowed?View.GONE:View.VISIBLE);
+        if(premiumTabButton!=null)premiumTabButton.setVisibility(!user.isEmpty()&&(!premiumVerified||allowed)?View.GONE:View.VISIBLE);
     }
-    void premiumTick(){if(!premiumOwner.equals(user)||premiumUntil>0&&!premiumAllowed()){premiumUntil=0;premiumPrefs=new JSONObject();premiumOwner=user;premiumChecked=0;applyPremium();}if(!premiumLoading&&System.currentTimeMillis()-premiumChecked>300000)loadPremium(()->{});}
-    void loadPremium(Runnable done){if(premiumLoading)return;premiumLoading=true;premiumChecked=System.currentTimeMillis();String owner=user;premiumUntil=0;applyPremium();io.execute(()->{
-        JSONObject prefs=null;long expiry=0;try{JSONObject state=api.request("api/premium/me");if(state.optBoolean("premium")){prefs=api.request("api/premium/preferences").getJSONObject("preferences");expiry=(long)(state.optDouble("expires_at")*1000);}}catch(Exception ignored){}
-        final JSONObject result=prefs;final long until=expiry;ui.post(()->{premiumLoading=false;if(isDestroyed()||!owner.equals(user))return;premiumOwner=owner;premiumPrefs=result==null?new JSONObject():result;premiumUntil=until;applyPremium();done.run();});
-    });}
-    void feature(String kind){loadPremium(()->{if(!premiumAllowed()){status.setText("Для этой функции нужен Premium. Музыку можно слушать бесплатно.");return;}if(kind.equals("sound"))equalizerPanel();else if(kind.equals("appearance"))appearancePanel();else if(kind.equals("smart"))smartPanel();else statisticsPanel();});}
+    void premiumTick(){
+        if(!premiumOwner.equals(user)){
+            premiumUntil=0;premiumPrefs=new JSONObject();premiumOwner=user;
+            premiumVerified=false;premiumChecked=0;applyPremium();
+        }else if(premiumUntil>0&&!premiumAllowed()){
+            premiumUntil=0;premiumPrefs=new JSONObject();
+            premiumChecked=0;premiumVerified=true;applyPremium();
+        }
+        if(!premiumLoading&&System.currentTimeMillis()-premiumChecked>300000)loadPremium(()->{});
+    }
+    void loadPremium(Runnable done){
+        if(premiumLoading){
+            // Multiple callers await the same in-flight verification, without
+            // clearing a confirmed subscription or swallowing feature taps.
+            ui.postDelayed(()->loadPremium(done),250);
+            return;
+        }
+        premiumLoading=true;
+        premiumChecked=System.currentTimeMillis();
+        String owner=user;
+        io.execute(()->{
+            JSONObject prefs=null;
+            long expiry=0;
+            boolean verified=false;
+            try{
+                JSONObject state=api.request("api/premium/me");
+                verified=true;
+                if(state.optBoolean("premium")){
+                    expiry=(long)(state.optDouble("expires_at",0)*1000);
+                    try{
+                        JSONObject response=api.request("api/premium/preferences");
+                        prefs=response.optJSONObject("preferences");
+                    }catch(Exception ignored){
+                        // Preferences are optional; they must never revoke an
+                        // otherwise confirmed paid subscription.
+                    }
+                }
+            }catch(Exception ignored){
+                // Network failures must not invalidate the last confirmed tier.
+            }
+            final JSONObject result=prefs;
+            final long until=expiry;
+            final boolean checked=verified;
+            ui.post(()->{
+                premiumLoading=false;
+                if(isDestroyed()||!owner.equals(user))return;
+                if(checked){
+                    premiumOwner=owner;
+                    premiumUntil=until;
+                    premiumVerified=true;
+                    if(result!=null)premiumPrefs=result;
+                    else if(!premiumAllowed())premiumPrefs=new JSONObject();
+                    applyPremium();
+                }
+                done.run();
+            });
+        });
+    }
+    void feature(String kind){loadPremium(()->{if(!premiumVerified){status.setText("Не удалось проверить Premium. Проверь подключение.");return;}if(!premiumAllowed()){status.setText("Для этой функции нужен Premium. Музыку можно слушать бесплатно.");return;}if(kind.equals("sound"))equalizerPanel();else if(kind.equals("appearance"))appearancePanel();else if(kind.equals("smart"))smartPanel();else statisticsPanel();});}
     void savePremium(TextView note){if(!premiumAllowed()){note.setText("Нужен действующий Premium");return;}String owner=user;try{JSONObject draft=new JSONObject(premiumPrefs.toString());draft.remove("aura_color_speed");task(()->api.request("api/premium/preferences","PUT",draft),data->{if(!owner.equals(user)){premiumUntil=0;applyPremium();return;}applyPremium();note.setText("Настройки сохранены в аккаунте.");});}catch(Exception e){note.setText("Не удалось сохранить настройки");}}
     private Dialog featureWindow;
     private Runnable presetAction;
