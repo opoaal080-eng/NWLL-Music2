@@ -44,10 +44,11 @@ public partial class MainWindow {
  void PremiumWindow(){
   var panel=new StackPanel{Margin=new Thickness(24,14,24,20)};
   panel.Children.Add(Label("Nightwell Premium"));
-  panel.Children.Add(new TextBlock{
+  var premiumStatus=new TextBlock{
    Text=premiumSortAllowed?"Подписка активна":"Подписка неактивна",
    TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,14,0,14)
-  });
+  };
+  panel.Children.Add(premiumStatus);
   var manage=new Button{Content="Открыть управление подпиской",
    Style=(Style)FindResource("PrimaryButton")};
   manage.Click+=(_,_)=>{
@@ -59,7 +60,13 @@ public partial class MainWindow {
   };
   panel.Children.Add(manage);
   var refresh=new Button{Content="Проверить подписку",Margin=new Thickness(0,10,0,0)};
-  refresh.Click+=async(_,_)=>{await RefreshPremiumNavigationAsync();PremiumWindow();};
+  refresh.Click+=async(_,_)=>{
+   refresh.IsEnabled=false;
+   try{
+    await RefreshPremiumNavigationAsync();
+    premiumStatus.Text=premiumSortAllowed?"Подписка активна":"Подписка неактивна";
+   }finally{refresh.IsEnabled=true;}
+  };
   panel.Children.Add(refresh);
   Sheet("Nightwell Premium",panel,370);
  }
