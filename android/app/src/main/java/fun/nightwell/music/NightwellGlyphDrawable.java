@@ -43,7 +43,12 @@ final class NightwellGlyphDrawable extends Drawable {
     static NightwellGlyphDrawable forLabel(Context context,String title) {
         String value=cleanLabel(title).toLowerCase(Locale.ROOT);
         String kind;
-        if(value.contains("удалить")||value.contains("покинуть")||value.contains("выйти"))
+        if(value.equals("главная"))kind="home";
+        else if(value.equals("поиск"))kind="search";
+        else if(value.contains("статистик"))kind="equalizer";
+        else if(value.equals("назад"))kind="back";
+        else if(value.contains("не рекомендовать")||value.contains("вернуть в рекомендации")||value.contains("вернуть исполнителя"))kind="block";
+        else if(value.contains("удалить")||value.contains("покинуть")||value.contains("выйти"))
             kind="trash";
         else if(value.contains("следующ")||value.contains("играть следующим"))
             kind="next";
@@ -116,6 +121,16 @@ final class NightwellGlyphDrawable extends Drawable {
         pen.setStrokeWidth(1.7f);
         Path p=new Path();
         switch(kind){
+            case "home":
+                p.moveTo(3,11);p.lineTo(12,3);p.lineTo(21,11);
+                p.moveTo(5,10);p.lineTo(5,21);p.lineTo(19,21);p.lineTo(19,10);
+                p.moveTo(10,21);p.lineTo(10,15);p.lineTo(14,15);p.lineTo(14,21);
+                canvas.drawPath(p,pen);break;
+            case "search":
+                canvas.drawCircle(10,10,6.5f,pen);
+                canvas.drawLine(15,15,21,21,pen);break;
+            case "back":
+                p.moveTo(15,4);p.lineTo(7,12);p.lineTo(15,20);canvas.drawPath(p,pen);break;
             case "next":
                 p.moveTo(5,5);p.lineTo(16,12);p.lineTo(5,19);p.close();
                 pen.setStyle(Paint.Style.FILL);canvas.drawPath(p,pen);canvas.drawRoundRect(18,5,20,19,1,1,pen);break;
