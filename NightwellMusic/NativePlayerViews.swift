@@ -1468,6 +1468,7 @@ struct AuthSheet: View {
 
 struct NativeSettings: View {
     @State private var feature: PremiumFeatureView.Kind?
+    @ObservedObject private var premium = PremiumFeatureState.shared
     let close: () -> Void
     @EnvironmentObject var store: MusicStore
     @Environment(\.dismiss) private var dismiss
@@ -1593,7 +1594,9 @@ struct NativeSettings: View {
                         set: { store.setAutomaticFavoritesDownload($0) }
                     ))
                     .disabled(store.account == nil)
-                    Text("Новые избранные треки сохраняются для офлайна. Требуется активный Premium.")
+                    Text(premium.allowed
+                        ? "Новые избранные треки сохраняются для офлайна."
+                        : "Новые избранные треки сохраняются для офлайна. Требуется активный Premium.")
                         .font(.system(size: 12)).foregroundStyle(.white.opacity(0.50))
                     HStack { Text("Переход между треками"); Spacer(minLength: 4); Text(transition == 0 ? "Выкл." : String(format: "%.1f с", transition)).foregroundStyle(Color.white) }
                     GlassSlider(value: $transition, range: 0...5, step: 0.1, accessibilityStep: 0.1, label: "Переход между треками", valueText: String(format: "%.1f с", transition))
@@ -1636,7 +1639,7 @@ struct NativeSettings: View {
                 }.padding(16).frame(maxWidth: .infinity, minHeight: 166, alignment: .leading).background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
         case .appearance:
                 VStack(alignment: .leading, spacing: 8) {
-                    Button("Темы и ленты · Premium") { feature = .appearance }
+                    Button(premium.allowed ? "Темы и ленты" : "Темы и ленты · Premium") { feature = .appearance }
                         .sheet(item: $feature) { PremiumFeatureView(kind: $0).environmentObject(store) }
                     Label("Оформление", systemImage: "paintbrush").font(.system(size: 18, weight: .semibold)).foregroundStyle(Color.white)
                     Toggle("Текст вместе с лентами", isOn: $ambientLyrics)
