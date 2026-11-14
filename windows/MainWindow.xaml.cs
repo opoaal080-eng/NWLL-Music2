@@ -143,7 +143,6 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
     return;
    }
    var owner=account;
-   if(!await RegisterAccountDeviceAsync())return;
    // Restore the authenticated user's last library before waiting for remote
    // catalogue, likes and playlists. Never reuse another account's snapshot.
    await RestoreLibraryCacheAsync(owner);
