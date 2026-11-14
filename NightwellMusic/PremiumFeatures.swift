@@ -1,6 +1,12 @@
 import SwiftUI
 import Combine
 
+// Reserved theme identifiers. The theme picker is intentionally hidden until the
+// actual appearance presets have been designed and tested.
+enum NightwellPlannedTheme: String, CaseIterable {
+    case nightwell, aurora, ocean, sunset
+}
+
 struct PremiumPreferences: Codable {
     var bands = [0.0,0,0,0,0]
     var presets: [String:[Double]] = [:]
@@ -114,7 +120,7 @@ struct PremiumPreferences: Codable {
 }
 
 @MainActor struct PremiumFeatureView: View {
-    enum Kind: String, Identifiable { case sound = "Эквалайзер", appearance = "Оформление", smart = "Умные плейлисты", statistics = "Моя статистика"; var id: String { rawValue } }
+    enum Kind: String, Identifiable { case sound = "Эквалайзер", smart = "Умные плейлисты", statistics = "Моя статистика"; var id: String { rawValue } }
     let kind: Kind
     init(kind: Kind) { self.kind = kind }
     @EnvironmentObject private var store: MusicStore
@@ -150,7 +156,6 @@ struct PremiumPreferences: Codable {
                     Group {
                         switch kind {
                         case .sound: sound
-                        case .appearance: appearance
                         case .smart: smart
                         case .statistics: stats
                         }
@@ -209,18 +214,6 @@ struct PremiumPreferences: Codable {
                 if premium.preferences.presets[preset] != nil { Button("Удалить свой пресет", role: .destructive) { premium.preferences.presets.removeValue(forKey: preset); preset = ""; Task { await premium.save(store) } } }
                 Button("Сохранить звук") { Task { await premium.save(store) } }
             }
-    }
-    private var appearance: some View {
-        PremiumGlassSection("Ваше оформление") {
-            Picker("Фон", selection: $premium.preferences.theme) { Text("Nightwell").tag("nightwell"); Text("Северное сияние").tag("aurora"); Text("Океан").tag("ocean"); Text("Закат").tag("sunset") }
-            Picker("Скорость лент", selection: $premium.preferences.ribbon_speed) { Text("Медленно").tag(0.5); Text("Обычно").tag(1.0); Text("Быстро").tag(1.5) }
-            Picker("Выразительность", selection: $premium.preferences.ribbon_intensity) { Text("Мягко").tag(0.5); Text("Обычно").tag(1.0); Text("Ярко").tag(1.5) }
-            Toggle("Голос", isOn: $premium.preferences.aura_voice)
-            Toggle("Низкие частоты", isOn: $premium.preferences.aura_low)
-            Toggle("Средние частоты", isOn: $premium.preferences.aura_mid)
-            Toggle("Высокие частоты", isOn: $premium.preferences.aura_high)
-            Button("Сохранить оформление") { Task { await premium.saveAppearance(store) } }
-        }
     }
     private var smart: some View {
         Group {

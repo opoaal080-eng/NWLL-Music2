@@ -75,14 +75,26 @@ final class LocalAudioMeter {
 
     private func configure(_ description: AudioStreamBasicDescription) {
         format = description
-        let rate = max(1, description.mSampleRate)
+        // The audio tap receives a decoder-provided format. Never convert an
+        // invalid/huge sample rate to Int on the real-time audio thread.
+        guard description.mSampleRate.isFinite,
+              description.mSampleRate > 0,
+              description.mSampleRate <= 384_000 else {
+            window = 2205; frames = 0; low = 0; dc = 0; sum = 0; bassSum = 0
+            return
+        }
+        let rate = description.mSampleRate
         window = max(1, Int(rate / 20)); frames = 0; low = 0; dc = 0; sum = 0; bassSum = 0
         lowAlpha = 1 - exp(-2 * .pi * 220 / rate); dcAlpha = 1 - exp(-2 * .pi * 30 / rate)
         midAlpha = 1 - exp(-2 * .pi * 1500 / rate)
         highAlpha = 1 - exp(-2 * .pi * 4500 / rate)
     }
     private func consume(_ pointer: UnsafeMutablePointer<AudioBufferList>, frames count: Int) {
-        guard format.mFormatID == kAudioFormatLinearPCM else { return }
+        guard format.mFormatID == kAudioFormatLinearPCM,
+              format.mSampleRate.isFinite, format.mSampleRate > 0,
+              format.mSampleRate <= 384_000,
+              format.mChannelsPerFrame > 0, format.mChannelsPerFrame <= 32,
+              count > 0, count <= 65_536 else { return }
         let floating = format.mFormatFlags & kAudioFormatFlagIsFloat != 0
         let bits = Int(format.mBitsPerChannel), bytes = bits / 8
         guard (floating && bits == 32) || (!floating && bits == 16) else { return }

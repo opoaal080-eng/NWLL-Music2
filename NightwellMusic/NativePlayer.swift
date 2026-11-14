@@ -272,6 +272,15 @@ final class NativePlayer {
 
     private let nowPlayingCenter = MPNowPlayingInfoCenter.default()
     private let remoteCommands = MPRemoteCommandCenter.shared()
+    // Writing the system Now Playing dictionary on every visual tick causes
+    // avoidable main-thread work, especially during EQ playback.
+    private var lastNowPlayingID = ""
+    private var lastNowPlayingIndex = -1
+    private var lastNowPlayingQueueRevision = -1
+    private var lastNowPlayingState = -1
+    private var lastNowPlayingPosition = -1.0
+    private var lastNowPlayingUpdate = 0.0
+    private var lastNowPlayingArtwork: MPMediaItemArtwork?
     private var audioMeter = LocalAudioMeter()
     private let enginePlayback = NativeEQPlayback()
     private var eqDownload: EnvelopeDownload?
@@ -462,7 +471,11 @@ final class NativePlayer {
             object: nil, queue: .main) { [weak self] _ in
                 self?.appIsActive = false; self?.updateFade(); self?.independentMeter.cancel(keepingEnvelope: true); self?.publish()
             })
-        fadeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.04, preferredTimescale: 600), queue: .main) { [weak self] _ in self?.updateFade() }
+        fadeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.04, preferredTimescale: 600), queue: .main) { [weak self] _ in
+            guard let self, self.transitionSeconds > 0, self.wantsPlay,
+                  self.appIsActive else { return }
+            self.updateFade()
+        }
         // The AVPlayer is intentionally paused when the local EQ engine owns
         // playback. An AVPlayer-backed MPNowPlayingSession would therefore
         // advertise Pause (rate=0) even while the EQ engine is audible.
@@ -1590,8 +1603,19 @@ final class NativePlayer {
         // Keep lock-screen / Control Center metadata current while our app is foregrounded.
         // Clearing it on every foreground tick left stale playback controls after Pause.
         if let current {
-            let state = snapshot(includeQueue: false)
-            var info: [String: Any] = [MPMediaItemPropertyTitle: current.title,
+            let now = ProcessInfo.processInfo.systemUptime
+            let position = playbackPosition
+            let stateCode = (wantsPlay ? 1 : 0) + (audible ? 2 : 0)
+            let stateChanged = current.id != lastNowPlayingID ||
+                index != lastNowPlayingIndex ||
+                queueRevision != lastNowPlayingQueueRevision ||
+                stateCode != lastNowPlayingState ||
+                lastNowPlayingArtwork !== artwork
+            let playheadChanged = position.isFinite &&
+                abs(position - lastNowPlayingPosition) >= 1.0
+            if stateChanged || playheadChanged || now - lastNowPlayingUpdate >= 1.5 {
+                let state = snapshot(includeQueue: false)
+                var info: [String: Any] = [MPMediaItemPropertyTitle: current.title,
                 MPMediaItemPropertyArtist: current.artist, MPMediaItemPropertyAlbumTitle: current.album,
                 MPMediaItemPropertyPlaybackDuration: state["duration"] ?? 0,
                 MPNowPlayingInfoPropertyElapsedPlaybackTime: state["position"] ?? 0,
@@ -1603,9 +1627,25 @@ final class NativePlayer {
                 MPNowPlayingInfoPropertyPlaybackQueueIndex: index,
                 MPNowPlayingInfoPropertyPlaybackQueueCount: tracks.count,
                 MPNowPlayingInfoPropertyExternalContentIdentifier: current.id]
-            if let artwork { info[MPMediaItemPropertyArtwork] = artwork }
-            nowPlayingCenter.nowPlayingInfo = info
-        } else { nowPlayingCenter.nowPlayingInfo = nil }
+                if let artwork { info[MPMediaItemPropertyArtwork] = artwork }
+                nowPlayingCenter.nowPlayingInfo = info
+                lastNowPlayingID = current.id
+                lastNowPlayingIndex = index
+                lastNowPlayingQueueRevision = queueRevision
+                lastNowPlayingState = stateCode
+                lastNowPlayingPosition = position.isFinite ? position : 0
+                lastNowPlayingUpdate = now
+                lastNowPlayingArtwork = artwork
+            }
+        } else if !lastNowPlayingID.isEmpty {
+            nowPlayingCenter.nowPlayingInfo = nil
+            lastNowPlayingID = ""
+            lastNowPlayingIndex = -1
+            lastNowPlayingQueueRevision = -1
+            lastNowPlayingState = -1
+            lastNowPlayingPosition = -1
+            lastNowPlayingArtwork = nil
+        }
         onChange?()
     }
 }

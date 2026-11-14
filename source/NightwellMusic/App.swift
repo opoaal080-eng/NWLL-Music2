@@ -513,7 +513,7 @@ private struct NightwellSearchEdgeSweep: View {
 
     var body: some View {
         GeometryReader { geometry in
-            TimelineView(.animation(minimumInterval: 1.0 / 40.0, paused: reduceMotion)) { timeline in
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: reduceMotion)) { timeline in
                 let seconds = timeline.date.timeIntervalSinceReferenceDate
                 let progress = reduceMotion ? 0.5 : seconds.truncatingRemainder(dividingBy: 1.65) / 1.65
                 let width = geometry.size.width

@@ -94,11 +94,19 @@ final class NativeEQPlayback {
             throw URLError(.cannotDecodeContentData)
         }
         let frame = AVAudioFramePosition(rawFrame)
+        // AVAudioPlayerNode.scheduleSegment accepts a UInt32 frame count.
+        // A malformed or exceptionally long file must fall back to AVPlayer
+        // instead of trapping on the narrowing integer conversion.
+        let remainingFrames = file.length - frame
+        guard remainingFrames > 0,
+              remainingFrames <= AVAudioFramePosition(UInt32.max) else {
+            throw URLError(.cannotDecodeContentData)
+        }
         scheduled = UUID()
         let expected = scheduled
         node.stop()
         offset = Double(frame) / rate
-        node.scheduleSegment(file, startingFrame: frame, frameCount: AVAudioFrameCount(file.length - frame), at: nil,
+        node.scheduleSegment(file, startingFrame: frame, frameCount: AVAudioFrameCount(remainingFrames), at: nil,
                              completionCallbackType: .dataPlayedBack) { [weak self] _ in
             DispatchQueue.main.async {
                 guard let self, self.scheduled == expected else { return }
