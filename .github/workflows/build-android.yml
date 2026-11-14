@@ -106,7 +106,7 @@ jobs:
           retention-days: 7
 
   emulator-screenshots:
-    name: Emulator UI screenshots (Pixel 6, API 35)
+    name: Emulator UI screenshots (Pixel 6, API 34)
     needs: android
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -125,7 +125,7 @@ jobs:
       - name: Start emulator and capture actual UI
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 35
+          api-level: 34
           arch: x86_64
           target: google_apis
           profile: pixel_6
