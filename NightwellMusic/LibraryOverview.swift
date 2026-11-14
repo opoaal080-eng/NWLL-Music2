@@ -4,6 +4,7 @@ import SwiftUI
 /// A preview changes only what is displayed, never the playback queue.
 struct LibraryOverview: View {
     @EnvironmentObject private var store: MusicStore
+    @ObservedObject private var premium = PremiumFeatureState.shared
     @Environment(\.nightwellBottomContentInset) private var bottomContentInset
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
@@ -58,7 +59,7 @@ struct LibraryOverview: View {
                                 detail: "Для тебя", action: openDailyPlaylists)
                         .id("library-daily")
                     libraryTile("Умные плейлисты", icon: "waveform.path",
-                                detail: "Premium", action: openSmartPlaylists)
+                                detail: premium.allowed ? "Для тебя" : "Premium", action: openSmartPlaylists)
                         .id("library-smart")
                 }
                 .scrollTargetLayout()
