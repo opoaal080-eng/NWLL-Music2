@@ -137,6 +137,7 @@ struct NightwellSearchScreen: View {
                                     .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 12))
                                 }
                                 .buttonStyle(.plain)
+                                .nightwellDockColorBlur()
                             }
                         }
                     }
@@ -161,6 +162,7 @@ struct NightwellSearchScreen: View {
                                         .padding(.horizontal, 10).padding(.vertical, 6)
                                         .background(.white.opacity(0.09), in: Capsule())
                                     }.buttonStyle(.plain)
+                                .nightwellDockColorBlur()
                                 }
                             }
                         }

@@ -10,6 +10,7 @@ on:
       - 'project.yml'
       - 'scripts/verify-native-source.py'
       - 'scripts/test-*.swift'
+      - 'scripts/render-dock-blur-preview.swift'
       - 'scripts/fixtures/**'
       - 'scripts/make-neutral-app-icon.py'
       - '.github/workflows/build-ios.yml'
@@ -22,6 +23,7 @@ on:
       - 'project.yml'
       - 'scripts/verify-native-source.py'
       - 'scripts/test-*.swift'
+      - 'scripts/render-dock-blur-preview.swift'
       - 'scripts/fixtures/**'
       - 'scripts/make-neutral-app-icon.py'
       - '.github/workflows/build-ios.yml'
@@ -55,6 +57,11 @@ jobs:
           subprocess.run(['sudo', 'xcode-select', '-s', developer], check=True)
           print('Selected Xcode', version)
           PYCODE
+      - name: Ensure Metal compiler is available
+        run: |
+          if ! xcrun metal --version; then
+            xcodebuild -downloadComponent MetalToolchain
+          fi
       - name: Generate neutral app icon
         run: python3 scripts/make-neutral-app-icon.py --platform ios
       - name: Generate project
@@ -81,7 +88,7 @@ jobs:
             output/build-provenance.json
 
   presentation-regression:
-    name: Artist and search regression
+    name: iOS presentation regression
     runs-on: macos-26-intel
     steps:
       - uses: actions/checkout@v4
@@ -101,6 +108,11 @@ jobs:
           version, developer = max(candidates)
           subprocess.run(['sudo', 'xcode-select', '-s', developer], check=True)
           PYCODE
+      - name: Ensure Metal compiler is available
+        run: |
+          if ! xcrun metal --version; then
+            xcodebuild -downloadComponent MetalToolchain
+          fi
       - name: Generate project
         run: xcodegen generate
       - name: Open artist profile and collapse search
@@ -112,10 +124,58 @@ jobs:
           print(phones[0]['udid'])
           PYCODE
           )"
-          xcodebuild -project NightwellMusic.xcodeproj -scheme NightwellMusic -configuration Debug -destination "platform=iOS Simulator,id=$NIGHTWELL_SIMULATOR_ID" -derivedDataPath build-presentation -resultBundlePath artist-presentation.xcresult -only-testing:NightwellMusicTests/ArtistProfilePresentationTests -only-testing:NightwellMusicTests/SearchPresentationTests -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO test
+          xcodebuild -project NightwellMusic.xcodeproj -scheme NightwellMusic -configuration Debug -destination "platform=iOS Simulator,id=$NIGHTWELL_SIMULATOR_ID" -derivedDataPath build-presentation -resultBundlePath artist-presentation.xcresult -only-testing:NightwellMusicTests/ArtistProfilePresentationTests -only-testing:NightwellMusicTests/SearchPresentationTests -only-testing:NightwellMusicTests/DockColorBlurPresentationTests -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO test
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
           name: iOS-presentation-regression-results
           path: artist-presentation.xcresult
           if-no-files-found: ignore
+
+  dock-color-preview:
+    name: Dock colors and blur
+    runs-on: macos-26-intel
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select latest installed Xcode
+        run: |
+          python3 - <<'PYCODE'
+          import glob, subprocess
+          candidates = []
+          for app in glob.glob('/Applications/Xcode*.app'):
+              developer = app + '/Contents/Developer'
+              result = subprocess.run(['env', 'DEVELOPER_DIR=' + developer, 'xcodebuild', '-version'], capture_output=True, text=True)
+              if result.returncode == 0:
+                  version = tuple(int(x) for x in result.stdout.splitlines()[0].split()[1].split('.'))
+                  candidates.append((version, developer))
+          version, developer = max(candidates)
+          subprocess.run(['sudo', 'xcode-select', '-s', developer], check=True)
+          print('Selected Xcode', version)
+          PYCODE
+      - name: Ensure Metal compiler is available
+        run: |
+          if ! xcrun metal --version; then
+            xcodebuild -downloadComponent MetalToolchain
+          fi
+      - name: Render original colors with the dock shader
+        run: |
+          mkdir -p build-blur-preview/ColorBlur.app/Contents/MacOS build-blur-preview/ColorBlur.app/Contents/Resources
+          python3 - <<'PYCODE'
+          import pathlib, plistlib
+          info = {'CFBundleIdentifier': 'fun.nightwell.blur-preview',
+                  'CFBundleExecutable': 'ColorBlur', 'CFBundlePackageType': 'APPL',
+                  'LSMinimumSystemVersion': '14.0', 'LSUIElement': True}
+          pathlib.Path('build-blur-preview/ColorBlur.app/Contents/Info.plist').write_bytes(plistlib.dumps(info))
+          PYCODE
+          xcrun --sdk macosx metal -c NightwellMusic/DockColorBlur.metal -o build-blur-preview/ColorBlur.air
+          xcrun --sdk macosx metallib build-blur-preview/ColorBlur.air -o build-blur-preview/ColorBlur.app/Contents/Resources/default.metallib
+          xcrun --sdk macosx swiftc -parse-as-library -target x86_64-apple-macos14.0 NightwellMusic/DockColorBlur.swift scripts/render-dock-blur-preview.swift -o build-blur-preview/ColorBlur.app/Contents/MacOS/ColorBlur
+          build-blur-preview/ColorBlur.app/Contents/MacOS/ColorBlur dock-color-preview
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Dock-color-preview
+          path: dock-color-preview/*.png
+          if-no-files-found: ignore
+          retention-days: 7
