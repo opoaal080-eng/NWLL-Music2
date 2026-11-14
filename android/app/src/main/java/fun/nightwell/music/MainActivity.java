@@ -2712,7 +2712,7 @@ public final class MainActivity extends Activity {
                 Long previous=favoriteRecoveryAttempts.get(id);
                 if(previous!=null)nextAt=Math.min(nextAt,previous+180000);
             }
-            if(nextAt!=Long.MAX_VALUE&&"Избранное".equals(screen)){
+            if(nextAt!=Long.MAX_VALUE&&visible&&!isDestroyed()){
                 long pause=Math.max(1500,Math.min(180000,nextAt-now+100));
                 ui.postDelayed(this::recoverMissingFavoriteTracks,pause);
             }
@@ -2833,9 +2833,10 @@ public final class MainActivity extends Activity {
                 }
                 favoriteRecoveryRunning=false;
                 applyFavoriteMetadata(owner,server,generation,candidates);
-                // Continue in batches, not only when the user reopens Favorites.
-                if(!full&&"Избранное".equals(screen))
-                    ui.postDelayed(this::recoverMissingFavoriteTracks,1700);
+                // Warm missing titles and artists in bounded batches while the app is visible,
+                // so Favorites is already populated when the user opens it.
+                if(visible&&!isDestroyed())
+                    ui.postDelayed(this::recoverMissingFavoriteTracks,1300);
             });
         });
     }
