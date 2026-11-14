@@ -450,7 +450,7 @@ public final class MainActivity extends Activity {
                 row.bind(snapshot.optJSONObject(position),position,playingId);
                 return row;
             }
-        };        };
+        };
         items.setAdapter(adapter);
         content.addView(items,new LinearLayout.LayoutParams(-1,
             Math.min(dp(480),Math.max(dp(100),dp(68)*Math.min(7,snapshot.length())))));
