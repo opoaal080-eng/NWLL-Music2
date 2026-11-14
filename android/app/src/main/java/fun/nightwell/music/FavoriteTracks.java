@@ -99,7 +99,7 @@ final class FavoriteTracks {
         clear();
         if(saved==null)return;
         JSONArray ids=saved.optJSONArray("order");
-        if(ids!=null){
+        if(ids!=null && saved.optInt("orderVersion",0)>=2){
             HashSet<String> unique=new HashSet<>();
             for(int i=0;i<ids.length();i++){
                 String id=ids.optString(i);
@@ -140,6 +140,7 @@ final class FavoriteTracks {
         }
         try{
             result.put("order",ids);
+            result.put("orderVersion",2);
             result.put("tracks",tracks);
         }catch(Exception ignored){}
         return result;
@@ -152,9 +153,9 @@ final class FavoriteTracks {
         for(String id:order) {
             if(liked.contains(id)&&used.add(id))updated.add(id);
         }
-        // Server returns favorites newest first. After a reinstall no local
-        // order remains, so keep the API sequence rather than reversing it.
-        if(serverIds!=null)for(int i=0;i<serverIds.length();i++){
+        // The legacy API returns IDs in insertion order, oldest to newest.
+        // Rebuild the missing local chronology after reinstall, newest first.
+        if(serverIds!=null)for(int i=serverIds.length()-1;i>=0;i--){
             String id=serverIds.optString(i);
             if(liked.contains(id)&&used.add(id))updated.add(id);
         }
