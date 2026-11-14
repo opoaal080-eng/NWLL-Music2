@@ -1569,7 +1569,11 @@ private struct AudioQualityDecision: Decodable {
         return "nw-auto-favorites|" + origin.absoluteString + "|" + user
     }
     func restoreAutoFavoritesSetting() {
-        automaticFavoritesDownload = autoFavoritesKey.flatMap { UserDefaults.standard.object(forKey: $0) as? Bool } ?? false
+        // New signed-in accounts use the requested automatic offline setting.
+        // Existing choices remain untouched, including an explicit false.
+        automaticFavoritesDownload = autoFavoritesKey.flatMap {
+            UserDefaults.standard.object(forKey: $0) as? Bool ?? true
+        } ?? false
         lastAutoFavoritesCheck = .distantPast
     }
     func setAutomaticFavoritesDownload(_ enabled: Bool) {
