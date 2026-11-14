@@ -654,9 +654,9 @@ struct NativeRoot: View {
                     if isLibraryScreen {
                         librarySectionTabs(landscape: landscape)
                     }
-                    content(bottomContentInset: (landscape ? 108 : 140) + viewport.safeAreaInsets.bottom + 12)
+                    content(bottomContentInset: (landscape ? 102 : 118) + viewport.safeAreaInsets.bottom + 12)
                         .environment(\.nightwellBottomContentInset,
-                                     (landscape ? 108 : 140) + viewport.safeAreaInsets.bottom + 12)
+                                     (landscape ? 102 : 118) + viewport.safeAreaInsets.bottom + 12)
                         .overlay(alignment: .bottom) {
                             playerDock(landscape: landscape)
                         }
@@ -669,7 +669,7 @@ struct NativeRoot: View {
     }
 
     private func playerDock(landscape: Bool) -> some View {
-        VStack(spacing: landscape ? 6 : 14) {
+        VStack(spacing: landscape ? 2 : 4) {
             MiniPlayer(clock: store.clock, open: { fullPlayer = true },
                        compactHeight: landscape)
                 .padding(.horizontal, landscape ? 18 : 16)
@@ -708,7 +708,7 @@ struct NativeRoot: View {
                                            .init(color: .white, location: 1)],
                                    startPoint: .top, endPoint: .bottom)
                 }
-                .padding(.top, -18)
+                .padding(.top, -12)
                 .ignoresSafeArea(.container, edges: .bottom)
                 .allowsHitTesting(false)
         }
@@ -1017,7 +1017,7 @@ struct NativeRoot: View {
                           landscape: landscape) { navigate(to: lastLibraryScreen) }
         }
         .padding(.horizontal, landscape ? 18 : 8)
-        .padding(.bottom, landscape ? 4 : 0)
+        .padding(.bottom, landscape ? 2 : 0)
     }
 
     private func navigationTab(_ title: String, icon: String, selected: Bool,
@@ -1027,18 +1027,19 @@ struct NativeRoot: View {
                 if landscape {
                     HStack(spacing: 7) {
                         Image(systemName: selected && icon != "magnifyingglass" ? icon + ".fill" : icon)
+                            .font(.system(size: 16, weight: selected ? .semibold : .regular))
                         Text(title).font(.system(size: 12, weight: .medium))
                     }
                 } else {
-                    VStack(spacing: 4) {
+                    VStack(spacing: 2) {
                         Image(systemName: selected && icon != "magnifyingglass" ? icon + ".fill" : icon)
-                            .font(.system(size: 22, weight: selected ? .semibold : .regular))
+                            .font(.system(size: 18, weight: selected ? .semibold : .regular))
                         Text(title).font(.system(size: 11, weight: selected ? .semibold : .regular))
                     }
                 }
             }
             .foregroundStyle(.white.opacity(selected ? 1 : 0.46))
-            .frame(maxWidth: .infinity, minHeight: landscape ? 44 : 56,
+            .frame(maxWidth: .infinity, minHeight: 44,
                    alignment: landscape ? .center : .bottom)
             .contentShape(Rectangle())
         }
