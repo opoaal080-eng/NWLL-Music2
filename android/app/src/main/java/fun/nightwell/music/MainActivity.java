@@ -2996,6 +2996,7 @@ public final class MainActivity extends Activity {
                     favoriteTracks.rememberLiked(value.optJSONArray("items"),likes);
                     favoriteTracks.rememberLiked(value.optJSONArray("favorites"),likes);
                     saveFavoriteIndex();saveLibrarySnapshot();checkAutoFavoriteDownloads();
+                    recoverMissingFavoriteTracks();
                     if(!full&&(screen.equals("Избранное")||screen.equals("Медиатека")))showScreen();
                 }});
             }catch(Exception ex){ui.post(()->{
