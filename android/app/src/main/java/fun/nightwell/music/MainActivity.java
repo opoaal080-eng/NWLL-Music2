@@ -510,7 +510,7 @@ public final class MainActivity extends Activity {
         super.onSaveInstanceState(saved);
     }
 
-    @Override protected void onResume(){super.onResume();if(redirectedToFirstRun)return;restoreRecent();visible=true;ui.removeCallbacks(nightwellProbe);ui.post(nightwellProbe);if(!smokeMode&&sessionReady&&SystemClock.elapsedRealtime()-lastResumeRefresh>30000)load();if(premiumRefresh!=null)premiumRefresh.run();BackgroundDownloads.reconcile(this);if(ribbon!=null)ribbon.running(!smokeMode&&!full&&screen.equals("Главная"));ui.removeCallbacks(tick);if(!smokeMode)ui.post(tick);ui.removeCallbacks(homeKineticTicker);if(!smokeMode)ui.post(homeKineticTicker);if(!smokeMode&&lyricsText!=null){ui.removeCallbacks(lyricTicker);ui.post(lyricTicker);}}
+    @Override protected void onResume(){super.onResume();if(redirectedToFirstRun)return;restoreRecent();visible=true;ui.removeCallbacks(nightwellProbe);ui.post(nightwellProbe);if(!smokeMode&&sessionReady&&SystemClock.elapsedRealtime()-lastResumeRefresh>30000)load();if(premiumRefresh!=null)premiumRefresh.run();BackgroundDownloads.reconcile(this);if(ribbon!=null)ribbon.running(false);ui.removeCallbacks(tick);if(!smokeMode)ui.post(tick);ui.removeCallbacks(homeKineticTicker);if(!smokeMode)ui.post(homeKineticTicker);if(!smokeMode&&lyricsText!=null){ui.removeCallbacks(lyricTicker);ui.post(lyricTicker);}}
     @Override protected void onPause(){super.onPause();if(redirectedToFirstRun)return;ui.removeCallbacks(pendingFavoriteIndexSave);persistFavoriteIndex();ui.removeCallbacks(nightwellProbe);ui.removeCallbacks(connectionRecovery);if(navigationPopup!=null)navigationPopup.dismiss();if(playback!=null)playback.persistPlayback(true);visible=false;if(ribbon!=null)ribbon.running(false);ui.removeCallbacks(tick);ui.removeCallbacks(homeKineticTicker);ui.removeCallbacks(lyricTicker);}
     @Override protected void onDestroy(){if(redirectedToFirstRun){super.onDestroy();return;}ui.removeCallbacks(nightwellProbe);generation++;cancelMix();accountRequest.cancel();if(api!=null)api.close();ui.removeCallbacksAndMessages(null);if(artworkCache!=null)artworkCache.close();favoriteRecoveryGeneration++;favoriteLookup.shutdownNow();favoriteMetadataNetwork.shutdownNow();favoriteIndexIO.shutdown();io.shutdownNow();waveIO.shutdownNow();prefetch.shutdownNow();playlistIndexer.shutdownNow();if(playback!=null)playback.player.removeListener(playbackIntentObserver);if(bindingRegistered){unbindService(connection);bindingRegistered=false;}super.onDestroy();}
     int dp(float n){return (int)(n*getResources().getDisplayMetrics().density+.5f);}
@@ -665,6 +665,14 @@ public final class MainActivity extends Activity {
         }
     }
 
+    private android.graphics.drawable.Drawable trackRowSurface(boolean active){
+        GradientDrawable fill=new GradientDrawable();
+        fill.setCornerRadius(dp(17));
+        fill.setColor(active?0x303a3e49:0x102a2c33);
+        if(active)fill.setStroke(dp(1),0x32ffffff);
+        return new android.graphics.drawable.RippleDrawable(
+            android.content.res.ColorStateList.valueOf(0x24ffffff),fill,null);
+    }
     TextView sheetAction(String label,Runnable run){TextView v=action(label,run);v.setTextSize(14);v.setMaxLines(2);v.setEllipsize(android.text.TextUtils.TruncateAt.END);v.setGravity(Gravity.CENTER_VERTICAL);v.setTextColor(0xfff4f4f6);v.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));v.setPadding(dp(14),dp(10),dp(14),dp(10));v.setMinHeight(dp(46));v.setBackground(buttonRipple());return v;}
     android.graphics.drawable.Drawable buttonRipple(){return new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x28ffffff),null,null);}
     TextView action(String label,Runnable run){TextView v=NativeIconButton.isIcon(label)?new NativeIconButton(this):text(label,16);v.setText(label);v.setTextColor(0xfff3f3f5);v.setTextSize(NativeIconButton.isIcon(label)?20:16);if(NativeIconButton.isIcon(label))v.setContentDescription(iconLabel(label));v.setGravity(Gravity.CENTER);v.setPadding(dp(12),dp(9),dp(12),dp(9));v.setMinHeight(dp(48));v.setBackground(buttonRipple());v.setOnClickListener(x->run.run());return v;}
@@ -710,7 +718,7 @@ public final class MainActivity extends Activity {
             }
             LinearLayout line=row();
             line.setPadding(dp(10),dp(7),dp(10),dp(7));
-            line.setBackground(touchSurface(playing?0xff373940:0xff24262b,17));
+            line.setBackground(trackRowSurface(playing));
             TextView index=text(playing?"♫":String.valueOf(i+1),12);
             index.setTextColor(playing?0xfff6f6f8:0xff999da8);
             index.setGravity(Gravity.CENTER);
@@ -1231,7 +1239,7 @@ public final class MainActivity extends Activity {
             public void afterTextChanged(Editable value){}
         });
         dock=row();dock.setPadding(dp(10),dp(10),dp(10),dp(11));GradientDrawable glassDock=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{0xa6303138,0x8c1a1b20});glassDock.setCornerRadius(dp(34));glassDock.setStroke(dp(1),0x30ffffff);dock.setBackground(null);
-        miniCover=new android.widget.ImageView(this);miniCover.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);GradientDrawable coverShape=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{0xff53565c,0xff24262c});coverShape.setCornerRadius(dp(12));miniCover.setBackground(coverShape);miniCover.setClipToOutline(true);miniCover.setOnClickListener(v->openPlayer());LinearLayout.LayoutParams coverParams=new LinearLayout.LayoutParams(dp(47),dp(47));coverParams.rightMargin=dp(10);dock.addView(miniCover,coverParams);
+        miniCover=new android.widget.ImageView(this);miniCover.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);GradientDrawable coverShape=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{0xff53565c,0xff24262c});coverShape.setCornerRadius(dp(13));miniCover.setBackground(coverShape);miniCover.setClipToOutline(true);miniCover.setOnClickListener(v->openPlayer());LinearLayout.LayoutParams coverParams=new LinearLayout.LayoutParams(dp(40),dp(40));coverParams.rightMargin=dp(11);dock.addView(miniCover,coverParams);
         LinearLayout labels=column();miniTitle=text("Выбери трек",15);miniTitle.setMaxLines(1);miniTitle.setTextSize(15);miniTitle.setLetterSpacing(-.015f);miniTitle.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);miniArtist=text("Nightwell Music",12);miniArtist.setMaxLines(1);miniArtist.setTextSize(12);miniArtist.setLetterSpacing(.005f);miniArtist.setTextColor(0xffa4a6b1);miniTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);miniArtist.setEllipsize(android.text.TextUtils.TruncateAt.END);labels.addView(miniTitle);labels.addView(miniArtist);labels.setOnClickListener(v->openPlayer());dock.addView(labels,new LinearLayout.LayoutParams(0,-2,1));// Match the latest iOS compact mini player: heart and play/pause only.
         // Track skips remain available from the full player, gestures and queue.
         miniPlay=action("▶",()->toggle());
@@ -1254,7 +1262,10 @@ public final class MainActivity extends Activity {
         dockParams.topMargin=dp(landscape?3:4);
         dockOverlay=new FrameLayout(this);
         dockBackdrop=new DockBackdropView(this);dockBackdrop.setSource(contentLayer);
-        dockOverlay.addView(dockBackdrop,new FrameLayout.LayoutParams(-1,-1));
+        // The frosted region is a scene-level layer and extends to the physical
+        // bottom of the screen, including Android's gesture navigation inset.
+        final int backdropHeight=dp(bottomNavigationEnabled()?154:92);
+        scene.addView(dockBackdrop,new FrameLayout.LayoutParams(-1,backdropHeight,Gravity.BOTTOM));
         LinearLayout dockStack=column();dockStack.setPadding(dp(landscape?10:16),0,dp(landscape?10:16),0);
         dockStack.addView(dockContainer,dockParams);
         dockOverlay.addView(dockStack,new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM));
@@ -1263,7 +1274,15 @@ public final class MainActivity extends Activity {
         scene.addView(dockOverlay,overlayParams);
         dockOverlay.setOnApplyWindowInsetsListener((v,insets)->{
             int bottom=Build.VERSION.SDK_INT>=30?Math.max(insets.getInsets(WindowInsets.Type.systemBars()).bottom,insets.getInsets(WindowInsets.Type.ime()).bottom):insets.getSystemWindowInsetBottom();
-            FrameLayout.LayoutParams p=(FrameLayout.LayoutParams)v.getLayoutParams();p.bottomMargin=bottom;v.setLayoutParams(p);return insets;
+            FrameLayout.LayoutParams p=(FrameLayout.LayoutParams)v.getLayoutParams();p.bottomMargin=bottom;v.setLayoutParams(p);
+            FrameLayout.LayoutParams backdropLayout=(FrameLayout.LayoutParams)dockBackdrop.getLayoutParams();
+            int expectedHeight=backdropHeight+bottom;
+            if(backdropLayout.height!=expectedHeight){
+                backdropLayout.height=expectedHeight;
+                dockBackdrop.setLayoutParams(backdropLayout);
+            }
+            dockBackdrop.post(this::refreshDockBackdrop);
+            return insets;
         });
         dockOverlay.requestApplyInsets();
         if(backgroundOnly)dockOverlay.setVisibility(View.GONE);
@@ -1281,21 +1300,16 @@ public final class MainActivity extends Activity {
             dockStack.addView(navigation,new LinearLayout.LayoutParams(-1,dp(58)));
         }
         dock.setOnClickListener(v->openPlayer());
-        showScreen();updatePlayback();loadMiniCover(current());updateCoverBackdrop();dockOverlay.post(this::refreshDockBackdrop);
+        showScreen();updatePlayback();if(playback==null)loadMiniCover(current());updateCoverBackdrop();dockOverlay.post(this::refreshDockBackdrop);
     }
     private TextView addBottomNavigationTab(LinearLayout container,String icon,String label,Runnable click){
-        android.text.SpannableString caption=new android.text.SpannableString(icon+"\n"+label);
-        caption.setSpan(new android.text.style.AbsoluteSizeSpan(25,true),0,icon.length(),android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        TextView tab=text("",11);tab.setText(caption);tab.setIncludeFontPadding(false);tab.setLineSpacing(dp(1),1f);
-        tab.setGravity(Gravity.CENTER);
+        final String kind="Главная".equals(label)?"home":"Поиск".equals(label)?"search":
+            "Медиатека".equals(label)?"library":"premium";
+        NativeBottomTab tab=new NativeBottomTab(this,kind);
+        tab.setText(label);
         tab.setTextColor(label.equals(screen)||label.equals("Медиатека")&&isCollectionScreen()
             ?Color.WHITE:0xffa7a8ac);
-        // No individual pill beneath each tab. Shared blurred dock stays behind it.
-        GradientDrawable rippleMask = new GradientDrawable();
-        rippleMask.setColor(Color.WHITE);
-        rippleMask.setCornerRadius(dp(12));
-        tab.setBackground(new android.graphics.drawable.RippleDrawable(
-            android.content.res.ColorStateList.valueOf(0x26ffffff), null, rippleMask));
+        tab.setBackground(buttonRipple());
         tab.setOnClickListener(v->click.run());
         tab.setContentDescription(label);
         container.addView(tab,new LinearLayout.LayoutParams(0,-1,1));
@@ -2195,7 +2209,7 @@ public final class MainActivity extends Activity {
         if(screen.equals("Главная")){
             boolean compact=getResources().getConfiguration().orientation==android.content.res.Configuration.ORIENTATION_LANDSCAPE;
             android.widget.FrameLayout stage=new android.widget.FrameLayout(this);stage.setPadding(0,0,0,backgroundOnly?0:bottomDockInset);body.addView(stage,new LinearLayout.LayoutParams(-1,0,1));
-            ribbon.setVisibility(View.VISIBLE);ribbon.running(visible&&!smokeMode);
+            ribbon.setVisibility(View.GONE);ribbon.running(false);
             LinearLayout intro=column();intro.setGravity(Gravity.CENTER);intro.setPadding(0,0,0,0);
             TextView theme=text("Твой ритм",compact?30:Math.min(48,getResources().getConfiguration().screenWidthDp/8));theme.setTypeface(android.graphics.Typeface.create("sans-serif",android.graphics.Typeface.BOLD));theme.setLetterSpacing(-.035f);theme.setIncludeFontPadding(false);theme.setLineSpacing(0,.92f);theme.setMaxLines(2);theme.setAutoSizeTextTypeUniformWithConfiguration(25,43,1,android.util.TypedValue.COMPLEX_UNIT_SP);intro.addView(theme);theme.setGravity(Gravity.CENTER);
             android.widget.FrameLayout.LayoutParams introParams=new android.widget.FrameLayout.LayoutParams(-1,-2,Gravity.CENTER);
@@ -2203,7 +2217,7 @@ public final class MainActivity extends Activity {
             stage.addView(intro,introParams);
             homePlay=action("▶",()->{if(currentID.isEmpty())wave();else toggle();});homePlay.setTextColor(Color.WHITE);homePlay.setTextSize(34);homePlay.setBackground(buttonRipple());homePlay.setElevation(0);android.widget.FrameLayout.LayoutParams playParams=new android.widget.FrameLayout.LayoutParams(dp(88),dp(88),Gravity.CENTER);if(compact){playParams.gravity=Gravity.CENTER_VERTICAL|Gravity.RIGHT;playParams.rightMargin=dp(50);}else playParams.topMargin=dp(30);stage.addView(homePlay,playParams);
             TextView mix=action("Новая подборка",this::wave);mix.setOnLongClickListener(v->{waveSettings();return true;});mix.setContentDescription("Новая подборка. Удерживай, чтобы настроить");mix.setTextSize(14);mix.setBackground(buttonRipple());mix.setTextColor(0xffffffff);mix.setTypeface(null,android.graphics.Typeface.BOLD);android.widget.FrameLayout.LayoutParams mixParams=new android.widget.FrameLayout.LayoutParams(dp(184),dp(44),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL);mixParams.bottomMargin=dp(compact?20:124);homeMixButton=mix;updateMixButton();stage.addView(mix,mixParams);
-            homeLyric=text("",16);homeLine="";homeWord=-2;homeKineticSpans.clear();homeLyric.setGravity(Gravity.CENTER);homeLyric.setTextColor(0xffe1e1e1);homeLyric.setMaxLines(2);homeLyric.setOnClickListener(v->{JSONObject t=current();if(t!=null)showLyrics(t);});android.widget.FrameLayout.LayoutParams lyricParams=new android.widget.FrameLayout.LayoutParams(-1,dp(50),Gravity.BOTTOM);stage.addView(homeLyric,lyricParams);if(compact)homeLyric.setVisibility(View.VISIBLE);
+            homeLyric=text("",16);homeLyric.setTypeface(android.graphics.Typeface.create("sans-serif",android.graphics.Typeface.BOLD));homeLine="";homeWord=-2;homeKineticSpans.clear();homeLyric.setGravity(Gravity.CENTER);homeLyric.setTextColor(0xffe1e1e1);homeLyric.setMaxLines(2);homeLyric.setOnClickListener(v->{JSONObject t=current();if(t!=null)showLyrics(t);});android.widget.FrameLayout.LayoutParams lyricParams=new android.widget.FrameLayout.LayoutParams(-1,dp(50),Gravity.BOTTOM);stage.addView(homeLyric,lyricParams);if(compact)homeLyric.setVisibility(View.VISIBLE);
             if(compact&&!backgroundOnly){
                 // Real two-column landscape layout. Prevent the album/lyrics
                 // area from overlapping playback controls on short screens.
@@ -2367,7 +2381,7 @@ public final class MainActivity extends Activity {
                 JSONObject p=playlists.optJSONObject(i);
                 if(p==null)continue;
                 LinearLayout item=row();item.setGravity(Gravity.CENTER_VERTICAL);
-                item.setBackground(fieldSurface(0xff25272b,16));
+                item.setBackground(trackRowSurface(false));
                 item.setMinimumHeight(dp(66));item.setPadding(dp(8),dp(5),dp(4),dp(5));
                 ImageView playlistCover=new ImageView(this);
                 playlistCover.setScaleType(ImageView.ScaleType.CENTER_CROP);
@@ -3757,7 +3771,7 @@ public final class MainActivity extends Activity {
         });
         top.addView(close,new LinearLayout.LayoutParams(dp(48),dp(48)));
         LinearLayout center=column();center.setGravity(Gravity.CENTER);
-        fullAudioOutput=text("♫  "+audioOutputName()+"  ⌄",12);
+        fullAudioOutput=text("Аудиовыход · "+audioOutputName()+"  ⌄",12);
         fullAudioOutput.setGravity(Gravity.CENTER);
         fullAudioOutput.setSingleLine(true);
         fullAudioOutput.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -3783,7 +3797,7 @@ public final class MainActivity extends Activity {
             body.animate().alpha(1f).translationY(0).setDuration(280)
                 .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
         }
-        android.widget.ScrollView scroll=new android.widget.ScrollView(this);scroll.setFillViewport(true);scroll.setClipToPadding(false);LinearLayout content=column();content.setPadding(dp(2),dp(6),dp(2),dp(18));scroll.addView(content);body.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+        android.widget.ScrollView scroll=new android.widget.ScrollView(this);scroll.setFillViewport(true);scroll.setClipToPadding(false);LinearLayout content=column();content.setPadding(dp(9),dp(8),dp(9),dp(22));scroll.addView(content);body.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
         boolean landscapePlayer=getResources().getConfiguration().orientation==
             android.content.res.Configuration.ORIENTATION_LANDSCAPE;
         LinearLayout details=content;
@@ -3838,7 +3852,7 @@ public final class MainActivity extends Activity {
         transport.setClipChildren(false);
         transport.setClipToPadding(false);
         LinearLayout.LayoutParams transportParams=new LinearLayout.LayoutParams(-1,-2);
-        transportParams.topMargin=dp(isLandscapeLayout()?5:13);
+        transportParams.topMargin=dp(isLandscapeLayout()?5:10);
         details.addView(transport,transportParams);
         seek=new PreparingSeekBar(this);seek.setMinimumHeight(dp(44));seek.setProgressTintList(android.content.res.ColorStateList.valueOf(0xfff0f0f0));seek.setSecondaryProgressTintList(android.content.res.ColorStateList.valueOf(0x88c6c9d0));seek.setProgressBackgroundTintList(android.content.res.ColorStateList.valueOf(0x333b3d43));android.graphics.drawable.GradientDrawable tinyThumb=new android.graphics.drawable.GradientDrawable();tinyThumb.setShape(android.graphics.drawable.GradientDrawable.OVAL);tinyThumb.setColor(0xfff8f8f8);tinyThumb.setStroke(dp(1),0x88ffffff);tinyThumb.setSize(dp(8),dp(8));seek.setThumb(tinyThumb);seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar b,int p,boolean user){}public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){cancelMix();if(playback!=null)playback.seek(b.getProgress());}});transport.addView(seek);fullTime=text("",12);fullTime.setPadding(dp(5),0,dp(5),dp(5));fullTime.setTextColor(0xffc8c8c8);transport.addView(fullTime);
         LinearLayout controls=row();controls.setGravity(Gravity.CENTER);
@@ -3866,22 +3880,16 @@ public final class MainActivity extends Activity {
             button.setBackground(null);button.setPadding(0,0,0,0);button.setTextSize(25);
         }
         backward.setTextSize(31);forward.setTextSize(31);
-        fullPlay.setTextColor(0xffeeeeee);fullPlay.setTextSize(30);
-        GradientDrawable playSurface=new GradientDrawable();
-        playSurface.setColor(0xfff3f3f5);
-        playSurface.setCornerRadius(dp(34));
-        android.graphics.drawable.RippleDrawable playRipple=new android.graphics.drawable.RippleDrawable(
-            android.content.res.ColorStateList.valueOf(0x33000000),playSurface,null);
-        fullPlay.setBackground(playRipple);
-        fullPlay.setTextColor(0xff16171a);
-        fullPlay.setElevation(dp(4));
+        fullPlay.setTextColor(Color.WHITE);fullPlay.setTextSize(32);
+        fullPlay.setBackground(buttonRipple());
+        fullPlay.setElevation(0);
         fullPlay.setPadding(0,0,0,0);
         controls.addView(shuffleButton,new LinearLayout.LayoutParams(0,dp(56),1));
-        controls.addView(backward,new LinearLayout.LayoutParams(0,dp(59),1));
-        LinearLayout.LayoutParams centerPlay=new LinearLayout.LayoutParams(dp(66),dp(66));
+        controls.addView(backward,new LinearLayout.LayoutParams(0,dp(62),1));
+        LinearLayout.LayoutParams centerPlay=new LinearLayout.LayoutParams(dp(70),dp(70));
         centerPlay.leftMargin=dp(2);centerPlay.rightMargin=dp(2);
         controls.addView(fullPlay,centerPlay);
-        controls.addView(forward,new LinearLayout.LayoutParams(0,dp(59),1));
+        controls.addView(forward,new LinearLayout.LayoutParams(0,dp(62),1));
         controls.addView(repeatButton,new LinearLayout.LayoutParams(0,dp(56),1));
         transport.addView(controls);
         TextView queueButton=action("Объёмная очередь  ·  "+queue.length()+"   ›",this::showQueue);
@@ -3926,11 +3934,11 @@ public final class MainActivity extends Activity {
         int height=getResources().getConfiguration().screenHeightDp;
         // A cover must not push playback controls outside the viewport.
         // Immersive remains broad, while classic has wider side margins.
-        int preferred=classic?width-54:width-40;
-        int availableHeight=Math.max(170,height-(landscape?115:345));
+        int preferred=classic?width-58:width-44;
+        int availableHeight=Math.max(165,height-(landscape?160:450));
         int side=landscape?Math.min(width/2-36,height-116):
             Math.min(preferred,availableHeight);
-        side=Math.max(145,Math.min(side,landscape?380:560));
+        side=Math.max(145,Math.min(side,landscape?350:490));
         android.widget.FrameLayout artwork=new android.widget.FrameLayout(this);
         GradientDrawable backdrop=new GradientDrawable(
             GradientDrawable.Orientation.TL_BR,
@@ -4112,12 +4120,7 @@ public final class MainActivity extends Activity {
                     ordinal<=word?0xffffffff:0xffa0a2af);
             styled.setSpan(color,from,to,android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             homeKineticSpans.add(color);
-            if(ordinal==word){
-                android.text.style.BackgroundColorSpan glow=
-                    new android.text.style.BackgroundColorSpan(0x24ffffff);
-                styled.setSpan(glow,from,to,android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                homeKineticSpans.add(glow);
-            }
+            // Only the text color follows the current word, without a highlight rectangle.
             ordinal++;
         }
         homeLyric.invalidate();
@@ -5056,14 +5059,14 @@ public final class MainActivity extends Activity {
         int selected=getSharedPreferences("playback",MODE_PRIVATE).getInt("nw-stream-buffer-seconds",0);
         int selectedIndex=0;
         for(int i=0;i<values.length;i++)if(values[i]==selected)selectedIndex=i;
-        TextView bufferLabel=text("Буфер потока · "+(selected==0?"Быстрый (1 с)":selected+" с"),15);
+        TextView bufferLabel=text("Буфер потока · "+(selected==0?"Авто":selected+" с"),15);
         bufferLabel.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
         panel.addView(bufferLabel);
         SeekBar buffer=new SeekBar(this);buffer.setMax(values.length-1);buffer.setProgress(selectedIndex);
         buffer.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
             public void onProgressChanged(SeekBar bar,int progress,boolean fromUser){
                 int seconds=values[Math.min(values.length-1,Math.max(0,progress))];
-                bufferLabel.setText("Буфер потока · "+(seconds==0?"Быстрый (1 с)":seconds+" с"));
+                bufferLabel.setText("Буфер потока · "+(seconds==0?"Авто":seconds+" с"));
                 if(fromUser){if(playback!=null)playback.settingStreamBufferSeconds(seconds);else getSharedPreferences("playback",MODE_PRIVATE).edit().putInt("nw-stream-buffer-seconds",seconds).apply();}
             }
             public void onStartTrackingTouch(SeekBar bar){}
@@ -5610,8 +5613,7 @@ public final class MainActivity extends Activity {
             });
             rowView.setContentDescription("Воспроизвести "+
                 track.optString("title"));
-            rowView.setBackground(fieldSurface(
-                active?0xff33363c:0xff23252a,17));
+            rowView.setBackground(trackRowSurface(active));
             return rowView;
         }
     }
