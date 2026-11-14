@@ -129,10 +129,14 @@ jobs:
           arch: x86_64
           target: google_apis
           profile: pixel_6
-          ram-size: 3072M
-          heap-size: 512M
+          ram-size: 2048M
+          heap-size: 384M
           disable-animations: true
-          script: adb install -r "$(find android/native-smoke/apk -type f -name '*.apk' -print -quit)" && python3 android/capture-emulator-screens.py
+          script: |
+            adb shell wm size 720x1600
+            adb shell wm density 320
+            adb install -r "$(find android/native-smoke/apk -type f -name '*.apk' -print -quit)"
+            python3 android/capture-emulator-screens.py
       - name: Publish emulator screenshots and HTML gallery
         if: always()
         uses: actions/upload-artifact@v4
