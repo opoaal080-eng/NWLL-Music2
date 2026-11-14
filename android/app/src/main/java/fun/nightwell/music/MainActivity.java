@@ -1252,8 +1252,8 @@ public final class MainActivity extends Activity {
         LinearLayout dockStack=column();dockStack.setPadding(dp(landscape?10:16),0,dp(landscape?10:16),0);
         dockStack.addView(dockContainer,dockParams);
         dockOverlay.addView(dockStack,new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM));
-        bottomDockInset=dp(bottomNavigationEnabled()?118:72);
-        FrameLayout.LayoutParams overlayParams=new FrameLayout.LayoutParams(-1,dp(bottomNavigationEnabled()?138:92),Gravity.BOTTOM);
+        bottomDockInset=dp(bottomNavigationEnabled()?134:72);
+        FrameLayout.LayoutParams overlayParams=new FrameLayout.LayoutParams(-1,dp(bottomNavigationEnabled()?154:92),Gravity.BOTTOM);
         scene.addView(dockOverlay,overlayParams);
         dockOverlay.setOnApplyWindowInsetsListener((v,insets)->{
             int bottom=Build.VERSION.SDK_INT>=30?Math.max(insets.getInsets(WindowInsets.Type.systemBars()).bottom,insets.getInsets(WindowInsets.Type.ime()).bottom):insets.getSystemWindowInsetBottom();
@@ -1266,21 +1266,21 @@ public final class MainActivity extends Activity {
         if(!backgroundOnly&&bottomNavigationEnabled()){
             LinearLayout navigation=row();
             navigation.setGravity(Gravity.CENTER);
-            navigation.setPadding(0,dp(1),0,dp(3));
+            navigation.setPadding(0,dp(2),0,dp(4));
             addBottomNavigationTab(navigation,"⌂","Главная",()->navigate("Главная"));
             addBottomNavigationTab(navigation,"⌕","Поиск",()->navigate("Поиск"));
             addBottomNavigationTab(navigation,"▤","Медиатека",()->navigate(libraryDestination()));
             premiumTabButton=addBottomNavigationTab(navigation,"✧","Premium",this::premium);
             premiumTabButton.setVisibility(shouldShowPremiumTab()?View.VISIBLE:View.GONE);
-            dockStack.addView(navigation,new LinearLayout.LayoutParams(-1,dp(44)));
+            dockStack.addView(navigation,new LinearLayout.LayoutParams(-1,dp(58)));
         }
         android.view.GestureDetector miniGestures=gestures(false);labels.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));dock.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));
         showScreen();updatePlayback();loadMiniCover(current());updateCoverBackdrop();dockOverlay.post(this::refreshDockBackdrop);
     }
     private TextView addBottomNavigationTab(LinearLayout container,String icon,String label,Runnable click){
         android.text.SpannableString caption=new android.text.SpannableString(icon+"\n"+label);
-        caption.setSpan(new android.text.style.AbsoluteSizeSpan(18,true),0,icon.length(),android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        TextView tab=text("",10);tab.setText(caption);tab.setIncludeFontPadding(false);
+        caption.setSpan(new android.text.style.AbsoluteSizeSpan(25,true),0,icon.length(),android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        TextView tab=text("",11);tab.setText(caption);tab.setIncludeFontPadding(false);tab.setLineSpacing(dp(1),1f);
         tab.setGravity(Gravity.CENTER);
         tab.setTextColor(label.equals(screen)||label.equals("Медиатека")&&isCollectionScreen()
             ?Color.WHITE:0xffa7a8ac);
