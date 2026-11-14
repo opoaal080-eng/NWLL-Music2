@@ -48,6 +48,13 @@ jobs:
           gradle-version: '8.11.1'
       - name: Build debug APK
         run: gradle --no-daemon :app:assembleDebug
+      - name: Verify non-destructive queue behavior (JVM)
+        run: |
+          mkdir -p build/queue-tests
+          javac -d build/queue-tests \
+            app/src/main/java/fun/nightwell/music/ManualPlaybackQueue.java \
+            tests/ManualPlaybackQueueTest.java
+          java -cp build/queue-tests fun.nightwell.music.ManualPlaybackQueueTest
       - name: Record APK checksum and commit
         run: python3 ../scripts/build-provenance.py --platform android --directory app/build/outputs/apk/debug --output ../android-build-provenance.json
       - uses: actions/upload-artifact@v4
