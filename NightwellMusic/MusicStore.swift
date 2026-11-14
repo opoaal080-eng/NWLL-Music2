@@ -427,8 +427,7 @@ private struct AudioQualityDecision: Decodable {
     }
 
     // Keep the user's explicit add chronology across app restarts.
-    // Older servers return only IDs rather than liked_at timestamps, so
-    // unobserved favorites fall back to the API's original ID sequence.
+    // /api/likes supplies newest-first IDs. Reinstallation must not reverse them.
     private func reconcileFavoriteOrder(_ serverIDs: [String], newestID: String? = nil) {
         let valid = Set(serverIDs)
         let saved = favoriteOrderKey.flatMap {
@@ -438,7 +437,7 @@ private struct AudioQualityDecision: Decodable {
         let previous = (saved + favoriteOrder).filter {
             valid.contains($0) && seen.insert($0).inserted
         }
-        let unseen = serverIDs.reversed().filter {
+        let unseen = serverIDs.filter {
             valid.contains($0) && seen.insert($0).inserted
         }
         var result = previous + unseen
@@ -486,7 +485,7 @@ private struct AudioQualityDecision: Decodable {
             let key = "nw-favorites-order-v1|" + origin.absoluteString + "|" + owner
             let saved = UserDefaults.standard.stringArray(forKey: key) ?? []
             var seen = Set<String>()
-            favoriteOrder = (saved + cache.likes.reversed()).filter {
+            favoriteOrder = (saved + cache.likes).filter {
                 likes.contains($0) && seen.insert($0).inserted
             }
         }
