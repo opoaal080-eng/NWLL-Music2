@@ -81,16 +81,21 @@ extension View {
 // Shared with the mini-player: only the background is translucent.
 struct NativeBackdropBlur: UIViewRepresentable {
     var intensity: CGFloat = 1
+    var style: UIBlurEffect.Style = .systemUltraThinMaterialDark
     func makeCoordinator() -> Coordinator { Coordinator() }
     func makeUIView(context: Context) -> UIVisualEffectView {
         let view = UIVisualEffectView(effect: nil)
+        view.backgroundColor = .clear
+        view.contentView.backgroundColor = .clear
+        view.isOpaque = false
         view.isUserInteractionEnabled = false
         return view
     }
     func updateUIView(_ view: UIVisualEffectView, context: Context) {
-        guard context.coordinator.intensity != intensity else { return }
+        guard context.coordinator.intensity != intensity || context.coordinator.style != style else { return }
         let coordinator = context.coordinator
         coordinator.intensity = intensity
+        coordinator.style = style
         DispatchQueue.main.async { [weak view] in
             guard let view else { return }
             coordinator.apply(to: view)
@@ -98,10 +103,11 @@ struct NativeBackdropBlur: UIViewRepresentable {
     }
     final class Coordinator {
         var intensity: CGFloat = -1
+        var style: UIBlurEffect.Style = .systemUltraThinMaterialDark
         private var animator: UIViewPropertyAnimator?
         func apply(to view: UIVisualEffectView) {
             animator?.stopAnimation(true)
-            let effect = UIBlurEffect(style: .systemUltraThinMaterialDark)
+            let effect = UIBlurEffect(style: style)
             guard intensity < 1 else { view.effect = effect; animator = nil; return }
             view.effect = nil
             let animation = UIViewPropertyAnimator(duration: 1, curve: .linear) { view.effect = effect }
@@ -492,11 +498,9 @@ struct NativeRoot: View {
             }
         }
         .background {
-            // Blur only the scrolling content behind the dock. The controls
-            // stay sharp, and the upper edge blends into the same screen.
-            Rectangle()
-                .fill(.ultraThinMaterial)
-                .opacity(0.6)
+            // Apply native backdrop blur at full strength, without a separate
+            // translucent surface. Keep the controls in the sharp foreground layer.
+            NativeBackdropBlur(intensity: 1, style: .regular)
                 .mask {
                     LinearGradient(gradient: NavigationDockAppearance.blurFade,
                                    startPoint: .top, endPoint: .bottom)
