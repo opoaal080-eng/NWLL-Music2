@@ -39,10 +39,20 @@ final class FavoriteTracks {
             && !item.optString("title").trim().isEmpty();
     }
 
+    private static int quality(JSONObject item) {
+        if(!useful(item))return 0;
+        int score=2;
+        if(!item.optString("artist").trim().isEmpty())score+=4;
+        if(!item.optString("cover_url").trim().isEmpty())score++;
+        return score;
+    }
+
     void remember(JSONObject item) {
         if(!useful(item))return;
         String id=item.optString("id");
-        // Copy the record: later queue mutations must not alter saved metadata.
+        // Never replace cached title+artist with a bare ID/title returned by
+        // a partial catalog or legacy play queue.
+        if(quality(details.get(id))>quality(item))return;
         try{
             details.put(id,new JSONObject(item.toString()));
         }catch(Exception ignored){}
@@ -58,7 +68,8 @@ final class FavoriteTracks {
     }
 
     boolean hasMetadata(String id) {
-        return validId(id) && useful(details.get(id));
+        return validId(id) && useful(details.get(id))
+            && !details.get(id).optString("artist").trim().isEmpty();
     }
 
     int missingCount(Set<String> liked) {
@@ -175,8 +186,10 @@ final class FavoriteTracks {
         if(items==null)return;
         for(int i=0;i<items.length();i++){
             JSONObject item=items.optJSONObject(i);
-            if(useful(item)&&likes.contains(item.optString("id")))
-                byId.put(item.optString("id"),item);
+            if(useful(item)&&likes.contains(item.optString("id"))){
+                String id=item.optString("id");
+                if(quality(item)>=quality(byId.get(id)))byId.put(id,item);
+            }
         }
     }
 
@@ -220,7 +233,8 @@ final class FavoriteTracks {
         ArrayList<String> missing=new ArrayList<>();
         for(int i=0;i<displayed.length()&&missing.size()<count;i++){
             JSONObject item=displayed.optJSONObject(i);
-            if(item!=null&&item.optBoolean("_favoriteMissing")){
+            if(item!=null&&(item.optBoolean("_favoriteMissing")
+                ||item.optString("artist").trim().isEmpty())){
                 String id=item.optString("id");
                 if(id.matches("[A-Za-z0-9_-]{4,160}"))missing.add(id);
             }
