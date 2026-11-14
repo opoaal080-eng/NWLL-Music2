@@ -1726,7 +1726,13 @@ struct NightwellAccountDevicesResponse: Decodable {
                 if canonical.contains(track.id) { likes.insert(track.id) }
                 else { likes.remove(track.id) }
             }
-            reconcileFavoriteOrder(Array(likes),
+            // A Set loses chronology. Use the server's canonical oldest-first
+            // sequence, then append only optimistic favorites not on the server
+            // yet. The reconciliation step restores newest-first presentation.
+            let pendingIDs = favoriteOrder.filter {
+                likes.contains($0) && !canonical.contains($0)
+            }
+            reconcileFavoriteOrder(response.ids.filter { likes.contains($0) } + pendingIDs,
                                    newestID: desired && canonical.contains(track.id)
                                        ? track.id : nil)
             saveSessionSnapshot()
