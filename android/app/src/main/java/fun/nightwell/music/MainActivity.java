@@ -279,6 +279,8 @@ public final class MainActivity extends Activity {
     private final Set<String> favoritePending=new HashSet<>();
     private final java.util.Map<String,Long> favoriteRecoveryAttempts=new java.util.HashMap<>();
     private final ExecutorService favoriteLookup=Executors.newSingleThreadExecutor();
+    private final ExecutorService favoriteIndexIO=Executors.newSingleThreadExecutor();
+    private final Runnable pendingFavoriteIndexSave=this::persistFavoriteIndex;
     // At most three parallel legacy metadata lookups, independent from playback IO.
     private final ExecutorService favoriteMetadataNetwork=Executors.newFixedThreadPool(3);
     private long favoriteRevision;
@@ -510,7 +512,7 @@ public final class MainActivity extends Activity {
 
     @Override protected void onResume(){super.onResume();if(redirectedToFirstRun)return;restoreRecent();visible=true;ui.removeCallbacks(nightwellProbe);ui.post(nightwellProbe);if(!smokeMode&&sessionReady&&SystemClock.elapsedRealtime()-lastResumeRefresh>30000)load();if(premiumRefresh!=null)premiumRefresh.run();BackgroundDownloads.reconcile(this);if(ribbon!=null)ribbon.running(!smokeMode&&!full&&screen.equals("Главная"));ui.removeCallbacks(tick);if(!smokeMode)ui.post(tick);ui.removeCallbacks(homeKineticTicker);if(!smokeMode)ui.post(homeKineticTicker);if(!smokeMode&&lyricsText!=null){ui.removeCallbacks(lyricTicker);ui.post(lyricTicker);}}
     @Override protected void onPause(){super.onPause();if(redirectedToFirstRun)return;ui.removeCallbacks(nightwellProbe);ui.removeCallbacks(connectionRecovery);if(navigationPopup!=null)navigationPopup.dismiss();if(playback!=null)playback.persistPlayback(true);visible=false;if(ribbon!=null)ribbon.running(false);ui.removeCallbacks(tick);ui.removeCallbacks(homeKineticTicker);ui.removeCallbacks(lyricTicker);}
-    @Override protected void onDestroy(){if(redirectedToFirstRun){super.onDestroy();return;}ui.removeCallbacks(nightwellProbe);generation++;cancelMix();accountRequest.cancel();if(api!=null)api.close();ui.removeCallbacksAndMessages(null);if(artworkCache!=null)artworkCache.close();favoriteRecoveryGeneration++;favoriteLookup.shutdownNow();favoriteMetadataNetwork.shutdownNow();io.shutdownNow();waveIO.shutdownNow();prefetch.shutdownNow();playlistIndexer.shutdownNow();if(playback!=null)playback.player.removeListener(playbackIntentObserver);if(bindingRegistered){unbindService(connection);bindingRegistered=false;}super.onDestroy();}
+    @Override protected void onDestroy(){if(redirectedToFirstRun){super.onDestroy();return;}ui.removeCallbacks(nightwellProbe);generation++;cancelMix();accountRequest.cancel();if(api!=null)api.close();ui.removeCallbacksAndMessages(null);if(artworkCache!=null)artworkCache.close();favoriteRecoveryGeneration++;favoriteLookup.shutdownNow();favoriteMetadataNetwork.shutdownNow();favoriteIndexIO.shutdown();io.shutdownNow();waveIO.shutdownNow();prefetch.shutdownNow();playlistIndexer.shutdownNow();if(playback!=null)playback.player.removeListener(playbackIntentObserver);if(bindingRegistered){unbindService(connection);bindingRegistered=false;}super.onDestroy();}
     int dp(float n){return (int)(n*getResources().getDisplayMetrics().density+.5f);}
     boolean isLandscapeLayout(){
         android.content.res.Configuration c=getResources().getConfiguration();
@@ -2601,19 +2603,40 @@ public final class MainActivity extends Activity {
 
     private void saveFavoriteIndex() {
         if(user.isEmpty()||smokeMode)return;
-        String payload=favoriteTracks.snapshot(1500).toString();
-        // Keep the complete ID order even when thousands of cached track
-        // records make the metadata index too large for SharedPreferences.
-        for(int cap:new int[]{1000,700,400,200,100,0}){
-            if(payload.length()<=1900000)break;
-            payload=favoriteTracks.snapshot(cap).toString();
-        }
-        if(payload.length()>1900000){
-            android.util.Log.w("NightwellMusic","Favorite ID index exceeds storage bound");
-            return;
-        }
-        getSharedPreferences("favorite-tracks-v1",MODE_PRIVATE).edit()
-            .putString(favoriteIndexKey(user),payload).apply();
+        // Repeated queue transitions must not JSON-serialize a thousand tracks
+        // synchronously on the gesture/playback UI thread.
+        ui.removeCallbacks(pendingFavoriteIndexSave);
+        ui.postDelayed(pendingFavoriteIndexSave,550);
+    }
+
+    private void persistFavoriteIndex() {
+        if(user.isEmpty()||smokeMode)return;
+        final String key=favoriteIndexKey(user);
+        // Take the lightweight ID/metadata snapshot on the UI thread. It owns
+        // references to immutable copied track records; stringify on disk IO.
+        final JSONObject snapshot=favoriteTracks.snapshot(1500);
+        favoriteIndexIO.execute(()->{
+            try{
+                String payload=snapshot.toString();
+                JSONArray tracks=snapshot.optJSONArray("tracks");
+                if(payload.length()>1900000&&tracks!=null){
+                    for(int cap:new int[]{1000,700,400,200,100,0}){
+                        JSONArray trimmed=new JSONArray();
+                        for(int i=0;i<Math.min(cap,tracks.length());i++)
+                            trimmed.put(tracks.opt(i));
+                        snapshot.put("tracks",trimmed);
+                        payload=snapshot.toString();
+                        if(payload.length()<=1900000)break;
+                    }
+                }
+                if(payload.length()>1900000){
+                    android.util.Log.w("NightwellMusic","Favorite ID index exceeds storage bound");
+                    return;
+                }
+                getSharedPreferences("favorite-tracks-v1",MODE_PRIVATE).edit()
+                    .putString(key,payload).apply();
+            }catch(Exception ignored){}
+        });
     }
 
     // Fill missing titles/artists from local playlists, offline files and
@@ -2893,6 +2916,10 @@ public final class MainActivity extends Activity {
                         if(playback!=null)playback.stop();
                     }
                     boolean accountChanged=!nextAccount.equals(user);
+                    if(accountChanged&&!user.isEmpty()){
+                        ui.removeCallbacks(pendingFavoriteIndexSave);
+                        persistFavoriteIndex();
+                    }
                     user=nextAccount;
                     if(!nextAccount.equals(getSharedPreferences("native-api",MODE_PRIVATE).getString("account","")))searchCache.clear();
                     if(accountChanged){restoreRecent();if(!user.isEmpty()){restoreFavoriteIndex(user);restoreLibrarySnapshot(user);}}
