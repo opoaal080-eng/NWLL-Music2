@@ -3812,7 +3812,11 @@ public final class MainActivity extends Activity {
         });
         top.addView(close,new LinearLayout.LayoutParams(dp(48),dp(48)));
         LinearLayout center=column();center.setGravity(Gravity.CENTER);
-        fullAudioOutput=text("Аудиовыход · "+audioOutputName()+"  ⌄",12);
+        fullAudioOutput=text("Аудиовыход · "+audioOutputName(),12);
+        NightwellGlyphDrawable routeIcon=new NightwellGlyphDrawable(this,"devices");
+        routeIcon.setInk(0xffc4c5cc);
+        fullAudioOutput.setCompoundDrawablesWithIntrinsicBounds(routeIcon,null,null,null);
+        fullAudioOutput.setCompoundDrawablePadding(dp(7));
         fullAudioOutput.setGravity(Gravity.CENTER);
         fullAudioOutput.setSingleLine(true);
         fullAudioOutput.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -3933,7 +3937,11 @@ public final class MainActivity extends Activity {
         controls.addView(forward,new LinearLayout.LayoutParams(0,dp(62),1));
         controls.addView(repeatButton,new LinearLayout.LayoutParams(0,dp(56),1));
         transport.addView(controls);
-        TextView queueButton=action("Объёмная очередь  ·  "+queue.length()+"   ›",this::showQueue);
+        TextView queueButton=action("Объёмная очередь · "+queue.length(),this::showQueue);
+        NightwellGlyphDrawable queueIcon=new NightwellGlyphDrawable(this,"queue");
+        queueIcon.setInk(0xffb9bbc6);
+        queueButton.setCompoundDrawablesWithIntrinsicBounds(queueIcon,null,null,null);
+        queueButton.setCompoundDrawablePadding(dp(9));
         queueButton.setTextSize(13);
         queueButton.setTextColor(0xffc1c4ce);
         queueButton.setMinHeight(dp(43));
