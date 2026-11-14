@@ -1649,10 +1649,9 @@ struct NightwellAccountDevicesResponse: Decodable {
         return "nw-auto-favorites|" + origin.absoluteString + "|" + user
     }
     func restoreAutoFavoritesSetting() {
-        // New signed-in accounts use the requested automatic offline setting.
-        // Existing choices remain untouched, including an explicit false.
+        // Automatic downloads require opting in. Preserve explicit per-account choices.
         automaticFavoritesDownload = autoFavoritesKey.flatMap {
-            UserDefaults.standard.object(forKey: $0) as? Bool ?? true
+            UserDefaults.standard.object(forKey: $0) as? Bool ?? false
         } ?? false
         lastAutoFavoritesCheck = .distantPast
     }
