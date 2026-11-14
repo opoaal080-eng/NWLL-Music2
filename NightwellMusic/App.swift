@@ -706,9 +706,12 @@ struct NativeRoot: View {
     // Keep the large root view-builder simple for the Swift type checker.
     private var artworkScene: some View {
         mainScene
+            .overlay { modalScene }
+            // Apply these to the entire composite, including the playlist
+            // overlay. NativeTrackRow inside PlaylistScreen requires the
+            // Together session; injecting only into mainScene crashes SwiftUI.
             .environmentObject(artworkPalette)
             .environmentObject(togetherSession)
-            .overlay { modalScene }
             .task(id: artworkRefreshKey) {
                 await artworkPalette.refresh(track: store.clock.current, origin: store.origin)
             }
