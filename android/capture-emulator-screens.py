@@ -6,6 +6,7 @@ so CI never needs a personal account or network access to the music API.
 """
 import html
 import json
+import struct
 import subprocess
 import time
 import xml.etree.ElementTree as ET
@@ -50,10 +51,15 @@ def launch(screen):
     time.sleep(1.5)
 
 
-def capture(name):
+def capture(name, landscape=False):
     image = adb("exec-out", "screencap", "-p", timeout=30).stdout
     if not image.startswith(b"\x89PNG\r\n\x1a\n") or len(image) < 4096:
         raise RuntimeError(f"Invalid or empty screenshot for {name}")
+    width, height = struct.unpack(">II", image[16:24])
+    if landscape and width <= height:
+        raise RuntimeError(f"Landscape check {name} captured a portrait frame: {width}x{height}")
+    if not landscape and width >= height:
+        raise RuntimeError(f"Portrait check {name} captured a landscape frame: {width}x{height}")
     (OUT / (name + ".png")).write_bytes(image)
     # Save the accessibility hierarchy beside the screenshot for UI debugging.
     for attempt in range(3):
@@ -114,16 +120,21 @@ def main():
                             "orientation": "portrait"})
         adb("shell", "settings", "put", "system", "accelerometer_rotation", "0")
         adb("shell", "settings", "put", "system", "user_rotation", "1")
+        adb("shell", "cmd", "window", "set-user-rotation", "lock", "1")
+        # CI emulators may ignore sensor-based rotation, so force a wide display.
+        adb("shell", "wm", "size", "2400x1080")
         time.sleep(2)
         for name, page in [("16-landscape-home", "Главная"),
                            ("17-landscape-library", "Медиатека"),
                            ("18-landscape-player", "player")]:
             print(f"Capturing {name}: {page}", flush=True)
             launch(page)
-            capture(name)
+            capture(name, landscape=True)
             records.append({"file": name + ".png", "screen": page,
                             "orientation": "landscape"})
     finally:
+        adb("shell", "wm", "size", "reset", check=False)
+        adb("shell", "cmd", "window", "set-user-rotation", "free", check=False)
         adb("shell", "settings", "put", "system", "user_rotation", "0",
             check=False)
         adb("shell", "settings", "put", "system", "accelerometer_rotation", "1",
