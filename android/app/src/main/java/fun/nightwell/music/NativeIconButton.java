@@ -7,7 +7,7 @@ import android.widget.TextView;
 final class NativeIconButton extends TextView {
     private final Paint ink=new Paint(Paint.ANTI_ALIAS_FLAG);
     NativeIconButton(Context c){super(c);setSingleLine(true);setHorizontallyScrolling(false);setIncludeFontPadding(false);setWillNotDraw(false);}
-    static boolean isIcon(String s){return s!=null&&(s.matches("[▶Ⅱ⌕☰⋯♡♥⇄⇥↻⌄×‹⚙⊖⌂▤✧]|\\|‹|›\\|")||"⇄✦".equals(s));}
+    static boolean isIcon(String s){return s!=null&&(s.matches("[▶Ⅱ⌕☰⋯♡♥⇄⇥↻⌄×‹›⚙⊖⌂▤✧⇅]|\\|‹|›\\|")||"⇄✦".equals(s));}
     @Override protected void onDraw(Canvas canvas){
         String symbol=getText().toString();if(!isIcon(symbol)){super.onDraw(canvas);return;}
         float size=Math.min(Math.min(getWidth(),getHeight())*.56f,32*getResources().getDisplayMetrics().density);
@@ -37,6 +37,8 @@ final class NativeIconButton extends TextView {
                 canvas.drawPath(p,ink);
                 if(symbol.equals("⇄✦")){ink.setStyle(Paint.Style.FILL);canvas.drawCircle(12,12,1.6f,ink);}break;
             case "‹":p.moveTo(15,4);p.lineTo(7,12);p.lineTo(15,20);canvas.drawPath(p,ink);break;
+            case "›":p.moveTo(9,4);p.lineTo(17,12);p.lineTo(9,20);canvas.drawPath(p,ink);break;
+            case "⇅":p.moveTo(8,20);p.lineTo(8,4);p.moveTo(4.5f,7.5f);p.lineTo(8,4);p.lineTo(11.5f,7.5f);p.moveTo(16,4);p.lineTo(16,20);p.moveTo(12.5f,16.5f);p.lineTo(16,20);p.lineTo(19.5f,16.5f);canvas.drawPath(p,ink);break;
             case "⊖":canvas.drawCircle(12,12,8,ink);canvas.drawLine(8,12,16,12,ink);break;
             case "⚙":canvas.drawCircle(12,12,6.5f,ink);canvas.drawCircle(12,12,2.3f,ink);for(int i=0;i<8;i++){double angle=i*Math.PI/4;canvas.drawLine(12+(float)Math.cos(angle)*7,12+(float)Math.sin(angle)*7,12+(float)Math.cos(angle)*9.5f,12+(float)Math.sin(angle)*9.5f,ink);}break;
             case "⌂":p.moveTo(3,11);p.lineTo(12,3);p.lineTo(21,11);p.moveTo(5.6f,10);p.lineTo(5.6f,21);p.lineTo(18.4f,21);p.lineTo(18.4f,10);canvas.drawPath(p,ink);break;
