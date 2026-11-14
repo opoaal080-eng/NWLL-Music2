@@ -168,7 +168,7 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
      if(account!=owner||lifetime.IsCancellationRequested)return;
      var ids=result.GetProperty("ids").Deserialize<List<string>>()??[];
      likes=ids.ToHashSet(StringComparer.OrdinalIgnoreCase);
-     favoriteOrderIDs.Clear();favoriteOrderIDs.AddRange(ids);
+     favoriteOrderIDs.Clear();favoriteOrderIDs.AddRange(ids.AsEnumerable().Reverse());
      foreach(var key in new[]{"tracks","items","favorites"}){
       if(result.TryGetProperty(key,out var value)&&value.ValueKind==JsonValueKind.Array)
        try{RememberFavoriteDetails(value.Deserialize<List<Track>>()??[]);}catch(JsonException){}
