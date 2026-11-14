@@ -1204,7 +1204,7 @@ public final class MainActivity extends Activity {
             addBottomNavigationTab(navigation,"⌕","Поиск",()->navigate("Поиск"));
             addBottomNavigationTab(navigation,"▤","Медиатека",()->navigate("Избранное"));
             premiumTabButton=addBottomNavigationTab(navigation,"✧","Premium",this::premium);
-            premiumTabButton.setVisibility(!user.isEmpty()&&(!premiumVerified||premiumAllowed())?View.GONE:View.VISIBLE);
+            premiumTabButton.setVisibility(shouldShowPremiumTab()?View.VISIBLE:View.GONE);
             root.addView(navigation,new LinearLayout.LayoutParams(-1,dp(51)));
         }
         android.view.GestureDetector miniGestures=gestures(false);labels.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));dock.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));
@@ -4706,6 +4706,7 @@ public final class MainActivity extends Activity {
 
     private JSONObject premiumPrefs=new JSONObject();private String premiumOwner="";private long premiumUntil,premiumChecked;private boolean premiumLoading,premiumVerified;
     private final java.util.WeakHashMap<TextView,String> premiumFeatureViews=new java.util.WeakHashMap<>();
+    boolean shouldShowPremiumTab(){return sessionReady&&(user.isEmpty()||premiumVerified&&!premiumAllowed());}
     String premiumFeatureLabel(String title){return !premiumVerified||premiumAllowed()?title:title+" · Premium";}
     void trackPremiumFeature(TextView view,String title){
         premiumFeatureViews.put(view,title);
@@ -4721,7 +4722,7 @@ public final class MainActivity extends Activity {
             ribbon.setAuraResponse(aura.getBoolean(user+"|aura_voice",true),aura.getBoolean(user+"|aura_low",true),aura.getBoolean(user+"|aura_mid",true),aura.getBoolean(user+"|aura_high",true));
         }
         if(root!=null){String theme=allowed?premiumPrefs.optString("theme"):"";int tint=theme.equals("aurora")?0x66105a45:theme.equals("ocean")?0x660c3f73:theme.equals("sunset")?0x6682282d:Color.TRANSPARENT;root.setBackgroundColor(tint);}
-        if(premiumTabButton!=null)premiumTabButton.setVisibility(!user.isEmpty()&&(!premiumVerified||allowed)?View.GONE:View.VISIBLE);
+        if(premiumTabButton!=null)premiumTabButton.setVisibility(shouldShowPremiumTab()?View.VISIBLE:View.GONE);
         // Update labels in already-open settings panels without closing them.
         for(java.util.Map.Entry<TextView,String> entry:new java.util.ArrayList<>(premiumFeatureViews.entrySet())){
             TextView view=entry.getKey();
