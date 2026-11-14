@@ -20,7 +20,7 @@ import java.lang.ref.WeakReference;
 
 /** Blurs a small snapshot of the content, while dock controls remain ordinary sibling views. */
 final class DockBackdropView extends FrameLayout {
-    private static final int DOWNSAMPLE = 6;
+    private static final int DOWNSAMPLE = 5;
     private static final long CAPTURE_INTERVAL = 150;
     private final ImageView image;
     private final Paint mask = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -37,15 +37,23 @@ final class DockBackdropView extends FrameLayout {
         super(context);
         setClickable(false); setFocusable(false);
         setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
-        setAlpha(.6f);
+        setAlpha(1f);
         setClipChildren(false);
         image = new ImageView(context);
         image.setScaleType(ImageView.ScaleType.FIT_XY);
         image.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
         addView(image, new FrameLayout.LayoutParams(-1, -1));
+        // Keep a shared frosted-material wash over the blurred screen. A near-black
+        // source image alone cannot produce a visible glass effect on dark pages.
+        View material = new View(context);
+        material.setBackground(new android.graphics.drawable.GradientDrawable(
+            android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
+            new int[]{0x002c3039, 0x12313742, 0x6430343e, 0xb12d3039}));
+        material.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
+        addView(material, new FrameLayout.LayoutParams(-1, -1));
         mask.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.DST_IN));
         if (Build.VERSION.SDK_INT >= 31) {
-            float radius = 12 * getResources().getDisplayMetrics().density;
+            float radius = 22 * getResources().getDisplayMetrics().density;
             image.setRenderEffect(RenderEffect.createBlurEffect(radius, radius, Shader.TileMode.CLAMP));
         }
     }
