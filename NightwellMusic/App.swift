@@ -1478,7 +1478,7 @@ struct NativeRoot: View {
                         }
                         .accessibilityLabel("Новый плейлист")
                     }
-                    Button("Умные плейлисты · Premium") { feature = .smart }
+                    Button(favoritePremium.allowed ? "Умные плейлисты" : "Умные плейлисты · Premium") { feature = .smart }
                     LazyVStack(spacing: 12) {
                         ForEach(store.playlists) { playlist in
                             HStack {
