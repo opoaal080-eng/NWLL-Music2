@@ -5,6 +5,24 @@ namespace Nightwell.Native;
 
 public partial class MainWindow {
  bool librarySidebarOpen=false;
+ void SettingsClick(object sender,RoutedEventArgs e)=>Settings();
+ void PremiumClick(object sender,RoutedEventArgs e)=>PremiumWindow();
+ void BottomLibraryClick(object sender,RoutedEventArgs e)=>Show("Избранное");
+ async void LibraryAdditionalClick(object sender,RoutedEventArgs e){
+  var menu=new ContextMenu{PlacementTarget=(UIElement)sender,
+   Placement=System.Windows.Controls.Primitives.PlacementMode.Bottom};
+  foreach(var label in new[]{"Слушать вместе","Подборки дня","Плейлисты в поиске","Перенос плейлистов"}){
+   var item=new MenuItem{Header=label,Padding=new Thickness(12,9,12,9)};
+   item.Click+=async(_,_)=>{
+    if(label=="Слушать вместе")TogetherWindow();
+    else if(label=="Подборки дня")await Guard(()=>BrowsePlaylists(true));
+    else if(label=="Плейлисты в поиске")await Guard(()=>BrowsePlaylists(false));
+    else NativeTransfer();
+   };
+   menu.Items.Add(item);
+  }
+  menu.IsOpen=true;
+ }
  void ToggleLibrarySidebarClick(object sender,RoutedEventArgs e){
   librarySidebarOpen=!librarySidebarOpen;
   LibrarySideColumn.Width=new GridLength(librarySidebarOpen?344:0,GridUnitType.Pixel);
