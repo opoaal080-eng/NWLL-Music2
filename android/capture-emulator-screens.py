@@ -60,13 +60,21 @@ def launch(screen):
     )
     if b"Error" in command.stdout or b"Exception" in command.stdout:
         raise RuntimeError(command.stdout.decode(errors="replace"))
-    time.sleep(2.1)
+    time.sleep(4)
 
 
 def capture(name, landscape=False):
-    image = adb("exec-out", "screencap", "-p", timeout=30).stdout
-    if not image.startswith(b"\x89PNG\r\n\x1a\n") or len(image) < 4096:
-        raise RuntimeError(f"Invalid or empty screenshot for {name}")
+    # Android's launch splash can persist after the activity starts.
+    # Retry sparse frames instead of publishing a blank white splash.
+    image = b""
+    for attempt in range(7):
+        image = adb("exec-out", "screencap", "-p", timeout=25).stdout
+        if image.startswith(b"\x89PNG\r\n\x1a\n") and len(image) >= 50000:
+            break
+        print(f"Waiting for {name} content (attempt {attempt + 1})", flush=True)
+        time.sleep(2)
+    if not image.startswith(b"\x89PNG\r\n\x1a\n") or len(image) < 50000:
+        raise RuntimeError(f"App screen not ready for {name}; PNG bytes={len(image)}")
     width, height = struct.unpack(">II", image[16:24])
     if landscape and width <= height:
         raise RuntimeError(f"Landscape check {name} captured a portrait frame: {width}x{height}")
