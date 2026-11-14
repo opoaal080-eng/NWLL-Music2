@@ -48,9 +48,14 @@ final class AndroidLibraryOverview extends ScrollView {
 
         LinearLayout hero = row();
         hero.setMinimumHeight(dp(112));
-        Heart heart = new Heart(context);
-        LinearLayout.LayoutParams heartSize = new LinearLayout.LayoutParams(dp(80), dp(84));
-        heartSize.setMarginEnd(dp(16));
+        ImageView heart = new ImageView(context);
+        NightwellGlyphDrawable heartIcon=new NightwellGlyphDrawable(context,"heart");
+        heartIcon.setInk(0xffe9e7ec);
+        heart.setImageDrawable(heartIcon);
+        heart.setPadding(dp(17),dp(17),dp(17),dp(17));
+        heart.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        LinearLayout.LayoutParams heartSize = new LinearLayout.LayoutParams(dp(72), dp(72));
+        heartSize.setMarginEnd(dp(14));
         hero.addView(heart, heartSize);
         LinearLayout names = column();
         TextView title = text("Избранное", 23, Color.WHITE, true);
@@ -59,7 +64,11 @@ final class AndroidLibraryOverview extends ScrollView {
         count.setPadding(0, dp(7), 0, 0);
         names.addView(count);
         hero.addView(names, new LinearLayout.LayoutParams(0, -2, 1));
-        hero.addView(text("›", 28, 0xff88858f, false));
+        ImageView chevron = new ImageView(context);
+        NightwellGlyphDrawable arrow = new NightwellGlyphDrawable(context,"chevron");
+        arrow.setInk(0xff88858f);
+        chevron.setImageDrawable(arrow);
+        hero.addView(chevron,new LinearLayout.LayoutParams(dp(23),dp(25)));
         clickable(hero, "Избранное, " + count.getText(), actions::openFavorites);
         content.addView(hero);
 
@@ -87,7 +96,9 @@ final class AndroidLibraryOverview extends ScrollView {
             artist.setPadding(0, dp(4), 0, 0);
             labels.addView(name); labels.addView(artist);
             preview.addView(labels, new LinearLayout.LayoutParams(0, -2, 1));
-            TextView more = text("•••", 16, 0xffb3afba, true);
+            NativeIconButton more=new NativeIconButton(context);
+            more.setText("⋯");
+            more.setTextColor(0xffb3afba);
             more.setGravity(Gravity.CENTER);
             clickable(more, "Действия с треком «" + trackTitle + "»", () -> actions.menu(track));
             preview.addView(more, new LinearLayout.LayoutParams(dp(44), dp(48)));
@@ -102,10 +113,10 @@ final class AndroidLibraryOverview extends ScrollView {
         boolean largeText = getResources().getConfiguration().fontScale >= 1.4f;
         LinearLayout tiles = null;
         View[] entries = {
-            tile("Плейлисты", "♫", count(playlistCount, "плейлист", "плейлиста", "плейлистов"), actions::openPlaylists),
-            tile("Офлайн", "↓", count(offlineCount, "трек", "трека", "треков"), actions::openOffline),
-            tile("Подборки дня", "✦", "Для тебя", actions::openDailyPlaylists),
-            tile("Умные плейлисты", "≋", "Premium", actions::openSmartPlaylists)
+            tile("Плейлисты", count(playlistCount, "плейлист", "плейлиста", "плейлистов"), actions::openPlaylists),
+            tile("Офлайн", count(offlineCount, "трек", "трека", "треков"), actions::openOffline),
+            tile("Подборки дня", "Для тебя", actions::openDailyPlaylists),
+            tile("Умные плейлисты", "Premium", actions::openSmartPlaylists)
         };
         for (int i = 0; i < entries.length; i++) {
             if (largeText || i % 2 == 0) { tiles = row(); content.addView(tiles); }
@@ -127,13 +138,16 @@ final class AndroidLibraryOverview extends ScrollView {
         content.setPadding(0, dp(4), 0, Math.max(dp(16), px));
     }
 
-    private View tile(String title, String symbol, String detail, Runnable action) {
+    private View tile(String title, String detail, Runnable action) {
         LinearLayout tile = row();
         tile.setMinimumHeight(dp(80));
         tile.setPadding(0, dp(8), 0, dp(8));
-        TextView icon = text(symbol, 29, 0xffe7e5ed, false);
-        icon.setGravity(Gravity.CENTER);
-        icon.setBackground(rounded(0x0dffffff, 12));
+        ImageView icon=new ImageView(getContext());
+        NightwellGlyphDrawable glyph=NightwellGlyphDrawable.forLabel(getContext(),title);
+        glyph.setInk(0xffe7e5ed);
+        icon.setImageDrawable(glyph);
+        icon.setPadding(dp(10),dp(10),dp(10),dp(10));
+        icon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         LinearLayout.LayoutParams iconSize = new LinearLayout.LayoutParams(dp(48), dp(48));
         iconSize.setMarginEnd(dp(8));
         tile.addView(icon, iconSize);
