@@ -1156,6 +1156,23 @@ struct NativeRoot: View {
             $0.title.localizedStandardCompare($1.title) == .orderedAscending
         }
     }
+    // Use monochrome SF Symbols until the playlist model exposes real artwork.
+    private func playlistIcon(for name: String) -> String {
+        let lowercased = name.lowercased()
+        if lowercased.contains("нрав") || lowercased.contains("любим") ||
+           lowercased.contains("favorite") || lowercased.contains("liked") {
+            return "heart"
+        }
+        if lowercased.contains("перенос") || lowercased.contains("import") {
+            return "arrow.left.arrow.right"
+        }
+        if lowercased.contains("новогод") || lowercased.contains("зимн") ||
+           lowercased.contains("winter") || lowercased.contains("christmas") {
+            return "snowflake"
+        }
+        return "music.note.list"
+    }
+
     private func content(bottomContentInset: CGFloat) -> some View {
         // Inactive lists must release their layout, subscriptions and cover
         // tasks. Keep only small scroll anchors, never three invisible trees.
@@ -1218,25 +1235,121 @@ struct NativeRoot: View {
             .id(librarySession.revision(for: .likes))
         case .playlists:
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
+                LazyVStack(alignment: .leading, spacing: 16) {
                     collectionScrollMarker
-                    HStack {
-                        Text("Плейлисты").font(.largeTitle.bold())
-                        Spacer()
+
+                    HStack(spacing: 12) {
+                        Text("Плейлисты")
+                            .font(.system(size: 34, weight: .bold))
+                            .foregroundStyle(.white)
+                            .accessibilityAddTraits(.isHeader)
+                        Spacer(minLength: 0)
                         Button { createPlaylist = true } label: {
-                            Image(systemName: "plus").frame(width: 44, height: 44)
+                            Image(systemName: "plus")
+                                .font(.system(size: 19, weight: .medium))
+                                .foregroundStyle(.white)
+                                .frame(width: 44, height: 44)
+                                .background(Color.white.opacity(0.075),
+                                            in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 15, style: .continuous)
+                                        .strokeBorder(.white.opacity(0.11), lineWidth: 0.8)
+                                }
                         }
+                        .buttonStyle(.plain)
                         .accessibilityLabel("Новый плейлист")
                     }
-                    Button((favoritePremium.allowed || !favoritePremium.entitlementVerified) ? "Умные плейлисты" : "Умные плейлисты · Premium") { feature = .smart }
-                    LazyVStack(spacing: 12) {
+                    .padding(.top, 6)
+
+                    // Smart mixes remain a separate, clearly tappable entry.
+                    Button { feature = .smart } label: {
+                        HStack(spacing: 13) {
+                            Image(systemName: "waveform.path")
+                                .font(.system(size: 20, weight: .medium))
+                                .foregroundStyle(.white.opacity(0.9))
+                                .frame(width: 48, height: 48)
+                                .background(Color.white.opacity(0.065),
+                                            in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Умные плейлисты")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                Text((favoritePremium.allowed || !favoritePremium.entitlementVerified)
+                                     ? "Подборки под твой вкус" : "Доступно с Premium")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.white.opacity(0.50))
+                            }
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.white.opacity(0.48))
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background {
+                            RoundedRectangle(cornerRadius: 21, style: .continuous)
+                                .fill(LinearGradient(colors: [
+                                    Color.white.opacity(0.085),
+                                    Color.white.opacity(0.035)
+                                ], startPoint: .topLeading, endPoint: .bottomTrailing))
+                        }
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 21, style: .continuous)
+                                .strokeBorder(.white.opacity(0.105), lineWidth: 0.8)
+                        }
+                        .contentShape(RoundedRectangle(cornerRadius: 21, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Открыть умные плейлисты")
+
+                    HStack(spacing: 10) {
+                        Text("Мои плейлисты")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.86))
+                            .accessibilityAddTraits(.isHeader)
+                        Spacer()
+                        Text("\(store.playlists.count)")
+                            .font(.system(size: 12, weight: .medium))
+                            .monospacedDigit()
+                            .foregroundStyle(.white.opacity(0.47))
+                    }
+                    .padding(.top, 7)
+
+                    LazyVStack(spacing: 10) {
                         ForEach(store.playlists) { playlist in
-                            HStack {
+                            HStack(spacing: 0) {
                                 Button { selectedPlaylist = playlist } label: {
-                                    Text(playlist.name)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .padding(.vertical, 16)
+                                    HStack(spacing: 13) {
+                                        Image(systemName: playlistIcon(for: playlist.name))
+                                            .font(.system(size: 23, weight: .regular))
+                                            .foregroundStyle(.white.opacity(0.9))
+                                            .frame(width: 56, height: 56)
+                                            .background {
+                                                RoundedRectangle(cornerRadius: 15, style: .continuous)
+                                                    .fill(LinearGradient(
+                                                        colors: [.white.opacity(0.14), .white.opacity(0.045)],
+                                                        startPoint: .topLeading, endPoint: .bottomTrailing))
+                                            }
+                                            .overlay {
+                                                RoundedRectangle(cornerRadius: 15, style: .continuous)
+                                                    .strokeBorder(.white.opacity(0.12), lineWidth: 0.75)
+                                            }
+                                            .accessibilityHidden(true)
+                                        Text(playlist.name)
+                                            .font(.system(size: 16, weight: .semibold))
+                                            .foregroundStyle(.white)
+                                            .lineLimit(2)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                        Spacer(minLength: 0)
+                                    }
+                                    .padding(.leading, 12)
+                                    .padding(.vertical, 11)
+                                    .contentShape(Rectangle())
                                 }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Открыть плейлист \(playlist.name)")
+
                                 Menu {
                                     Button("Твой ритм по плейлисту", systemImage: "waveform.path") {
                                         selectedPlaylist = nil
@@ -1259,11 +1372,26 @@ struct NativeRoot: View {
                                         Task { await store.deletePlaylist(playlist.id) }
                                     }
                                 } label: {
-                                    Image(systemName: "ellipsis").frame(width: 44, height: 44)
+                                    Image(systemName: "ellipsis")
+                                        .font(.system(size: 19, weight: .medium))
+                                        .foregroundStyle(.white.opacity(0.78))
+                                        .frame(width: 48, height: 76)
+                                        .contentShape(Rectangle())
                                 }
+                                .accessibilityLabel("Действия с плейлистом \(playlist.name)")
                             }
-                            .padding(.horizontal, 18)
-                            .glass()
+                            .frame(maxWidth: .infinity, minHeight: 78)
+                            .background {
+                                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                    .fill(LinearGradient(
+                                        colors: [.white.opacity(0.075), .white.opacity(0.032)],
+                                        startPoint: .topLeading, endPoint: .bottomTrailing))
+                            }
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                    .strokeBorder(.white.opacity(0.10), lineWidth: 0.8)
+                            }
+                            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
                             .id(playlist.id)
                         }
                     }
