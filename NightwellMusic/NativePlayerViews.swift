@@ -582,6 +582,7 @@ private struct NightwellPresentedClip: Identifiable {
 }
 
 struct FullPlayer: View {
+    @EnvironmentObject private var togetherSession: NightwellTogetherSession
     @State private var artworkTextColors: [Color] = [.white, .white]
     @EnvironmentObject var store: MusicStore
     @ObservedObject var clock: PlaybackClock
@@ -645,6 +646,7 @@ struct FullPlayer: View {
     private var playerSearchAndUpdates: some View {
         playerClipUpdates
             .onChange(of: coverStyle) { _ in refreshNativeMenu() }
+            .onChange(of: togetherSession.joined) { _ in refreshNativeMenu() }
     }
 
     private var playerClipUpdates: some View {
@@ -968,7 +970,8 @@ struct FullPlayer: View {
             shareBaseURL: store.origin,
             lyricsVisible: showLyrics,
             coverStyle: coverStyle,
-            downloaded: selected.map { store.isDownloaded($0) } ?? false
+            downloaded: selected.map { store.isDownloaded($0) } ?? false,
+            togetherJoined: togetherSession.joined
         )
     }
 
@@ -1023,6 +1026,10 @@ struct FullPlayer: View {
                 if store.enqueue(track, next: next) {
                     UINotificationFeedbackGenerator().notificationOccurred(.success)
                 }
+            },
+            onAddTogether: { track in
+                guard togetherSession.joined else { return }
+                Task { await togetherSession.add(trackID: track.id, store: store) }
             },
             onAddPlaylist: { track, list in
                 Task { await store.add(track, playlist: list) }
