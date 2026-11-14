@@ -38,7 +38,27 @@ public partial class MainWindow {
    premium.Click+=(_,_)=>PremiumWindow();
    panel.Children.Add(premium);
   }
+  var logout=new Button{Content="Выйти из аккаунта",
+   Style=(Style)FindResource("QuietButton"),Margin=new Thickness(0,14,0,0)};
+  panel.Children.Add(logout);
   var window=Sheet("Профиль",panel,570,false);
+  logout.Click+=async(_,_)=>{
+   logout.IsEnabled=false;
+   try{
+    await api.Request("api/logout","POST");
+    api.Clear();
+    await AudioCommand(()=>player.Stop());
+    roomCode="";roomCancellation?.Cancel();
+    queue=[];catalog=[];likes=[];playlists=[];account="";
+    NavigationAvatar.Source=null;profileNickname="";premiumSortAllowed=false;
+    PremiumDockButton.Visibility=Visibility.Visible;
+    window.Close();Show("Главная");
+   }catch(Exception ex){
+    Status.Text="Не удалось выйти из аккаунта: "+ex.Message;
+   }finally{
+    logout.IsEnabled=true;
+   }
+  };
   window.Show();
  }
  void PremiumWindow(){
