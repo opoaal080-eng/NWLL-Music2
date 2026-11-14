@@ -16,8 +16,19 @@ import shutil
 HOOK = """
 # Nightwell per-account device registry
 from account_devices import install as _nw_install_account_devices
-_nw_install_account_devices(app, identity,
-    db_path=Path(__file__).resolve().with_name("account_devices.sqlite3"))
+
+def _nw_is_premium_device_owner(account_id):
+    try:
+        premium_service.require(str(account_id))
+        return True
+    except Exception:
+        return False
+
+_nw_install_account_devices(
+    app, identity,
+    db_path=Path(__file__).resolve().with_name("account_devices.sqlite3"),
+    premium_for_account=_nw_is_premium_device_owner,
+    csrf_verifier=premium_csrf)
 """
 MARKER = "# Nightwell per-account device registry"
 
@@ -28,6 +39,8 @@ def patch(source):
                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
     assigned = {target.id for node in tree.body if isinstance(node, ast.Assign)
                 for target in node.targets if isinstance(target, ast.Name)}
+    if "premium_service" not in assigned or "premium_csrf" not in defined:
+        raise RuntimeError("Не найдена действующая проверка Premium и CSRF. Сервер не изменён.")
     if "app" not in assigned or "identity" not in defined:
         raise RuntimeError("Нужны действующие app и identity(request). Сервер не изменён.")
     if MARKER in source:
