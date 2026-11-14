@@ -267,6 +267,7 @@ private struct StableNavigationSheet: View {
                 Spacer(minLength: 8)
                 // Always one tap from the menu header, immediately to the
                 // left of the profile avatar. Tapping again returns to Menu.
+                if opensAdditional {
                 Button {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         showingAdditional.toggle()
@@ -287,6 +288,7 @@ private struct StableNavigationSheet: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(showingAdditional ? "Назад в меню" : "Дополнительно")
+                }
                 // Avatar replaces the close icon in the menu header.
                 // Its identity comes from the existing cached user profile.
                 Button {
