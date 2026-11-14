@@ -47,7 +47,6 @@ struct LibraryOverview: View {
                 Text("Ещё в медиатеке")
                     .font(.title3.bold())
                     .accessibilityAddTraits(.isHeader)
-                    .nightwellDockColorBlur()
                     .padding(.top, compact ? 10 : 24)
                     .id("library-sections")
 
@@ -118,7 +117,6 @@ struct LibraryOverview: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .nightwellDockColorBlur()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Избранное")
         .accessibilityValue(countText(store.likes.count))
@@ -152,7 +150,6 @@ struct LibraryOverview: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .nightwellDockColorBlur()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(title)
         .accessibilityValue(detail)

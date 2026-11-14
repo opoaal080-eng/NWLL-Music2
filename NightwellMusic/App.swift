@@ -356,14 +356,6 @@ private struct NightwellLibraryScrollTracker: ViewModifier {
     }
 }
 
-private struct DockBlurFramePreference: PreferenceKey {
-    static var defaultValue: CGRect { .null }
-    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
-        let next = nextValue()
-        if !next.isNull { value = next }
-    }
-}
-
 struct NativeRoot: View {
     @EnvironmentObject var store: MusicStore
     @State private var feature: PremiumFeatureView.Kind?
@@ -403,7 +395,6 @@ struct NativeRoot: View {
     @State private var launching = true
     @State private var searchScrollCollapsed = false
     @State private var searchRevealRequest = 0
-    @State private var dockBlurRegion: CGRect = .null
     @Environment(\.accessibilityReduceMotion) private var reducedMotion
     @ViewBuilder private var mainScene: some View {
         GeometryReader { viewport in
@@ -423,8 +414,6 @@ struct NativeRoot: View {
                 // buffers audio, and restores a session after launch.
                 RibbonScene(playing: store.clock.playing, flash: store.likeFlash,
                             active: store.screen == .home)
-                    .nightwellDockColorBlur()
-                    .environment(\.nightwellDockBlurRegion, dockBlurRegion)
                     .ignoresSafeArea()
                     .opacity(store.screen == .home ? 1.0 : 0.18)
                     .allowsHitTesting(false)
@@ -462,28 +451,8 @@ struct NativeRoot: View {
                     }
                     content(bottomContentInset: bottomInset)
                         .environment(\.nightwellBottomContentInset, bottomInset)
-                        .environment(\.nightwellDockBlurRegion, dockBlurRegion)
                         .overlay(alignment: .bottom) {
                             playerDock(landscape: landscape)
-                                .background {
-                                    GeometryReader { geometry in
-                                        Color.clear.preference(key: DockBlurFramePreference.self,
-                                            value: geometry.frame(in: .global))
-                                    }
-                                    .allowsHitTesting(false)
-                                }
-                        }
-                        .onPreferenceChange(DockBlurFramePreference.self) { frame in
-                            guard !frame.isNull, !frame.isEmpty else { return }
-                            let region = CGRect(x: frame.minX, y: frame.minY - 32,
-                                width: frame.width,
-                                height: frame.height + 32 + viewport.safeAreaInsets.bottom)
-                            if dockBlurRegion.isNull || abs(dockBlurRegion.minY - region.minY) > 0.5 ||
-                                abs(dockBlurRegion.maxY - region.maxY) > 0.5 ||
-                                abs(dockBlurRegion.width - region.width) > 0.5 ||
-                                abs(dockBlurRegion.minX - region.minX) > 0.5 {
-                                dockBlurRegion = region
-                            }
                         }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -528,8 +497,18 @@ struct NativeRoot: View {
                 bottomNavigation(landscape: landscape)
             }
         }
-        // Scrolling artwork and text are blurred before this transparent overlay;
-        // no system material or neutral tint sits over their original colors.
+        .background {
+            // Apply native backdrop blur at full strength, without a separate
+            // translucent surface. Keep the controls in the sharp foreground layer.
+            NativeBackdropBlur(intensity: 1, style: .regular)
+                .mask {
+                    LinearGradient(gradient: NavigationDockAppearance.blurFade,
+                                   startPoint: .top, endPoint: .bottom)
+                }
+                .padding(.top, -32)
+                .ignoresSafeArea(.container, edges: .bottom)
+                .allowsHitTesting(false)
+        }
     }
 
     @ViewBuilder private var modalScene: some View {
@@ -1285,7 +1264,6 @@ struct NativeRoot: View {
                             }
                             .padding(.horizontal, 18)
                             .glass()
-                            .nightwellDockColorBlur()
                             .id(playlist.id)
                         }
                     }
@@ -1494,7 +1472,6 @@ struct NativeTrackRow: View {
         .padding(.horizontal, libraryPreview ? 8 : 0)
         .background(status.id == track.id ? pumpkin.opacity(0.12) : libraryPreview ? .clear : .white.opacity(0.035),
                     in: RoundedRectangle(cornerRadius: 18))
-        .nightwellDockColorBlur()
         .confirmationDialog("Выбери исполнителя", isPresented: $showArtistChoices, titleVisibility: .visible) {
             ForEach(ArtistNames.split(track.artist), id: \.self) { name in
                 Button(name) { selectedArtist = ArtistSelection(name: name) }
@@ -1721,7 +1698,6 @@ struct ArtistProfileView: View {
         // inherit its session. Every track row needs the same active instance.
         .environmentObject(togetherSession)
         .environment(\.nightwellBottomContentInset, 0)
-        .environment(\.nightwellDockBlurRegion, .null)
         .preferredColorScheme(.dark)
         .tint(.white)
         .task(id: "\(name)|\(reloadRevision)") {
