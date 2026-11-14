@@ -120,7 +120,7 @@ def main():
                             "orientation": "portrait"})
         adb("shell", "settings", "put", "system", "accelerometer_rotation", "0")
         adb("shell", "settings", "put", "system", "user_rotation", "1")
-        adb("shell", "cmd", "window", "set-user-rotation", "lock", "1")
+        adb("shell", "cmd", "window", "set-user-rotation", "lock", "1", check=False)
         # CI emulators may ignore sensor-based rotation, so force a wide display.
         adb("shell", "wm", "size", "2400x1080")
         time.sleep(2)
