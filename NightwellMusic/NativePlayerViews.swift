@@ -641,7 +641,7 @@ struct FullPlayer: View {
             }
         }
         .sheet(item: $selectedArtist) { artist in
-            ArtistProfileView(name: artist.name).environmentObject(store)
+            ArtistProfileView(name: artist.name, togetherSession: togetherSession).environmentObject(store)
         }
         .sheet(isPresented: $showQueue) {
             PlaybackQueue(clock: clock)

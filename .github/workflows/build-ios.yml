@@ -79,3 +79,43 @@ jobs:
           path: |
             output/Nightwell-Music-recovered-unsigned.ipa
             output/build-provenance.json
+
+  presentation-regression:
+    name: Artist and search regression
+    runs-on: macos-26-intel
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Select latest installed Xcode
+        run: |
+          python3 - <<'PYCODE'
+          import glob, subprocess
+          candidates = []
+          for app in glob.glob('/Applications/Xcode*.app'):
+              developer = app + '/Contents/Developer'
+              result = subprocess.run(['env', 'DEVELOPER_DIR=' + developer, 'xcodebuild', '-version'], capture_output=True, text=True)
+              if result.returncode == 0:
+                  version = tuple(int(x) for x in result.stdout.splitlines()[0].split()[1].split('.'))
+                  candidates.append((version, developer))
+          version, developer = max(candidates)
+          subprocess.run(['sudo', 'xcode-select', '-s', developer], check=True)
+          PYCODE
+      - name: Generate project
+        run: xcodegen generate
+      - name: Open artist profile and collapse search
+        run: |
+          NIGHTWELL_SIMULATOR_ID="$(python3 - <<'PYCODE'
+          import json, subprocess
+          devices = json.loads(subprocess.check_output(['xcrun', 'simctl', 'list', 'devices', 'available', '-j']))
+          phones = [device for group in devices['devices'].values() for device in group if 'iPhone' in device['name']]
+          print(phones[0]['udid'])
+          PYCODE
+          )"
+          xcodebuild -project NightwellMusic.xcodeproj -scheme NightwellMusic -configuration Debug -destination "platform=iOS Simulator,id=$NIGHTWELL_SIMULATOR_ID" -derivedDataPath build-presentation -resultBundlePath artist-presentation.xcresult -only-testing:NightwellMusicTests/ArtistProfilePresentationTests -only-testing:NightwellMusicTests/SearchPresentationTests -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO test
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: iOS-presentation-regression-results
+          path: artist-presentation.xcresult
+          if-no-files-found: ignore
