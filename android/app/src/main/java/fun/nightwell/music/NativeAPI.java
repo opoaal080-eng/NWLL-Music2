@@ -22,30 +22,6 @@ final class NativeAPI {
     private final java.util.Set<HttpURLConnection> activeConnections=java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>());
     NativeAPI(Context context,String origin){this.context=context.getApplicationContext();this.origin=origin;csrf=this.context.getSharedPreferences("native-api",Context.MODE_PRIVATE).getString("csrf|"+origin,"");}
     void updateCSRF(String value){csrf=value;context.getSharedPreferences("native-api",Context.MODE_PRIVATE).edit().putString("csrf|"+origin,value).apply();}
-    /** Pseudonymous Android signing-key-scoped device ID, stable after reinstall. */
-    static String deviceID(Context context){
-        String androidID=android.provider.Settings.Secure.getString(
-            context.getContentResolver(),android.provider.Settings.Secure.ANDROID_ID);
-        if(androidID==null||androidID.trim().isEmpty()){
-            android.content.SharedPreferences prefs=context.getSharedPreferences("nw-device",Context.MODE_PRIVATE);
-            String saved=prefs.getString("id","");
-            if(saved.matches("android_[0-9a-f]{32}"))return saved;
-            saved="android_"+java.util.UUID.randomUUID().toString().replace("-","");
-            prefs.edit().putString("id",saved).apply();
-            return saved;
-        }
-        try{
-            byte[] hash=java.security.MessageDigest.getInstance("SHA-256")
-                .digest(("nightwell-account-device-v1:"+androidID+":"+context.getPackageName())
-                    .getBytes(StandardCharsets.UTF_8));
-            StringBuilder result=new StringBuilder("android_");
-            for(int i=0;i<16;i++)result.append(String.format(java.util.Locale.ROOT,"%02x",hash[i]&0xff));
-            return result.toString();
-        }catch(Exception e){return "android_"+java.util.UUID.randomUUID().toString().replace("-","");}
-    }
-    static String deviceLabel(){
-        return (android.os.Build.MANUFACTURER+" "+android.os.Build.MODEL).trim();
-    }
     static String cookie(Context context,String origin){String value=new SessionStore(context).restore(origin);String token=SessionStore.token(value);return token==null?"":"nw_session="+token;}
     JSONObject uploadSupportAttachment(String ticketId,String name,byte[] data) throws Exception {
         if(data.length==0||data.length>10*1024*1024)throw new IOException("Максимум 10 МБ");
@@ -185,7 +161,7 @@ final class NativeAPI {
     HttpURLConnection connection(String path) throws Exception {
         if(closed)throw new InterruptedIOException("Запрос отменён");
         URL url=new URL(new URL(origin),path);if(!ServerAddress.sameOrigin(origin,url.toString()))throw new IOException("Некорректный адрес");
-        HttpURLConnection c=(HttpURLConnection)url.openConnection();c.setInstanceFollowRedirects(false);c.setConnectTimeout(7000);c.setReadTimeout(10000);c.setRequestProperty("Cookie",cookie(context,origin));c.setRequestProperty("X-NW-Device-ID",deviceID(context));c.setRequestProperty("X-NW-Device-Platform","android");
+        HttpURLConnection c=(HttpURLConnection)url.openConnection();c.setInstanceFollowRedirects(false);c.setConnectTimeout(7000);c.setReadTimeout(10000);c.setRequestProperty("Cookie",cookie(context,origin));
         synchronized(activeConnections){if(closed){c.disconnect();throw new InterruptedIOException("Запрос отменён");}activeConnections.add(c);}
         return c;
     }
