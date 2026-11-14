@@ -427,7 +427,7 @@ private struct AudioQualityDecision: Decodable {
     }
 
     // Keep the user's explicit add chronology across app restarts.
-    // Legacy /api/likes supplies IDs in insertion order (oldest first).
+    // /api/likes uses ORDER BY rowid DESC: latest liked tracks come first.
     // Version the local key so incorrectly inverted prior snapshots cannot win.
     private func reconcileFavoriteOrder(_ serverIDs: [String], newestID: String? = nil) {
         let valid = Set(serverIDs)
@@ -438,7 +438,7 @@ private struct AudioQualityDecision: Decodable {
         let previous = (saved + (saved.isEmpty ? [] : favoriteOrder)).filter {
             valid.contains($0) && seen.insert($0).inserted
         }
-        let unseen = serverIDs.reversed().filter {
+        let unseen = serverIDs.filter {
             valid.contains($0) && seen.insert($0).inserted
         }
         var result = previous + unseen
@@ -480,7 +480,7 @@ private struct AudioQualityDecision: Decodable {
         likes = Set(cache.likes)
         if account?.id == owner {
             // Session snapshots already preserve the displayed newest-first order.
-            // Do not interpret them as the server\'s oldest-first API payload.
+            // Both snapshots and the API are already newest first.
             let saved = favoriteOrderKey.flatMap { UserDefaults.standard.stringArray(forKey: $0) } ?? []
             var seen = Set<String>()
             favoriteOrder = (saved + cache.likes).filter { likes.contains($0) && seen.insert($0).inserted }
@@ -1654,9 +1654,9 @@ private struct AudioQualityDecision: Decodable {
                 if canonical.contains(track.id) { likes.insert(track.id) }
                 else { likes.remove(track.id) }
             }
-            // A Set loses chronology. Use the server's canonical oldest-first
+            // A Set loses chronology. Use the server's canonical newest-first
             // sequence, then append only optimistic favorites not on the server
-            // yet. The reconciliation step restores newest-first presentation.
+            // yet. The reconciliation step preserves newest-first presentation.
             let pendingIDs = favoriteOrder.filter {
                 likes.contains($0) && !canonical.contains($0)
             }
