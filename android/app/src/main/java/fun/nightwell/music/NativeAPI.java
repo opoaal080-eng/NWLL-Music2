@@ -41,7 +41,7 @@ final class NativeAPI {
             StringBuilder result=new StringBuilder("android_");
             for(int i=0;i<16;i++)result.append(String.format(java.util.Locale.ROOT,"%02x",hash[i]&0xff));
             return result.toString();
-        }catch(Exception e){return "android_"+java.util.UUID.randomUUID().toString().replace("-");}
+        }catch(Exception e){return "android_"+java.util.UUID.randomUUID().toString().replace("-","");}
     }
     static String deviceLabel(){
         return (android.os.Build.MANUFACTURER+" "+android.os.Build.MODEL).trim();
