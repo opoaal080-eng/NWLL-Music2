@@ -311,7 +311,7 @@ public final class MainActivity extends Activity {
     private ScrollView playlistCollectionScroll;
     private int savedCollectionFirst, savedCollectionTop, savedPlaylistY;
     private String savedCollectionScreen = "";
-    private TextView status,miniTitle,miniArtist,miniPlay,miniPrev,miniNext,miniLike;
+    private TextView status,miniTitle,miniArtist,miniPlay,miniLike;
     private String lastNextLoadNotice="";
     private String lastDisplayedPlayerError="";
     private android.widget.ImageView miniCover;private CircularProgressRing miniProgressRing;
@@ -1226,7 +1226,20 @@ public final class MainActivity extends Activity {
         });
         dock=row();dock.setPadding(dp(10),dp(10),dp(10),dp(11));GradientDrawable glassDock=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{0xa6303138,0x8c1a1b20});glassDock.setCornerRadius(dp(24));glassDock.setStroke(dp(1),0x30ffffff);dock.setBackground(null);
         miniCover=new android.widget.ImageView(this);miniCover.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);GradientDrawable coverShape=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{0xff53565c,0xff24262c});coverShape.setCornerRadius(dp(12));miniCover.setBackground(coverShape);miniCover.setClipToOutline(true);miniCover.setOnClickListener(v->openPlayer());LinearLayout.LayoutParams coverParams=new LinearLayout.LayoutParams(dp(47),dp(47));coverParams.rightMargin=dp(10);dock.addView(miniCover,coverParams);
-        LinearLayout labels=column();miniTitle=text("Выбери трек",15);miniTitle.setMaxLines(1);miniTitle.setTextSize(15);miniTitle.setLetterSpacing(-.015f);miniTitle.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);miniArtist=text("Nightwell Music",12);miniArtist.setMaxLines(1);miniArtist.setTextSize(12);miniArtist.setLetterSpacing(.005f);miniArtist.setTextColor(0xffa4a6b1);miniTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);miniArtist.setEllipsize(android.text.TextUtils.TruncateAt.END);labels.addView(miniTitle);labels.addView(miniArtist);labels.setOnClickListener(v->openPlayer());dock.addView(labels,new LinearLayout.LayoutParams(0,-2,1));miniPrev=action("|‹",()->previous());miniPlay=action("▶",()->toggle());miniNext=action("›|",()->{nextTrack();});miniLike=action("♡",()->toggleFavorite(current()));miniLike.setTextColor(0xffeeeeee);miniPlay.setTextSize(23);miniNext.setTextSize(24);miniPlay.setPadding(0,0,0,0);miniNext.setPadding(0,0,0,0);miniPlay.setTextColor(0xffeeeeee);miniPlay.setBackground(null);miniPrev.setPadding(0,0,0,0);miniLike.setPadding(0,0,0,0);if(getResources().getConfiguration().screenWidthDp>=440)dock.addView(miniLike,new LinearLayout.LayoutParams(dp(38),dp(48)));miniProgressRing=new CircularProgressRing(this);miniProgressRing.addView(miniPlay,new android.widget.FrameLayout.LayoutParams(-1,-1));dock.addView(miniProgressRing,new LinearLayout.LayoutParams(dp(48),dp(48)));dock.addView(miniNext,new LinearLayout.LayoutParams(dp(42),dp(48)));
+        LinearLayout labels=column();miniTitle=text("Выбери трек",15);miniTitle.setMaxLines(1);miniTitle.setTextSize(15);miniTitle.setLetterSpacing(-.015f);miniTitle.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);miniArtist=text("Nightwell Music",12);miniArtist.setMaxLines(1);miniArtist.setTextSize(12);miniArtist.setLetterSpacing(.005f);miniArtist.setTextColor(0xffa4a6b1);miniTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);miniArtist.setEllipsize(android.text.TextUtils.TruncateAt.END);labels.addView(miniTitle);labels.addView(miniArtist);labels.setOnClickListener(v->openPlayer());dock.addView(labels,new LinearLayout.LayoutParams(0,-2,1));// Match the latest iOS compact mini player: heart and play/pause only.
+        // Track skips remain available from the full player, gestures and queue.
+        miniPlay=action("▶",()->toggle());
+        miniLike=action("♡",()->toggleFavorite(current()));
+        miniLike.setTextColor(0xffeeeeee);
+        miniLike.setPadding(0,0,0,0);
+        miniPlay.setTextSize(23);
+        miniPlay.setPadding(0,0,0,0);
+        miniPlay.setTextColor(0xffeeeeee);
+        miniPlay.setBackground(null);
+        dock.addView(miniLike,new LinearLayout.LayoutParams(dp(36),dp(48)));
+        miniProgressRing=new CircularProgressRing(this);
+        miniProgressRing.addView(miniPlay,new android.widget.FrameLayout.LayoutParams(-1,-1));
+        dock.addView(miniProgressRing,new LinearLayout.LayoutParams(dp(48),dp(48)));
         FrameLayout dockContainer=new FrameLayout(this);
         dockContainer.setBackground(glassDock);
         dockContainer.setClipToOutline(true);
