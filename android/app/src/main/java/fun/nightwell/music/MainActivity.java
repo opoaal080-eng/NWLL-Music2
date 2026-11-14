@@ -2036,9 +2036,9 @@ public final class MainActivity extends Activity {
         GradientDrawable corners=new GradientDrawable();
         corners.setColor(0x33251936);boolean classic=getSharedPreferences("appearance",MODE_PRIVATE).getBoolean("cover-classic",false);corners.setCornerRadius(dp(classic?25:8));
         cover.setBackground(corners);cover.setClipToOutline(true);
-        int edge=Math.max(160,Math.min((int)(getResources().getConfiguration().screenHeightDp*
-            (getResources().getConfiguration().screenHeightDp<700?.25f:.36f)),
-            Math.min(getSharedPreferences("appearance",MODE_PRIVATE).getBoolean("cover-classic",false)?330:410,getResources().getConfiguration().screenWidthDp-(getSharedPreferences("appearance",MODE_PRIVATE).getBoolean("cover-classic",false)?44:4))));
+        int edge=PlayerArtworkSizing.sizeDp(
+            getResources().getConfiguration().screenWidthDp,
+            getResources().getConfiguration().screenHeightDp,classic);
         LinearLayout.LayoutParams coverLayout=new LinearLayout.LayoutParams(dp(edge),dp(edge));
         coverLayout.gravity=Gravity.CENTER_HORIZONTAL;
         parent.addView(cover,coverLayout);
