@@ -153,9 +153,9 @@ final class FavoriteTracks {
         for(String id:order) {
             if(liked.contains(id)&&used.add(id))updated.add(id);
         }
-        // The legacy API returns IDs in insertion order, oldest to newest.
-        // Rebuild the missing local chronology after reinstall, newest first.
-        if(serverIds!=null)for(int i=serverIds.length()-1;i>=0;i--){
+        // /api/likes returns latest first (ORDER BY rowid DESC).
+        // Do not invert the server order on a fresh installation.
+        if(serverIds!=null)for(int i=0;i<serverIds.length();i++){
             String id=serverIds.optString(i);
             if(liked.contains(id)&&used.add(id))updated.add(id);
         }
