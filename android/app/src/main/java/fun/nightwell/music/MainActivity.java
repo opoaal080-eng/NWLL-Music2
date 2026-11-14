@@ -370,6 +370,8 @@ public final class MainActivity extends Activity {
     private Runnable pendingSearch;
     private Dialog navigationPopup;
     private android.widget.ImageView profileAvatarButton;
+    private TextView librarySettingsButton,libraryExtraButton,premiumTabButton;
+    private View headerBrandButton;
     private android.graphics.Bitmap cachedProfileAvatar;
     private String cachedProfileUser="", cachedProfileNickname="";
     private static final int PLAYLIST_DOCUMENT = 633;
@@ -1087,7 +1089,12 @@ public final class MainActivity extends Activity {
         playlistCollectionScroll=null;
         scene.addView(root,new android.widget.FrameLayout.LayoutParams(-1,-1));setContentView(scene);
         root.setOnApplyWindowInsetsListener((v,insets)->{int top,bottom;if(Build.VERSION.SDK_INT>=30){android.graphics.Insets bars=insets.getInsets(WindowInsets.Type.systemBars());top=bars.top;bottom=Math.max(bars.bottom,insets.getInsets(WindowInsets.Type.ime()).bottom);}else{top=insets.getSystemWindowInsetTop();bottom=insets.getSystemWindowInsetBottom();}v.setPadding(dp(isLandscapeLayout()?10:20),dp(isLandscapeLayout()?0:8)+top,dp(isLandscapeLayout()?10:20),bottom);return insets;});root.requestApplyInsets();
-        head=row();TextView brand=text("N",29);
+        head=row();
+        librarySettingsButton=iconButton("⚙",this::settings);
+        librarySettingsButton.setContentDescription("Настройки");
+        librarySettingsButton.setVisibility(isCollectionScreen()?View.VISIBLE:View.GONE);
+        head.addView(librarySettingsButton,new LinearLayout.LayoutParams(dp(44),dp(44)));
+        TextView brand=text("N",29);
         brand.setTypeface(android.graphics.Typeface.create("sans-serif-rounded",android.graphics.Typeface.BOLD));
         brand.setGravity(Gravity.CENTER);
         brand.setTextColor(Color.WHITE);
@@ -1099,11 +1106,13 @@ public final class MainActivity extends Activity {
         brand.setOnClickListener(v->navigate("Главная"));
         brand.setContentDescription("На главную");
         head.addView(brand,new LinearLayout.LayoutParams(dp(42),dp(42)));
+        headerBrandButton=brand;
+        brand.setVisibility(isCollectionScreen()?View.GONE:View.VISIBLE);
         LinearLayout wordmark=column();wordmark.setGravity(Gravity.CENTER_VERTICAL);wordmark.setPadding(dp(9),0,0,0);
         TextView brandName=text("Nightwell",25);brandName.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);brandName.setTextColor(0xfff3f3f5);brandName.setIncludeFontPadding(false);brandName.setSingleLine(true);brandName.setAutoSizeTextTypeUniformWithConfiguration(18,25,1,android.util.TypedValue.COMPLEX_UNIT_SP);
         wordmark.addView(brandName,new LinearLayout.LayoutParams(-1,dp(landscape?27:31)));
         TextView brandCaption=text("M U S I C",12);brandCaption.setIncludeFontPadding(false);brandCaption.setSingleLine(true);brandCaption.setTextColor(0xff92959f);LinearLayout.LayoutParams captionParams=new LinearLayout.LayoutParams(-1,-2);captionParams.topMargin=dp(1);wordmark.addView(brandCaption,captionParams);
-        wordmark.setOnClickListener(v->navigate("Главная"));wordmark.setContentDescription("Nightwell Music, на главный экран");headerWordmark=wordmark;head.addView(wordmark,new LinearLayout.LayoutParams(0,-2,1));if(landscape){brandName.setTextSize(20);brandCaption.setTextSize(9);}TextView searchButton=iconButton("⌕",()->navigate("Поиск"));searchButton.setBackground(touchSurface(0x40202228,22));head.addView(searchButton,new LinearLayout.LayoutParams(dp(44),dp(44)));
+        wordmark.setOnClickListener(v->navigate("Главная"));wordmark.setContentDescription("Nightwell Music, на главный экран");headerWordmark=wordmark;head.addView(wordmark,new LinearLayout.LayoutParams(0,-2,1));wordmark.setVisibility(isCollectionScreen()?View.INVISIBLE:View.VISIBLE);if(landscape){brandName.setTextSize(20);brandCaption.setTextSize(9);}TextView searchButton=iconButton("⌕",()->navigate("Поиск"));searchButton.setBackground(touchSurface(0x40202228,22));head.addView(searchButton,new LinearLayout.LayoutParams(dp(44),dp(44)));
         compactHandoff=iconButton("⇄",this::continueLiveHere);
         compactHandoff.setContentDescription("Продолжить на этом устройстве");
         compactHandoff.setVisibility(View.GONE);
@@ -1111,6 +1120,11 @@ public final class MainActivity extends Activity {
         android.widget.ImageView menuButton=new android.widget.ImageView(this);menuButton.setImageResource(android.R.drawable.ic_menu_myplaces);menuButton.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);menuButton.setPadding(dp(8),dp(8),dp(8),dp(8));menuButton.setBackground(touchSurface(0x40202228,22));menuButton.setOnClickListener(v->menu());menuButton.setContentDescription("Меню профиля");profileAvatarButton=menuButton;
         head.setLayoutTransition(new android.animation.LayoutTransition());
         head.addView(menuButton,new LinearLayout.LayoutParams(dp(44),dp(44)));
+        libraryExtraButton=iconButton("☰",()->menu(true));
+        libraryExtraButton.setContentDescription("Дополнительно");
+        head.addView(libraryExtraButton,new LinearLayout.LayoutParams(dp(44),dp(44)));
+        menuButton.setVisibility(isCollectionScreen()?View.GONE:View.VISIBLE);
+        libraryExtraButton.setVisibility(isCollectionScreen()?View.VISIBLE:View.GONE);
         refreshProfileAvatar();
         headerHost=new FrameLayout(this);
         headerHost.addView(head,new FrameLayout.LayoutParams(-1,-1));
@@ -1159,8 +1173,31 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams dockParams=new LinearLayout.LayoutParams(-1,-2);
         dockParams.topMargin=dp(landscape?3:4);
         root.addView(dockContainer,dockParams);
-        if(backgroundOnly)dockContainer.setVisibility(View.GONE);android.view.GestureDetector miniGestures=gestures(false);labels.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));dock.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));
+        if(backgroundOnly)dockContainer.setVisibility(View.GONE);
+        if(!backgroundOnly){
+            LinearLayout navigation=row();
+            navigation.setGravity(Gravity.CENTER);
+            navigation.setPadding(0,dp(1),0,dp(3));
+            addBottomNavigationTab(navigation,"⌂","Главная",()->navigate("Главная"));
+            addBottomNavigationTab(navigation,"⌕","Поиск",()->navigate("Поиск"));
+            addBottomNavigationTab(navigation,"▤","Медиатека",()->navigate("Избранное"));
+            premiumTabButton=addBottomNavigationTab(navigation,"✧","Premium",this::premium);
+            premiumTabButton.setVisibility(premiumAllowed()?View.GONE:View.VISIBLE);
+            root.addView(navigation,new LinearLayout.LayoutParams(-1,dp(51)));
+        }
+        android.view.GestureDetector miniGestures=gestures(false);labels.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));dock.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));
         showScreen();updatePlayback();loadMiniCover(current());updateCoverBackdrop();
+    }
+    private TextView addBottomNavigationTab(LinearLayout container,String icon,String label,Runnable click){
+        TextView tab=text(icon+"\n"+label,11);
+        tab.setGravity(Gravity.CENTER);
+        tab.setTextColor(label.equals(screen)||label.equals("Медиатека")&&isCollectionScreen()
+            ?Color.WHITE:0xffa7a8ac);
+        tab.setBackground(touchSurface(0x11000000,12));
+        tab.setOnClickListener(v->click.run());
+        tab.setContentDescription(label);
+        container.addView(tab,new LinearLayout.LayoutParams(0,-1,1));
+        return tab;
     }
     // Audio routing is controlled by Android. Report the current media route without
     // changing the communication device (which would affect calls instead of music).
@@ -1211,14 +1248,15 @@ public final class MainActivity extends Activity {
     }
     // Compact two-level navigation, matching iOS. Only the header owns the
     // connection indicator, Additional action and profile avatar.
-    void menu(){
+    void menu(){menu(false);}
+    void menu(boolean startAdditional){
         if(navigationPopup!=null)navigationPopup.dismiss();
-        final android.widget.ImageView opener=profileAvatarButton;
+        final android.widget.ImageView opener=startAdditional?null:profileAvatarButton;
         LinearLayout shell=column();
         shell.setPadding(0,dp(12),0,dp(12));
         shell.setBackground(glass(32));
         LinearLayout top=row();top.setPadding(dp(20),dp(12),dp(20),dp(12));
-        TextView title=text("Меню",24);title.setTypeface(null,android.graphics.Typeface.BOLD);
+        TextView title=text(startAdditional?"Дополнительно":"Меню",24);title.setTypeface(null,android.graphics.Typeface.BOLD);
         title.setSingleLine(true);
         top.addView(title,new LinearLayout.LayoutParams(0,dp(42),1));
         nightwellMenuStatus=text("●",14);
@@ -1229,7 +1267,7 @@ public final class MainActivity extends Activity {
         nightwellMenuSpinner.setIndeterminateTintList(
             android.content.res.ColorStateList.valueOf(0xff67a8ff));
         top.addView(nightwellMenuSpinner,new LinearLayout.LayoutParams(dp(17),dp(24)));
-        TextView additional=iconButton("⊞",()->{});
+        TextView additional=iconButton(startAdditional?"‹":"⊞",()->{});
         additional.setTextSize(18);
         additional.setContentDescription("Дополнительно");
         LinearLayout.LayoutParams moreParams=new LinearLayout.LayoutParams(dp(42),dp(42));
@@ -1287,14 +1325,14 @@ public final class MainActivity extends Activity {
                 opener.animate().alpha(1f).setDuration(180).start();
             }
         });
-        final boolean[] extra={false};
+        final boolean[] extra={startAdditional};
         Runnable render=()->{
             entries.removeAllViews();
             String[] tabs=extra[0]
                 ? (user.isEmpty()?new String[]{"Слушать вместе","Обращения"}:
                     new String[]{"Слушать вместе","Моя статистика","Перенос плейлистов","Обращения"})
-                : (user.isEmpty()?new String[]{"Войти","Главная","Настройки"}:
-                    new String[]{"Главная","Избранное","Плейлисты","Офлайн","Nightwell Premium","Настройки"});
+                : (user.isEmpty()?new String[]{"Войти","Главная"}:
+                    new String[]{"Главная","Избранное","Плейлисты","Офлайн","Профиль"});
             for(String tab:tabs){
                 final String glyph;
                 switch(tab){
@@ -1556,6 +1594,12 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams a1=new LinearLayout.LayoutParams(-1,dp(53));
         a1.bottomMargin=dp(9);panel.addView(editAvatar,a1);
         panel.addView(editNick,new LinearLayout.LayoutParams(-1,dp(53)));
+        if(premiumAllowed()){
+            TextView activePremium=sheetAction("✧    Nightwell Premium · Подписка активна    ›",this::premium);
+            LinearLayout.LayoutParams premiumParams=new LinearLayout.LayoutParams(-1,dp(53));
+            premiumParams.topMargin=dp(9);
+            panel.addView(activePremium,premiumParams);
+        }
         View space=new View(this);
         panel.addView(space,new LinearLayout.LayoutParams(-1,dp(16)));
         TextView logout=sheetAction("↪    Выйти из аккаунта",()->{});
@@ -1924,6 +1968,11 @@ public final class MainActivity extends Activity {
         collectionActions=null;
         offlineActions=null;
         playlistCollectionScroll=null;
+        if(librarySettingsButton!=null)librarySettingsButton.setVisibility(isCollectionScreen()?View.VISIBLE:View.GONE);
+        if(libraryExtraButton!=null)libraryExtraButton.setVisibility(isCollectionScreen()?View.VISIBLE:View.GONE);
+        if(profileAvatarButton!=null)profileAvatarButton.setVisibility(isCollectionScreen()?View.GONE:View.VISIBLE);
+        if(headerBrandButton!=null)headerBrandButton.setVisibility(isCollectionScreen()?View.GONE:View.VISIBLE);
+        if(headerWordmark!=null)headerWordmark.setVisibility(isCollectionScreen()?View.INVISIBLE:View.VISIBLE);
         if(headerCollectionTitle!=null){
             if(!isCollectionScreen()||!collectionScrolled)updateCollectionHeader(false,false);
             else headerCollectionTitle.setText(screen);
@@ -4129,10 +4178,19 @@ public final class MainActivity extends Activity {
             downloaded?"Удалить загрузку":"Скачать","Поделиться","Добавить в плейлист",
             hiddenRecommendations().contains(id)?"Вернуть в рекомендации":"Не рекомендовать",
             isArtistHidden(track)?"Вернуть исполнителя":"Не рекомендовать исполнителя"));
+        if(!togetherCode.isEmpty()&&!user.isEmpty())
+            actionsList.add("Добавить в совместное прослушивание");
         nightwellOptions(track.optString("title","Действия с треком"),
             actionsList.toArray(new String[0]),chosen->{
                 if(chosen==0){seededRhythmByTrack(track);return;}
                 if(chosen==1){openClip(track);return;}
+                if("Добавить в совместное прослушивание".equals(actionsList.get(chosen))){
+                    String room=togetherCode;
+                    if(room.isEmpty())return;
+                    task(()->api.request("api/together/rooms/"+room+"/queue","POST",
+                        new JSONObject().put("track_id",id)),v->status.setText("Трек добавлен в общую очередь"));
+                    return;
+                }
                 int n=chosen-2;
                 if(n==0)toggleFavorite(track);
                 else if(n==1){
@@ -4659,6 +4717,7 @@ public final class MainActivity extends Activity {
             ribbon.setAuraResponse(aura.getBoolean(user+"|aura_voice",true),aura.getBoolean(user+"|aura_low",true),aura.getBoolean(user+"|aura_mid",true),aura.getBoolean(user+"|aura_high",true));
         }
         if(root!=null){String theme=allowed?premiumPrefs.optString("theme"):"";int tint=theme.equals("aurora")?0x66105a45:theme.equals("ocean")?0x660c3f73:theme.equals("sunset")?0x6682282d:Color.TRANSPARENT;root.setBackgroundColor(tint);}
+        if(premiumTabButton!=null)premiumTabButton.setVisibility(allowed?View.GONE:View.VISIBLE);
     }
     void premiumTick(){if(!premiumOwner.equals(user)||premiumUntil>0&&!premiumAllowed()){premiumUntil=0;premiumPrefs=new JSONObject();premiumOwner=user;premiumChecked=0;applyPremium();}if(!premiumLoading&&System.currentTimeMillis()-premiumChecked>300000)loadPremium(()->{});}
     void loadPremium(Runnable done){if(premiumLoading)return;premiumLoading=true;premiumChecked=System.currentTimeMillis();String owner=user;premiumUntil=0;applyPremium();io.execute(()->{
