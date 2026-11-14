@@ -116,7 +116,7 @@ private struct AudioQualityDecision: Decodable {
 }
 
 @MainActor final class MusicStore: ObservableObject {
-    enum Screen: String, CaseIterable { case home = "Главная", search = "Поиск", likes = "Избранное", playlists = "Плейлисты", offline = "Офлайн" }
+    enum Screen: String, CaseIterable { case home = "Главная", search = "Поиск", library = "Медиатека", likes = "Избранное", playlists = "Плейлисты", offline = "Офлайн" }
     @Published var screen: Screen = .home
     @Published var catalog: [Track] = []
     @Published var results: [Track] = []
@@ -780,7 +780,7 @@ private struct AudioQualityDecision: Decodable {
         guard generation == sessionGeneration else { return }
         if connectionStatus != "Онлайн", catalog.isEmpty {
             restorePlayback(offlineOnly: true)
-            if !offline.isEmpty { screen = .offline }
+            if !offline.isEmpty, screen == .home { screen = .library }
         }
     }
 

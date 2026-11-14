@@ -578,10 +578,9 @@ struct NativeRoot: View {
     @State private var togetherPresented = false
     @StateObject private var togetherSession = NightwellTogetherSession()
     @State private var favoriteSort = "recent"
-    @AppStorage("nw-library-section") private var savedLibrarySection = MusicStore.Screen.likes.rawValue
+    @State private var librarySession = LibrarySessionState<MusicStore.Screen>(overview: .library)
     @AppStorage(NavigationLayout.storageKey) private var navigationLayout = NavigationLayout.belowPlayer
     @State private var libraryScrollCollapsed: [String: Bool] = [:]
-    @State private var libraryScrollPositions: [MusicStore.Screen: String] = [:]
     @StateObject private var artworkPalette = NightwellArtworkPalette()
     @State private var remoteHomeCollapsed = false
     @ObservedObject private var favoritePremium = PremiumFeatureState.shared
@@ -628,8 +627,12 @@ struct NativeRoot: View {
             } else {
                 HStack(alignment: .top, spacing: 0) {
                 VStack(spacing: landscape ? 6 : 18) {
-                    header(landscape: landscape)
-                    if !landscape {
+                    if isLibraryScreen {
+                        libraryHeader(landscape: landscape)
+                    } else {
+                        header(landscape: landscape)
+                    }
+                    if !landscape && !isLibraryScreen {
                     HStack(spacing: 6) {
                         Circle()
                             .fill(store.connectionStatus == "Онлайн" ? Color.green :
@@ -643,7 +646,7 @@ struct NativeRoot: View {
                     .accessibilityLabel("Подключение Nightwell: \(store.connectionStatus)")
                     .padding(.horizontal, 22)
                     }
-                    if !landscape && store.hasRemotePlayback && !remoteHomeCollapsed && compactCollectionTitle == nil {
+                    if !landscape && !isLibraryScreen && store.hasRemotePlayback && !remoteHomeCollapsed {
                         Button {
                             Task { await store.continuePlaybackHere() }
                         } label: {
@@ -660,9 +663,6 @@ struct NativeRoot: View {
                         }
                         .padding(.horizontal, 20)
                         .transition(.move(edge: .top).combined(with: .opacity))
-                    }
-                    if isLibraryScreen {
-                        librarySectionTabs(landscape: landscape)
                     }
                     content(bottomContentInset: bottomInset)
                         .environment(\.nightwellBottomContentInset, bottomInset)
@@ -780,7 +780,7 @@ struct NativeRoot: View {
             openNavigation(destination)
         }) {
             StableNavigationSheet(status: store.connectionStatus, signedIn: store.account != nil,
-                                  libraryScreen: lastLibraryScreen,
+                                  libraryScreen: libraryDestination,
                                   showsMainNavigation: !navigationLayout.showsTabs) { action in
                 pendingNavigation = action
                 navigationMenuPresented = false
@@ -910,7 +910,7 @@ struct NativeRoot: View {
             }
         })
         .onChange(of: store.screen) { oldScreen, newScreen in
-            if isLibraryScreen { savedLibrarySection = store.screen.rawValue }
+            if isLibraryScreen && librarySession.lastVisited != newScreen { librarySession.remember(newScreen) }
             if oldScreen == .search { store.leaveSearch() }
             if newScreen == .search { store.scheduleSearch() }
         }
@@ -946,7 +946,7 @@ struct NativeRoot: View {
     }
     private func openNavigation(_ action: StableNavigationAction) {
         switch action {
-        case .screen(let screen): store.screen = screen
+        case .screen(let screen): navigate(to: screen)
         case .backgroundOnly: backgroundOnly = true
         case .statistics: feature = .statistics
         case .premium: premiumPresented = true
@@ -972,13 +972,12 @@ struct NativeRoot: View {
             }
         }
     }
-    private let libraryScreens: [MusicStore.Screen] = [.likes, .playlists, .offline]
+    private let libraryScreens: [MusicStore.Screen] = [.library, .likes, .playlists, .offline]
 
     private var isLibraryScreen: Bool { libraryScreens.contains(store.screen) }
 
-    private var lastLibraryScreen: MusicStore.Screen {
-        let screen = MusicStore.Screen(rawValue: savedLibrarySection) ?? .likes
-        return libraryScreens.contains(screen) ? screen : .likes
+    private var libraryDestination: MusicStore.Screen {
+        isLibraryScreen ? .library : librarySession.lastVisited
     }
 
     private var collectionScrolled: Bool {
@@ -986,41 +985,86 @@ struct NativeRoot: View {
     }
 
     private func libraryScrollBinding(for screen: MusicStore.Screen) -> Binding<Bool> {
-        Binding(get: { libraryScrollCollapsed[screen.rawValue] ?? false },
-                set: { libraryScrollCollapsed[screen.rawValue] = $0 })
+        let revision = librarySession.revision(for: screen)
+        return Binding(get: { libraryScrollCollapsed[screen.rawValue] ?? false }, set: { collapsed in
+            guard store.screen == screen, revision == librarySession.revision(for: screen) else { return }
+            if libraryScrollCollapsed[screen.rawValue] != collapsed {
+                libraryScrollCollapsed[screen.rawValue] = collapsed
+            }
+        })
     }
 
     private func libraryScrollPosition(for screen: MusicStore.Screen) -> Binding<String?> {
-        Binding(get: { libraryScrollPositions[screen] }, set: { position in
-            // SwiftUI may clear its position binding while removing the old
-            // scroll view. Preserve that section's anchor until it is reopened.
-            guard store.screen == screen else { return }
-            if libraryScrollPositions[screen] != position {
-                libraryScrollPositions[screen] = position
+        let revision = librarySession.revision(for: screen)
+        return Binding(get: { librarySession.scrollPosition(for: screen) }, set: { position in
+            // Ignore removal callbacks and stale views from before a sort.
+            guard store.screen == screen, revision == librarySession.revision(for: screen) else { return }
+            if librarySession.scrollPosition(for: screen) != position {
+                librarySession.saveScrollPosition(position, for: screen, revision: revision)
             }
         })
+    }
+
+    private func changeFavoriteSort(_ sort: String) {
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            librarySession.resetScroll(for: .likes)
+            libraryScrollCollapsed[MusicStore.Screen.likes.rawValue] = false
+            favoriteSort = sort
+        }
     }
 
     private func navigate(to screen: MusicStore.Screen) {
         guard store.screen != screen else { return }
         var transaction = Transaction(animation: nil)
         transaction.disablesAnimations = true
-        withTransaction(transaction) { store.screen = screen }
+        withTransaction(transaction) {
+            if libraryScreens.contains(screen) { librarySession.remember(screen) }
+            store.screen = screen
+        }
     }
 
-    private func librarySectionTabs(landscape: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if !landscape {
-                Text("Медиатека").font(.title2.bold())
-            }
-            Picker("Раздел медиатеки", selection: Binding(get: { store.screen }, set: { navigate(to: $0) })) {
-                ForEach(libraryScreens, id: \.self) { screen in
-                    Text(screen.rawValue).tag(screen)
+    private func libraryHeader(landscape: Bool) -> some View {
+        HStack {
+            Button {
+                if store.screen == .library { navigationMenuPresented = true }
+                else { navigate(to: .library) }
+            } label: {
+                Group {
+                    if store.screen != .library {
+                        Image(systemName: "chevron.left").font(.system(size: 20, weight: .medium))
+                    } else if let avatar = store.profileAvatar {
+                        Image(uiImage: avatar).resizable().scaledToFill()
+                            .frame(width: 30, height: 30).clipShape(Circle())
+                    } else {
+                        Image(systemName: "person.crop.circle").font(.system(size: 26, weight: .regular))
+                    }
                 }
+                .frame(width: 44, height: 44).contentShape(Rectangle())
             }
-            .pickerStyle(.segmented)
+            .accessibilityLabel(store.screen == .library ? "Меню и профиль" : "Назад в медиатеку")
+            Spacer()
+            Button { navigate(to: .search) } label: {
+                Image(systemName: "magnifyingglass").font(.system(size: 22, weight: .regular))
+                    .frame(width: 44, height: 44).contentShape(Rectangle())
+            }
+            .accessibilityLabel("Поиск")
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.white)
+        .overlay {
+            if store.screen == .library || compactCollectionTitle != nil {
+                Text(store.screen == .library ? "Медиатека" : store.screen.rawValue)
+                    .font(.system(size: 20, weight: .semibold))
+                    .lineLimit(1).minimumScaleFactor(0.8)
+                    .padding(.horizontal, 60)
+                    .allowsHitTesting(false)
+                    .accessibilityAddTraits(.isHeader)
+            }
         }
         .padding(.horizontal, 20)
+        .padding(.top, landscape ? 4 : 8)
     }
 
     private func bottomNavigation(landscape: Bool) -> some View {
@@ -1030,7 +1074,7 @@ struct NativeRoot: View {
             navigationTab("Поиск", icon: "magnifyingglass", selected: store.screen == .search,
                           landscape: landscape) { navigate(to: .search) }
             navigationTab("Медиатека", icon: "square.stack", selected: isLibraryScreen,
-                          landscape: landscape) { navigate(to: lastLibraryScreen) }
+                          landscape: landscape) { navigate(to: libraryDestination) }
         }
         .padding(.horizontal, landscape ? 18 : 8)
         .padding(.bottom, landscape ? 2 : 0)
@@ -1218,6 +1262,13 @@ struct NativeRoot: View {
         switch screen {
         case .home:
             NativeHome(configureWave: { waveSettingsPresented = true }, clock: store.clock)
+        case .library:
+            LibraryOverview(favorites: favoriteTracks, scrollPosition: libraryScrollPosition(for: .library),
+                            openFavorites: { navigate(to: .likes) },
+                            openPlaylists: { navigate(to: .playlists) },
+                            openOffline: { navigate(to: .offline) },
+                            openDailyPlaylists: { dailyPlaylistsPresented = true },
+                            openSmartPlaylists: { feature = .smart })
         case .search:
             VStack(alignment: .leading, spacing: 14) {
                 Text("Поиск").font(.largeTitle.bold())
@@ -1374,11 +1425,11 @@ struct NativeRoot: View {
                         Spacer(minLength: 0)
                         Menu {
                             Button("Недавно добавленные", systemImage: favoriteSort == "recent" ? "checkmark" : "clock") {
-                                favoriteSort = "recent"
+                                changeFavoriteSort("recent")
                             }
                             if favoritePremium.allowed {
-                                Button("По названию") { favoriteSort = "title" }
-                                Button("По исполнителю") { favoriteSort = "artist" }
+                                Button("По названию") { changeFavoriteSort("title") }
+                                Button("По исполнителю") { changeFavoriteSort("artist") }
                             } else {
                                 Button("Другие виды сортировки · Premium") { premiumPresented = true }
                             }
@@ -1399,6 +1450,7 @@ struct NativeRoot: View {
             .contentMargins(.bottom, bottomContentInset, for: .scrollContent)
             .contentMargins(.bottom, bottomContentInset, for: .scrollIndicators)
             .scrollDismissesKeyboard(.interactively)
+            .id(librarySession.revision(for: .likes))
         case .playlists:
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
@@ -1581,6 +1633,7 @@ struct NativeTrackRow: View {
     @ObservedObject var status: TrackStatus
     var playlist: Playlist?
     var onPlay: (() -> Void)? = nil
+    var libraryPreview = false
     @State private var selectedArtist: ArtistSelection?
     @State private var showArtistChoices = false
     var body: some View {
@@ -1593,13 +1646,13 @@ struct NativeTrackRow: View {
             } label: {
                 HStack(spacing: 12) {
                     Cover(track: track, origin: store.origin)
-                        .frame(width: 46, height: 46)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .frame(width: libraryPreview ? 56 : 46, height: libraryPreview ? 56 : 46)
+                        .clipShape(RoundedRectangle(cornerRadius: libraryPreview ? 8 : 12))
                     VStack(alignment: .leading, spacing: 5) {
-                        Text(track.title).font(.subheadline.weight(.semibold))
-                            .lineLimit(2)
-                        Text(track.artist).font(.caption).foregroundStyle(.secondary)
-                            .lineLimit(2)
+                        Text(track.title).font(libraryPreview ? .body.weight(.medium) : .subheadline.weight(.semibold))
+                            .lineLimit(libraryPreview ? 1 : 2)
+                        Text(track.artist).font(libraryPreview ? .subheadline : .caption).foregroundStyle(.secondary)
+                            .lineLimit(libraryPreview ? 1 : 2)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     if status.id == track.id {
@@ -1607,9 +1660,9 @@ struct NativeTrackRow: View {
                             .frame(width: 20, height: 20)
                     }
                 }
-                .frame(maxWidth: .infinity, minHeight: 54, alignment: .leading)
-                .padding(.leading, 12)
-                .padding(.vertical, 9)
+                .frame(maxWidth: .infinity, minHeight: libraryPreview ? 56 : 54, alignment: .leading)
+                .padding(.leading, libraryPreview ? 0 : 12)
+                .padding(.vertical, libraryPreview ? 8 : 9)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -1651,13 +1704,13 @@ struct NativeTrackRow: View {
                 if let playlist { Button("Убрать из плейлиста", role: .destructive) { Task { await store.add(track, playlist: playlist, remove: true) } } }
             } label: {
                 Image(systemName: "ellipsis")
-                    .frame(width: 44, height: 70)
+                    .frame(width: 44, height: libraryPreview ? 72 : 70)
                     .contentShape(Rectangle())
             }
             .padding(.trailing, 5)
             .accessibilityLabel("Действия с треком " + track.title)
         }
-        .background(status.id == track.id ? pumpkin.opacity(0.12) : .white.opacity(0.035),
+        .background(status.id == track.id ? pumpkin.opacity(0.12) : libraryPreview ? .clear : .white.opacity(0.035),
                     in: RoundedRectangle(cornerRadius: 18))
         .confirmationDialog("Выбери исполнителя", isPresented: $showArtistChoices, titleVisibility: .visible) {
             ForEach(ArtistNames.split(track.artist), id: \.self) { name in

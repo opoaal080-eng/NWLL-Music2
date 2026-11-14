@@ -1166,7 +1166,7 @@ struct NativeRoot: View {
                 // blocking input while remote providers are still searching.
                 TrackList(tracks: store.results)
             }.padding(.horizontal, 20)
-        case .likes:
+        case .library, .likes:
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     collectionScrollMarker

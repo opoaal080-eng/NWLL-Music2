@@ -77,6 +77,11 @@ jobs:
         run: |
           swiftc NightwellMusic/PlaybackQueueInsertion.swift scripts/test-playback-queue.swift -o /tmp/test-playback-queue
           /tmp/test-playback-queue
+      - name: Test library session restoration and sorting reset
+        if: github.event_name != 'push'
+        run: |
+          swiftc NightwellMusic/LibrarySessionState.swift scripts/test-library-session.swift -o /tmp/test-library-session
+          /tmp/test-library-session
       - name: Test aura preparation
         if: github.event_name != 'push'
         run: |
