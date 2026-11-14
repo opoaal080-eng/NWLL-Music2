@@ -112,12 +112,18 @@ final class ArtworkCache {
     void load(ImageView target, String origin, String path) {
         if (!valid(path)) { target.setTag(null); target.setImageDrawable(null); return; }
         String identity = key(origin,path);
-        if(identity.equals(target.getTag())&&target.getDrawable()!=null)return;
-        if(!identity.equals(target.getTag()))target.setImageDrawable(null);
+        if(identity.equals(target.getTag())&&memory.get(identity)!=null&&target.getDrawable()!=null)return;
+        // Keep the previous cover visible until the replacement is decoded,
+        // instead of flashing a blank square on every media transition.
         target.setTag(identity);
         Bitmap cached = memory.get(identity);
         if (cached != null) { target.setImageBitmap(cached); return; }
         if (temporarilyUnavailable(identity)) return;
+        target.postDelayed(() -> {
+            // Do not display the wrong artwork forever when a provider fails.
+            if(identity.equals(target.getTag())&&memory.get(identity)==null)
+                target.setImageDrawable(null);
+        },6500);
         CompletableFuture<Bitmap> job = request(origin,path);
         job.thenAccept(bitmap -> {
             if (bitmap == null) return;
@@ -218,8 +224,7 @@ final class ArtworkCache {
             return;
         }
         String identity = "artist|" + imageUrl;
-        if(identity.equals(target.getTag())&&target.getDrawable()!=null)return;
-        if(!identity.equals(target.getTag()))target.setImageDrawable(null);
+        if(identity.equals(target.getTag())&&memory.get(identity)!=null&&target.getDrawable()!=null)return;
         target.setTag(identity);
         Bitmap cached = memory.get(identity);
         if (cached != null) {
@@ -227,6 +232,10 @@ final class ArtworkCache {
             return;
         }
         if (temporarilyUnavailable(identity)) return;
+        target.postDelayed(() -> {
+            if(identity.equals(target.getTag())&&memory.get(identity)==null)
+                target.setImageDrawable(null);
+        },6500);
         CompletableFuture<Bitmap> job = inFlight.computeIfAbsent(identity,
             key -> CompletableFuture.supplyAsync(() -> fetchArtistImage(imageUrl), io));
         job.whenComplete((bitmap, error) -> {
