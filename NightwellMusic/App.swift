@@ -1250,9 +1250,9 @@ struct NativeRoot: View {
                                 .foregroundStyle(.white)
                                 .frame(width: 44, height: 44)
                                 .background(Color.white.opacity(0.075),
-                                            in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+                                            in: RoundedRectangle(cornerRadius: 13, style: .continuous))
                                 .overlay {
-                                    RoundedRectangle(cornerRadius: 15, style: .continuous)
+                                    RoundedRectangle(cornerRadius: 13, style: .continuous)
                                         .strokeBorder(.white.opacity(0.11), lineWidth: 0.8)
                                 }
                         }
@@ -1260,48 +1260,6 @@ struct NativeRoot: View {
                         .accessibilityLabel("Новый плейлист")
                     }
                     .padding(.top, 6)
-
-                    // Smart mixes remain a separate, clearly tappable entry.
-                    Button { feature = .smart } label: {
-                        HStack(spacing: 13) {
-                            Image(systemName: "waveform.path")
-                                .font(.system(size: 20, weight: .medium))
-                                .foregroundStyle(.white.opacity(0.9))
-                                .frame(width: 48, height: 48)
-                                .background(Color.white.opacity(0.065),
-                                            in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Умные плейлисты")
-                                    .font(.system(size: 16, weight: .semibold))
-                                    .foregroundStyle(.white)
-                                Text((favoritePremium.allowed || !favoritePremium.entitlementVerified)
-                                     ? "Подборки под твой вкус" : "Доступно с Premium")
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(.white.opacity(0.50))
-                            }
-                            Spacer(minLength: 0)
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(.white.opacity(0.48))
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 12)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background {
-                            RoundedRectangle(cornerRadius: 21, style: .continuous)
-                                .fill(LinearGradient(colors: [
-                                    Color.white.opacity(0.085),
-                                    Color.white.opacity(0.035)
-                                ], startPoint: .topLeading, endPoint: .bottomTrailing))
-                        }
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 21, style: .continuous)
-                                .strokeBorder(.white.opacity(0.105), lineWidth: 0.8)
-                        }
-                        .contentShape(RoundedRectangle(cornerRadius: 21, style: .continuous))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityHint("Открыть умные плейлисты")
 
                     HStack(spacing: 10) {
                         Text("Мои плейлисты")
@@ -1316,35 +1274,35 @@ struct NativeRoot: View {
                     }
                     .padding(.top, 7)
 
-                    LazyVStack(spacing: 10) {
+                    LazyVStack(spacing: 8) {
                         ForEach(store.playlists) { playlist in
                             HStack(spacing: 0) {
                                 Button { selectedPlaylist = playlist } label: {
-                                    HStack(spacing: 13) {
+                                    HStack(spacing: 11) {
                                         Image(systemName: playlistIcon(for: playlist.name))
-                                            .font(.system(size: 23, weight: .regular))
+                                            .font(.system(size: 19, weight: .regular))
                                             .foregroundStyle(.white.opacity(0.9))
-                                            .frame(width: 56, height: 56)
+                                            .frame(width: 44, height: 44)
                                             .background {
-                                                RoundedRectangle(cornerRadius: 15, style: .continuous)
+                                                RoundedRectangle(cornerRadius: 13, style: .continuous)
                                                     .fill(LinearGradient(
                                                         colors: [.white.opacity(0.14), .white.opacity(0.045)],
                                                         startPoint: .topLeading, endPoint: .bottomTrailing))
                                             }
                                             .overlay {
-                                                RoundedRectangle(cornerRadius: 15, style: .continuous)
+                                                RoundedRectangle(cornerRadius: 13, style: .continuous)
                                                     .strokeBorder(.white.opacity(0.12), lineWidth: 0.75)
                                             }
                                             .accessibilityHidden(true)
                                         Text(playlist.name)
-                                            .font(.system(size: 16, weight: .semibold))
+                                            .font(.system(size: 15, weight: .semibold))
                                             .foregroundStyle(.white)
                                             .lineLimit(2)
                                             .frame(maxWidth: .infinity, alignment: .leading)
                                         Spacer(minLength: 0)
                                     }
-                                    .padding(.leading, 12)
-                                    .padding(.vertical, 11)
+                                    .padding(.leading, 10)
+                                    .padding(.vertical, 7)
                                     .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
@@ -1375,23 +1333,23 @@ struct NativeRoot: View {
                                     Image(systemName: "ellipsis")
                                         .font(.system(size: 19, weight: .medium))
                                         .foregroundStyle(.white.opacity(0.78))
-                                        .frame(width: 48, height: 76)
+                                        .frame(width: 44, height: 60)
                                         .contentShape(Rectangle())
                                 }
                                 .accessibilityLabel("Действия с плейлистом \(playlist.name)")
                             }
-                            .frame(maxWidth: .infinity, minHeight: 78)
+                            .frame(maxWidth: .infinity, minHeight: 62)
                             .background {
-                                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
                                     .fill(LinearGradient(
                                         colors: [.white.opacity(0.075), .white.opacity(0.032)],
                                         startPoint: .topLeading, endPoint: .bottomTrailing))
                             }
                             .overlay {
-                                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
                                     .strokeBorder(.white.opacity(0.10), lineWidth: 0.8)
                             }
-                            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                             .id(playlist.id)
                         }
                     }
