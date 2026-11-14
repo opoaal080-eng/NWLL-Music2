@@ -32,7 +32,7 @@ public final class NightwellMotionCover extends ImageView {
         super.onDraw(canvas);
         float height=getHeight();
         fadeMask.setShader(new LinearGradient(0,0,0,height,
-            new int[]{0x00ffffff,0x66ffffff,0xffffffff,0xffffffff,0x66ffffff,0x00ffffff},
+            new int[]{0xb8ffffff,0xe8ffffff,0xffffffff,0xffffffff,0xe8ffffff,0xb8ffffff},
             new float[]{0f,.12f,.31f,.69f,.88f,1f},Shader.TileMode.CLAMP));
         fadeMask.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.DST_IN));
         canvas.drawRect(0,0,getWidth(),getHeight(),fadeMask);
