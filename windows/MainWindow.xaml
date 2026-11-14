@@ -16,7 +16,7 @@
     <Button Click="SearchClick" Height="40" MinHeight="0" Margin="0,0,8,0" Style="{StaticResource QuietButton}" ToolTip="Поиск музыки">
      <StackPanel Orientation="Horizontal"><Path Data="M 8,0 A 8,8 0 1 1 7.99,0 M 14,14 L 20,20" Stroke="#B4B4B4" StrokeThickness="1.8" Width="16" Height="16" Stretch="Uniform" Margin="0,0,9,0"/><TextBlock Text="Поиск" Foreground="{StaticResource SecondaryBrush}"/></StackPanel>
     </Button>
-    <Button x:Name="NavigationMenu" Click="MenuClick" Style="{StaticResource IconButton}" ToolTip="Меню">
+    <Button x:Name="NavigationMenu" Click="MenuClick" Style="{StaticResource IconButton}" ToolTip="Профиль">
      <Grid Width="30" Height="30"><Ellipse Fill="#343434" Stroke="#777777" StrokeThickness="1"/><TextBlock Text="&#xE77B;" FontFamily="Segoe MDL2 Assets" FontSize="18" Foreground="#DCDCDC" HorizontalAlignment="Center" VerticalAlignment="Center"/><Image x:Name="NavigationAvatar" Width="29" Height="29" Stretch="UniformToFill"><Image.Clip><EllipseGeometry Center="14.5,14.5" RadiusX="14.5" RadiusY="14.5"/></Image.Clip></Image></Grid>
     </Button>
    </StackPanel>
@@ -29,10 +29,11 @@
      <DockPanel LastChildFill="True">
       <StackPanel DockPanel.Dock="Top">
        <Grid Margin="0,0,0,14">
-         <Grid.ColumnDefinitions><ColumnDefinition Width="40"/><ColumnDefinition Width="*"/><ColumnDefinition Width="40"/></Grid.ColumnDefinitions>
-         <Button Grid.Column="0" Content="⚙" Style="{StaticResource IconButton}" Click="SettingsClick" ToolTip="Настройки" FontSize="20"/>
-         <TextBlock Grid.Column="1" Text="МЕДИАТЕКА" Style="{StaticResource Caption}" FontSize="11" VerticalAlignment="Center" TextAlignment="Center" Foreground="#B2B2B2"/>
-         <Button Grid.Column="2" Content="☰" Style="{StaticResource IconButton}" Click="LibraryAdditionalClick" ToolTip="Дополнительно" FontSize="18"/>
+         <Grid.ColumnDefinitions><ColumnDefinition Width="40"/><ColumnDefinition Width="40"/><ColumnDefinition Width="*"/><ColumnDefinition Width="40"/></Grid.ColumnDefinitions>
+         <Button Grid.Column="0" Content="‹" Style="{StaticResource IconButton}" Click="SidebarBackClick" ToolTip="Назад" FontSize="25"/>
+          <Button Grid.Column="1" Content="⚙" Style="{StaticResource IconButton}" Click="SettingsClick" ToolTip="Настройки" FontSize="20"/>
+         <TextBlock Grid.Column="2" Text="МЕДИАТЕКА" Style="{StaticResource Caption}" FontSize="11" VerticalAlignment="Center" TextAlignment="Center" Foreground="#B2B2B2"/>
+         <Button Grid.Column="3" Content="☰" Style="{StaticResource IconButton}" Click="LibraryAdditionalClick" ToolTip="Меню" FontSize="18"/>
         </Grid>
        <Button Content="♡    Избранное" Style="{StaticResource QuietButton}" HorizontalContentAlignment="Left" Padding="14,12" Margin="0,0,0,4" Click="SidebarFavoritesClick" ToolTip="Открыть избранные треки"/>
        <Button Content="♫    Плейлисты" Style="{StaticResource QuietButton}" HorizontalContentAlignment="Left" Padding="14,12" Margin="0,0,0,14" Click="SidebarPlaylistsClick" ToolTip="Открыть свои плейлисты"/>
