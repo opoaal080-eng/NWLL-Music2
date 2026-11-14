@@ -388,7 +388,7 @@ public final class MainActivity extends Activity {
     GradientDrawable surface(){return NightwellDesign.surface(this,NightwellDesign.SURFACE,24,true);}
     GradientDrawable fieldSurface(int color,int corners){return NightwellDesign.surface(this,color,Math.min(corners,24),true);}
     android.graphics.drawable.Drawable touchSurface(int color,int corners){return NightwellDesign.ripple(this,color,Math.min(corners,28),true);}
-    TextView sectionLabel(String label){TextView v=text(label.toUpperCase(java.util.Locale.ROOT),11);v.setLetterSpacing(.105f);v.setTextColor(NightwellDesign.MUTED);v.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));v.setPadding(dp(3),dp(18),0,dp(10));return v;}
+    TextView sectionLabel(String label){TextView v=text(label.toUpperCase(java.util.Locale.ROOT),11);v.setLetterSpacing(.105f);v.setTextColor(NightwellDesign.MUTED);v.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));v.setPadding(dp(3),dp(NightwellDesign.SPACE_5),0,dp(NightwellDesign.SPACE_3));return v;}
     void styleField(EditText view){view.setTextSize(15);NightwellDesign.styleField(this,view);}
     void styleSwitch(android.widget.Switch view){view.setTextColor(NightwellDesign.PRIMARY);view.setTextSize(15);view.setMinHeight(dp(52));view.setPadding(dp(5),dp(8),dp(5),dp(8));view.setShowText(false);view.setThumbTintList(android.content.res.ColorStateList.valueOf(0xfff5f6f7));view.setTrackTintList(new android.content.res.ColorStateList(new int[][]{new int[]{android.R.attr.state_checked},new int[]{}},new int[]{0xff6a7078,0xff34373b}));}
     void styleSheet(AlertDialog dialog){dialog.setOnShowListener(ignored->{
@@ -398,16 +398,18 @@ public final class MainActivity extends Activity {
             window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
             WindowManager.LayoutParams params=window.getAttributes();params.dimAmount=.78f;window.setAttributes(params);
             window.setDimAmount(.78f);
-            int width=Math.min(dp(520),getResources().getDisplayMetrics().widthPixels-dp(28));
+            int width=Math.min(dp(520),getResources().getDisplayMetrics().widthPixels-dp(NightwellDesign.SPACE_6));
             window.setLayout(width,WindowManager.LayoutParams.WRAP_CONTENT);
             window.getDecorView().setPadding(dp(12),dp(6),dp(12),dp(12));
             window.getDecorView().post(()->{
                 int limit=getResources().getDisplayMetrics().heightPixels-dp(64);
                 if(window.getDecorView().getHeight()>limit)window.setLayout(width,limit);
             });
-            View shell=window.getDecorView();shell.setAlpha(0f);shell.setScaleX(.97f);shell.setScaleY(.97f);
-            shell.animate().alpha(1).scaleX(1f).scaleY(1f).setDuration(210)
-                .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
+            if(NightwellDesign.animationsEnabled()){
+                View shell=window.getDecorView();shell.setAlpha(0f);shell.setScaleX(.97f);shell.setScaleY(.97f);
+                shell.animate().alpha(1).scaleX(1f).scaleY(1f).setDuration(210)
+                    .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
+            }
         }
         for(int which:new int[]{AlertDialog.BUTTON_POSITIVE,AlertDialog.BUTTON_NEGATIVE,AlertDialog.BUTTON_NEUTRAL}){
             Button b=dialog.getButton(which);if(b==null)continue;
@@ -417,8 +419,8 @@ public final class MainActivity extends Activity {
         }
     });}
     TextView sheetAction(String label,Runnable run){TextView v=action(label,run);v.setTextSize(15);v.setMaxLines(2);v.setEllipsize(android.text.TextUtils.TruncateAt.END);v.setGravity(Gravity.CENTER_VERTICAL);v.setTextColor(NightwellDesign.PRIMARY);v.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));v.setPadding(dp(16),dp(12),dp(16),dp(12));v.setMinHeight(dp(52));v.setBackground(NightwellDesign.ripple(this,NightwellDesign.SURFACE,18,true));return v;}
-    TextView action(String label,Runnable run){TextView v=NativeIconButton.isIcon(label)?new NativeIconButton(this):text(label,16);v.setText(label);v.setTextColor(NightwellDesign.PRIMARY);v.setTextSize(NativeIconButton.isIcon(label)?20:16);if(NativeIconButton.isIcon(label))v.setContentDescription(iconLabel(label));v.setGravity(Gravity.CENTER);v.setPadding(dp(13),dp(11),dp(13),dp(11));v.setMinHeight(dp(48));v.setOnClickListener(x->run.run());return v;}
-    TextView iconButton(String label,Runnable run){TextView v=action(label,run);v.setPadding(0,0,0,0);v.setTextSize(20);v.setTextColor(NightwellDesign.PRIMARY);v.setBackground(NightwellDesign.ripple(this,0xb0212326,16,true));return v;}
+    TextView action(String label,Runnable run){TextView v=NativeIconButton.isIcon(label)?new NativeIconButton(this):text(label,16);v.setText(label);v.setTextColor(NightwellDesign.PRIMARY);v.setTextSize(NativeIconButton.isIcon(label)?20:16);if(NativeIconButton.isIcon(label))v.setContentDescription(iconLabel(label));v.setGravity(Gravity.CENTER);v.setPadding(dp(13),dp(11),dp(13),dp(11));v.setMinHeight(dp(NightwellDesign.MIN_TOUCH));v.setOnClickListener(x->run.run());return v;
+    TextView iconButton(String label,Runnable run){TextView v=action(label,run);v.setPadding(0,0,0,0);v.setTextSize(20);v.setTextColor(NightwellDesign.PRIMARY);v.setMinWidth(dp(NightwellDesign.MIN_TOUCH));v.setMinHeight(dp(NightwellDesign.MIN_TOUCH));v.setBackground(NightwellDesign.ripple(this,0xb0212326,NightwellDesign.RADIUS_CONTROL,true));return v;}
     void toggleBackgroundOnly(){backgroundOnly=!backgroundOnly;build();}
     void showQueue(){
         final JSONArray snapshot=queue==null?new JSONArray():queue;
@@ -443,30 +445,12 @@ public final class MainActivity extends Activity {
             @Override public Object getItem(int position){return snapshot.optJSONObject(position);}
             @Override public long getItemId(int position){return position;}
             @Override public View getView(int position,View convertView,ViewGroup parent){
-                JSONObject t=snapshot.optJSONObject(position);
-                if(t==null)t=new JSONObject();
-                LinearLayout row=row();
-                row.setPadding(dp(11),dp(11),dp(11),dp(11));
-                boolean current=playingId.equals(t.optString("id"));
-                row.setBackground(NightwellDesign.ripple(MainActivity.this,
-                    current?NightwellDesign.SELECTED:NightwellDesign.RAISED,15,false));
-                TextView order=text(current?"▶":String.valueOf(position+1),13);
-                order.setTextColor(current?NightwellDesign.PRIMARY:NightwellDesign.MUTED);
-                order.setGravity(Gravity.CENTER);
-                row.addView(order,new LinearLayout.LayoutParams(dp(31),dp(46)));
-                LinearLayout name=column();
-                name.setPadding(dp(9),0,0,0);
-                TextView title=text(t.optString("title","Без названия"),14);
-                NightwellDesign.headline(title);title.setSingleLine(true);
-                title.setEllipsize(android.text.TextUtils.TruncateAt.END);name.addView(title);
-                TextView artist=text(t.optString("artist",""),12);
-                NightwellDesign.detail(artist);artist.setSingleLine(true);
-                artist.setEllipsize(android.text.TextUtils.TruncateAt.END);
-                artist.setPadding(0,dp(5),0,0);name.addView(artist);
-                row.addView(name,new LinearLayout.LayoutParams(0,-2,1));
+                NightwellQueueRow row=convertView instanceof NightwellQueueRow
+                    ?(NightwellQueueRow)convertView:new NightwellQueueRow(MainActivity.this);
+                row.bind(snapshot.optJSONObject(position),position,playingId);
                 return row;
             }
-        };
+        };        };
         items.setAdapter(adapter);
         content.addView(items,new LinearLayout.LayoutParams(-1,
             Math.min(dp(480),Math.max(dp(100),dp(68)*Math.min(7,snapshot.length())))));
@@ -488,12 +472,12 @@ public final class MainActivity extends Activity {
         atmosphere=null;ribbon=null;ui.post(this::applyPremium);
         root=column();root.setPadding(dp(16),dp(10),dp(16),0);
         scene.addView(root,new android.widget.FrameLayout.LayoutParams(-1,-1));setContentView(scene);
-        root.setOnApplyWindowInsetsListener((v,insets)->{int top,bottom;if(Build.VERSION.SDK_INT>=30){android.graphics.Insets bars=insets.getInsets(WindowInsets.Type.systemBars());top=bars.top;bottom=Math.max(bars.bottom,insets.getInsets(WindowInsets.Type.ime()).bottom);}else{top=insets.getSystemWindowInsetTop();bottom=insets.getSystemWindowInsetBottom();}v.setPadding(dp(16),dp(9)+top,dp(16),bottom+dp(4));return insets;});root.requestApplyInsets();
+        NightwellDesign.applySafeArea(root,NightwellDesign.SPACE_4,9,NightwellDesign.SPACE_1);
         head=row();android.widget.ImageView brand=new android.widget.ImageView(this);brand.setImageResource(R.drawable.nightwell_mark);brand.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);brand.setOnClickListener(v->navigate("Главная"));head.addView(brand,new LinearLayout.LayoutParams(dp(40),dp(40)));LinearLayout wordmark=column();wordmark.setGravity(Gravity.CENTER_VERTICAL);wordmark.setPadding(dp(9),0,0,0);
         TextView brandName=text("Nightwell",24);NightwellDesign.headline(brandName);brandName.setSingleLine(true);brandName.setAutoSizeTextTypeUniformWithConfiguration(19,24,1,android.util.TypedValue.COMPLEX_UNIT_SP);
         wordmark.addView(brandName,new LinearLayout.LayoutParams(-1,dp(33)));
         TextView brandCaption=text("M  U  S  I  C",10);brandCaption.setIncludeFontPadding(false);brandCaption.setSingleLine(true);brandCaption.setTextColor(NightwellDesign.MUTED);LinearLayout.LayoutParams captionParams=new LinearLayout.LayoutParams(-1,-2);captionParams.topMargin=dp(1);wordmark.addView(brandCaption,captionParams);
-        wordmark.setOnClickListener(v->navigate("Главная"));wordmark.setContentDescription("Nightwell Music, на главный экран");head.addView(wordmark,new LinearLayout.LayoutParams(0,-2,1));TextView searchButton=iconButton("⌕",()->navigate("Поиск"));searchButton.setBackground(NightwellDesign.ripple(this,0x99171a1e,16,true));head.addView(searchButton,new LinearLayout.LayoutParams(dp(44),dp(48)));handoffCompact=new HandoffButton(this);handoffCompact.setBackground(NightwellDesign.ripple(this,0x99171a1e,16,true));handoffCompact.setOnClickListener(v->expandLiveHandoff());handoffCompact.setContentDescription("Продолжить на этом устройстве. Развернуть плашку");handoffCompact.setVisibility(View.GONE);head.addView(handoffCompact,new LinearLayout.LayoutParams(dp(40),dp(48)));TextView menuButton=iconButton("☰",this::menu);menuButton.setBackground(NightwellDesign.ripple(this,0x99171a1e,16,true));head.addView(menuButton,new LinearLayout.LayoutParams(dp(44),dp(48)));LinearLayout.LayoutParams headerParams=new LinearLayout.LayoutParams(-1,dp(58));headerParams.bottomMargin=dp(8);root.addView(head,headerParams);if(backgroundOnly)head.setVisibility(View.GONE);
+        wordmark.setOnClickListener(v->navigate("Главная"));wordmark.setContentDescription("Nightwell Music, на главный экран");head.addView(wordmark,new LinearLayout.LayoutParams(0,-2,1));TextView searchButton=iconButton("⌕",()->navigate("Поиск"));searchButton.setBackground(NightwellDesign.ripple(this,0x99171a1e,16,true));head.addView(searchButton,new LinearLayout.LayoutParams(dp(48),dp(48)));handoffCompact=new HandoffButton(this);handoffCompact.setBackground(NightwellDesign.ripple(this,0x99171a1e,16,true));handoffCompact.setOnClickListener(v->expandLiveHandoff());handoffCompact.setContentDescription("Продолжить на этом устройстве. Развернуть плашку");handoffCompact.setVisibility(View.GONE);head.addView(handoffCompact,new LinearLayout.LayoutParams(dp(48),dp(48)));TextView menuButton=iconButton("☰",this::menu);menuButton.setBackground(NightwellDesign.ripple(this,0x99171a1e,16,true));head.addView(menuButton,new LinearLayout.LayoutParams(dp(48),dp(48)));LinearLayout.LayoutParams headerParams=new LinearLayout.LayoutParams(-1,dp(58));headerParams.bottomMargin=dp(8);root.addView(head,headerParams);if(backgroundOnly)head.setVisibility(View.GONE);
         nightwellBadge = text("", 11);
         nightwellBadge.setContentDescription("Состояние подключения Nightwell");
         setNightwellStatus(nightwellStatus);
@@ -507,9 +491,9 @@ public final class MainActivity extends Activity {
         liveHandoff.setOnLongClickListener(v->{collapseLiveHandoff(true);return true;});
         liveHandoff.setVisibility(View.GONE);root.addView(liveHandoff);
         refreshLiveHandoff();
-        body=column();root.addView(body,new LinearLayout.LayoutParams(-1,0,1));status=text("",12);status.setTextColor(NightwellDesign.MUTED);status.setGravity(Gravity.CENTER);status.setMaxLines(2);status.setPadding(dp(4),dp(3),dp(4),dp(3));root.addView(status);dock=row();dock.setPadding(dp(10),dp(10),dp(10),dp(10));dock.setBackground(NightwellDesign.surface(this,0xe7191b1f,22,true));dock.setClipToOutline(true);
+        body=column();root.addView(body,new LinearLayout.LayoutParams(-1,0,1));status=text("",12);status.setTextColor(NightwellDesign.MUTED);status.setGravity(Gravity.CENTER);status.setMaxLines(2);status.setPadding(dp(4),dp(3),dp(4),dp(3));root.addView(status);dock=row();dock.setPadding(dp(NightwellDesign.SPACE_3),dp(NightwellDesign.SPACE_2),dp(NightwellDesign.SPACE_3),dp(NightwellDesign.SPACE_2));dock.setBackground(NightwellDesign.surface(this,0xe7191b1f,NightwellDesign.RADIUS_CARD,true));dock.setClipToOutline(true);
         miniCover=new android.widget.ImageView(this);miniCover.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);GradientDrawable coverShape=new GradientDrawable();coverShape.setColor(0x443e2d52);coverShape.setCornerRadius(dp(getSharedPreferences("appearance",MODE_PRIVATE).getBoolean("cover-classic",false)?16:9));miniCover.setBackground(coverShape);miniCover.setClipToOutline(true);miniCover.setOnClickListener(v->openPlayer());LinearLayout.LayoutParams coverParams=new LinearLayout.LayoutParams(dp(44),dp(44));coverParams.rightMargin=dp(10);dock.addView(miniCover,coverParams);
-        LinearLayout labels=column();miniTitle=text("Выбери трек",15);miniTitle.setMaxLines(1);miniTitle.setTextSize(15);miniTitle.setLetterSpacing(-.015f);miniTitle.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);miniArtist=text("Nightwell Music",12);miniArtist.setMaxLines(1);miniArtist.setTextSize(12);miniArtist.setLetterSpacing(.005f);miniArtist.setTextColor(0xffa4a6b1);miniTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);miniArtist.setEllipsize(android.text.TextUtils.TruncateAt.END);labels.addView(miniTitle);labels.addView(miniArtist);labels.setOnClickListener(v->openPlayer());dock.addView(labels,new LinearLayout.LayoutParams(0,-2,1));miniPrev=action("|‹",()->previous());miniPlay=action("▶",()->toggle());miniNext=action("›|",()->{nextTrack();});miniLike=action("♡",()->toggleFavorite(current()));miniLike.setTextColor(0xffeeeeee);miniPlay.setTextSize(23);miniNext.setTextSize(24);miniPlay.setPadding(0,0,0,0);miniNext.setPadding(0,0,0,0);miniPlay.setTextColor(NightwellDesign.PRIMARY);miniPlay.setBackground(null);miniPrev.setPadding(0,0,0,0);miniLike.setPadding(0,0,0,0);if(getResources().getConfiguration().screenWidthDp>=380)dock.addView(miniLike,new LinearLayout.LayoutParams(dp(40),dp(48)));dock.addView(miniPrev,new LinearLayout.LayoutParams(dp(40),dp(48)));miniProgressRing=new CircularProgressRing(this);miniProgressRing.addView(miniPlay,new android.widget.FrameLayout.LayoutParams(-1,-1));dock.addView(miniProgressRing,new LinearLayout.LayoutParams(dp(48),dp(48)));dock.addView(miniNext,new LinearLayout.LayoutParams(dp(44),dp(48)));LinearLayout.LayoutParams dockParams=new LinearLayout.LayoutParams(-1,-2);dockParams.topMargin=dp(8);dockParams.bottomMargin=dp(5);root.addView(dock,dockParams);if(backgroundOnly)dock.setVisibility(View.GONE);android.view.GestureDetector miniGestures=gestures(false);labels.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));dock.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));
+        LinearLayout labels=column();miniTitle=text("Выбери трек",15);miniTitle.setMaxLines(1);miniTitle.setTextSize(15);miniTitle.setLetterSpacing(-.015f);miniTitle.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);miniArtist=text("Nightwell Music",12);miniArtist.setMaxLines(1);miniArtist.setTextSize(12);miniArtist.setLetterSpacing(.005f);miniArtist.setTextColor(0xffa4a6b1);miniTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);miniArtist.setEllipsize(android.text.TextUtils.TruncateAt.END);labels.addView(miniTitle);labels.addView(miniArtist);labels.setOnClickListener(v->openPlayer());dock.addView(labels,new LinearLayout.LayoutParams(0,-2,1));miniPrev=action("|‹",()->previous());miniPlay=action("▶",()->toggle());miniNext=action("›|",()->{nextTrack();});miniLike=action("♡",()->toggleFavorite(current()));miniLike.setTextColor(0xffeeeeee);miniPlay.setTextSize(23);miniNext.setTextSize(24);miniPlay.setPadding(0,0,0,0);miniNext.setPadding(0,0,0,0);miniPlay.setTextColor(NightwellDesign.PRIMARY);miniPlay.setBackground(null);miniPrev.setPadding(0,0,0,0);miniLike.setPadding(0,0,0,0);if(getResources().getConfiguration().screenWidthDp>=380)dock.addView(miniLike,new LinearLayout.LayoutParams(dp(48),dp(48)));dock.addView(miniPrev,new LinearLayout.LayoutParams(dp(48),dp(48)));miniProgressRing=new CircularProgressRing(this);miniProgressRing.addView(miniPlay,new android.widget.FrameLayout.LayoutParams(-1,-1));dock.addView(miniProgressRing,new LinearLayout.LayoutParams(dp(48),dp(48)));dock.addView(miniNext,new LinearLayout.LayoutParams(dp(48),dp(48)));LinearLayout.LayoutParams dockParams=new LinearLayout.LayoutParams(-1,-2);dockParams.topMargin=dp(8);dockParams.bottomMargin=dp(5);root.addView(dock,dockParams);if(backgroundOnly)dock.setVisibility(View.GONE);android.view.GestureDetector miniGestures=gestures(false);labels.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));dock.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));
         showScreen();updateArtworkAppearance();updatePlayback();loadMiniCover(current());
     }
     // Audio routing is controlled by Android. Report the current media route without
