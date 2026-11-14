@@ -146,7 +146,7 @@ struct PremiumView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             featureHint("arrow.down.circle", "Скачивания", "Откройте меню трека и нажмите «Скачать»." )
                             featureHint("slider.horizontal.3", "Эквалайзер", "Откройте три точки в большом плеере.")
-                            featureHint("paintpalette", "Оформление", "Откройте «Настройки» в меню приложения.")
+                            featureHint("paintpalette", "Реакция фона", "Откройте раздел «Кастомизация» в настройках приложения.")
                             featureHint("music.note.list", "Умные плейлисты", "Откройте раздел «Плейлисты» и выберите «Умные плейлисты»." )
                             featureHint("chart.bar", "Статистика", "Откройте «Моя статистика» в меню приложения.")
                         }

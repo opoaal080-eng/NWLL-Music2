@@ -71,7 +71,16 @@ final class NightwellArtworkPalette: ObservableObject {
                 for: url, maxPixel: 192, retryFailure: attempt > 0)
             guard !Task.isCancelled, requestedTrackKey == key else { return }
             if let artwork {
-                let palette = Self.extract(from: artwork) ?? .fallback
+                // Decode and sample cover pixels off the main actor.
+                // Track changes must not block gestures or the player controls.
+                let palette: NightwellArtworkColors
+                if let cgImage = artwork.cgImage {
+                    palette = await Task.detached(priority: .utility) {
+                        Self.extract(from: cgImage) ?? .fallback
+                    }.value
+                } else {
+                    palette = .fallback
+                }
                 guard !Task.isCancelled, requestedTrackKey == key else { return }
                 let now = ProcessInfo.processInfo.systemUptime
                 previous = at(now)
@@ -92,8 +101,7 @@ final class NightwellArtworkPalette: ObservableObject {
 
     // A 72x72 thumbnail keeps subtle cover hues without decoding full-size art.
     // Group similar hues instead of choosing the single brightest pixel or logo.
-    private static func extract(from image: UIImage) -> NightwellArtworkColors? {
-        guard let cgImage = image.cgImage else { return nil }
+    nonisolated private static func extract(from cgImage: CGImage) -> NightwellArtworkColors? {
         let side = 72
         var pixels = [UInt8](repeating: 0, count: side * side * 4)
         let valid = pixels.withUnsafeMutableBytes { bytes -> Bool in

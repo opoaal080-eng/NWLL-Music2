@@ -195,7 +195,12 @@ struct NightwellAccountDevicesResponse: Decodable {
         guard account != nil, !id.isEmpty else { return }
         do {
             let _: OK = try await api.request("/api/devices/" + id, method: "DELETE", timeout: 10)
-            await refreshAccountDevices()
+            if id != NightwellClientDevice.id {
+                // A newly signed-in device can claim the freed slot immediately.
+                await registerAccountDevice()
+            } else {
+                await refreshAccountDevices()
+            }
         } catch {
             accountDeviceNotice = error.localizedDescription
         }
@@ -498,19 +503,17 @@ struct NightwellAccountDevicesResponse: Decodable {
     // Keep the user's explicit add chronology across app restarts.
     // /api/likes uses ORDER BY rowid DESC: latest liked tracks come first.
     // Version the local key so incorrectly inverted prior snapshots cannot win.
-    private func reconcileFavoriteOrder(_ serverIDs: [String], newestID: String? = nil) {
-        let valid = Set(serverIDs)
-        let saved = favoriteOrderKey.flatMap {
-            UserDefaults.standard.stringArray(forKey: $0)
-        } ?? []
+    private func reconcileFavoriteOrder(_ serverIDs: [String], newestID: String? = nil,
+                                        pendingIDs: [String] = []) {
+        // The server returns canonical newest-first chronology. Previously,
+        // a stale UserDefaults snapshot was placed ahead of this list, so a
+        // restored session could retain the wrong order indefinitely.
+        // Only likes still awaiting a server confirmation may precede it.
+        let valid = Set(serverIDs).union(pendingIDs)
         var seen = Set<String>()
-        let previous = (saved + (saved.isEmpty ? [] : favoriteOrder)).filter {
-            valid.contains($0) && seen.insert($0).inserted
-        }
-        let unseen = serverIDs.filter {
-            valid.contains($0) && seen.insert($0).inserted
-        }
-        var result = previous + unseen
+        let pending = pendingIDs.filter { seen.insert($0).inserted }
+        let canonical = serverIDs.filter { seen.insert($0).inserted }
+        var result = pending + canonical
         if let newestID, valid.contains(newestID) {
             result.removeAll { $0 == newestID }
             result.insert(newestID, at: 0)
@@ -1646,10 +1649,9 @@ struct NightwellAccountDevicesResponse: Decodable {
         return "nw-auto-favorites|" + origin.absoluteString + "|" + user
     }
     func restoreAutoFavoritesSetting() {
-        // New signed-in accounts use the requested automatic offline setting.
-        // Existing choices remain untouched, including an explicit false.
+        // Automatic downloads require opting in. Preserve explicit per-account choices.
         automaticFavoritesDownload = autoFavoritesKey.flatMap {
-            UserDefaults.standard.object(forKey: $0) as? Bool ?? true
+            UserDefaults.standard.object(forKey: $0) as? Bool ?? false
         } ?? false
         lastAutoFavoritesCheck = .distantPast
     }
@@ -1732,9 +1734,10 @@ struct NightwellAccountDevicesResponse: Decodable {
             let pendingIDs = favoriteOrder.filter {
                 likes.contains($0) && !canonical.contains($0)
             }
-            reconcileFavoriteOrder(response.ids.filter { likes.contains($0) } + pendingIDs,
+            reconcileFavoriteOrder(response.ids.filter { likes.contains($0) },
                                    newestID: desired && canonical.contains(track.id)
-                                       ? track.id : nil)
+                                       ? track.id : nil,
+                                   pendingIDs: pendingIDs)
             saveSessionSnapshot()
             if canonical.contains(track.id) == desired {
                 if desired { syncFavoriteDownloadsIfEnabled(newest: track) }

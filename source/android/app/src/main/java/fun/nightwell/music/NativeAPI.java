@@ -122,7 +122,7 @@ final class NativeAPI {
     HttpURLConnection connection(String path) throws Exception {
         if(closed)throw new InterruptedIOException("Запрос отменён");
         URL url=new URL(new URL(origin),path);if(!ServerAddress.sameOrigin(origin,url.toString()))throw new IOException("Некорректный адрес");
-        HttpURLConnection c=(HttpURLConnection)url.openConnection();c.setInstanceFollowRedirects(false);c.setConnectTimeout(10000);c.setReadTimeout(15000);c.setRequestProperty("Cookie",cookie(context,origin));c.setRequestProperty("X-NW-Device-ID",deviceID(context));c.setRequestProperty("X-NW-Device-Platform","android");
+        HttpURLConnection c=(HttpURLConnection)url.openConnection();c.setInstanceFollowRedirects(false);c.setConnectTimeout(10000);c.setReadTimeout(15000);c.setRequestProperty("Cookie",cookie(context,origin));c.setRequestProperty("X-NW-Device-ID",deviceID(context));c.setRequestProperty("X-NW-Device-Platform","android");c.setRequestProperty("X-NW-Device-ID",deviceID(context));c.setRequestProperty("X-NW-Device-Platform","android");
         synchronized(activeConnections){if(closed){c.disconnect();throw new InterruptedIOException("Запрос отменён");}activeConnections.add(c);}
         return c;
     }

@@ -348,13 +348,56 @@ struct ProfileSettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.white.opacity(0.68))
             }
+            Divider().overlay(.white.opacity(0.12)).padding(.vertical, 6)
+            HStack {
+                Label("Мои устройства", systemImage: "iphone.and.arrow.forward")
+                    .font(.system(size: 16, weight: .semibold))
+                Spacer()
+                Button {
+                    Task { await store.refreshAccountDevices() }
+                } label: {
+                    Image(systemName: "arrow.clockwise").frame(width: 36, height: 36)
+                }
+                .accessibilityLabel("Обновить устройства")
+            }
+            if store.accountDeviceSupported {
+                Text("Подключено: \(store.accountDevices.count) из \(store.accountDeviceLimit)")
+                    .font(.subheadline).foregroundStyle(.white.opacity(0.62))
+                ForEach(store.accountDevices) { device in
+                    HStack(spacing: 10) {
+                        Image(systemName: device.platform == "ios" ? "iphone" :
+                              device.platform == "android" ? "smartphone" : "desktopcomputer")
+                            .font(.system(size: 18))
+                            .frame(width: 30)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(device.name + (device.current ? " · Это устройство" : ""))
+                                .font(.subheadline.weight(.medium))
+                            Text(device.blocked ? "Лимит подписки превышен" :
+                                 "Последний вход: " + Date(timeIntervalSince1970: device.last_seen)
+                                     .formatted(date: .abbreviated, time: .shortened))
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 0)
+                        Button("Удалить", role: .destructive) {
+                            Task { await store.removeAccountDevice(device.id) }
+                        }
+                        .font(.caption).buttonStyle(.borderless)
+                    }
+                    .padding(.vertical, 7)
+                }
+            } else if !store.accountDeviceNotice.isEmpty {
+                Text(store.accountDeviceNotice)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.65))
+            }
+
 
         }
         .padding(.horizontal, 17)
         .padding(.vertical, 15)
         .frame(maxWidth: .infinity, alignment: .leading)
         .nightwellMonochromeGlass(radius: 25)
-        .task { await store.refreshProfile(); nickname = store.profileNickname }
+        .task { await store.refreshProfile(); nickname = store.profileNickname; await store.refreshAccountDevices() }
         .onChange(of:selectedPhoto) { next in
             guard let next, !busy else { return }
             busy=true

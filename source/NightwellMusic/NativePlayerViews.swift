@@ -26,7 +26,7 @@ struct RibbonScene: View {
     @State private var frozenTime = Date().timeIntervalSinceReferenceDate
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: playing ? 1.0 / 24.0 : 1.0 / 15.0,
+        TimelineView(.animation(minimumInterval: playing ? 1.0 / 30.0 : 1.0 / 15.0,
                                 paused: scene != .active || reduceMotion || !active || (!playing && !animatePaused))) { tick in
             Canvas(opaque: false, rendersAsynchronously: true) { context, size in
                 guard size.width > 1, size.height > 1 else { return }
