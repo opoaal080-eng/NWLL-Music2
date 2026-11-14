@@ -2131,7 +2131,7 @@ public final class MainActivity extends Activity {
                 if(playlistCollectionScroll==scroll&&!restoringPlaylist[0])
                     collectionOffsetChanged(y);
             });
-            addSpacedAction(entries,sheetAction("Умные плейлисты · Premium",()->feature("smart")),8);
+            addSpacedAction(entries,sheetAction(premiumFeatureLabel("Умные плейлисты"),()->feature("smart")),8);
             addSpacedAction(entries,sheetAction("Подборки дня · обновляются ежедневно",this::dailyPublicPlaylists),8);
             TextView newPlaylist=sheetAction("＋  Создать плейлист",()->input("Новый плейлист",
                 name->task(()->api.request("api/playlists","POST",
@@ -4615,7 +4615,7 @@ public final class MainActivity extends Activity {
             TextView keepHint=text("Название и обложка следующего трека появляются во время подготовки. Предыдущий продолжает звучать до готовности нового.",12);
             keepHint.setTextColor(0xffaeb2ba);panel.addView(keepHint);
         android.widget.Switch autoFavorites=new android.widget.Switch(this);
-        autoFavorites.setText("Автоматически скачивать избранное · Premium");
+        autoFavorites.setText(premiumFeatureLabel("Автоматически скачивать избранное"));
         styleSwitch(autoFavorites);
         autoFavorites.setChecked(autoFavoritesEnabled());
         autoFavorites.setEnabled(!user.isEmpty());
@@ -4686,7 +4686,7 @@ public final class MainActivity extends Activity {
         ambient.setOnCheckedChangeListener((button,checked)->getSharedPreferences("appearance",MODE_PRIVATE).edit().putBoolean("ambient-lyrics",checked).apply());
         panel.addView(ambient);
         }else if("Оформление".equals(page)){
-        panel.addView(sheetAction("Темы и ленты · Premium",()->feature("appearance")));
+        panel.addView(sheetAction(premiumFeatureLabel("Темы и ленты"),()->feature("appearance")));
 
         }else{
         TextView version=text("Nightwell Music "+BuildConfig.VERSION_NAME+" ("+BuildConfig.VERSION_CODE+")",12);
@@ -4700,6 +4700,7 @@ public final class MainActivity extends Activity {
     }
 
     private JSONObject premiumPrefs=new JSONObject();private String premiumOwner="";private long premiumUntil,premiumChecked;private boolean premiumLoading;
+    String premiumFeatureLabel(String title){return premiumAllowed()?title:title+" · Premium";}
     boolean premiumAllowed(){return !user.isEmpty()&&user.equals(premiumOwner)&&System.currentTimeMillis()<premiumUntil;}
     void applyPremium(){
         boolean allowed=premiumAllowed();double[] values=new double[5];JSONArray raw=premiumPrefs.optJSONArray("bands");if(allowed&&raw!=null)for(int i=0;i<5;i++)values[i]=raw.optDouble(i,0);
@@ -5035,7 +5036,7 @@ public final class MainActivity extends Activity {
         loadPremium(()->{
             if(!premiumAllowed()){premium();return;}
             String[] variants={"Недавние","По названию","По исполнителю"};
-            nightwellOptions("Сортировка · Premium",variants,index->{favoriteOrder=new String[]{"recent","title","artist"}[index];selectMenu("Избранное");});
+            nightwellOptions(premiumFeatureLabel("Сортировка"),variants,index->{favoriteOrder=new String[]{"recent","title","artist"}[index];selectMenu("Избранное");});
         });
     }
     private JSONArray sortedFavorites(JSONArray items){
