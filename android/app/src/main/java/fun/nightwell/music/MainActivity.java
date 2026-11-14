@@ -910,7 +910,7 @@ public final class MainActivity extends Activity {
                 card.addView(artwork,coverLayout);
                 String coverPath=track.optString("cover_url");
                 if(coverPath.isEmpty())coverPath="/api/covers/"+track.optString("id");
-                if(artworkCache!=null)artworkCache.load(artwork,origin,coverPath);
+                if(artworkCache!=null)artworkCache.loadCoverUrl(artwork,origin,coverPath);
 
                 TextView section=text(position<playing?"РАНЕЕ":
                     position==playing?"СЕЙЧАС ИГРАЕТ":"ДАЛЕЕ",10);
@@ -2369,7 +2369,7 @@ public final class MainActivity extends Activity {
                         }
                     }catch(JSONException ignored){}
                 }
-                if(artworkCache!=null)artworkCache.load(playlistCover,origin,playlistArt);
+                if(artworkCache!=null)artworkCache.loadCoverUrl(playlistCover,origin,playlistArt);
                 playlistCover.setOnClickListener(v->openPlaylist(p));
                 TextView title=action(p.optString("name"),()->openPlaylist(p));
                 title.setGravity(Gravity.CENTER_VERTICAL|Gravity.LEFT);
@@ -2516,6 +2516,7 @@ public final class MainActivity extends Activity {
                 public void play(JSONObject track,JSONArray context){MainActivity.this.play(track,context,false);}
                 public void menu(JSONObject track){trackMenu(track);}
             },(image,track)->{if(artworkCache!=null)artworkCache.loadTrack(image,origin,track);});
+        overview.setSmartAvailable(premiumAllowed() || !premiumVerified);
         libraryOverview=overview;
         overview.setBottomInset(bottomDockInset+dp(12));
         body.addView(overview,new LinearLayout.LayoutParams(-1,0,1));
@@ -5025,6 +5026,7 @@ public final class MainActivity extends Activity {
         }
         if(root!=null){String theme=allowed?premiumPrefs.optString("theme"):"";int tint=theme.equals("aurora")?0x66105a45:theme.equals("ocean")?0x660c3f73:theme.equals("sunset")?0x6682282d:Color.TRANSPARENT;root.setBackgroundColor(tint);}
         if(premiumTabButton!=null)premiumTabButton.setVisibility(shouldShowPremiumTab()?View.VISIBLE:View.GONE);
+        if(libraryOverview!=null)libraryOverview.setSmartAvailable(allowed || !premiumVerified);
         // Update labels in already-open settings panels without closing them.
         for(java.util.Map.Entry<TextView,String> entry:new java.util.ArrayList<>(premiumFeatureViews.entrySet())){
             TextView view=entry.getKey();
