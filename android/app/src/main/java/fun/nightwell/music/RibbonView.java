@@ -10,7 +10,8 @@ final class RibbonView extends View {
     private final AmbientFlowState flow = new AmbientFlowState();
     private final double[] incoming = new double[4];
     private final boolean[] enabled = {true,true,true,true};
-    private boolean running, playing;
+    private boolean running, playing, animatePaused=true;
+    private double sensitivity=4;
     private long lastFrame;
     double premiumSpeed=1,premiumIntensity=1,colorSpeed=1;
     String premiumTheme="nightwell";
@@ -21,11 +22,18 @@ final class RibbonView extends View {
     void setAuraResponse(boolean voice,boolean low,boolean mid,boolean high) {
         enabled[0]=voice;enabled[1]=low;enabled[2]=mid;enabled[3]=high;invalidate();
     }
+    void setAmbientOptions(boolean animatePaused,double sensitivity) {
+        double gain=Double.isFinite(sensitivity)?Math.max(.5,Math.min(4,sensitivity)):4;
+        if(this.animatePaused==animatePaused&&this.sensitivity==gain)return;
+        this.animatePaused=animatePaused;this.sensitivity=gain;lastFrame=0;invalidate();
+    }
     void running(boolean value) {
         if(running!=value){running=value;lastFrame=0;flow.reset();invalidate();}
     }
     void playing(boolean value) {
-        if(playing!=value){playing=value;lastFrame=0;if(!value)flow.reset();invalidate();}
+        // Keep the phase and envelopes: pausing should settle into a calm flow,
+        // or hold the current frame when paused animation is disabled.
+        if(playing!=value){playing=value;lastFrame=0;invalidate();}
     }
     void flash() { invalidate(); } // Likes do not synthesize an audio beat.
     @Override protected void onAttachedToWindow(){super.onAttachedToWindow();lastFrame=0;invalidate();}
@@ -33,15 +41,25 @@ final class RibbonView extends View {
     @Override protected void onWindowVisibilityChanged(int visibility){super.onWindowVisibilityChanged(visibility);lastFrame=0;if(visibility==VISIBLE)invalidate();}
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
-        if(!running||!playing||!isShown()||getWindowVisibility()!=VISIBLE||!android.animation.ValueAnimator.areAnimatorsEnabled())return;
+        if(!running||!isShown()||getWindowVisibility()!=VISIBLE)return;
+        boolean animate=android.animation.ValueAnimator.areAnimatorsEnabled()&&(playing||animatePaused);
         float w=getWidth(),h=getHeight(),scale=Math.min(w,h);
         if(scale<=1)return;
         long now=android.os.SystemClock.uptimeMillis();
-        double dt=lastFrame==0?1.0/30:(now-lastFrame)/1000.0;lastFrame=now;
-        for(int i=0;i<4;i++){try{incoming[i]=bands.applyAsDouble(i);}catch(RuntimeException ignored){incoming[i]=0;}}
-        flow.update(incoming,enabled,premiumIntensity,premiumSpeed,dt);
+        if(animate){
+            double dt=lastFrame==0?1.0/(playing?30:15):(now-lastFrame)/1000.0;lastFrame=now;
+            for(int i=0;i<4;i++){
+                try{incoming[i]=playing?bands.applyAsDouble(i):0;}catch(RuntimeException ignored){incoming[i]=0;}
+            }
+            flow.update(incoming,enabled,premiumIntensity,playing?premiumSpeed:premiumSpeed*.45,dt);
+        }else lastFrame=0;
+        double intensity=Double.isFinite(premiumIntensity)?Math.max(0,Math.min(3,premiumIntensity)):1;
         for(int stream=0;stream<4;stream++) {
-            double level=flow.levels[stream],phase=flow.time+stream*1.7;
+            if(!enabled[stream]||intensity==0)continue;
+            double level=Math.min(1,Math.pow(Math.max(0,flow.levels[stream]),.56)*sensitivity*.5);
+            // The quiet baseline stays visible even when its motion is disabled.
+            if(!playing)level=Math.max(.12*intensity,level);
+            double phase=flow.time+stream*1.7;
             if(level<.001)continue;
             path.reset();
             for(int step=0;step<=48;step++) {
@@ -69,6 +87,6 @@ final class RibbonView extends View {
             canvas.drawCircle(cx,cy,radius,paint);
         }
         paint.setShader(null);paint.setAlpha(255);
-        postInvalidateDelayed(33);
+        if(animate)postInvalidateDelayed(playing?33:67);
     }
 }

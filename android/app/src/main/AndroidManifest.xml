@@ -37,6 +37,18 @@
                 <category android:name="android.intent.category.BROWSABLE"/>
                 <data android:scheme="nightwell" android:host="track"/>
             </intent-filter>
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="https" android:host="music.nightwell.fun" android:path="/"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="nightwell" android:host="together"/>
+            </intent-filter>
         </activity>
     </application>
 </manifest>

@@ -291,6 +291,16 @@ public final class MainActivity extends Activity {
             }
         };
     private LinearLayout root,body,dock,head,landscapeRail;
+    private FrameLayout dockOverlay;
+    private DockBackdropView dockBackdrop;
+    private AndroidLibraryOverview libraryOverview;
+    private String lastLibraryScreen="Медиатека";
+    private final Map<String,int[]> libraryPositions=new HashMap<>();
+    private final Map<String,TextView> navigationTabs=new HashMap<>();
+    private final Runnable hideStatus=()->{if(this.status!=null)this.status.setVisibility(View.GONE);};
+    private int bottomDockInset;
+    private int offlineTrackCount;
+    private boolean offlineCountLoaded, offlineCountLoading;
     private FrameLayout headerHost;
     private LinearLayout headerWordmark;
     private TextView headerCollectionTitle;
@@ -409,6 +419,10 @@ public final class MainActivity extends Activity {
     private void acceptDeepLink(Intent intent){
         if(intent==null||intent.getData()==null)return;
         Uri uri=intent.getData();String scheme=uri.getScheme(),host=uri.getHost(),id=null;
+        String roomCode=togetherRoomCode(uri.toString());
+        if(!roomCode.isEmpty()){
+            pendingTogetherInvite=roomCode;intent.setData(null);openPendingTogether();return;
+        }
         if("https".equalsIgnoreCase(scheme)&&"music.nightwell.fun".equalsIgnoreCase(host)&&uri.getPathSegments().size()==2&&"track".equals(uri.getPathSegments().get(0)))id=uri.getPathSegments().get(1);
         else if("nightwell".equalsIgnoreCase(scheme)&&"track".equalsIgnoreCase(host)&&uri.getPathSegments().size()==1)id=uri.getPathSegments().get(0);
         if(id==null||!id.matches("[0-9a-fA-F]{32}"))return;
@@ -416,6 +430,7 @@ public final class MainActivity extends Activity {
         openPendingTrack();
     }
     private void openPendingTrack(){
+        openPendingTogether();
         if(!sessionReady||pendingDeepLinkTrack.isEmpty()||api==null||catalog==null||playback==null)return;
         if(user.isEmpty()){auth();return;}
         final String id=pendingDeepLinkTrack;pendingDeepLinkTrack="";
@@ -704,7 +719,7 @@ public final class MainActivity extends Activity {
             LinearLayout.LayoutParams imageParams=new LinearLayout.LayoutParams(dp(44),dp(44));
             imageParams.leftMargin=dp(6);
             line.addView(artwork,imageParams);
-            if(artworkCache!=null)artworkCache.load(artwork,origin,track.optString("cover_url"));
+            if(artworkCache!=null)artworkCache.loadTrack(artwork,origin,track);
             LinearLayout names=column();
             names.setGravity(Gravity.CENTER_VERTICAL);
             names.setPadding(dp(12),0,0,0);
@@ -1004,12 +1019,24 @@ public final class MainActivity extends Activity {
     }
 
     private boolean isCollectionScreen(){
-        return "Избранное".equals(screen)||"Плейлисты".equals(screen)||"Офлайн".equals(screen);
+        return isLibraryScreen(screen)||!selectedPlaylist.isEmpty();
     }
+    private boolean isLibraryScreen(String page){return "Медиатека".equals(page)||"Избранное".equals(page)||"Плейлисты".equals(page)||"Офлайн".equals(page);}
+    private String libraryDestination(){return isCollectionScreen()?"Медиатека":lastLibraryScreen;}
+    private boolean bottomNavigationEnabled(){return !"menu".equals(getSharedPreferences("appearance",MODE_PRIVATE).getString("nw-navigation-layout","belowPlayer"));}
+    private void refreshDockBackdrop(){if(dockBackdrop!=null)dockBackdrop.refresh();}
 
     private void updateCollectionHeader(boolean collapsed, boolean animated){
         final boolean next=collapsed&&isCollectionScreen()&&!full;
         if(headerCollectionTitle==null||headerWordmark==null)return;
+        if(isCollectionScreen()){
+            collectionScrolled=next;
+            headerWordmark.setVisibility(View.INVISIBLE);
+            headerCollectionTitle.setText("Медиатека".equals(screen)?"Медиатека":next?screen:"");
+            headerCollectionTitle.setAlpha(1f);
+            headerCollectionTitle.setVisibility("Медиатека".equals(screen)||next?View.VISIBLE:View.GONE);
+            refreshLiveHandoff();return;
+        }
         headerCollectionTitle.setText(next?screen:"");
         if(next==collectionScrolled){
             // Rebuilt screens may reuse the header after another collection
@@ -1065,13 +1092,14 @@ public final class MainActivity extends Activity {
     }
 
     private void retainCollectionPosition(){
-        if(!screen.equals(savedCollectionScreen))return;
-        if(playlistCollectionScroll!=null&&"Плейлисты".equals(screen)){
-            savedPlaylistY=playlistCollectionScroll.getScrollY();
-        }else if(list!=null&&("Избранное".equals(screen)||"Офлайн".equals(screen))){
-            savedCollectionFirst=list.getFirstVisiblePosition();
+        String page=displayedCollectionScreen;
+        if("Медиатека".equals(page)&&libraryOverview!=null&&libraryOverview.isAttachedToWindow()){
+            libraryPositions.put(page,new int[]{0,libraryOverview.getScrollY()});
+        }else if(playlistCollectionScroll!=null&&playlistCollectionScroll.isAttachedToWindow()&&"Плейлисты".equals(page)){
+            libraryPositions.put(page,new int[]{0,playlistCollectionScroll.getScrollY()});
+        }else if(list!=null&&list.isAttachedToWindow()&&("Избранное".equals(page)||"Офлайн".equals(page))){
             View first=list.getChildAt(0);
-            savedCollectionTop=first==null?0:first.getTop()-list.getPaddingTop();
+            libraryPositions.put(page,new int[]{list.getFirstVisiblePosition(),first==null?0:first.getTop()-list.getPaddingTop()});
         }
     }
 
@@ -1083,32 +1111,34 @@ public final class MainActivity extends Activity {
         // Render scenery and aura across the window, outside the padded controls.
         android.widget.FrameLayout scene=new android.widget.FrameLayout(this);
         scene.setBackground(new NativeSceneryDrawable(this));
+        FrameLayout contentLayer=new FrameLayout(this);
+        scene.addView(contentLayer,new FrameLayout.LayoutParams(-1,-1));
         coverBackdrop=new ImageView(this);
         coverBackdrop.setScaleType(ImageView.ScaleType.CENTER_CROP);
         coverBackdrop.setAlpha(.85f);
         if(Build.VERSION.SDK_INT>=31)
             coverBackdrop.setRenderEffect(android.graphics.RenderEffect.createBlurEffect(
                 dp(42),dp(42),android.graphics.Shader.TileMode.CLAMP));
-        scene.addView(coverBackdrop,new FrameLayout.LayoutParams(-1,-1));
+        contentLayer.addView(coverBackdrop,new FrameLayout.LayoutParams(-1,-1));
         coverBackdropShade=new View(this);
         coverBackdropShade.setBackgroundColor(0x9906070b);
-        scene.addView(coverBackdropShade,new FrameLayout.LayoutParams(-1,-1));
-        atmosphere=new HomeSparklesView(this);scene.addView(atmosphere,new android.widget.FrameLayout.LayoutParams(-1,-1));
+        contentLayer.addView(coverBackdropShade,new FrameLayout.LayoutParams(-1,-1));
+        atmosphere=new HomeSparklesView(this);contentLayer.addView(atmosphere,new android.widget.FrameLayout.LayoutParams(-1,-1));
         ribbon=new RibbonView(this);ui.post(this::applyPremium);ribbon.meter(()->playback==null?0:playback.level());ribbon.bands(index->playback==null?0:playback.bandLevel(index));
         ribbon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        scene.addView(ribbon,new android.widget.FrameLayout.LayoutParams(-1,-1));
+        contentLayer.addView(ribbon,new android.widget.FrameLayout.LayoutParams(-1,-1));
         boolean landscape=isLandscapeLayout();
         root=column();root.setPadding(dp(landscape?10:20),dp(landscape?0:8),dp(landscape?10:20),0);
         collectionScrolled=false;
-        displayedCollectionScreen=isCollectionScreen()&&screen.equals(savedCollectionScreen)
-            ?screen:"";
+        displayedCollectionScreen="";
+        libraryOverview=null;
         headerWordmark=null;
         headerCollectionTitle=null;
         playlistCollectionScroll=null;
-        scene.addView(root,new android.widget.FrameLayout.LayoutParams(-1,-1));setContentView(scene);
+        contentLayer.addView(root,new android.widget.FrameLayout.LayoutParams(-1,-1));setContentView(scene);
         root.setOnApplyWindowInsetsListener((v,insets)->{int top,bottom;if(Build.VERSION.SDK_INT>=30){android.graphics.Insets bars=insets.getInsets(WindowInsets.Type.systemBars());top=bars.top;bottom=Math.max(bars.bottom,insets.getInsets(WindowInsets.Type.ime()).bottom);}else{top=insets.getSystemWindowInsetTop();bottom=insets.getSystemWindowInsetBottom();}v.setPadding(dp(isLandscapeLayout()?10:20),dp(isLandscapeLayout()?0:8)+top,dp(isLandscapeLayout()?10:20),bottom);return insets;});root.requestApplyInsets();
         head=row();
-        libraryBackButton=iconButton("‹",()->navigate("Главная"));
+        libraryBackButton=iconButton("‹",()->navigate(selectedPlaylist.isEmpty()?"Медиатека":"Плейлисты"));
         libraryBackButton.setContentDescription("Назад");
         libraryBackButton.setVisibility(isCollectionScreen()?View.VISIBLE:View.GONE);
         head.addView(libraryBackButton,new LinearLayout.LayoutParams(dp(40),dp(44)));
@@ -1134,13 +1164,12 @@ public final class MainActivity extends Activity {
         TextView brandName=text("Nı\u0307ghtwell",25);headerConnectionBrandName=brandName;brandName.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);brandName.setTextColor(0xfff3f3f5);brandName.setIncludeFontPadding(false);brandName.setSingleLine(true);brandName.setAutoSizeTextTypeUniformWithConfiguration(18,25,1,android.util.TypedValue.COMPLEX_UNIT_SP);
         wordmark.addView(brandName,new LinearLayout.LayoutParams(-1,dp(landscape?27:31)));
         TextView brandCaption=text("M U S I C",12);brandCaption.setIncludeFontPadding(false);brandCaption.setSingleLine(true);brandCaption.setTextColor(0xff92959f);LinearLayout.LayoutParams captionParams=new LinearLayout.LayoutParams(-1,-2);captionParams.topMargin=dp(1);wordmark.addView(brandCaption,captionParams);
-        wordmark.setOnClickListener(v->navigate("Главная"));wordmark.setContentDescription("Nightwell Music, на главный экран");headerWordmark=wordmark;head.addView(wordmark,new LinearLayout.LayoutParams(0,-2,1));wordmark.setVisibility(isCollectionScreen()?View.INVISIBLE:View.VISIBLE);if(landscape){brandName.setTextSize(20);brandCaption.setTextSize(9);}TextView searchButton=iconButton("⌕",()->navigate("Поиск"));searchButton.setBackground(touchSurface(0x40202228,22));head.addView(searchButton,new LinearLayout.LayoutParams(dp(44),dp(44)));
+        wordmark.setOnClickListener(v->navigate("Главная"));wordmark.setContentDescription("Nightwell Music, на главный экран");headerWordmark=wordmark;head.addView(wordmark,new LinearLayout.LayoutParams(0,-2,1));wordmark.setVisibility(isCollectionScreen()?View.INVISIBLE:View.VISIBLE);if(landscape){brandName.setTextSize(20);brandCaption.setTextSize(9);}
         compactHandoff=iconButton("⇄",this::continueLiveHere);
         compactHandoff.setContentDescription("Продолжить на этом устройстве");
         compactHandoff.setVisibility(View.GONE);
         head.addView(compactHandoff,new LinearLayout.LayoutParams(dp(42),dp(44)));
-        android.widget.ImageView menuButton=new android.widget.ImageView(this);menuButton.setImageResource(android.R.drawable.ic_menu_myplaces);menuButton.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);menuButton.setPadding(dp(8),dp(8),dp(8),dp(8));menuButton.setBackground(touchSurface(0x40202228,22));menuButton.setOnClickListener(v->{if(user.isEmpty())auth();else profile();});menuButton.setContentDescription("Открыть профиль");profileAvatarButton=menuButton;
-        head.setLayoutTransition(new android.animation.LayoutTransition());
+        android.widget.ImageView menuButton=new android.widget.ImageView(this);menuButton.setImageResource(android.R.drawable.ic_menu_myplaces);menuButton.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);menuButton.setPadding(dp(8),dp(8),dp(8),dp(8));menuButton.setBackground(touchSurface(0x40202228,22));menuButton.setOnClickListener(v->{if(!bottomNavigationEnabled())menu(true);else if(user.isEmpty())auth();else profile();});menuButton.setContentDescription("Открыть профиль");profileAvatarButton=menuButton;
         head.addView(menuButton,new LinearLayout.LayoutParams(dp(44),dp(44)));
         libraryExtraButton=iconButton("☰",()->menu(true));
         libraryExtraButton.setContentDescription("Дополнительно");
@@ -1160,8 +1189,8 @@ public final class MainActivity extends Activity {
         headerCollectionTitle.setClickable(false);
         headerCollectionTitle.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         FrameLayout.LayoutParams centeredParams=new FrameLayout.LayoutParams(-1,-1,Gravity.CENTER);
-        centeredParams.leftMargin=dp(landscape?100:108);
-        centeredParams.rightMargin=dp(landscape?100:108);
+        centeredParams.leftMargin=dp(56);
+        centeredParams.rightMargin=dp(70);
         headerHost.addView(headerCollectionTitle,centeredParams);
         LinearLayout.LayoutParams headerParams=new LinearLayout.LayoutParams(-1,dp(landscape?52:58));
         headerParams.bottomMargin=dp(landscape?3:8);
@@ -1184,8 +1213,18 @@ public final class MainActivity extends Activity {
         contentRow.addView(body,new LinearLayout.LayoutParams(0,-1,1));
         status=text("",landscape?10:12);
         status.setMaxLines(landscape?1:3);
-        root.addView(status);
-        dock=row();dock.setPadding(dp(10),dp(10),dp(10),dp(11));GradientDrawable glassDock=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{0xff303138,0xff1a1b20});glassDock.setCornerRadius(dp(24));glassDock.setStroke(dp(1),0x30ffffff);dock.setBackground(null);
+        status.setVisibility(View.GONE);root.addView(status);
+        status.addTextChangedListener(new TextWatcher(){
+            public void beforeTextChanged(CharSequence value,int start,int count,int after){}
+            public void onTextChanged(CharSequence value,int start,int before,int count){
+                if(value.length()>0&&!full){
+                    status.setVisibility(View.VISIBLE);
+                    ui.removeCallbacks(hideStatus);ui.postDelayed(hideStatus,4500);
+                }
+            }
+            public void afterTextChanged(Editable value){}
+        });
+        dock=row();dock.setPadding(dp(10),dp(10),dp(10),dp(11));GradientDrawable glassDock=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{0xa6303138,0x8c1a1b20});glassDock.setCornerRadius(dp(24));glassDock.setStroke(dp(1),0x30ffffff);dock.setBackground(null);
         miniCover=new android.widget.ImageView(this);miniCover.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);GradientDrawable coverShape=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{0xff53565c,0xff24262c});coverShape.setCornerRadius(dp(12));miniCover.setBackground(coverShape);miniCover.setClipToOutline(true);miniCover.setOnClickListener(v->openPlayer());LinearLayout.LayoutParams coverParams=new LinearLayout.LayoutParams(dp(47),dp(47));coverParams.rightMargin=dp(10);dock.addView(miniCover,coverParams);
         LinearLayout labels=column();miniTitle=text("Выбери трек",15);miniTitle.setMaxLines(1);miniTitle.setTextSize(15);miniTitle.setLetterSpacing(-.015f);miniTitle.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);miniArtist=text("Nightwell Music",12);miniArtist.setMaxLines(1);miniArtist.setTextSize(12);miniArtist.setLetterSpacing(.005f);miniArtist.setTextColor(0xffa4a6b1);miniTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);miniArtist.setEllipsize(android.text.TextUtils.TruncateAt.END);labels.addView(miniTitle);labels.addView(miniArtist);labels.setOnClickListener(v->openPlayer());dock.addView(labels,new LinearLayout.LayoutParams(0,-2,1));miniPrev=action("|‹",()->previous());miniPlay=action("▶",()->toggle());miniNext=action("›|",()->{nextTrack();});miniLike=action("♡",()->toggleFavorite(current()));miniLike.setTextColor(0xffeeeeee);miniPlay.setTextSize(23);miniNext.setTextSize(24);miniPlay.setPadding(0,0,0,0);miniNext.setPadding(0,0,0,0);miniPlay.setTextColor(0xffeeeeee);miniPlay.setBackground(null);miniPrev.setPadding(0,0,0,0);miniLike.setPadding(0,0,0,0);if(getResources().getConfiguration().screenWidthDp>=440)dock.addView(miniLike,new LinearLayout.LayoutParams(dp(38),dp(48)));miniProgressRing=new CircularProgressRing(this);miniProgressRing.addView(miniPlay,new android.widget.FrameLayout.LayoutParams(-1,-1));dock.addView(miniProgressRing,new LinearLayout.LayoutParams(dp(48),dp(48)));dock.addView(miniNext,new LinearLayout.LayoutParams(dp(42),dp(48)));
         FrameLayout dockContainer=new FrameLayout(this);
@@ -1194,24 +1233,41 @@ public final class MainActivity extends Activity {
         dockContainer.addView(dock,new FrameLayout.LayoutParams(-1,-2));
         LinearLayout.LayoutParams dockParams=new LinearLayout.LayoutParams(-1,-2);
         dockParams.topMargin=dp(landscape?3:4);
-        root.addView(dockContainer,dockParams);
+        dockOverlay=new FrameLayout(this);
+        dockBackdrop=new DockBackdropView(this);dockBackdrop.setSource(contentLayer);
+        dockOverlay.addView(dockBackdrop,new FrameLayout.LayoutParams(-1,-1));
+        LinearLayout dockStack=column();dockStack.setPadding(dp(landscape?10:16),0,dp(landscape?10:16),0);
+        dockStack.addView(dockContainer,dockParams);
+        dockOverlay.addView(dockStack,new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM));
+        bottomDockInset=dp(bottomNavigationEnabled()?118:72);
+        FrameLayout.LayoutParams overlayParams=new FrameLayout.LayoutParams(-1,dp(bottomNavigationEnabled()?138:92),Gravity.BOTTOM);
+        scene.addView(dockOverlay,overlayParams);
+        dockOverlay.setOnApplyWindowInsetsListener((v,insets)->{
+            int bottom=Build.VERSION.SDK_INT>=30?Math.max(insets.getInsets(WindowInsets.Type.systemBars()).bottom,insets.getInsets(WindowInsets.Type.ime()).bottom):insets.getSystemWindowInsetBottom();
+            FrameLayout.LayoutParams p=(FrameLayout.LayoutParams)v.getLayoutParams();p.bottomMargin=bottom;v.setLayoutParams(p);return insets;
+        });
+        dockOverlay.requestApplyInsets();
+        if(backgroundOnly)dockOverlay.setVisibility(View.GONE);
         if(backgroundOnly)dockContainer.setVisibility(View.GONE);
-        if(!backgroundOnly){
+        navigationTabs.clear();premiumTabButton=null;
+        if(!backgroundOnly&&bottomNavigationEnabled()){
             LinearLayout navigation=row();
             navigation.setGravity(Gravity.CENTER);
             navigation.setPadding(0,dp(1),0,dp(3));
             addBottomNavigationTab(navigation,"⌂","Главная",()->navigate("Главная"));
             addBottomNavigationTab(navigation,"⌕","Поиск",()->navigate("Поиск"));
-            addBottomNavigationTab(navigation,"▤","Медиатека",()->navigate("Избранное"));
+            addBottomNavigationTab(navigation,"▤","Медиатека",()->navigate(libraryDestination()));
             premiumTabButton=addBottomNavigationTab(navigation,"✧","Premium",this::premium);
             premiumTabButton.setVisibility(shouldShowPremiumTab()?View.VISIBLE:View.GONE);
-            root.addView(navigation,new LinearLayout.LayoutParams(-1,dp(51)));
+            dockStack.addView(navigation,new LinearLayout.LayoutParams(-1,dp(44)));
         }
         android.view.GestureDetector miniGestures=gestures(false);labels.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));dock.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));
-        showScreen();updatePlayback();loadMiniCover(current());updateCoverBackdrop();
+        showScreen();updatePlayback();loadMiniCover(current());updateCoverBackdrop();dockOverlay.post(this::refreshDockBackdrop);
     }
     private TextView addBottomNavigationTab(LinearLayout container,String icon,String label,Runnable click){
-        TextView tab=text(icon+"\n"+label,11);
+        android.text.SpannableString caption=new android.text.SpannableString(icon+"\n"+label);
+        caption.setSpan(new android.text.style.AbsoluteSizeSpan(18,true),0,icon.length(),android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        TextView tab=text("",10);tab.setText(caption);tab.setIncludeFontPadding(false);
         tab.setGravity(Gravity.CENTER);
         tab.setTextColor(label.equals(screen)||label.equals("Медиатека")&&isCollectionScreen()
             ?Color.WHITE:0xffa7a8ac);
@@ -1219,6 +1275,7 @@ public final class MainActivity extends Activity {
         tab.setOnClickListener(v->click.run());
         tab.setContentDescription(label);
         container.addView(tab,new LinearLayout.LayoutParams(0,-1,1));
+        navigationTabs.put(label,tab);
         return tab;
     }
     // Audio routing is controlled by Android. Report the current media route without
@@ -1336,15 +1393,22 @@ public final class MainActivity extends Activity {
         });
         Runnable render=()->{
             entries.removeAllViews();
-            String[] tabs=startAdditional
-                ? (user.isEmpty()?new String[]{"Слушать вместе","Обращения"}:
-                    new String[]{"Слушать вместе","Моя статистика","Перенос плейлистов","Обращения"})
-                : (user.isEmpty()?new String[]{"Войти","Главная"}:
-                    new String[]{"Главная","Избранное","Плейлисты","Офлайн","Профиль"});
+            ArrayList<String> menuTabs=new ArrayList<>();
+            if(!bottomNavigationEnabled()){
+                java.util.Collections.addAll(menuTabs,"Главная","Поиск","Медиатека");
+                if(shouldShowPremiumTab())menuTabs.add("Nightwell Premium");
+            }
+            menuTabs.add(user.isEmpty()?"Войти":"Профиль");
+            if(startAdditional)java.util.Collections.addAll(menuTabs,"Слушать вместе");
+            if(startAdditional&&!user.isEmpty())java.util.Collections.addAll(menuTabs,"Моя статистика","Перенос плейлистов");
+            if(startAdditional)menuTabs.add("Обращения");
+            String[] tabs=menuTabs.toArray(new String[0]);
             for(String tab:tabs){
                 final String glyph;
                 switch(tab){
                     case "Главная":glyph="⌂";break;
+                    case "Поиск":glyph="⌕";break;
+                    case "Медиатека":glyph="▤";break;
                     case "Избранное":glyph="♡";break;
                     case "Плейлисты":glyph="▤";break;
                     case "Офлайн":glyph="↓";break;
@@ -1355,7 +1419,7 @@ public final class MainActivity extends Activity {
                     case "Перенос плейлистов":glyph="⇩";break;
                     default:glyph="↗";
                 }
-                boolean active=tab.equals(screen);
+                boolean active=tab.equals(screen)||"Медиатека".equals(tab)&&isCollectionScreen();
                 LinearLayout item=row();
                 item.setPadding(dp(16),0,dp(16),0);
                 item.setBackground(touchSurface(active?0xff3b3d43:0xff25272c,19));
@@ -1402,8 +1466,14 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private String togetherCode="";
+    private String togetherCode="",togetherOwner="",pendingTogetherInvite="",togetherStatus="";
     private int togetherGeneration=0;
+    private boolean togetherBusy,togetherPollInFlight;
+    private JSONObject togetherRoom;
+    private AlertDialog togetherDialog;
+    private Runnable togetherRefreshUI;
+    private final Runnable togetherPoll=this::pollTogetherRoom;
+    private final Runnable pendingTogetherRetry=this::openPendingTogether;
 
     private String togetherRoomCode(String input){
         String value=input==null?"":input.trim();
@@ -1413,135 +1483,249 @@ public final class MainActivity extends Activity {
                 if(!Uri.parse(origin).getHost().equalsIgnoreCase(uri.getHost()))return "";
                 value=uri.getQueryParameter("together");
             }else if("nightwell".equalsIgnoreCase(uri.getScheme())
-                     &&"together".equalsIgnoreCase(uri.getHost()))
+                     &&"together".equalsIgnoreCase(uri.getHost())){
+                if(uri.getPathSegments().size()!=1)return "";
                 value=uri.getLastPathSegment();
+            }
         }catch(Exception ignored){}
         return value!=null&&value.matches("[A-Za-z0-9_-]{24}")?value:"";
     }
 
+    private void openPendingTogether(){
+        if(pendingTogetherInvite.isEmpty()||!sessionReady||playback==null||api==null)return;
+        if(user.isEmpty()){auth();return;}
+        if(togetherBusy){
+            ui.removeCallbacks(pendingTogetherRetry);ui.postDelayed(pendingTogetherRetry,250);return;
+        }
+        ui.removeCallbacks(pendingTogetherRetry);
+        String code=pendingTogetherInvite;pendingTogetherInvite="";
+        together();joinTogetherRoom(code);
+    }
+
+    void clearTogetherRoom(){
+        togetherGeneration++;ui.removeCallbacks(togetherPoll);ui.removeCallbacks(pendingTogetherRetry);
+        togetherCode="";togetherOwner="";togetherRoom=null;togetherStatus="";
+        pendingTogetherInvite="";togetherBusy=false;togetherPollInFlight=false;
+        refreshTogetherUI();
+    }
+
+    private void refreshTogetherUI(){
+        if(togetherDialog!=null&&togetherDialog.isShowing()&&togetherRefreshUI!=null)
+            togetherRefreshUI.run();
+    }
+
+    private void togetherRequest(String path,JSONObject body,java.util.function.Consumer<JSONObject> done){
+        if(user.isEmpty()){auth();return;}
+        if(togetherBusy)return;
+        final String owner=user;final NativeAPI client=api;final int revision=togetherGeneration;
+        togetherBusy=true;togetherStatus="";refreshTogetherUI();
+        io.execute(()->{
+            try{
+                JSONObject response=client.request(path,"POST",body);
+                ui.post(()->{
+                    if(isDestroyed()||client!=api||!owner.equals(user)||revision!=togetherGeneration)return;
+                    togetherBusy=false;done.accept(response);refreshTogetherUI();
+                });
+            }catch(Exception ex){ui.post(()->{
+                if(isDestroyed()||client!=api||!owner.equals(user)||revision!=togetherGeneration)return;
+                togetherBusy=false;togetherStatus=friendly(ex);refreshTogetherUI();
+                if(status!=null)status.setText(togetherStatus);
+            });}
+        });
+    }
+
+    private void activateTogetherRoom(JSONObject room,String owner){
+        if(room==null||!owner.equals(user))return;
+        String code=room.optString("code");
+        if(!code.matches("[A-Za-z0-9_-]{24}"))return;
+        togetherGeneration++;ui.removeCallbacks(togetherPoll);togetherPollInFlight=false;
+        togetherCode=code;togetherOwner=owner;togetherStatus="";
+        applyTogetherRoom(room);refreshTogetherUI();ui.postDelayed(togetherPoll,1500);
+    }
+
+    private void joinTogetherRoom(String code){
+        final String owner=user;
+        togetherRequest("api/together/rooms/"+code+"/join",new JSONObject(),
+            response->activateTogetherRoom(response.optJSONObject("room"),owner));
+    }
+
+    private void pollTogetherRoom(){
+        if(isDestroyed()||togetherCode.isEmpty())return;
+        if(!togetherOwner.equals(user)){clearTogetherRoom();return;}
+        if(togetherPollInFlight)return;
+        final String code=togetherCode,owner=togetherOwner;final NativeAPI client=api;
+        final int revision=togetherGeneration;togetherPollInFlight=true;
+        io.execute(()->{
+            JSONObject room=null;String failure="";
+            try{room=client.request("api/together/rooms/"+code).optJSONObject("room");}
+            catch(Exception ex){failure="Связь с комнатой потеряна. Переподключаемся.";}
+            final JSONObject result=room;final String error=failure;
+            ui.post(()->{
+                if(isDestroyed()||client!=api||revision!=togetherGeneration||!code.equals(togetherCode))return;
+                togetherPollInFlight=false;
+                if(!owner.equals(user)){clearTogetherRoom();return;}
+                if(result!=null&&code.equals(result.optString("code"))){togetherStatus="";applyTogetherRoom(result);}
+                else togetherStatus=error;
+                refreshTogetherUI();ui.postDelayed(togetherPoll,1500);
+            });
+        });
+    }
+
+    private void refreshTogetherRoom(){
+        ui.removeCallbacks(togetherPoll);pollTogetherRoom();
+    }
+
+    private void applyTogetherRoom(JSONObject room){
+        togetherRoom=room;
+        JSONObject track=room.optJSONObject("track");
+        if(track==null||playback==null)return;
+        String desired=track.optString("id");if(desired.isEmpty())return;
+        boolean playing=room.optBoolean("playing");
+        double position=room.optDouble("position_ms",0)+(playing?
+            Math.max(0,room.optDouble("server_time_ms",0)-room.optDouble("updated_at_ms",0)):0);
+        if(!Double.isFinite(position))position=0;
+        position=Math.max(0,position);
+        String local=playback.player.getCurrentMediaItem()==null?"":playback.player.getCurrentMediaItem().mediaId;
+        if(!desired.equals(local)){
+            JSONArray all=new JSONArray(),source=room.optJSONArray("queue");boolean found=false;
+            if(source!=null)for(int i=0;i<source.length();i++){
+                JSONObject item=source.optJSONObject(i);if(item==null)continue;
+                if(desired.equals(item.optString("id")))found=true;
+                all.put(item);
+            }
+            if(!found){
+                JSONArray withCurrent=new JSONArray().put(track);
+                for(int i=0;i<all.length();i++)withCurrent.put(all.optJSONObject(i));
+                all=withCurrent;
+            }
+            try{
+                cancelMix();
+                playback.prepare(new JSONObject().put("id",desired).put("queue",all)
+                    .put("origin",origin).put("account",user).put("position",(long)position)
+                    .put("wave",false).toString());
+                if(playing)playback.play();
+            }catch(JSONException ignored){}
+        }else{
+            if(Math.abs(playback.player.getCurrentPosition()-position)>1500)playback.seek(position/1000.0);
+            if(playing&&!playback.player.getPlayWhenReady())playback.play();
+            else if(!playing&&playback.player.getPlayWhenReady())playback.pause();
+        }
+        updatePlayback();
+    }
+
+    private void togetherCommand(String action,String trackID){
+        if(togetherCode.isEmpty()||!togetherOwner.equals(user))return;
+        try{
+            JSONObject payload=new JSONObject().put("action",action);
+            if(trackID!=null)payload.put("track_id",trackID);
+            togetherRequest("api/together/rooms/"+togetherCode+"/command",payload,ignored->refreshTogetherRoom());
+        }catch(JSONException ignored){}
+    }
+
+    void addToTogetherQueue(JSONObject track){
+        if(track==null||togetherCode.isEmpty()||!togetherOwner.equals(user))return;
+        String id=track.optString("id");if(id.isEmpty())return;
+        try{
+            togetherRequest("api/together/rooms/"+togetherCode+"/queue",new JSONObject().put("track_id",id),
+                ignored->{if(status!=null)status.setText("Трек добавлен в общую очередь");refreshTogetherRoom();});
+        }catch(JSONException ignored){}
+    }
+
+    private void setTogetherControl(boolean allow){
+        if(togetherCode.isEmpty()||!togetherOwner.equals(user))return;
+        try{
+            togetherRequest("api/together/rooms/"+togetherCode+"/settings",new JSONObject().put("allow_control",allow),
+                ignored->refreshTogetherRoom());
+        }catch(JSONException ignored){}
+    }
+
     void together(){
         if(user.isEmpty()){auth();return;}
-        final String owner=user;
+        if(!togetherOwner.isEmpty()&&!togetherOwner.equals(user))clearTogetherRoom();
+        if(togetherDialog!=null&&togetherDialog.isShowing())return;
         LinearLayout panel=column();panel.setPadding(dp(18),dp(14),dp(18),dp(18));
-        TextView summary=text("Пригласи друга по ссылке и слушайте одну очередь.",13);
-        summary.setTextColor(0xffb7bac3);panel.addView(summary);
-        EditText invite=new EditText(this);
-        invite.setHint("Код комнаты или ссылка");
-        invite.setSingleLine(true);styleField(invite);
-        LinearLayout.LayoutParams inputParams=new LinearLayout.LayoutParams(-1,-2);
-        inputParams.topMargin=dp(15);panel.addView(invite,inputParams);
-        TextView state=text(togetherCode.isEmpty()?"Нет активной комнаты":"Комната "+togetherCode,14);
-        state.setTextColor(0xffe2e4ea);
-        state.setPadding(0,dp(15),0,dp(10));panel.addView(state);
-        TextView create=sheetAction("Создать комнату",()->{});
-        TextView join=sheetAction("Присоединиться",()->{});
-        TextView share=sheetAction("Поделиться приглашением",()->{});
-        TextView previous=sheetAction("Предыдущий",()->{});
-        TextView toggle=sheetAction("Воспроизведение / пауза",()->{});
-        TextView next=sheetAction("Следующий",()->{});
-        TextView leave=sheetAction("Покинуть комнату",()->{});
-        for(TextView item:new TextView[]{create,join,share,previous,toggle,next,leave}){
-            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);
-            p.bottomMargin=dp(8);panel.addView(item,p);
-        }
+        panel.addView(text("Пригласи друга по ссылке и слушайте одну очередь.",13));
+        EditText invite=new EditText(this);invite.setHint("Код комнаты или ссылка");
+        invite.setSingleLine(true);styleField(invite);panel.addView(invite);
+        TextView state=text("",14);state.setPadding(0,dp(15),0,dp(10));panel.addView(state);
+        TextView create=sheetAction("Создать комнату",()->{}),join=sheetAction("Присоединиться",()->{});
+        TextView share=sheetAction("Поделиться приглашением",()->{
+            if(togetherCode.isEmpty())return;
+            String url=Uri.parse(origin).buildUpon().path("/").clearQuery().appendQueryParameter("together",togetherCode).build().toString();
+            startActivity(Intent.createChooser(new Intent(Intent.ACTION_SEND).setType("text/plain")
+                .putExtra(Intent.EXTRA_TEXT,url),"Пригласить слушать вместе"));
+        });
+        TextView copy=sheetAction("Скопировать приглашение",()->{
+            if(togetherCode.isEmpty())return;
+            android.content.ClipboardManager clipboard=(android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE);
+            clipboard.setPrimaryClip(ClipData.newPlainText("Слушать вместе",origin+"?together="+togetherCode));
+            if(status!=null)status.setText("Приглашение скопировано");
+        });
+        TextView previous=sheetAction("Предыдущий",()->togetherCommand("previous",null));
+        TextView toggle=sheetAction("Воспроизведение",()->togetherCommand(
+            togetherRoom!=null&&togetherRoom.optBoolean("playing")?"pause":"play",null));
+        TextView next=sheetAction("Следующий",()->togetherCommand("next",null));
+        TextView add=sheetAction("Добавить текущий трек в общую очередь",()->addToTogetherQueue(current()));
+        TextView allow=sheetAction("Разрешить управление участникам",()->setTogetherControl(true));
+        TextView host=sheetAction("Управляет только ведущий",()->setTogetherControl(false));
+        TextView leave=sheetAction("Покинуть комнату",()->{
+            final String code=togetherCode,owner=user;final NativeAPI client=api;
+            clearTogetherRoom();if(code.isEmpty())return;
+            io.execute(()->{try{client.request("api/together/rooms/"+code+"/leave","POST",new JSONObject());}
+                catch(Exception ex){ui.post(()->{if(!isDestroyed()&&owner.equals(user)&&status!=null)status.setText(friendly(ex));});}});
+        });
+        TextView[] joinedActions={share,copy,previous,toggle,next,add,allow,host,leave};
+        panel.addView(create);panel.addView(join);
+        for(TextView action:joinedActions)addSpacedAction(panel,action,8);
+        LinearLayout sharedQueue=column();panel.addView(sharedQueue);
+        ScrollView scroll=new ScrollView(this);scroll.addView(panel);
         AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Слушать вместе")
-            .setView(panel).setPositiveButton("Готово",null).create();
-        final Runnable[] refreshUI={null};
-        refreshUI[0]=()->{
+            .setView(scroll).setPositiveButton("Готово",null).create();
+        final String[] renderedQueue={""};
+        togetherRefreshUI=()->{
             boolean joined=!togetherCode.isEmpty();
-            state.setText(joined?"Комната "+togetherCode:"Нет активной комнаты");
-            invite.setVisibility(joined?View.GONE:View.VISIBLE);
-            create.setVisibility(joined?View.GONE:View.VISIBLE);
-            join.setVisibility(joined?View.GONE:View.VISIBLE);
-            share.setVisibility(joined?View.VISIBLE:View.GONE);
-            previous.setVisibility(joined?View.VISIBLE:View.GONE);
-            toggle.setVisibility(joined?View.VISIBLE:View.GONE);
-            next.setVisibility(joined?View.VISIBLE:View.GONE);
-            leave.setVisibility(joined?View.VISIBLE:View.GONE);
+            JSONArray members=togetherRoom==null?null:togetherRoom.optJSONArray("members");
+            JSONObject playing=togetherRoom==null?null:togetherRoom.optJSONObject("track");
+            String summary=joined?"Комната "+togetherCode+"\nУчастников: "+(members==null?0:members.length()):"Нет активной комнаты";
+            if(playing!=null)summary+="\nСейчас звучит: "+playing.optString("title")+" · "+playing.optString("artist");
+            if(joined&&togetherRoom!=null)summary+=togetherRoom.optBoolean("allow_control",true)
+                ?"\nУчастники могут управлять музыкой":"\nУправляет только ведущий";
+            if(!togetherStatus.isEmpty())summary+="\n"+togetherStatus;
+            state.setText(summary);invite.setVisibility(joined?View.GONE:View.VISIBLE);
+            create.setVisibility(joined?View.GONE:View.VISIBLE);join.setVisibility(joined?View.GONE:View.VISIBLE);
+            create.setEnabled(!togetherBusy);join.setEnabled(!togetherBusy);
+            for(TextView action:joinedActions){action.setVisibility(joined?View.VISIBLE:View.GONE);action.setEnabled(!togetherBusy);}
+            toggle.setText(togetherRoom!=null&&togetherRoom.optBoolean("playing")?"Пауза":"Воспроизведение");
+            JSONArray songs=joined&&togetherRoom!=null?togetherRoom.optJSONArray("queue"):null;
+            String signature=songs==null?"":songs.toString();
+            if(!signature.equals(renderedQueue[0])){
+                renderedQueue[0]=signature;sharedQueue.removeAllViews();
+                if(songs!=null&&songs.length()>0){
+                    sharedQueue.addView(text("Общая очередь",18));
+                    for(int i=0;i<songs.length();i++){
+                        JSONObject song=songs.optJSONObject(i);if(song==null)continue;
+                        String id=song.optString("id");
+                        sharedQueue.addView(sheetAction(song.optString("title")+" · "+song.optString("artist"),
+                            ()->togetherCommand("track",id)));
+                    }
+                }
+            }
         };
         create.setOnClickListener(v->{
-            create.setEnabled(false);
-            state.setText("Создаём комнату…");
-            task(()->api.request("api/together/rooms","POST",new JSONObject()),response->{
-                create.setEnabled(true);
-                togetherCode=response.optJSONObject("room")==null?"":response.optJSONObject("room").optString("code");
-                refreshUI[0].run();
+            final String owner=user;
+            togetherRequest("api/together/rooms",new JSONObject(),response->{
+                activateTogetherRoom(response.optJSONObject("room"),owner);
+                if(!currentID.isEmpty())togetherCommand("track",currentID);
             });
         });
         join.setOnClickListener(v->{
             String target=togetherRoomCode(invite.getText().toString());
             if(target.isEmpty()){state.setText("Введи код из 24 символов или ссылку.");return;}
-            join.setEnabled(false);state.setText("Подключаемся…");
-            task(()->api.request("api/together/rooms/"+target+"/join","POST",new JSONObject()),
-                response->{join.setEnabled(true);togetherCode=target;refreshUI[0].run();});
+            joinTogetherRoom(target);
         });
-        share.setOnClickListener(v->{
-            if(togetherCode.isEmpty())return;
-            String url=origin+"?together="+togetherCode;
-            Intent send=new Intent(Intent.ACTION_SEND).setType("text/plain")
-                .putExtra(Intent.EXTRA_TEXT,url);
-            startActivity(Intent.createChooser(send,"Пригласить слушать вместе"));
-        });
-        java.util.function.Consumer<String> command=action->{
-            if(togetherCode.isEmpty())return;
-            final String codeSnapshot=togetherCode;
-            task(()->api.request("api/together/rooms/"+codeSnapshot+"/command","POST",
-                new JSONObject().put("action",action)),ignored->{});
-        };
-        previous.setOnClickListener(v->command.accept("previous"));
-        toggle.setOnClickListener(v->command.accept("play"));
-        next.setOnClickListener(v->command.accept("next"));
-        leave.setOnClickListener(v->{
-            String codeSnapshot=togetherCode;togetherCode="";
-            togetherGeneration++;
-            refreshUI[0].run();
-            task(()->api.request("api/together/rooms/"+codeSnapshot+"/leave","POST",new JSONObject()),
-                ignored->{});
-        });
-        int generation=++togetherGeneration;
-        Runnable[] poll={null};
-        poll[0]=()->{
-            if(!dialog.isShowing()||!owner.equals(user)||generation!=togetherGeneration)return;
-            final String codeSnapshot=togetherCode;
-            if(!codeSnapshot.isEmpty()){
-                io.execute(()->{
-                    try{
-                        JSONObject result=api.request("api/together/rooms/"+codeSnapshot);
-                        JSONObject room=result.optJSONObject("room");
-                        ui.post(()->{
-                            if(!dialog.isShowing()||generation!=togetherGeneration||
-                               !codeSnapshot.equals(togetherCode)||room==null)return;
-                            JSONArray members=room.optJSONArray("members");
-                            state.setText("Комната "+codeSnapshot+"\nУчастников: "+
-                                (members==null?0:members.length()));
-                            JSONObject track=room.optJSONObject("track");
-                            if(track!=null&&playback!=null){
-                                String desired=track.optString("id");
-                                if(!desired.isEmpty()&&!desired.equals(currentID)){
-                                    JSONArray tracks=room.optJSONArray("queue");
-                                    if(tracks==null||tracks.length()==0)tracks=new JSONArray().put(track);
-                                    play(track,tracks,false);
-                                }else if(!desired.isEmpty()){
-                                    double seconds=room.optDouble("position_ms",0)/1000.0;
-                                    if(room.optBoolean("playing")&&
-                                       Math.abs(playback.player.getCurrentPosition()/1000.0-seconds)>2.0)
-                                        playback.seek(seconds);
-                                    if(room.optBoolean("playing")&&!playback.player.getPlayWhenReady())
-                                        playback.play();
-                                    if(!room.optBoolean("playing")&&playback.player.getPlayWhenReady())
-                                        playback.pause();
-                                }
-                            }
-                        });
-                    }catch(Exception ignored){}
-                });
-            }
-            ui.postDelayed(poll[0],1600);
-        };
-        dialog.setOnDismissListener(v->{togetherGeneration++;ui.removeCallbacks(poll[0]);});
-        styleSheet(dialog);dialog.show();
-        refreshUI[0].run();
-        ui.postDelayed(poll[0],800);
+        dialog.setOnDismissListener(v->{if(togetherDialog==dialog){togetherDialog=null;togetherRefreshUI=null;}});
+        styleSheet(dialog);togetherDialog=dialog;dialog.show();refreshTogetherUI();
+        if(!togetherCode.isEmpty())refreshTogetherRoom();
     }
 
     void profile(){
@@ -1621,8 +1805,8 @@ public final class MainActivity extends Activity {
         else if(tab.equals("Профиль"))profile();
         else if(tab.equals("Только фон")||tab.equals("Показать интерфейс"))toggleBackgroundOnly();
         else if(tab.equals("Войти"))auth();
-        else if(tab.equals("Выйти")){cancelMix();accountRequest.cancel();task(()->{api.request("api/logout","POST",null);new SessionStore(this).clear();clearLibrarySnapshot();return new JSONObject();},v->{libraryGeneration++;user="";searchCache.clear();playlists=new JSONArray();selectedPlaylist="";sessionReady=true;api.updateCSRF("");getSharedPreferences("native-api",MODE_PRIVATE).edit().putString("account","").apply();catalog=new JSONArray();shown=new JSONArray();likes.clear();if(playback!=null)playback.stop();navigate("Главная");});}
-        else navigate(tab);
+        else if(tab.equals("Выйти")){cancelMix();accountRequest.cancel();task(()->{api.request("api/logout","POST",null);new SessionStore(this).clear();clearLibrarySnapshot();return new JSONObject();},v->{clearTogetherRoom();libraryPositions.clear();lastLibraryScreen="Медиатека";libraryGeneration++;user="";searchCache.clear();playlists=new JSONArray();selectedPlaylist="";sessionReady=true;api.updateCSRF("");getSharedPreferences("native-api",MODE_PRIVATE).edit().putString("account","").apply();catalog=new JSONArray();shown=new JSONArray();likes.clear();if(playback!=null)playback.stop();navigate("Главная");});}
+        else navigate("Медиатека".equals(tab)?libraryDestination():tab);
     }
 
     View supportCard(String subject,String state,Runnable click){
@@ -1851,7 +2035,7 @@ public final class MainActivity extends Activity {
         saveFavoriteIndex();
         saveLibrarySnapshot();
         refreshFavoriteButtons();
-        if(!full&&"Избранное".equals(screen))showScreen();
+        if(!full&&("Избранное".equals(screen)||"Медиатека".equals(screen)))showScreen();
         else updateList();
 
         io.execute(()->{
@@ -1905,7 +2089,7 @@ public final class MainActivity extends Activity {
                 saveFavoriteIndex();
                 saveLibrarySnapshot();
                 refreshFavoriteButtons();
-                if(!full&&"Избранное".equals(screen))showScreen();
+                if(!full&&("Избранное".equals(screen)||"Медиатека".equals(screen)))showScreen();
                 else updateList();
                 if(verified&&confirmed){
                     if(wanted&&autoFavoritesEnabled())download(new JSONArray().put(track));
@@ -1928,39 +2112,37 @@ public final class MainActivity extends Activity {
         }
     }
     void navigate(String next){
+        if(next.equals(screen)&&selectedPlaylist.isEmpty()&&!full)return;
+        retainCollectionPosition();
+        if(isLibraryScreen(screen))lastLibraryScreen=screen;
         generation++;
         api.cancelSearch();
         if(pendingSearch!=null)ui.removeCallbacks(pendingSearch);
-        if(!next.equals(screen)){
-            savedCollectionScreen="";
-            savedCollectionFirst=0;
-            savedCollectionTop=0;
-            savedPlaylistY=0;
-        }
         screen=next;
+        if(isLibraryScreen(next))lastLibraryScreen=next;
         selectedPlaylist="";
         query="";
         if(full)build();else showScreen();
     }
     void showScreen(){
-        if(screen.equals(displayedCollectionScreen)){
-            // Do not overwrite a saved position with a detached pre-rotation view.
-            if(list!=null&&list.isAttachedToWindow()||
-               playlistCollectionScroll!=null&&playlistCollectionScroll.isAttachedToWindow())
-                retainCollectionPosition();
-        }else{
-            savedCollectionScreen=screen;
-            savedCollectionFirst=0;
-            savedCollectionTop=0;
-            savedPlaylistY=0;
-            collectionScrolled=false;
-        }
+        if(screen.equals(displayedCollectionScreen)&&
+            (libraryOverview!=null&&libraryOverview.isAttachedToWindow()||
+             list!=null&&list.isAttachedToWindow()||
+             playlistCollectionScroll!=null&&playlistCollectionScroll.isAttachedToWindow()))
+            retainCollectionPosition();
+        int[] savedPosition=libraryPositions.get(screen);
+        savedCollectionScreen=screen;
+        savedCollectionFirst=savedPosition==null?0:savedPosition[0];
+        savedCollectionTop=savedPosition==null?0:savedPosition[1];
+        savedPlaylistY=savedPosition==null?0:savedPosition[1];
+        collectionScrolled=false;
         displayedCollectionScreen=screen;
+        libraryOverview=null;
         collectionLargeTitle=null;
         collectionActions=null;
         offlineActions=null;
         playlistCollectionScroll=null;
-        if(libraryBackButton!=null)libraryBackButton.setVisibility(isCollectionScreen()?View.VISIBLE:View.GONE);
+        if(libraryBackButton!=null)libraryBackButton.setVisibility(isCollectionScreen()&&!"Медиатека".equals(screen)?View.VISIBLE:View.GONE);
         if(librarySettingsButton!=null)librarySettingsButton.setVisibility(isCollectionScreen()?View.VISIBLE:View.GONE);
         if(libraryExtraButton!=null)libraryExtraButton.setVisibility(isCollectionScreen()?View.VISIBLE:View.GONE);
         if(profileAvatarButton!=null)profileAvatarButton.setVisibility(isCollectionScreen()?View.GONE:View.VISIBLE);
@@ -1972,8 +2154,12 @@ public final class MainActivity extends Activity {
         }
         if(atmosphere!=null)atmosphere.setVisibility(screen.equals("Главная")?View.VISIBLE:View.GONE);
         updateCoverBackdrop();
-        if(android.animation.ValueAnimator.areAnimatorsEnabled()){body.setAlpha(.5f);body.animate().alpha(1).setDuration(180);}
+        body.animate().cancel();body.setAlpha(1f);
+        for(Map.Entry<String,TextView> tab:navigationTabs.entrySet())
+            tab.getValue().setTextColor(tab.getKey().equals(screen)||"Медиатека".equals(tab.getKey())&&isCollectionScreen()?Color.WHITE:0xffa7a8ac);
+        body.post(this::refreshDockBackdrop);
         if(ribbon!=null){ribbon.running(false);ribbon.setVisibility(View.GONE);}body.removeAllViews();list=null;search=null;searchSuggestions=null;artistStrip=null;adapter=null;favoriteCount=null;
+        if("Медиатека".equals(screen)){showLibraryOverview();return;}
         if(!screen.equals("Главная")){
             TextView title=text(screen,isLandscapeLayout()?21:30);
             title.setMaxLines(1);title.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -1984,7 +2170,7 @@ public final class MainActivity extends Activity {
         }
         if(screen.equals("Главная")){
             boolean compact=getResources().getConfiguration().orientation==android.content.res.Configuration.ORIENTATION_LANDSCAPE;
-            android.widget.FrameLayout stage=new android.widget.FrameLayout(this);body.addView(stage,new LinearLayout.LayoutParams(-1,0,1));
+            android.widget.FrameLayout stage=new android.widget.FrameLayout(this);stage.setPadding(0,0,0,backgroundOnly?0:bottomDockInset);body.addView(stage,new LinearLayout.LayoutParams(-1,0,1));
             ribbon.setVisibility(View.VISIBLE);ribbon.running(visible&&!smokeMode);
             LinearLayout intro=column();intro.setGravity(Gravity.CENTER);intro.setPadding(0,0,0,0);
             TextView theme=text("Твой ритм",compact?30:Math.min(48,getResources().getConfiguration().screenWidthDp/8));theme.setTypeface(android.graphics.Typeface.create("sans-serif",android.graphics.Typeface.BOLD));theme.setLetterSpacing(-.035f);theme.setIncludeFontPadding(false);theme.setLineSpacing(0,.92f);theme.setMaxLines(2);theme.setAutoSizeTextTypeUniformWithConfiguration(25,43,1,android.util.TypedValue.COMPLEX_UNIT_SP);intro.addView(theme);theme.setGravity(Gravity.CENTER);
@@ -2119,6 +2305,7 @@ public final class MainActivity extends Activity {
             android.widget.ScrollView scroll=new android.widget.ScrollView(this);
             LinearLayout entries=column();
             scroll.addView(entries);
+            scroll.setClipToPadding(false);scroll.setPadding(0,0,0,bottomDockInset+dp(12));
             body.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
             playlistCollectionScroll=scroll;
             if(collectionLargeTitle!=null){
@@ -2128,13 +2315,13 @@ public final class MainActivity extends Activity {
             }
             final boolean[] restoringPlaylist={savedPlaylistY>0};
             scroll.setOnScrollChangeListener((v,x,y,oldX,oldY)->{
+                refreshDockBackdrop();
                 if(playlistCollectionScroll==scroll&&!restoringPlaylist[0])
                     collectionOffsetChanged(y);
             });
             TextView smartPlaylists=sheetAction("Умные плейлисты",()->feature("smart"));
             trackPremiumFeature(smartPlaylists,"Умные плейлисты");
             addSpacedAction(entries,smartPlaylists,8);
-            addSpacedAction(entries,sheetAction("Подборки дня · обновляются ежедневно",this::dailyPublicPlaylists),8);
             TextView newPlaylist=sheetAction("＋  Создать плейлист",()->input("Новый плейлист",
                 name->task(()->api.request("api/playlists","POST",
                     new JSONObject().put("name",name)),v->load())));
@@ -2208,13 +2395,15 @@ public final class MainActivity extends Activity {
             return;
         }
         else if(screen.equals("Офлайн")){
+            final int offlineGeneration=generation;
+            final int offlineFirst=savedCollectionFirst,offlineTop=savedCollectionTop;
             offlineActions=column();
             addSpacedAction(offlineActions,sheetAction("＋  Добавить аудиофайлы",this::importFiles),10);
             TextView repairNotice=text("",13);
             offlineActions.addView(repairNotice);
             task(()->new JSONObject(OfflineStore.operation(this,origin,"{\"op\":\"listAll\"}")),v->{
-                if(!screen.equals("Офлайн"))return;
-                shown=v.optJSONArray("tracks");
+                if(!screen.equals("Офлайн")||offlineGeneration!=generation)return;
+                shown=v.optJSONArray("tracks");offlineTrackCount=shown==null?0:shown.length();offlineCountLoaded=true;
                 if(favoriteTracks.rememberLikedAndCount(shown,likes)>0)saveFavoriteIndex();
                 JSONArray damaged=v.optJSONArray("damaged"),retryable=new JSONArray();
                 if(damaged!=null&&damaged.length()>0){
@@ -2229,6 +2418,11 @@ public final class MainActivity extends Activity {
                     }
                 }
                 updateList();
+                final ListView restored=list;
+                if(restored!=null&&(offlineFirst>0||offlineTop!=0))restored.post(()->{
+                    if(list==restored&&screen.equals("Офлайн")&&offlineGeneration==generation)
+                        restored.setSelectionFromTop(offlineFirst,offlineTop);
+                });
             });
             shown=new JSONArray();
         }
@@ -2253,7 +2447,7 @@ public final class MainActivity extends Activity {
         list.setVerticalScrollBarEnabled(false);
         list.setSelector(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
         list.setClipToPadding(false);
-        list.setPadding(0,dp(2),0,dp(12));
+        list.setPadding(0,dp(2),0,bottomDockInset+dp(12));
         list.setCacheColorHint(Color.TRANSPARENT);
         adapter=new TrackAdapter();list.setAdapter(adapter);
         body.addView(list,new LinearLayout.LayoutParams(-1,0,1));
@@ -2264,6 +2458,7 @@ public final class MainActivity extends Activity {
                 @Override public void onScrollStateChanged(android.widget.AbsListView view,int scrollState){}
                 @Override public void onScroll(android.widget.AbsListView view,int firstVisibleItem,
                                               int visibleItemCount,int totalItemCount){
+                    refreshDockBackdrop();
                     if(list!=view||restoringRows[0])return;
                     View first=view.getChildAt(0);
                     int offset=firstVisibleItem>0?dp(40):
@@ -2289,6 +2484,10 @@ public final class MainActivity extends Activity {
                 });
             }
         }
+        if(!isCollectionScreen())list.setOnScrollListener(new android.widget.AbsListView.OnScrollListener(){
+            public void onScrollStateChanged(android.widget.AbsListView view,int state){}
+            public void onScroll(android.widget.AbsListView view,int first,int visible,int total){refreshDockBackdrop();}
+        });
         list.setOnItemClickListener((p,v,pos,id)->{
             JSONObject selected=shown.optJSONObject(pos-list.getHeaderViewsCount());
             if(selected==null)return;
@@ -2304,6 +2503,34 @@ public final class MainActivity extends Activity {
             trackMenu(selected);
             return true;
         });
+    }
+    private void showLibraryOverview(){
+        JSONArray favorites=sortedFavorites(favoriteTracks.visible(likes,catalog,queue,shown));
+        AndroidLibraryOverview overview=new AndroidLibraryOverview(this,favorites,likes.size(),
+            playlists.length(),offlineTrackCount,new AndroidLibraryOverview.Actions(){
+                public void openFavorites(){navigate("Избранное");}
+                public void openPlaylists(){navigate("Плейлисты");}
+                public void openOffline(){navigate("Офлайн");}
+                public void openDailyPlaylists(){dailyPublicPlaylists();}
+                public void openSmartPlaylists(){feature("smart");}
+                public void play(JSONObject track,JSONArray context){MainActivity.this.play(track,context,false);}
+                public void menu(JSONObject track){trackMenu(track);}
+            },(image,track)->{if(artworkCache!=null)artworkCache.loadTrack(image,origin,track);});
+        libraryOverview=overview;
+        overview.setBottomInset(bottomDockInset+dp(12));
+        body.addView(overview,new LinearLayout.LayoutParams(-1,0,1));
+        overview.setOnScrollChangeListener((view,x,y,oldX,oldY)->refreshDockBackdrop());
+        int[] position=libraryPositions.get("Медиатека");
+        if(position!=null)overview.post(()->{if(libraryOverview==overview)overview.scrollTo(0,position[1]);});
+        if(!offlineCountLoaded&&!offlineCountLoading){
+            offlineCountLoading=true;
+            task(()->new JSONObject(OfflineStore.operation(this,origin,"{\"op\":\"listAll\"}")),data->{
+                offlineCountLoading=false;offlineCountLoaded=true;
+                JSONArray tracks=data.optJSONArray("tracks");offlineTrackCount=tracks==null?0:tracks.length();
+                if("Медиатека".equals(screen)&&!full)showScreen();
+            });
+        }
+        recoverMissingFavoriteTracks();
     }
     private void addSpacedAction(LinearLayout parent,TextView button,int bottomMarginDp){
         LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,-2);
@@ -2399,6 +2626,7 @@ public final class MainActivity extends Activity {
         }
         if(restored==0)return;
         saveFavoriteIndex();
+        if(!full&&"Медиатека".equals(screen)){showScreen();return;}
         if(!full&&"Избранное".equals(screen)){
             shown=sortedFavorites(favoriteTracks.visible(likes,catalog,queue,shown));
             updateList();
@@ -2612,6 +2840,7 @@ public final class MainActivity extends Activity {
                     JSONObject account=me.optJSONObject("user");
                     String nextAccount=account==null?"":account.optString("id");
                     if(!nextAccount.equals(user)){
+                        clearTogetherRoom();libraryPositions.clear();lastLibraryScreen="Медиатека";
                         clearLibrarySnapshot();
                         libraryGeneration++;favoriteRecoveryGeneration++;catalog=new JSONArray();shown=new JSONArray();playlists=new JSONArray();likes.clear();favoritePending.clear();favoriteTracks.clear();favoriteRecoveryAttempts.clear();selectedPlaylist="";
                         if(playback!=null)playback.stop();
@@ -2636,6 +2865,7 @@ public final class MainActivity extends Activity {
                         new SessionStore(this).clear();
                         clearLibrarySnapshot();
                         api.updateCSRF("");
+                        clearTogetherRoom();libraryPositions.clear();lastLibraryScreen="Медиатека";
                         libraryGeneration++;
                         user="";
                         catalog=new JSONArray();
@@ -2691,7 +2921,7 @@ public final class MainActivity extends Activity {
                     favoriteTracks.rememberLiked(value.optJSONArray("items"),likes);
                     favoriteTracks.rememberLiked(value.optJSONArray("favorites"),likes);
                     saveFavoriteIndex();saveLibrarySnapshot();checkAutoFavoriteDownloads();
-                    if(!full&&screen.equals("Избранное"))showScreen();
+                    if(!full&&(screen.equals("Избранное")||screen.equals("Медиатека")))showScreen();
                 }});
             }catch(Exception ex){ui.post(()->{
                 if(!isDestroyed()&&client==api&&revision==libraryGeneration&&
@@ -2704,11 +2934,11 @@ public final class MainActivity extends Activity {
                 JSONObject value=client.request("api/playlists");
                 JSONArray items=value.optJSONArray("playlists");
                 ui.post(()->{if(!isDestroyed()&&client==api&&revision==libraryGeneration&&account.equals(user)&&items!=null){
-                    playlists=items;ownedSearchIndex=null;saveLibrarySnapshot();warmPlaylistSearchIndex(items,account,revision);if(!full&&screen.equals("Плейлисты"))showScreen();
+                    playlists=items;ownedSearchIndex=null;saveLibrarySnapshot();warmPlaylistSearchIndex(items,account,revision);if(!full&&(screen.equals("Плейлисты")||screen.equals("Медиатека")))showScreen();
                 }});
             }catch(Exception ex){ui.post(()->{
                 if(!isDestroyed()&&client==api&&revision==libraryGeneration&&
-                   account.equals(user)&&"Плейлисты".equals(screen))
+                   account.equals(user)&&("Плейлисты".equals(screen)||"Медиатека".equals(screen)))
                     status.setText("Не удалось обновить плейлисты: "+friendly(ex));
             });}
         });
@@ -3400,8 +3630,8 @@ public final class MainActivity extends Activity {
     JSONObject current(){for(int i=0;i<queue.length();i++)if(queue.optJSONObject(i).optString("id").equals(currentID))return queue.optJSONObject(i);return null;}
     String iconLabel(String icon){switch(icon){case "⌕":return "Поиск музыки";case "☰":return "Открыть меню";case "⋯":return "Действия с треком";case "⌄":return "Свернуть плеер";case "×":return "Закрыть";case "|‹":return "Предыдущий трек";case "›|":return "Следующий трек";case "♡":case "♥":return "Избранное";case "⇄":return "Перемешать";case "↻":return "Повтор";default:return "Воспроизведение";}}
     void openPlayer(){
-        JSONObject track=current();if(track==null)return;full=true;updateCoverBackdrop();
-        if(landscapeRail!=null)landscapeRail.setVisibility(View.GONE);if(atmosphere!=null)atmosphere.setVisibility(View.GONE);if(ribbon!=null){ribbon.running(false);ribbon.setVisibility(View.GONE);}dock.setVisibility(View.GONE);headerHost.setVisibility(View.GONE);body.removeAllViews();
+        JSONObject track=current();if(track==null)return;if(!full)retainCollectionPosition();full=true;updateCoverBackdrop();
+        if(landscapeRail!=null)landscapeRail.setVisibility(View.GONE);if(atmosphere!=null)atmosphere.setVisibility(View.GONE);if(ribbon!=null){ribbon.running(false);ribbon.setVisibility(View.GONE);}dock.setVisibility(View.GONE);if(dockOverlay!=null)dockOverlay.setVisibility(View.GONE);headerHost.setVisibility(View.GONE);body.removeAllViews();
         LinearLayout top=row();
         TextView close=iconButton("⌄",()->{
             if(!android.animation.ValueAnimator.areAnimatorsEnabled()){
@@ -3567,12 +3797,12 @@ public final class MainActivity extends Activity {
         if(!visibleCover)return;
         JSONObject selected=current();
         String url=selected==null?"":selected.optString("cover_url");
-        if(artworkCache!=null)artworkCache.load(coverBackdrop,origin,url);
+        if(artworkCache!=null)artworkCache.loadTrack(coverBackdrop,origin,selected);
         else coverBackdrop.setImageDrawable(null);
     }
     void loadMiniCover(JSONObject track) {
         if (miniCover == null || artworkCache == null) return;
-        artworkCache.load(miniCover,origin,track==null?"":track.optString("cover_url"));
+        artworkCache.loadTrack(miniCover,origin,track);
     }
     void addCover(JSONObject track,LinearLayout parent) {
         boolean classic="classic".equals(getSharedPreferences("appearance",MODE_PRIVATE)
@@ -3615,7 +3845,7 @@ public final class MainActivity extends Activity {
         layout.topMargin=dp(classic?7:0);
         layout.bottomMargin=dp(classic?13:6);
         parent.addView(artwork,layout);
-        if(artworkCache!=null)artworkCache.load(cover,origin,track.optString("cover_url"));
+        if(artworkCache!=null)artworkCache.loadTrack(cover,origin,track);
     }
     String[] trackNames(JSONArray items){String[] names=new String[items.length()];for(int i=0;i<names.length;i++)names[i]=items.optJSONObject(i).optString("title");return names;}
     JSONObject cachedLyrics(String id)throws Exception {
@@ -4166,6 +4396,8 @@ public final class MainActivity extends Activity {
         String id=track.optString("id");
         final boolean video=foundClip(track)!=null;
         java.util.List<String> actionsList=new java.util.ArrayList<>();
+        actionsList.add("Играть следующим");
+        actionsList.add("Добавить в очередь");
         actionsList.add("Твой ритм по треку");
         actionsList.add(video?"Клип":"Найти клип");
         boolean downloaded=OfflineStore.audio(this,origin,user,id)!=null;
@@ -4178,16 +4410,15 @@ public final class MainActivity extends Activity {
             actionsList.add("Добавить в совместное прослушивание");
         nightwellOptions(track.optString("title","Действия с треком"),
             actionsList.toArray(new String[0]),chosen->{
-                if(chosen==0){seededRhythmByTrack(track);return;}
-                if(chosen==1){openClip(track);return;}
+                if(chosen==0){enqueueTrack(track,true);return;}
+                if(chosen==1){enqueueTrack(track,false);return;}
+                if(chosen==2){seededRhythmByTrack(track);return;}
+                if(chosen==3){openClip(track);return;}
                 if("Добавить в совместное прослушивание".equals(actionsList.get(chosen))){
-                    String room=togetherCode;
-                    if(room.isEmpty())return;
-                    task(()->api.request("api/together/rooms/"+room+"/queue","POST",
-                        new JSONObject().put("track_id",id)),v->status.setText("Трек добавлен в общую очередь"));
+                    addToTogetherQueue(track);
                     return;
                 }
-                int n=chosen-2;
+                int n=chosen-4;
                 if(n==0)toggleFavorite(track);
                 else if(n==1){
                     if(downloaded){
@@ -4211,8 +4442,43 @@ public final class MainActivity extends Activity {
                 }
             });
     }
+    void enqueueTrack(JSONObject track,boolean next){
+        if(track==null)return;
+        if(playback==null){Toast.makeText(this,"Аудиоплеер запускается. Повтори через секунду.",Toast.LENGTH_SHORT).show();return;}
+        try{
+            JSONObject requested=new JSONObject(track.toString());
+            String id=requested.optString("id");
+            String owner=requested.optString("_offline_account",user.isEmpty()?"device":user);
+            boolean downloaded=OfflineStore.audio(this,origin,owner,id)!=null;
+            if(user.isEmpty()&&!downloaded){auth();return;}
+            if(downloaded){
+                requested.put("_offline",true).put("_offline_account",owner);
+            }else if(requested.optBoolean("_offline")||id.startsWith("local_")){
+                if(id.startsWith("local_")){
+                    Toast.makeText(this,"Аудиофайл недоступен. Добавь его заново через «Файлы».",Toast.LENGTH_LONG).show();
+                    return;
+                }
+                // A deleted download can still use its online source.
+                requested.put("_offline",false);
+                requested.remove("_offline_account");
+            }
+            if(!playback.enqueue(requested,next)){
+                String reason=playback.enqueueError();
+                Toast.makeText(this,reason.isEmpty()?"Не удалось добавить трек в очередь.":reason,Toast.LENGTH_LONG).show();
+                return;
+            }
+            // Moving an existing ID keeps the count unchanged. Refresh the
+            // cached queue explicitly rather than waiting for a track change.
+            queue=new JSONObject(playback.snapshot(true)).optJSONArray("queueTracks");
+            if(queue==null)queue=new JSONArray();
+            updatePlayback();
+            publishLive(false);
+            Toast.makeText(this,next?"Будет играть следующим":"Добавлено в очередь",Toast.LENGTH_SHORT).show();
+        }catch(Exception failure){Toast.makeText(this,"Не удалось добавить трек в очередь.",Toast.LENGTH_LONG).show();}
+    }
     private String playlistSnapshotKey(String id){return "playlist|"+origin+"|"+user+"|"+id;}
     void openPlaylist(JSONObject p){
+        retainCollectionPosition();lastLibraryScreen="Плейлисты";
         final int gen=++generation;api.cancelSearch();
         if(pendingSearch!=null)ui.removeCallbacks(pendingSearch);
         final String id=p.optString("id");
@@ -4554,6 +4820,35 @@ public final class MainActivity extends Activity {
         scroll.setVerticalScrollBarEnabled(false);
         scroll.addView(panel);
         if("Кастомизация".equals(page)){
+        TextView navigationStyle=sheetAction("Вкладки · "+(bottomNavigationEnabled()?"Под миниплеером":"Через меню"),()->{});
+        navigationStyle.setOnClickListener(view->nightwellOptions("Расположение вкладок",
+            new String[]{"Под миниплеером","Через меню"},option->{
+                retainCollectionPosition();
+                getSharedPreferences("appearance",MODE_PRIVATE).edit()
+                    .putString("nw-navigation-layout",option==1?"menu":"belowPlayer").apply();
+                navigationStyle.setText("Вкладки · "+(option==1?"Через меню":"Под миниплеером"));
+                build();
+            }));
+        panel.addView(navigationStyle);
+        android.widget.Switch pausedAmbient=new android.widget.Switch(this);
+        pausedAmbient.setText("Переливание фона на паузе");styleSwitch(pausedAmbient);
+        pausedAmbient.setChecked(getSharedPreferences("appearance",MODE_PRIVATE).getBoolean("nw-ambient-animate-when-paused",true));
+        pausedAmbient.setOnCheckedChangeListener((button,checked)->{
+            getSharedPreferences("appearance",MODE_PRIVATE).edit().putBoolean("nw-ambient-animate-when-paused",checked).apply();applyAmbientOptions();
+        });panel.addView(pausedAmbient);
+        float sensitivity=getSharedPreferences("appearance",MODE_PRIVATE).getFloat("nw-ambient-audio-sensitivity",4f);
+        TextView sensitivityLabel=text(String.format(java.util.Locale.ROOT,"Чувствительность активного фона · %.2fx",sensitivity),14);panel.addView(sensitivityLabel);
+        SeekBar sensitivitySlider=new SeekBar(this);sensitivitySlider.setMax(14);
+        sensitivitySlider.setProgress(Math.round((Math.max(.5f,Math.min(4f,sensitivity))-.5f)*4));
+        sensitivitySlider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
+            public void onProgressChanged(SeekBar bar,int progress,boolean fromUser){
+                float value=.5f+progress*.25f;
+                sensitivityLabel.setText(String.format(java.util.Locale.ROOT,"Чувствительность активного фона · %.2fx",value));
+                if(fromUser){getSharedPreferences("appearance",MODE_PRIVATE).edit().putFloat("nw-ambient-audio-sensitivity",value).apply();applyAmbientOptions();}
+            }
+            public void onStartTrackingTouch(SeekBar bar){}
+            public void onStopTrackingTouch(SeekBar bar){}
+        });panel.addView(sensitivitySlider);
         final String currentCoverStyle=getSharedPreferences("appearance",MODE_PRIVATE)
             .getString("nw-cover-style","immersive");
         TextView coverStyleButton=sheetAction(
@@ -4650,7 +4945,7 @@ public final class MainActivity extends Activity {
             public void onProgressChanged(SeekBar bar,int progress,boolean fromUser){
                 int seconds=values[Math.min(values.length-1,Math.max(0,progress))];
                 bufferLabel.setText("Буфер потока · "+(seconds==0?"Быстрый (1 с)":seconds+" с"));
-                if(fromUser)getSharedPreferences("playback",MODE_PRIVATE).edit().putInt("nw-stream-buffer-seconds",seconds).apply();
+                if(fromUser){if(playback!=null)playback.settingStreamBufferSeconds(seconds);else getSharedPreferences("playback",MODE_PRIVATE).edit().putInt("nw-stream-buffer-seconds",seconds).apply();}
             }
             public void onStartTrackingTouch(SeekBar bar){}
             public void onStopTrackingTouch(SeekBar bar){}
@@ -4678,7 +4973,7 @@ public final class MainActivity extends Activity {
         panel.addView(equalVolume);
         TextView loudnessHint=text("Выравнивает громкие записи по измеренному звуку без дополнительных сетевых запросов.",12);
         loudnessHint.setTextColor(0xffa3a3ae);panel.addView(loudnessHint);
-        TextView hint=text("Быстрый режим уменьшает ожидание звука, 8–12 с помогают при нестабильной сети. Изменение применяется после полного перезапуска Nightwell Music.",12);
+        TextView hint=text("Быстрый режим уменьшает ожидание звука, 8–12 с помогают при нестабильной сети. Изменение применяется сразу, без перезапуска музыки.",12);
         hint.setTextColor(0xffa3a3ae);hint.setPadding(0,0,0,dp(12));panel.addView(hint);
         TextView metrics=text("Диагностика: "+(playback==null?"Плеер запускается":playback.playbackDiagnostics()),12);
         metrics.setTextColor(0xffbcbcc3);panel.addView(metrics);
@@ -4713,7 +5008,14 @@ public final class MainActivity extends Activity {
         view.setText(premiumFeatureLabel(title));
     }
     boolean premiumAllowed(){return !user.isEmpty()&&user.equals(premiumOwner)&&System.currentTimeMillis()<premiumUntil;}
+    private void applyAmbientOptions(){
+        if(ribbon==null)return;
+        android.content.SharedPreferences preferences=getSharedPreferences("appearance",MODE_PRIVATE);
+        ribbon.setAmbientOptions(preferences.getBoolean("nw-ambient-animate-when-paused",true),
+            preferences.getFloat("nw-ambient-audio-sensitivity",4f));
+    }
     void applyPremium(){
+        applyAmbientOptions();
         boolean allowed=premiumAllowed();double[] values=new double[5];JSONArray raw=premiumPrefs.optJSONArray("bands");if(allowed&&raw!=null)for(int i=0;i<5;i++)values[i]=raw.optDouble(i,0);
         if(playback!=null)playback.premiumEqualizer.set(values,allowed?premiumUntil:0);
         if(ribbon!=null){ribbon.premiumSpeed=allowed?premiumPrefs.optDouble("ribbon_speed",1):1;ribbon.premiumIntensity=allowed?premiumPrefs.optDouble("ribbon_intensity",1):1;ribbon.premiumTheme=allowed?premiumPrefs.optString("theme","nightwell"):"nightwell";ribbon.colorSpeed=allowed?getSharedPreferences("aura-color-speed",MODE_PRIVATE).getFloat(user,1):1;}
@@ -4946,10 +5248,103 @@ public final class MainActivity extends Activity {
             io.execute(()->{boolean ok=false;try{JSONObject result=api.request("api/premium/lava/cancel-renewal","POST",new JSONObject());ok="disabled".equals(result.optString("auto_renewal"));}catch(Exception ignored){}
                 final boolean confirmed=ok;ui.post(()->{if(isDestroyed()||!dialog.isShowing()||!owner.equals(user))return;renewalCancel.setEnabled(true);renewalNote.setText(confirmed?"Автопродление отключено. Оплаченный срок сохранён.":"Lava не подтвердила отмену.");if(confirmed)renewalCancel.setVisibility(View.GONE);});});
         }).show());
-        Runnable check=()->{if(checking[0]||!dialog.isShowing())return;checking[0]=true;refresh.setEnabled(false);String owner=user;io.execute(()->{
-            String message,renewalText="";long expiry=0;boolean allowCancel=false;try{JSONObject value=api.request("api/premium/me");expiry=value.optBoolean("premium")?(long)(value.optDouble("expires_at",0)*1000):0;message=expiry>System.currentTimeMillis()?"":value.optBoolean("test_premium")?"Тестовый платёж подтверждён; платная подписка не активирована.":"Активной подписки нет.";if(expiry>System.currentTimeMillis())try{JSONObject renewal=api.request("api/premium/lava/renewal");boolean subscribed=renewal.optBoolean("has_lava_subscription"),disabled="disabled".equals(renewal.optString("auto_renewal"));allowCancel=subscribed&&!disabled;renewalText=disabled?"Автопродление отключено":subscribed?"Статус автопродления не подтверждён":"Автопродление не требуется";}catch(Exception e){renewalText="Статус автопродления недоступен";}}catch(Exception e){message="Статус недоступен. Войдите в аккаунт и проверьте соединение.";}
-            final String result=message,renewalLabel=renewalText;final long until=expiry;final boolean showCancel=allowCancel;ui.post(()->{checking[0]=false;if(isDestroyed()||!dialog.isShowing())return;refresh.setEnabled(true);if(!owner.equals(user)){consent.setChecked(false);note.setText("Аккаунт изменился. Откройте Premium заново.");return;}boolean enabled=until>System.currentTimeMillis();active.setVisibility(enabled?View.VISIBLE:View.GONE);summary.setVisibility(enabled?View.GONE:View.VISIBLE);read.setVisibility(enabled?View.GONE:View.VISIBLE);terms.setVisibility(View.GONE);consent.setVisibility(enabled?View.GONE:View.VISIBLE);pay.setVisibility(enabled?View.GONE:View.VISIBLE);refresh.setText(enabled?"Обновить статус":"Проверить оплату");for(int i=0;i<panel.getChildCount();i++){View child=panel.getChildAt(i);if(child!=active&&child!=note&&child!=refresh)child.setVisibility(enabled?View.GONE:View.VISIBLE);}terms.setVisibility(View.GONE);renewalNote.setText(enabled?renewalLabel:"");renewalCancel.setVisibility(enabled&&showCancel?View.VISIBLE:View.GONE);activeDate.setText(enabled?"Активна до "+java.text.DateFormat.getDateInstance(java.text.DateFormat.LONG,new java.util.Locale("ru","RU")).format(new java.util.Date(until)):"");if(enabled){checkmark.setScaleX(.45f);checkmark.setScaleY(.45f);checkmark.setAlpha(0f);checkmark.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(420).start();}note.setText(result);});
-        });};
+        Runnable check=()->{
+            if(checking[0]||!dialog.isShowing())return;
+            checking[0]=true;refresh.setEnabled(false);
+            final String owner=user;
+            io.execute(()->{
+                String message,renewalText="";
+                long expiry=0;
+                boolean verified=false,allowCancel=false;
+                JSONObject preferences=null;
+                try{
+                    // Keep cached entitlement independent of payment-provider availability.
+                    JSONObject value=api.request("api/premium/me");
+                    if(!value.optBoolean("premium")){
+                        JSONObject payment=null;
+                        try{
+                            payment=api.request("api/premium/lava/verify","POST",new JSONObject());
+                        }catch(Exception ignored){
+                            // Older servers may not support verification. Use the cached status.
+                        }
+                        if(payment!=null&&payment.optDouble("expires_at",0)*1000>System.currentTimeMillis())
+                            value=api.request("api/premium/me");
+                    }
+                    expiry=value.optBoolean("premium")?(long)(value.optDouble("expires_at",0)*1000):0;
+                    verified=true;
+                    message=expiry>System.currentTimeMillis()?"":value.optBoolean("test_premium")?
+                        "Тестовый платёж подтверждён; платная подписка не активирована.":"Активной подписки нет.";
+                    if(expiry>System.currentTimeMillis()){
+                        try{
+                            preferences=api.request("api/premium/preferences").optJSONObject("preferences");
+                        }catch(Exception ignored){
+                            // Optional preferences never revoke an otherwise confirmed subscription.
+                        }
+                        try{
+                            JSONObject renewal=api.request("api/premium/lava/renewal");
+                            boolean subscribed=renewal.optBoolean("has_lava_subscription"),
+                                disabled="disabled".equals(renewal.optString("auto_renewal"));
+                            allowCancel=subscribed&&!disabled;
+                            renewalText=disabled?"Автопродление отключено":subscribed?
+                                "Статус автопродления не подтверждён":"Автопродление не требуется";
+                        }catch(Exception e){renewalText="Статус автопродления недоступен";}
+                    }
+                }catch(Exception e){
+                    message="Статус недоступен. Войдите в аккаунт и проверьте соединение.";
+                }
+                final String result=message,renewalLabel=renewalText;
+                final long until=expiry;
+                final boolean confirmed=verified,showCancel=allowCancel;
+                final JSONObject confirmedPreferences=preferences;
+                ui.post(()->{
+                    checking[0]=false;
+                    if(isDestroyed()||!owner.equals(user)){
+                        if(!isDestroyed()&&dialog.isShowing()){
+                            refresh.setEnabled(true);consent.setChecked(false);
+                            note.setText("Аккаунт изменился. Откройте Premium заново.");
+                        }
+                        return;
+                    }
+                    if(confirmed){
+                        if(!owner.equals(premiumOwner))premiumPrefs=new JSONObject();
+                        premiumOwner=owner;premiumUntil=until;premiumVerified=true;
+                        premiumChecked=System.currentTimeMillis();
+                        if(confirmedPreferences!=null)premiumPrefs=confirmedPreferences;
+                        else if(!premiumAllowed())premiumPrefs=new JSONObject();
+                        applyPremium();
+                    }
+                    if(!dialog.isShowing())return;
+                    refresh.setEnabled(true);
+                    // A failed refresh must preserve the last verified active tier and UI.
+                    long displayedUntil=confirmed?until:(premiumAllowed()?premiumUntil:0);
+                    boolean enabled=displayedUntil>System.currentTimeMillis();
+                    active.setVisibility(enabled?View.VISIBLE:View.GONE);
+                    summary.setVisibility(enabled?View.GONE:View.VISIBLE);
+                    read.setVisibility(enabled?View.GONE:View.VISIBLE);
+                    consent.setVisibility(enabled?View.GONE:View.VISIBLE);
+                    pay.setVisibility(enabled?View.GONE:View.VISIBLE);
+                    refresh.setText(enabled?"Обновить статус":"Проверить оплату");
+                    for(int i=0;i<panel.getChildCount();i++){
+                        View child=panel.getChildAt(i);
+                        if(child!=active&&child!=note&&child!=refresh)
+                            child.setVisibility(enabled?View.GONE:View.VISIBLE);
+                    }
+                    terms.setVisibility(View.GONE);
+                    if(confirmed||!enabled){
+                        renewalNote.setText(enabled?renewalLabel:"");
+                        renewalCancel.setVisibility(enabled&&showCancel?View.VISIBLE:View.GONE);
+                    }
+                    activeDate.setText(enabled?"Активна до "+java.text.DateFormat.getDateInstance(
+                        java.text.DateFormat.LONG,new java.util.Locale("ru","RU"))
+                        .format(new java.util.Date(displayedUntil)):"");
+                    if(enabled&&confirmed){
+                        checkmark.setScaleX(.45f);checkmark.setScaleY(.45f);checkmark.setAlpha(0f);
+                        checkmark.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(420).start();
+                    }
+                    note.setText(result);
+                });
+            });
+        };
         refresh.setOnClickListener(v->check.run());premiumRefresh=check;dialog.setOnDismissListener(d->{if(premiumRefresh==check)premiumRefresh=null;});dialog.show();check.run();
     }
     private AlertDialog activeAuthDialog;
@@ -5003,7 +5398,7 @@ public final class MainActivity extends Activity {
         });
     }
     android.view.GestureDetector gestures(boolean expanded){return new android.view.GestureDetector(this,new android.view.GestureDetector.SimpleOnGestureListener(){public boolean onDown(android.view.MotionEvent e){return true;}public boolean onSingleTapUp(android.view.MotionEvent e){if(!expanded)openPlayer();return true;}public boolean onFling(android.view.MotionEvent start,android.view.MotionEvent end,float vx,float vy){if(start==null||end==null)return false;float dx=end.getX()-start.getX(),dy=end.getY()-start.getY();if(Math.abs(dx)>dp(65)&&Math.abs(dx)>Math.abs(dy)*1.25f){if(playback==null)return false;if(dx<0)nextTrack();else previous();return true;}if(expanded&&dy>dp(90)&&dy>Math.abs(dx)*1.35f){full=false;build();return true;}return false;}});}
-    @Override public void onBackPressed(){if(backgroundOnly){backgroundOnly=false;build();}else if(full){full=false;build();}else if(!screen.equals("Главная"))navigate("Главная");else super.onBackPressed();}
+    @Override public void onBackPressed(){if(backgroundOnly){backgroundOnly=false;build();}else if(full){full=false;build();}else if(!selectedPlaylist.isEmpty())navigate("Плейлисты");else if(isCollectionScreen()&&!"Медиатека".equals(screen))navigate("Медиатека");else if(!screen.equals("Главная"))navigate("Главная");else super.onBackPressed();}
     void importFiles(){Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("audio/*").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true);startActivityForResult(i,72);}
     void handleAudioImportResult(int request,int result,Intent data){if(request!=72||result!=RESULT_OK||data==null)return;ArrayList<Uri> uris=new ArrayList<>();if(data.getClipData()!=null)for(int i=0;i<data.getClipData().getItemCount();i++)uris.add(data.getClipData().getItemAt(i).getUri());else if(data.getData()!=null)uris.add(data.getData());io.execute(()->{for(Uri uri:uris)try{OfflineStore.importFile(this,origin,uri);}catch(Exception ex){ui.post(()->status.setText("Не удалось импортировать файл"));}ui.post(()->navigate("Офлайн"));});}
     // All four library screens use the same recyclable cover-first row.
@@ -5076,7 +5471,7 @@ public final class MainActivity extends Activity {
             // ArtworkCache uses the target ImageView tag to discard stale
             // asynchronous results after a row has been recycled.
             if(artworkCache!=null)
-                artworkCache.load(holder.cover,origin,track.optString("cover_url"));
+                artworkCache.loadTrack(holder.cover,origin,track);
             else holder.cover.setImageDrawable(null);
             holder.cover.setContentDescription("Обложка: "+
                 track.optString("title","трек"));
@@ -5102,10 +5497,16 @@ public final class MainActivity extends Activity {
     }
     private String favoriteOrder="recent";
     private void favoriteSortMenu(){
-        loadPremium(()->{
-            if(!premiumAllowed()){premium();return;}
-            String[] variants={"Недавние","По названию","По исполнителю"};
-            nightwellOptions(premiumFeatureLabel("Сортировка"),variants,index->{favoriteOrder=new String[]{"recent","title","artist"}[index];selectMenu("Избранное");});
+        String[] variants={"Недавние","По названию","По исполнителю"};
+        nightwellOptions("Сортировка",variants,index->{
+            Runnable apply=()->{
+                favoriteOrder=new String[]{"recent","title","artist"}[index];
+                libraryPositions.remove("Избранное");displayedCollectionScreen="";
+                savedCollectionFirst=0;savedCollectionTop=0;
+                showScreen();
+            };
+            if(index==0||premiumAllowed())apply.run();
+            else loadPremium(()->{if(premiumAllowed())apply.run();else premium();});
         });
     }
     private JSONArray sortedFavorites(JSONArray items){

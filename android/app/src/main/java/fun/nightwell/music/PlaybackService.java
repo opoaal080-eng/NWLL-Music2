@@ -52,7 +52,34 @@ public final class PlaybackService extends MediaSessionService {
     private CacheDataSource.Factory cachedSources;
     private final ExecutorService audioPrefetchIO = Executors.newSingleThreadExecutor();
     private volatile int audioPrefetchGeneration = 0;
-    private int bufferChoiceSeconds = 0; // 0 means the existing fast 1-second initial buffer
+    private volatile int bufferChoiceSeconds = 0; // Read by ExoPlayer's playback threads.
+
+    // Keep the normal allocator/loading policy, but read the current startup
+    // threshold instead of baking a preference into a replacement player.
+    private final class AdjustableBufferLoadControl extends androidx.media3.exoplayer.DefaultLoadControl {
+        private final int minimumRebufferMs;
+        AdjustableBufferLoadControl(int minBufferMs,int maxBufferMs,int minimumRebufferMs){
+            super(new androidx.media3.exoplayer.upstream.DefaultAllocator(true,C.DEFAULT_BUFFER_SEGMENT_SIZE),
+                minBufferMs,maxBufferMs,1000,minimumRebufferMs,C.LENGTH_UNSET,true,0,false);
+            this.minimumRebufferMs=minimumRebufferMs;
+        }
+        @Override public boolean shouldStartPlayback(androidx.media3.exoplayer.LoadControl.Parameters parameters){
+            int selected=bufferChoiceSeconds;
+            long thresholdUs=(selected==0?1000:selected*1000)*1000L;
+            if(parameters.rebuffering)thresholdUs=Math.max(thresholdUs,minimumRebufferMs*1000L);
+            if(parameters.targetLiveOffsetUs!=C.TIME_UNSET)
+                thresholdUs=Math.min(thresholdUs,parameters.targetLiveOffsetUs/2);
+            long bufferedUs=androidx.media3.common.util.Util.getPlayoutDurationForMediaDuration(
+                parameters.bufferedDurationUs,parameters.playbackSpeed);
+            return thresholdUs<=0||bufferedUs>=thresholdUs;
+        }
+    }
+
+    void settingStreamBufferSeconds(int seconds){
+        bufferChoiceSeconds=seconds==4||seconds==8||seconds==12?seconds:0;
+        getSharedPreferences("playback",MODE_PRIVATE).edit()
+            .putInt("nw-stream-buffer-seconds",bufferChoiceSeconds).apply();
+    }
 
     // Stage the next item on a silent ExoPlayer. The live queue remains untouched
     // until the candidate decoder has reached READY, even on slow HLS sources.
@@ -63,6 +90,8 @@ public final class PlaybackService extends MediaSessionService {
     private String pendingNextId = "";
     private Runnable pendingNextTimeout;
     private final FailedNextSkipPolicy failedNext=new FailedNextSkipPolicy();
+    private final HashSet<String> queuedIds=new HashSet<>();
+    private String lastEnqueueError="";
 
     private String activeMediaId(){
         MediaItem item=player==null?null:player.getCurrentMediaItem();
@@ -173,10 +202,10 @@ public final class PlaybackService extends MediaSessionService {
         pendingNextId = candidate.mediaId; error = "";
         int ticket = ++pendingNextGeneration;
         try {
+            // The maximum selectable 12-second threshold must fit below the
+            // minimum loading watermark, including after a live setting change.
             androidx.media3.exoplayer.DefaultLoadControl loadControl =
-                new androidx.media3.exoplayer.DefaultLoadControl.Builder()
-                    .setBufferDurationsMs(10000,20000,1000,1500)
-                    .setPrioritizeTimeOverSizeThresholds(true).build();
+                new AdjustableBufferLoadControl(12000,20000,1500);
             ExoPlayer stage = new ExoPlayer.Builder(this)
                 .setLoadControl(loadControl).setMediaSourceFactory(fileSources).build();
             stage.setAudioAttributes(new AudioAttributes.Builder()
@@ -444,10 +473,8 @@ public final class PlaybackService extends MediaSessionService {
         // on bursty HLS streams. Keep a larger safety margin after rebuffers.
         // Keep Android's existing 1-second fast mode as the default. Other choices
         // increase the startup margin without reducing the 3-second rebuffer reserve.
-        int playbackBufferMs = bufferChoiceSeconds == 0 ? 1000 : bufferChoiceSeconds * 1000;
-        androidx.media3.exoplayer.DefaultLoadControl buffering = new androidx.media3.exoplayer.DefaultLoadControl.Builder()
-            .setBufferDurationsMs(20000,60000,playbackBufferMs,Math.max(3000,playbackBufferMs))
-            .setPrioritizeTimeOverSizeThresholds(true).build();
+        androidx.media3.exoplayer.DefaultLoadControl buffering =
+            new AdjustableBufferLoadControl(20000,60000,3000);
         player = new ExoPlayer.Builder(this,renderers).setLoadControl(buffering).setMediaSourceFactory(fileSources).build();
         player.setAudioAttributes(new AudioAttributes.Builder().setUsage(C.USAGE_MEDIA)
                 .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(),true);
@@ -456,6 +483,7 @@ public final class PlaybackService extends MediaSessionService {
         player.addListener(new Player.Listener() {
             @Override public void onMediaItemTransition(MediaItem item,int reason) {
                 cancelPreparedNext();
+                retainUpcomingQueuedIds();
                 failedNext.clear();
                 cancelBufferingWatchdog();
                 bufferingTrack="";
@@ -603,10 +631,113 @@ public final class PlaybackService extends MediaSessionService {
         int count=player.getMediaItemCount();
         if(from<=current||to<=current||from<0||to<0||
            from>=count||to>=count||from==to)return;
+        if(to==current+1) {
+            Bundle extras=player.getMediaItemAt(from).mediaMetadata.extras;
+            if(extras!=null)try{enqueue(new JSONObject(extras.getString("track","{}")),true);}catch(Exception ignored){}
+            return;
+        }
         cancelPreparedNext();
         failedNext.clear();
         player.moveMediaItem(from,to);
+        rebuildQueueArtists();
         persistPlayback(true);
+    }
+
+    String enqueueError(){return lastEnqueueError;}
+
+    // Edit the live playlist in place: never reset or seek its current decoder.
+    // Manual requests form a FIFO prefix ahead of the remaining source tracks.
+    public boolean enqueue(JSONObject rawTrack,boolean next) {
+        lastEnqueueError="";
+        if(player==null||rawTrack==null){lastEnqueueError="Аудиоплеер ещё запускается.";return false;}
+        if(nextPreparing||pendingWaveNext){lastEnqueueError="Дождись переключения трека и добавь ещё раз.";return false;}
+        if(pendingStreamRetry!=null){lastEnqueueError="Плеер восстанавливает соединение. Добавь трек после подключения.";return false;}
+        try {
+            JSONObject track=new JSONObject(rawTrack.toString());
+            String id=track.optString("id");
+            if(!id.matches("[A-Za-z0-9_-]{1,80}")){lastEnqueueError="Этот трек недоступен.";return false;}
+            if(id.equals(activeMediaId())){lastEnqueueError="Этот трек уже играет.";return false;}
+            if(player.getMediaItemCount()==0) {
+                String base=origin.isEmpty()?"https://music.nightwell.fun/":origin;
+                String account=getSharedPreferences("native-api",MODE_PRIVATE).getString("account","");
+                prepare(new JSONObject().put("origin",base).put("account",account.isEmpty()?"device":account)
+                    .put("id",id).put("queue",new JSONArray().put(track)).toString());
+                if(!id.equals(activeMediaId())){lastEnqueueError=error.isEmpty()?"Этот аудиофайл недоступен.":error;return false;}
+                // prepare leaves playWhenReady false, including a first queue.
+                persistPlayback(true);
+                return true;
+            }
+            ArrayList<String> priorIds=queueIds();
+            ManualPlaybackQueue.Edit edit=ManualPlaybackQueue.insert(id,priorIds,
+                player.getCurrentMediaItemIndex(),queuedIds,next,1000);
+            if(edit==null){lastEnqueueError="Очередь заполнена. Удали лишние треки перед добавлением.";return false;}
+            // Resolve/validate before mutating anything, especially offline files.
+            MediaSource requested=mediaSource(mediaItem(track,origin));
+            java.util.List<String> priorShuffle=shuffleTraversal();
+            // ExoPlayer may retain playWhenReady at the end of a source. A
+            // playlist insertion must not restart completed playback by itself.
+            if(player.getPlaybackState()==Player.STATE_ENDED)player.setPlayWhenReady(false);
+            for(int i=player.getMediaItemCount()-1;i>=0;i--)
+                if(id.equals(player.getMediaItemAt(i).mediaId))player.removeMediaItem(i);
+            int insertion=edit.ids.indexOf(id);
+            player.addMediaSource(insertion,requested);
+            // Normalize an existing manual prefix without moving the current item.
+            for(int target=edit.currentIndex+1;target<edit.ids.size();target++) {
+                String desired=edit.ids.get(target);
+                if(desired.equals(player.getMediaItemAt(target).mediaId))continue;
+                for(int source=target+1;source<player.getMediaItemCount();source++)
+                    if(desired.equals(player.getMediaItemAt(source).mediaId)){
+                        player.moveMediaItem(source,target);break;
+                    }
+            }
+            queuedIds.clear();queuedIds.addAll(edit.queuedIds);
+            rebuildQueueArtists();
+            prioritizeQueuedShuffle(priorShuffle);
+            audioPrefetchGeneration++;
+            if(player.isPlaying())scheduleNextFilePrefetch();
+            persistPlayback(true);
+            return true;
+        }catch(Exception failure){lastEnqueueError="Не удалось добавить трек. Проверь, доступен ли аудиофайл.";return false;}
+    }
+
+    private ArrayList<String> queueIds() {
+        ArrayList<String> ids=new ArrayList<>();
+        for(int i=0;i<player.getMediaItemCount();i++)ids.add(player.getMediaItemAt(i).mediaId);
+        return ids;
+    }
+
+    private void retainUpcomingQueuedIds() {
+        HashSet<String> upcoming=new HashSet<>();
+        for(int i=player.getCurrentMediaItemIndex()+1;i<player.getMediaItemCount();i++)
+            upcoming.add(player.getMediaItemAt(i).mediaId);
+        queuedIds.retainAll(upcoming);
+    }
+
+    private void rebuildQueueArtists() {
+        ArrayList<String> artists=new ArrayList<>();
+        for(int i=0;i<player.getMediaItemCount();i++){
+            CharSequence artist=player.getMediaItemAt(i).mediaMetadata.artist;
+            artists.add(artist==null?"":artist.toString().toLowerCase(java.util.Locale.ROOT));
+        }
+        queueArtists=artists;
+    }
+
+    private java.util.List<String> shuffleTraversal() {
+        ArrayList<String> traversal=new ArrayList<>();
+        androidx.media3.common.Timeline timeline=player.getCurrentTimeline();
+        int index=timeline.getFirstWindowIndex(true);
+        HashSet<Integer> visited=new HashSet<>();
+        while(index!=C.INDEX_UNSET&&index>=0&&index<player.getMediaItemCount()&&visited.add(index)){
+            traversal.add(player.getMediaItemAt(index).mediaId);
+            index=timeline.getNextWindowIndex(index,Player.REPEAT_MODE_OFF,true);
+        }
+        return traversal;
+    }
+
+    private void prioritizeQueuedShuffle(java.util.List<String> priorTraversal) {
+        if(!player.getShuffleModeEnabled()||queuedIds.isEmpty()||player.getCurrentMediaItem()==null)return;
+        int[] order=ManualPlaybackQueue.shuffleOrder(queueIds(),player.getCurrentMediaItemIndex(),queuedIds,priorTraversal);
+        player.setShuffleOrder(new androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder(order,System.nanoTime()));
     }
     void prepare(String json) {
         cancelPreparedNext();
@@ -660,8 +791,14 @@ public final class PlaybackService extends MediaSessionService {
             if(!waveActive||!nextWave)waveSeen.clear();
             waveActive=nextWave;waveGeneration++;waveLoading=false;waveRetryAt=0;
             if(waveActive){player.setRepeatMode(Player.REPEAT_MODE_OFF);player.setShuffleModeEnabled(false);}
+            queuedIds.clear();
             queueArtists=selectedArtists;
             player.setMediaSources(items,selected,Math.max(0,data.optLong("position",0)));
+            JSONArray manual=data.optJSONArray("queuedIds");
+            if(manual==null)manual=data.optJSONArray("queued_ids");
+            if(manual!=null)for(int i=0;i<manual.length();i++)queuedIds.add(manual.optString(i));
+            retainUpcomingQueuedIds();
+            prioritizeQueuedShuffle(shuffleTraversal());
             player.prepare();
         } catch (Exception ex) { error="Не удалось загрузить очередь."; }
     }
@@ -676,7 +813,7 @@ public final class PlaybackService extends MediaSessionService {
         player.play();refillWave();
     }
     void pause() { cancelPreparedNext(); cancelStreamRetry(); capturePausePosition(); player.pause(); }
-    void stop() { cancelBufferingWatchdog(); cancelPreparedNext(); audioPrefetchGeneration++; pausedPositionMs=-1; lastGoodPositionMs=0; cancelStreamRetry(); retriedTrackId = ""; streamRetryCount = 0; waveActive=false;cancelWaveRequest();waveSeen.clear();player.stop();player.clearMediaItems();
+    void stop() { cancelBufferingWatchdog(); cancelPreparedNext(); audioPrefetchGeneration++; pausedPositionMs=-1; lastGoodPositionMs=0; cancelStreamRetry(); retriedTrackId = ""; streamRetryCount = 0; waveActive=false;cancelWaveRequest();waveSeen.clear();queuedIds.clear();player.stop();player.clearMediaItems();
         if(audioCache!=null)for(String key:new HashSet<>(audioCache.getKeys()))if(key.startsWith(cacheScope+"|"))try{audioCache.removeResource(key);}catch(Exception ignored){}
     }
     void seek(double seconds) {
@@ -742,6 +879,7 @@ public final class PlaybackService extends MediaSessionService {
         else if(!waveActive&&shuffleMode==1)player.setShuffleOrder(
             new androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder(player.getMediaItemCount()));
         player.setShuffleModeEnabled(!waveActive&&shuffleMode!=0);
+        prioritizeQueuedShuffle(shuffleTraversal());
     }
     private MediaSource mediaSource(MediaItem item) {
         if(item.localConfiguration!=null && "file".equals(item.localConfiguration.uri.getScheme()))return new DefaultMediaSourceFactory(new androidx.media3.datasource.DefaultDataSource.Factory(this)).createMediaSource(item);
@@ -856,6 +994,7 @@ public final class PlaybackService extends MediaSessionService {
                     int remove=Math.max(0,player.getCurrentMediaItemIndex()-5);
                     if(remove>0)player.removeMediaItems(0,remove);
                     int firstNew=player.getMediaItemCount();player.addMediaSources(fresh);error="";
+                    rebuildQueueArtists();
                     waveRetryAt=System.currentTimeMillis()+30000;
                     if(pendingWaveNext){pendingWaveNext=false;requestPreparedNext();}
                     else if(ended&&continuePlaying){player.seekTo(firstNew,0);player.prepare();player.play();}
@@ -948,6 +1087,10 @@ public final class PlaybackService extends MediaSessionService {
             JSONArray seeds=new JSONArray();
             if(!waveSeedArtists.isEmpty())for(String artist:waveSeedArtists.split(","))seeds.put(artist);
             state.put("wave_seed_artists",seeds);state.put("wave",waveActive);state.put("waveSupported",true);
+            JSONArray manual=new JSONArray();
+            for(int i=player.getCurrentMediaItemIndex()+1;i<player.getMediaItemCount();i++)
+                if(queuedIds.contains(player.getMediaItemAt(i).mediaId))manual.put(player.getMediaItemAt(i).mediaId);
+            state.put("queuedIds",manual);
             JSONArray fullQueue=new JSONArray();
             for(int i=0;includeQueue&&i<player.getMediaItemCount();i++){
                 Bundle extras=player.getMediaItemAt(i).mediaMetadata.extras;

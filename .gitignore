@@ -8,3 +8,8 @@ windows/client/ai/
 
 __pycache__/
 *.pyc
+
+# Local Android build outputs.
+android/.gradle/
+android/build/
+android/app/build/
