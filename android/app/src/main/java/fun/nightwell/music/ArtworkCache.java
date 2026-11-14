@@ -5,6 +5,7 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.util.LruCache;
 import android.widget.ImageView;
+import org.json.JSONObject;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.net.HttpURLConnection;
@@ -56,15 +57,73 @@ final class ArtworkCache {
     ArtworkCache(Context context) { this.context = context.getApplicationContext(); }
     private boolean valid(String path) { return path != null && path.startsWith("/api/covers/"); }
     private String key(String origin, String path) { return origin + path; }
+    /** Resolve track artwork while keeping authenticated cover requests on the server. */
+    void loadTrack(ImageView target, String origin, JSONObject track) {
+        if (track == null) { load(target, origin, null); return; }
+        String raw = track.optString("cover_url", "").trim();
+        if (raw.length() <= 2048 && valid(raw)) {
+            load(target, origin, raw);
+            return;
+        }
+        if (!raw.isEmpty() && raw.length() <= 2048) {
+            try {
+                URL url = new URL(raw);
+                if ("https".equalsIgnoreCase(url.getProtocol()) && url.getUserInfo() == null
+                        && !url.getHost().isEmpty()) {
+                    if (ServerAddress.sameOrigin(origin, url.toString()) && valid(url.getPath()))
+                        load(target, origin, url.getFile());
+                    else
+                        loadArtist(target, url.toExternalForm()); // Public HTTPS art carries no session cookie.
+                    return;
+                }
+            } catch (Exception ignored) {}
+        }
+        String id = track.optString("id", "");
+        boolean remote = ArtistAttribution.isRemote(track.optString("source", ""),
+            track.optString("source_url", ""), track.optBoolean("is_remote", false));
+        load(target, origin, remote && id.matches("[A-Za-z0-9_-]{1,160}")
+            ? "/api/covers/" + id : null);
+    }
+    /** Bind playlist and queue artwork from either a server path or an HTTPS URL. */
+    void loadCoverUrl(ImageView target, String origin, String raw) {
+        if (raw == null || raw.length() > 2048) {
+            load(target, origin, null);
+            return;
+        }
+        String value = raw.trim();
+        if (valid(value)) {
+            load(target, origin, value);
+            return;
+        }
+        try {
+            URL url = new URL(value);
+            if ("https".equalsIgnoreCase(url.getProtocol())
+                    && url.getUserInfo() == null && !url.getHost().isEmpty()) {
+                if (ServerAddress.sameOrigin(origin, url.toExternalForm()) && valid(url.getPath()))
+                    load(target, origin, url.getFile());
+                else
+                    loadArtist(target, url.toExternalForm());
+                return;
+            }
+        } catch (Exception ignored) {}
+        load(target, origin, null);
+    }
+
     void load(ImageView target, String origin, String path) {
         if (!valid(path)) { target.setTag(null); target.setImageDrawable(null); return; }
         String identity = key(origin,path);
-        if(identity.equals(target.getTag())&&target.getDrawable()!=null)return;
-        if(!identity.equals(target.getTag()))target.setImageDrawable(null);
+        if(identity.equals(target.getTag())&&memory.get(identity)!=null&&target.getDrawable()!=null)return;
+        // Keep the previous cover visible until the replacement is decoded,
+        // instead of flashing a blank square on every media transition.
         target.setTag(identity);
         Bitmap cached = memory.get(identity);
         if (cached != null) { target.setImageBitmap(cached); return; }
         if (temporarilyUnavailable(identity)) return;
+        target.postDelayed(() -> {
+            // Do not display the wrong artwork forever when a provider fails.
+            if(identity.equals(target.getTag())&&memory.get(identity)==null)
+                target.setImageDrawable(null);
+        },6500);
         CompletableFuture<Bitmap> job = request(origin,path);
         job.thenAccept(bitmap -> {
             if (bitmap == null) return;
@@ -157,7 +216,7 @@ final class ArtworkCache {
         Arrays.sort(files,Comparator.comparingLong(File::lastModified));
         for(int i=0;i<files.length-100;i++)files[i].delete();
     }
-    /** Load a server-approved HTTPS artist portrait, never track cover art. */
+    /** Load public HTTPS artwork without attaching the Nightwell session cookie. */
     void loadArtist(ImageView target, String imageUrl) {
         if (imageUrl == null || imageUrl.length() > 2048 || !imageUrl.startsWith("https://")) {
             target.setTag(null);
@@ -165,8 +224,7 @@ final class ArtworkCache {
             return;
         }
         String identity = "artist|" + imageUrl;
-        if(identity.equals(target.getTag())&&target.getDrawable()!=null)return;
-        if(!identity.equals(target.getTag()))target.setImageDrawable(null);
+        if(identity.equals(target.getTag())&&memory.get(identity)!=null&&target.getDrawable()!=null)return;
         target.setTag(identity);
         Bitmap cached = memory.get(identity);
         if (cached != null) {
@@ -174,6 +232,10 @@ final class ArtworkCache {
             return;
         }
         if (temporarilyUnavailable(identity)) return;
+        target.postDelayed(() -> {
+            if(identity.equals(target.getTag())&&memory.get(identity)==null)
+                target.setImageDrawable(null);
+        },6500);
         CompletableFuture<Bitmap> job = inFlight.computeIfAbsent(identity,
             key -> CompletableFuture.supplyAsync(() -> fetchArtistImage(imageUrl), io));
         job.whenComplete((bitmap, error) -> {

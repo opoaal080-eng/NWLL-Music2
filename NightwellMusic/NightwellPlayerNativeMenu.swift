@@ -11,6 +11,8 @@ struct NightwellPlayerNativeMenu: UIViewRepresentable {
     let onClip: (URL?, Track) -> Void
     let onHide: (Track) -> Void
     let onDownload: (Track) -> Void
+    let onEnqueue: (Track, Bool) -> Void
+    let onAddTogether: (Track) -> Void
     let onAddPlaylist: (Track, Playlist) -> Void
     let onQuality: (String) -> Void
     let onAnimationChanged: () -> Void
@@ -36,6 +38,8 @@ struct NightwellPlayerNativeMenu: UIViewRepresentable {
         coordinator.onClip = onClip
         coordinator.onHide = onHide
         coordinator.onDownload = onDownload
+        coordinator.onEnqueue = onEnqueue
+        coordinator.onAddTogether = onAddTogether
         coordinator.onAddPlaylist = onAddPlaylist
         coordinator.onQuality = onQuality
         coordinator.onAnimationChanged = onAnimationChanged
@@ -52,6 +56,8 @@ struct NightwellPlayerNativeMenu: UIViewRepresentable {
         var onClip: ((URL?, Track) -> Void)?
         var onHide: ((Track) -> Void)?
         var onDownload: ((Track) -> Void)?
+        var onEnqueue: ((Track, Bool) -> Void)?
+        var onAddTogether: ((Track) -> Void)?
         var onAddPlaylist: ((Track, Playlist) -> Void)?
         var onQuality: ((String) -> Void)?
         var onAnimationChanged: (() -> Void)?
@@ -88,6 +94,20 @@ struct NightwellPlayerNativeMenu: UIViewRepresentable {
                 })
             }
             if let track = snapshot?.track {
+                actions.append(UIAction(title: "Играть следующим",
+                                        image: UIImage(systemName: "text.line.first.and.arrowtriangle.forward")) { [weak self] _ in
+                    self?.onEnqueue?(track, true)
+                })
+                actions.append(UIAction(title: "Добавить в очередь",
+                                        image: UIImage(systemName: "text.badge.plus")) { [weak self] _ in
+                    self?.onEnqueue?(track, false)
+                })
+                if snapshot?.togetherJoined == true {
+                    actions.append(UIAction(title: "Добавить в совместное прослушивание",
+                                            image: UIImage(systemName: "person.2.wave.2")) { [weak self] _ in
+                        self?.onAddTogether?(track)
+                    })
+                }
                 actions.append(UIAction(title: "Твой ритм по треку",
                                         image: UIImage(systemName: "waveform.path")) { [weak self] _ in
                     self?.onSeededRhythm?(track)

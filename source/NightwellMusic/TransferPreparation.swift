@@ -19,10 +19,7 @@ enum TransferPreparation {
             guard !title.isEmpty, !artist.isEmpty, title.count <= 300, artist.count <= 300 else { throw fail("Проверь название и исполнителя трека") }
             var row: [String: Any] = ["title": title, "artist": artist]
             if let duration, duration.isFinite, duration > 0, duration < 86400 { row["duration"] = duration }
-            if let isrc {
-                let code = isrc.uppercased().trimmingCharacters(in: .whitespacesAndNewlines)
-                if code.range(of: #"^[A-Z]{2}[A-Z0-9]{3}[0-9]{7}$"#, options: .regularExpression) != nil { row["isrc"] = code }
-            }
+            if let code = TransferText.isrc(isrc) { row["isrc"] = code }
             tracks.append(row)
             guard tracks.count <= 1000 else { throw fail("Раздели список на части до 1000 треков") }
         }
@@ -81,7 +78,14 @@ enum TransferPreparation {
             }
         }
         var seen = Set<String>()
-        let unique = tracks.filter { seen.insert(key($0["artist"] as? String ?? "") + "\n" + key($0["title"] as? String ?? "")).inserted }
+        let unique = tracks.filter { row in
+            // Two recordings may have the same displayed title and credits.
+            // Preserve their ISRC identities instead of discarding one before
+            // the recording/version guards have a chance to match it.
+            let identity = (row["isrc"] as? String).map { "isrc:" + $0 }
+                ?? ("metadata:" + key(row["artist"] as? String ?? "") + "\n" + key(row["title"] as? String ?? ""))
+            return seen.insert(identity).inserted
+        }
         guard !unique.isEmpty else { throw fail("В списке нет треков") }
         return String(decoding: try JSONSerialization.data(withJSONObject: unique), as: UTF8.self)
     }

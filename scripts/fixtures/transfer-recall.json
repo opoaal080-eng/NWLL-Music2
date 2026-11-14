@@ -588,5 +588,371 @@
     ],
     "expected": null,
     "mode": "wide"
+  },
+  {
+    "name": "exact_competing_recording_isrc",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка",
+        "artist": "Северный берег",
+        "id": "a",
+        "isrc": "USABC2400001",
+        "duration": 204
+      },
+      {
+        "title": "Лунная дорожка",
+        "artist": "Северный берег",
+        "id": "b",
+        "isrc": "USABC2400002",
+        "duration": 204
+      }
+    ],
+    "expected": null,
+    "mode": "wide"
+  },
+  {
+    "name": "exact_competing_recording_unknown_duration",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег"
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка",
+        "artist": "Северный берег",
+        "id": "a",
+        "isrc": "USABC2400001",
+        "duration": 204
+      },
+      {
+        "title": "Лунная дорожка",
+        "artist": "Северный берег",
+        "id": "b",
+        "isrc": "USABC2400002",
+        "duration": 204
+      }
+    ],
+    "expected": null,
+    "mode": "wide"
+  },
+  {
+    "name": "exact_competing_recording_durations",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег"
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка",
+        "artist": "Северный берег",
+        "id": "a",
+        "duration": 204
+      },
+      {
+        "title": "Лунная дорожка",
+        "artist": "Северный берег",
+        "id": "b",
+        "duration": 220
+      }
+    ],
+    "expected": null,
+    "mode": "wide"
+  },
+  {
+    "name": "exact_recording_duration_disambiguates",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка",
+        "artist": "Северный берег",
+        "id": "a",
+        "isrc": "USABC2400001",
+        "duration": 220
+      },
+      {
+        "title": "Лунная дорожка",
+        "artist": "Северный берег",
+        "id": "b",
+        "isrc": "USABC2400002",
+        "duration": 204
+      }
+    ],
+    "expected": "b",
+    "mode": "wide"
+  },
+  {
+    "name": "known_duration_before_unknown",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка",
+        "artist": "Северный берег",
+        "id": "a"
+      },
+      {
+        "title": "Лунная дорожка",
+        "artist": "Северный берег",
+        "id": "b",
+        "duration": 204
+      }
+    ],
+    "expected": "b",
+    "mode": "wide"
+  },
+  {
+    "name": "exact_isrc_resolves_competing_recordings",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204,
+      "isrc": "USABC2400002"
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка",
+        "artist": "Северный берег",
+        "id": "a",
+        "isrc": "USABC2400001",
+        "duration": 204
+      },
+      {
+        "title": "Лунная дорожка",
+        "artist": "Северный берег",
+        "id": "b",
+        "isrc": "USABC2400002",
+        "duration": 204
+      }
+    ],
+    "expected": "b",
+    "mode": "wide"
+  },
+  {
+    "name": "russian_featuring_title_при уч.",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка (при уч. Гость)",
+        "artist": "Северный берег",
+        "duration": 204,
+        "id": "yes"
+      }
+    ],
+    "expected": "yes",
+    "mode": "safe"
+  },
+  {
+    "name": "russian_featuring_artist_при уч.",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка",
+        "artist": "Северный берег (при уч. Гость)",
+        "duration": 204,
+        "id": "yes"
+      }
+    ],
+    "expected": "yes",
+    "mode": "safe"
+  },
+  {
+    "name": "russian_featuring_title_при уч",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка (при уч Гость)",
+        "artist": "Северный берег",
+        "duration": 204,
+        "id": "yes"
+      }
+    ],
+    "expected": "yes",
+    "mode": "safe"
+  },
+  {
+    "name": "russian_featuring_artist_при уч",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка",
+        "artist": "Северный берег (при уч Гость)",
+        "duration": 204,
+        "id": "yes"
+      }
+    ],
+    "expected": "yes",
+    "mode": "safe"
+  },
+  {
+    "name": "russian_featuring_title_при участ.",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка (при участ. Гость)",
+        "artist": "Северный берег",
+        "duration": 204,
+        "id": "yes"
+      }
+    ],
+    "expected": "yes",
+    "mode": "safe"
+  },
+  {
+    "name": "russian_featuring_artist_при участ.",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка",
+        "artist": "Северный берег (при участ. Гость)",
+        "duration": 204,
+        "id": "yes"
+      }
+    ],
+    "expected": "yes",
+    "mode": "safe"
+  },
+  {
+    "name": "russian_featuring_title_при участии",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка (при участии Гость)",
+        "artist": "Северный берег",
+        "duration": 204,
+        "id": "yes"
+      }
+    ],
+    "expected": "yes",
+    "mode": "safe"
+  },
+  {
+    "name": "russian_featuring_artist_при участии",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка",
+        "artist": "Северный берег (при участии Гость)",
+        "duration": 204,
+        "id": "yes"
+      }
+    ],
+    "expected": "yes",
+    "mode": "safe"
+  },
+  {
+    "name": "russian_featuring_preserves_live_version",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка (при уч. Гость) (Live)",
+        "artist": "Северный берег",
+        "duration": 204,
+        "id": "wrong"
+      }
+    ],
+    "expected": null,
+    "mode": "wide"
+  },
+  {
+    "name": "russian_featuring_wrong_artist",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка (при уч. Гость)",
+        "artist": "Другой артист",
+        "duration": 204,
+        "id": "wrong"
+      }
+    ],
+    "expected": null,
+    "mode": "wide"
+  },
+  {
+    "name": "russian_featuring_screenshot_track",
+    "query": {
+      "title": "Грустный дэнс",
+      "artist": "Artik & Anna Asti",
+      "duration": 189
+    },
+    "candidates": [
+      {
+        "id": "yes",
+        "title": "Грустный дэнс (при уч. Артем Качер)",
+        "artist": "Artik & Anna Asti",
+        "duration": 189
+      }
+    ],
+    "expected": "yes",
+    "mode": "safe"
+  },
+  {
+    "name": "russian_featuring_unbracketed",
+    "query": {
+      "title": "Лунная дорожка",
+      "artist": "Северный берег",
+      "duration": 204
+    },
+    "candidates": [
+      {
+        "title": "Лунная дорожка при уч. Гость",
+        "artist": "Северный берег",
+        "duration": 204,
+        "id": "yes"
+      }
+    ],
+    "expected": "yes",
+    "mode": "safe"
   }
 ]

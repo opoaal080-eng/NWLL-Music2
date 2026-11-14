@@ -22,7 +22,7 @@ struct RibbonScene: View {
     @Environment(\.scenePhase) private var scene
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("nw-ambient-animate-when-paused") private var animatePaused = true
-    @AppStorage("nw-ambient-audio-sensitivity") private var sensitivity = 2.5
+    @AppStorage("nw-ambient-audio-sensitivity") private var sensitivity = 4.0
     @State private var frozenTime = Date().timeIntervalSinceReferenceDate
 
     var body: some View {
@@ -36,7 +36,7 @@ struct RibbonScene: View {
                 let values = playing ? NativePlayer.shared.auraLevels() : []
                 let valid = values.filter { $0.isFinite }.map { min(1, max(0, $0)) }
                 let level = valid.reduce(0, +) / Double(max(1, valid.count))
-                let gain = sensitivity.isFinite ? min(4, max(0.5, sensitivity)) : 2.5
+                let gain = sensitivity.isFinite ? min(4, max(0.5, sensitivity)) : 4.0
                 // A wider dynamic range reacts to quiet notes and bass hits
                 // without pushing ordinary music permanently to full brightness.
                 let energy = playing ? min(1, pow(level, 0.56) * gain * 0.50) : 0.0
@@ -591,7 +591,7 @@ struct FullPlayer: View {
     @State private var scrub = 0.0
     @State private var repeatMode = 0
     @State private var shuffleMode = 0
-    @AppStorage("nw-cover-style") private var coverStyle = "immersive"
+    @AppStorage("nw-cover-style") private var coverStyle = "classic"
     var body: some View {
         playerFinal
     }
@@ -1019,7 +1019,7 @@ struct PlaybackQueue: View {
     @EnvironmentObject var store: MusicStore
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var clock: PlaybackClock
-    @AppStorage("nw-depth-queue") private var depthQueue = false
+    @AppStorage("nw-depth-queue") private var depthQueue = true
 
     private var currentIndex: Int { clock.queue.firstIndex { $0.id == clock.id } ?? -1 }
 
@@ -1436,15 +1436,15 @@ struct NativeSettings: View {
     let close: () -> Void
     @EnvironmentObject var store: MusicStore
     @Environment(\.dismiss) private var dismiss
-    @AppStorage("nw-transition-seconds") private var transition = 1.5
-    @AppStorage("nw-stream-buffer-seconds") private var streamBufferSeconds = 4.0
-    @AppStorage("nw-equal-volume") private var equalVolume = 0.0
+    @AppStorage("nw-transition-seconds") private var transition = 0.0
+    @AppStorage("nw-stream-buffer-seconds") private var streamBufferSeconds = 0.0
+    @AppStorage("nw-equal-volume") private var equalVolume = 100.0
     @AppStorage("nw-keep-current-until-ready") private var keepCurrentUntilNextReady = true
     @AppStorage("nw-ambient-lyrics") private var ambientLyrics = true
     @AppStorage("nw-ambient-animate-when-paused") private var animatePausedAmbient = true
-    @AppStorage("nw-ambient-audio-sensitivity") private var ambientSensitivity = 2.5
-    @AppStorage("nw-cover-style") private var coverStyle = "immersive"
-    @AppStorage("nw-depth-queue") private var depthQueue = false
+    @AppStorage("nw-ambient-audio-sensitivity") private var ambientSensitivity = 4.0
+    @AppStorage("nw-cover-style") private var coverStyle = "classic"
+    @AppStorage("nw-depth-queue") private var depthQueue = true
     @AppStorage("nw-kinetic-lyrics") private var kineticLyrics = true
     @State private var playbackDiagnostics = "Нет данных о запуске"
 

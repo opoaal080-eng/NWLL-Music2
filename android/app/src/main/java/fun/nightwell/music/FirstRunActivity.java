@@ -63,7 +63,7 @@ public final class FirstRunActivity extends Activity {
                         dp(landscape?14:22),dp(landscape?4:16));
         root.setBackgroundColor(BLACK);setContentView(root);
         LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);
-        TextView logo=text("〰 NIGHTWELL",17,WHITE,true);logo.setGravity(Gravity.CENTER_VERTICAL|Gravity.LEFT);
+        TextView logo=text("NIGHTWELL",17,WHITE,true);logo.setGravity(Gravity.CENTER_VERTICAL|Gravity.LEFT);
         top.addView(logo,new LinearLayout.LayoutParams(0,dp(landscape?38:50),1));
         if(page<3){TextView skip=text("Пропустить",14,0xffb8b8c2,false);
             skip.setOnClickListener(v->done());top.addView(skip,new LinearLayout.LayoutParams(dp(105),dp(landscape?38:50)));}
@@ -86,10 +86,16 @@ public final class FirstRunActivity extends Activity {
         else {
             LinearLayout center=new LinearLayout(this);center.setOrientation(1);center.setGravity(Gravity.CENTER);
             artwork.addView(center,new FrameLayout.LayoutParams(-1,-1));
-            TextView glyph=text(page==0?"≋":page==1?"◈":"✈",landscape?64:120,LIME,true);
-            glyph.setShadowLayer(dp(24),0,0,0x77ecff35);
-            center.addView(glyph,new LinearLayout.LayoutParams(-1,0,1));
-            TextView caption=text(page==0?"Твой ритм · Открытия":page==1?"Тысячи идей для плейлистов":"↓  Скачано. Доступно офлайн",landscape?12:17,WHITE,true);
+            ImageView glyph=new ImageView(this);
+            NightwellGlyphDrawable symbol=new NightwellGlyphDrawable(this,
+                page==0?"sparkle":page==1?"playlist":"download");
+            symbol.setInk(LIME);
+            glyph.setImageDrawable(symbol);
+            glyph.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            glyph.setPadding(dp(6),dp(6),dp(6),dp(6));
+            glyph.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            center.addView(glyph,new LinearLayout.LayoutParams(dp(106),0,1));
+            TextView caption=text(page==0?"Твой ритм · Открытия":page==1?"Тысячи идей для плейлистов":"Скачано. Доступно офлайн",landscape?12:17,WHITE,true);
             caption.setPadding(dp(14),0,dp(14),dp(23));center.addView(caption);
         }
         LinearLayout copy=new LinearLayout(this);copy.setGravity(Gravity.CENTER);copy.setOrientation(1);
@@ -103,8 +109,12 @@ public final class FirstRunActivity extends Activity {
         for(int i=0;i<4;i++){View dot=new View(this);dot.setBackground(bg(i==page?LIME:0xff53535b,i==page?LIME:0xff53535b,10));
             LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(dp(i==page?28:7),dp(7));lp.rightMargin=dp(7);bottom.addView(dot,lp);}
         bottom.addView(new View(this),new LinearLayout.LayoutParams(0,1,1));
-        TextView button=text(page==3?"Начать  ✓":"Далее  →",16,BLACK,true);
-        button.setPadding(dp(22),0,dp(22),0);button.setBackground(bg(LIME,0xffd6ff2c,50));
+        TextView button=text(page==3?"Начать":"Далее",16,BLACK,true);
+        NightwellGlyphDrawable proceed=new NightwellGlyphDrawable(this,page==3?"sparkle":"chevron");
+        proceed.setInk(BLACK);
+        button.setCompoundDrawablesWithIntrinsicBounds(null,null,proceed,null);
+        button.setCompoundDrawablePadding(dp(9));
+        button.setPadding(dp(20),0,dp(20),0);button.setBackground(bg(LIME,0xffd6ff2c,50));
         button.setOnClickListener(v->{if(page<3){page++;draw();}else done();});
         bottom.addView(button,new LinearLayout.LayoutParams(-2,dp(landscape?44:54)));
         root.addView(bottom,new LinearLayout.LayoutParams(-1,dp(landscape?50:70)));

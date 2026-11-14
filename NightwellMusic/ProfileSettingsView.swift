@@ -348,6 +348,7 @@ struct ProfileSettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.white.opacity(0.68))
             }
+
         }
         .padding(.horizontal, 17)
         .padding(.vertical, 15)

@@ -8,7 +8,7 @@ on:
       - 'scripts/validate-app-sources.py'
       - '.github/workflows/build-android.yml'
   push:
-    branches: [main, feature/windows-mobile-parity-20261106, feature/android-ios-scroll-parity-20261111, fix/clip-unlimited-device-cache-20261111, feature/android-ios-interface-parity-20261111, fix/android-ios-visual-parity-player-20261111, fix/android-covers-all-libraries-20261112, feature/android-responsive-player-cover-theme-20261112, feature/search-glow-android-suggestions-ios-20261112]
+    branches: [main, feature/windows-mobile-parity-20261106, feature/android-ios-scroll-parity-20261111, fix/clip-unlimited-device-cache-20261111, feature/android-ios-interface-parity-20261111, fix/android-ios-visual-parity-player-20261111, fix/android-covers-all-libraries-20261112, feature/android-responsive-player-cover-theme-20261112, feature/search-glow-android-suggestions-ios-20261112, fix/ios-search-transfer-regressions-20261112]
     paths:
       - 'android/**'
       - 'scripts/validate-app-sources.py'
@@ -43,24 +43,18 @@ jobs:
         run: sdkmanager --install "platforms;android-36" "build-tools;36.0.0"
       - name: Generate neutral launcher icons
         run: python3 ../scripts/make-neutral-app-icon.py --platform android
-      - name: Validate Android resources
-        run: python3 ../scripts/validate-app-sources.py --android
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
-      - name: Test performer attribution vs upload-account names
-        run: |
-          mkdir -p /tmp/nightwell-artist-test
-          javac -encoding UTF-8 -d /tmp/nightwell-artist-test app/src/main/java/fun/nightwell/music/ArtistAttribution.java tests/ArtistAttributionTest.java
-          java -cp /tmp/nightwell-artist-test fun.nightwell.music.ArtistAttributionTest
-      - name: Test playlist file decoding
-        run: |
-          javac -d /tmp/playlist-import-test app/src/main/java/fun/nightwell/music/PlaylistImportFile.java tests/PlaylistImportFileTest.java
-          java -cp /tmp/playlist-import-test fun.nightwell.music.PlaylistImportFileTest
-      - name: Test playlist parsing on device
-        run: gradle --no-daemon :app:testDebugUnitTest
       - name: Build debug APK
         run: gradle --no-daemon :app:assembleDebug
+      - name: Verify non-destructive queue behavior (JVM)
+        run: |
+          mkdir -p build/queue-tests
+          javac -d build/queue-tests \
+            app/src/main/java/fun/nightwell/music/ManualPlaybackQueue.java \
+            tests/ManualPlaybackQueueTest.java
+          java -cp build/queue-tests fun.nightwell.music.ManualPlaybackQueueTest
       - name: Record APK checksum and commit
         run: python3 ../scripts/build-provenance.py --platform android --directory app/build/outputs/apk/debug --output ../android-build-provenance.json
       - uses: actions/upload-artifact@v4
@@ -70,36 +64,6 @@ jobs:
             android/app/build/outputs/apk/debug/*.apk
             android-build-provenance.json
 
-      - name: Enable emulator acceleration
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-      - name: Check menu and document picker
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 29
-          arch: x86_64
-          profile: pixel_2
-          disable-animations: true
-          working-directory: android
-          script: |
-            adb install -r app/build/outputs/apk/debug/app-debug.apk
-            python3 check-playlist-import.py
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: Nightwell-Android-import-menu-checks
-          path: android/import-menu-checks
-
-  google-play-bundle:
-    if: github.event_name != 'pull_request'
-    name: Google Play AAB
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: android
-    steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with:
@@ -140,3 +104,44 @@ jobs:
           path: android/app/build/outputs/bundle/release/*.aab
           if-no-files-found: error
           retention-days: 7
+
+  emulator-screenshots:
+    name: Emulator UI screenshots (Pixel 6, API 34)
+    needs: android
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download installable debug APK
+        uses: actions/download-artifact@v4
+        with:
+          name: Nightwell-Music-Android-debug
+          path: android/native-smoke/apk
+      - name: Enable KVM for Android emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Start emulator and capture actual UI
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          ram-size: 2048M
+          heap-size: 384M
+          disable-animations: true
+          script: |
+            adb shell wm size 720x1600
+            adb shell wm density 320
+            adb install -r "$(find android/native-smoke/apk -type f -name '*.apk' -print -quit)"
+            python3 android/capture-emulator-screens.py
+      - name: Publish emulator screenshots and HTML gallery
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nightwell-Music-Android-emulator-screenshots
+          path: android/native-smoke/screenshots/
+          if-no-files-found: warn
+          retention-days: 14

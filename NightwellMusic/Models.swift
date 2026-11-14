@@ -1,4 +1,40 @@
 import Foundation
+import Security
+import UIKit
+
+/// A random per-install identity retained in Keychain across normal app reinstalls.
+enum NightwellClientDevice {
+    static let id: String = {
+        let service = "fun.nightwell.music.account-device"
+        let account = "registration-id"
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+        var search = query
+        search[kSecReturnData as String] = true
+        search[kSecMatchLimit as String] = kSecMatchLimitOne
+        var item: CFTypeRef?
+        if SecItemCopyMatching(search as CFDictionary, &item) == errSecSuccess,
+           let data = item as? Data,
+           let saved = String(data: data, encoding: .utf8),
+           saved.hasPrefix("ios_"), saved.count < 100 {
+            return saved
+        }
+        let created = "ios_" + UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        var insert = query
+        insert[kSecValueData as String] = Data(created.utf8)
+        insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        SecItemDelete(query as CFDictionary)
+        SecItemAdd(insert as CFDictionary, nil)
+        return created
+    }()
+    static var label: String {
+        String(UIDevice.current.name.prefix(80))
+    }
+}
+
 
 struct Track: Identifiable, Codable, Equatable {
     let id: String

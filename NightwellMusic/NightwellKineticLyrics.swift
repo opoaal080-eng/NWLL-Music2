@@ -191,7 +191,6 @@ struct NightwellQueueDeck: View {
         let selected = highlightedID == track.id
         return VStack(spacing: 0) {
             Cover(track: track, origin: origin, pixelWidth: compact ? 600 : 680)
-                .scaledToFill()
                 .frame(width: width, height: height)
                 .clipped()
                 .overlay(alignment: .topLeading) {

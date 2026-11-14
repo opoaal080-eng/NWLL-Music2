@@ -22,7 +22,7 @@ struct RibbonScene: View {
     @Environment(\.scenePhase) private var scene
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("nw-ambient-animate-when-paused") private var animatePaused = true
-    @AppStorage("nw-ambient-audio-sensitivity") private var sensitivity = 2.5
+    @AppStorage("nw-ambient-audio-sensitivity") private var sensitivity = 4.0
     @State private var frozenTime = Date().timeIntervalSinceReferenceDate
 
     var body: some View {
@@ -36,7 +36,7 @@ struct RibbonScene: View {
                 let values = playing ? NativePlayer.shared.auraLevels() : []
                 let valid = values.filter { $0.isFinite }.map { min(1, max(0, $0)) }
                 let level = valid.reduce(0, +) / Double(max(1, valid.count))
-                let gain = sensitivity.isFinite ? min(4, max(0.5, sensitivity)) : 2.5
+                let gain = sensitivity.isFinite ? min(4, max(0.5, sensitivity)) : 4.0
                 // A wider dynamic range reacts to quiet notes and bass hits
                 // without pushing ordinary music permanently to full brightness.
                 let energy = playing ? min(1, pow(level, 0.56) * gain * 0.50) : 0.0
@@ -132,7 +132,15 @@ struct NativeHome: View {
     let configureWave: () -> Void
     @State private var suppressMixTapUntil = Date.distantPast
     @EnvironmentObject var store: MusicStore
-    @ObservedObject var clock: PlaybackClock
+    @Environment(\.nightwellBottomContentInset) private var bottomContentInset
+    private let clock: PlaybackClock
+    @ObservedObject private var status: TrackStatus
+
+    init(configureWave: @escaping () -> Void, clock: PlaybackClock) {
+        self.configureWave = configureWave
+        self.clock = clock
+        _status = ObservedObject(wrappedValue: clock.status)
+    }
 
     private func homeTitle(_ compact: Bool) -> some View {
         Text("Твой ритм")
@@ -151,14 +159,14 @@ struct NativeHome: View {
             if clock.current == nil { Task { await store.wave() } }
             else { clock.toggle() }
         } label: {
-            Image(systemName: clock.playing ? "pause.fill" : "play.fill")
+            Image(systemName: status.playing ? "pause.fill" : "play.fill")
                 .font(.system(size: compact ? 25 : 31, weight: .light))
                 .foregroundStyle(.white)
                 .frame(width: compact ? 68 : 88, height: compact ? 68 : 88)
                 .frostedGlass(compact ? 34 : 44, bordered: false, intensity: 0.20)
                 .contentShape(Circle())
         }
-        .accessibilityLabel(clock.playing ? "Пауза" : "Воспроизвести")
+        .accessibilityLabel(status.playing ? "Пауза" : "Воспроизвести")
         .buttonStyle(.plain)
     }
 
@@ -189,8 +197,9 @@ struct NativeHome: View {
 
     var body: some View {
         GeometryReader { box in
-            let landscape = box.size.width > box.size.height * 1.12 &&
-                box.size.height < 450
+            let controlsHeight = max(0, box.size.height - bottomContentInset)
+            let landscape = box.size.width > controlsHeight * 1.12 &&
+                controlsHeight < 450
             Group {
                 if landscape {
                     // iPhone landscape: controls on the left, karaoke on the
@@ -213,10 +222,11 @@ struct NativeHome: View {
                         waveButton(false)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding(.bottom, max(24, box.size.height * 0.07))
+                    .padding(.bottom, max(24, controlsHeight * 0.07))
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.bottom, bottomContentInset)
             .background { HomeSparkles() }
         }
     }
@@ -259,7 +269,6 @@ struct MiniPlayer: View {
                     if let track = clock.displayCurrent {
                         Button { Task { await store.like(track) } } label: { Image(systemName: store.likes.contains(track.id) ? "heart.fill" : "heart").font(.system(size: 19)).foregroundStyle(Color.white).frame(width: compact ? 26 : 29, height: 44) }.accessibilityLabel("Избранное")
                     }
-                    Button { changeTrack(-1) } label: { Image(systemName: "backward.end").font(.system(size: 15)).frame(width: compact ? 24 : 28, height: 44) }.accessibilityLabel("Предыдущий трек")
                     Button { clock.toggle() } label: {
                         ZStack {
                             Circle()
@@ -304,7 +313,6 @@ struct MiniPlayer: View {
                         : (clock.duration > 0
                            ? "\(Int((playbackFraction * 100).rounded()))% трека"
                            : "Прогресс неизвестен"))
-                    Button { changeTrack(1) } label: { Image(systemName: "forward.end").font(.system(size: 15)).frame(width: compact ? 24 : 28, height: 44) }.accessibilityLabel("Следующий трек")
                 }.buttonStyle(.plain)
             }.foregroundStyle(.white) .padding(.horizontal, 14).frame(maxWidth: .infinity, maxHeight: .infinity)
             .background {
@@ -572,6 +580,7 @@ private struct NightwellPresentedClip: Identifiable {
 }
 
 struct FullPlayer: View {
+    @EnvironmentObject private var togetherSession: NightwellTogetherSession
     @State private var artworkTextColors: [Color] = [.white, .white]
     @EnvironmentObject var store: MusicStore
     @ObservedObject var clock: PlaybackClock
@@ -591,7 +600,7 @@ struct FullPlayer: View {
     @State private var scrub = 0.0
     @State private var repeatMode = 0
     @State private var shuffleMode = 0
-    @AppStorage("nw-cover-style") private var coverStyle = "immersive"
+    @AppStorage("nw-cover-style") private var coverStyle = "classic"
     var body: some View {
         playerFinal
     }
@@ -635,6 +644,7 @@ struct FullPlayer: View {
     private var playerSearchAndUpdates: some View {
         playerClipUpdates
             .onChange(of: coverStyle) { _ in refreshNativeMenu() }
+            .onChange(of: togetherSession.joined) { _ in refreshNativeMenu() }
     }
 
     private var playerClipUpdates: some View {
@@ -958,7 +968,8 @@ struct FullPlayer: View {
             shareBaseURL: store.origin,
             lyricsVisible: showLyrics,
             coverStyle: coverStyle,
-            downloaded: selected.map { store.isDownloaded($0) } ?? false
+            downloaded: selected.map { store.isDownloaded($0) } ?? false,
+            togetherJoined: togetherSession.joined
         )
     }
 
@@ -1009,6 +1020,15 @@ struct FullPlayer: View {
                     refreshNativeMenu()
                 }
             },
+            onEnqueue: { track, next in
+                if store.enqueue(track, next: next) {
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                }
+            },
+            onAddTogether: { track in
+                guard togetherSession.joined else { return }
+                Task { await togetherSession.add(trackID: track.id, store: store) }
+            },
             onAddPlaylist: { track, list in
                 Task { await store.add(track, playlist: list) }
             },
@@ -1031,7 +1051,7 @@ struct PlaybackQueue: View {
     @EnvironmentObject var store: MusicStore
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var clock: PlaybackClock
-    @AppStorage("nw-depth-queue") private var depthQueue = false
+    @AppStorage("nw-depth-queue") private var depthQueue = true
 
     private var currentIndex: Int { clock.queue.firstIndex { $0.id == clock.id } ?? -1 }
 
@@ -1129,7 +1149,8 @@ struct PlaybackQueue: View {
                                             HStack(spacing: 8) {
                                                 NativeTrackRow(
                                                     track: track, queue: clock.queue,
-                                                    status: clock.status, playlist: nil
+                                                    status: clock.status, playlist: nil,
+                                                    onPlay: { NativePlayer.shared.playQueueTrackNow(trackID: track.id) }
                                                 )
                                                 if index > currentIndex + 1 && currentIndex >= 0 {
                                                     Button {
@@ -1445,19 +1466,21 @@ struct AuthSheet: View {
 
 struct NativeSettings: View {
     @State private var feature: PremiumFeatureView.Kind?
+    @ObservedObject private var premium = PremiumFeatureState.shared
     let close: () -> Void
     @EnvironmentObject var store: MusicStore
     @Environment(\.dismiss) private var dismiss
-    @AppStorage("nw-transition-seconds") private var transition = 1.5
-    @AppStorage("nw-stream-buffer-seconds") private var streamBufferSeconds = 4.0
-    @AppStorage("nw-equal-volume") private var equalVolume = 0.0
+    @AppStorage("nw-transition-seconds") private var transition = 0.0
+    @AppStorage("nw-stream-buffer-seconds") private var streamBufferSeconds = 0.0
+    @AppStorage("nw-equal-volume") private var equalVolume = 100.0
     @AppStorage("nw-keep-current-until-ready") private var keepCurrentUntilNextReady = true
     @AppStorage("nw-ambient-lyrics") private var ambientLyrics = true
     @AppStorage("nw-ambient-animate-when-paused") private var animatePausedAmbient = true
-    @AppStorage("nw-ambient-audio-sensitivity") private var ambientSensitivity = 2.5
-    @AppStorage("nw-cover-style") private var coverStyle = "immersive"
-    @AppStorage("nw-depth-queue") private var depthQueue = false
+    @AppStorage("nw-ambient-audio-sensitivity") private var ambientSensitivity = 4.0
+    @AppStorage("nw-cover-style") private var coverStyle = "classic"
+    @AppStorage("nw-depth-queue") private var depthQueue = true
     @AppStorage("nw-kinetic-lyrics") private var kineticLyrics = true
+    @AppStorage(NavigationLayout.storageKey) private var navigationLayout = NavigationLayout.belowPlayer
     @State private var playbackDiagnostics = "Нет данных о запуске"
 
     private enum SettingsPage: String, CaseIterable {
@@ -1476,7 +1499,7 @@ struct NativeSettings: View {
         }
         var subtitle: String {
             switch self {
-            case .customization: return "Обложки, очередь, текст и фон"
+            case .customization: return "Вкладки, обложки, очередь, текст и фон"
             case .playback: return "Звук, буфер, громкость и офлайн"
             case .appearance: return "Ленты, темы и визуальные эффекты"
             case .about: return "Версия и сведения о сборке"
@@ -1498,6 +1521,22 @@ struct NativeSettings: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Label("Кастомизация", systemImage: "slider.horizontal.3")
                         .font(.system(size: 18, weight: .semibold))
+                    HStack {
+                        Text("Вкладки")
+                        Spacer(minLength: 8)
+                        Picker("Расположение вкладок", selection: $navigationLayout) {
+                            ForEach(NavigationLayout.allCases) { layout in
+                                Text(layout.title).tag(layout)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                        .accessibilityLabel("Расположение вкладок")
+                    }
+                    .font(.system(size: 14, weight: .medium))
+                    Text(navigationLayout.detail)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.5))
                     Text("Стиль обложки в плеере")
                         .font(.system(size: 14, weight: .medium))
                     Picker("Стиль обложки", selection: $coverStyle) {
@@ -1553,7 +1592,9 @@ struct NativeSettings: View {
                         set: { store.setAutomaticFavoritesDownload($0) }
                     ))
                     .disabled(store.account == nil)
-                    Text("Новые избранные треки сохраняются для офлайна. Требуется активный Premium.")
+                    Text((premium.allowed || !premium.entitlementVerified)
+                        ? "Новые избранные треки сохраняются для офлайна."
+                        : "Новые избранные треки сохраняются для офлайна. Требуется активный Premium.")
                         .font(.system(size: 12)).foregroundStyle(.white.opacity(0.50))
                     HStack { Text("Переход между треками"); Spacer(minLength: 4); Text(transition == 0 ? "Выкл." : String(format: "%.1f с", transition)).foregroundStyle(Color.white) }
                     GlassSlider(value: $transition, range: 0...5, step: 0.1, accessibilityStep: 0.1, label: "Переход между треками", valueText: String(format: "%.1f с", transition))
@@ -1596,7 +1637,7 @@ struct NativeSettings: View {
                 }.padding(16).frame(maxWidth: .infinity, minHeight: 166, alignment: .leading).background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
         case .appearance:
                 VStack(alignment: .leading, spacing: 8) {
-                    Button("Темы и ленты · Premium") { feature = .appearance }
+                    Button((premium.allowed || !premium.entitlementVerified) ? "Темы и ленты" : "Темы и ленты · Premium") { feature = .appearance }
                         .sheet(item: $feature) { PremiumFeatureView(kind: $0).environmentObject(store) }
                     Label("Оформление", systemImage: "paintbrush").font(.system(size: 18, weight: .semibold)).foregroundStyle(Color.white)
                     Toggle("Текст вместе с лентами", isOn: $ambientLyrics)

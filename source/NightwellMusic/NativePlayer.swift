@@ -376,7 +376,7 @@ final class NativePlayer {
     private let recovery = PlaybackRecovery()
     private var lastPosition = 0.0
     private var streamBufferSeconds = UserDefaults.standard.object(forKey: "nw-stream-buffer-seconds") == nil
-        ? 4.0 : min(12.0, max(0.0, UserDefaults.standard.double(forKey: "nw-stream-buffer-seconds")))
+        ? 0.0 : min(12.0, max(0.0, UserDefaults.standard.double(forKey: "nw-stream-buffer-seconds")))
     private var startupUptime = 0.0
     private var readyAfterSeconds: Double?
     private var audibleAfterSeconds: Double?
@@ -388,10 +388,10 @@ final class NativePlayer {
     }
     private var fadeObserver: Any?
     private var baseVolume: Float = 1
-    private var loudnessStrength = min(1, max(0, UserDefaults.standard.double(forKey: "nw-equal-volume") / 100))
+    private var loudnessStrength = UserDefaults.standard.object(forKey: "nw-equal-volume") == nil ? 1.0 : min(1, max(0, UserDefaults.standard.double(forKey: "nw-equal-volume") / 100))
     private var loudnessAverage = 0.0
     private var loudnessGain = 1.0
-    private var transitionSeconds = UserDefaults.standard.object(forKey: "nw-transition-seconds") == nil ? 0.8 : UserDefaults.standard.double(forKey: "nw-transition-seconds")
+    private var transitionSeconds = UserDefaults.standard.object(forKey: "nw-transition-seconds") == nil ? 0.0 : UserDefaults.standard.double(forKey: "nw-transition-seconds")
     private var fadeInActive = false
     private var fadeNextAutomatically = false
     private var timeObserver: Any?
@@ -1182,7 +1182,7 @@ final class NativePlayer {
                 let removeCount = max(0, self.index - 5)
                 if removeCount > 0 { self.tracks.removeFirst(removeCount); self.index -= removeCount }
                 let ordered = RecommendationOrder.arrange(fresh, recent: Set(recent), hidden: hidden, hiddenArtists: hiddenArtists,
-                    current: self.current?.id ?? "", identity: { $0.id }, title: { $0.title }, artist: { $0.artist })
+                    current: self.current?.id ?? "", identity: { $0.id }, title: { $0.title }, artist: { $0.artist }, source: { $0.source })
                 self.tracks.append(contentsOf: ordered); self.queueRevision += 1
                 if self.waveWaiting && self.wantsPlay {
                     self.waveWaiting = false

@@ -2,13 +2,13 @@
  Title="Nightwell Music" Width="1120" Height="800" MinWidth="800" MinHeight="620" WindowStartupLocation="CenterScreen" Style="{StaticResource {x:Type Window}}" PreviewKeyDown="InterfaceKeyDown">
  <Window.Resources><local:TrackMatchConverter x:Key="TrackMatch"/><local:CurrentArtworkConverter x:Key="CurrentCover"/><local:TrackCountConverter x:Key="TrackCount"/></Window.Resources>
  <Grid Background="{StaticResource WindowBrush}" Margin="24,18,24,20">
-  <Grid.RowDefinitions><RowDefinition x:Name="HeaderRow" Height="58"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+  <Grid.RowDefinitions><RowDefinition x:Name="HeaderRow" Height="58"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
   <Grid x:Name="Header" Margin="0,0,0,16">
    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
    <Button x:Name="LogoHome" Click="LogoHomeClick" Style="{StaticResource QuietButton}" HorizontalAlignment="Left" VerticalAlignment="Center" Padding="4,0" Margin="-4,0,0,0" ToolTip="На главную" AutomationProperties.Name="Nightwell Music, на главную">
     <StackPanel Orientation="Horizontal">
      <Border Width="42" Height="42" Background="#DDDDDD" Margin="0,0,12,0"><Border.OpacityMask><ImageBrush ImageSource="/logo.png" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/></Border.OpacityMask></Border>
-     <StackPanel VerticalAlignment="Center"><TextBlock Text="Nightwell" FontSize="21" FontWeight="SemiBold"/><TextBlock Text="M U S I C" Style="{StaticResource Caption}" FontSize="9" Margin="1,2,0,0"/></StackPanel>
+     <StackPanel VerticalAlignment="Center"><TextBlock FontSize="21" FontWeight="SemiBold"><Run Text="Nı"/><Run x:Name="BrandConnectionDot" Text="&#x0307;" Foreground="#67A8FF"/><Run Text="ghtwell"/></TextBlock><TextBlock Text="M U S I C" Style="{StaticResource Caption}" FontSize="9" Margin="1,2,0,0"/></StackPanel>
     </StackPanel>
    </Button>
    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
@@ -16,7 +16,7 @@
     <Button Click="SearchClick" Height="40" MinHeight="0" Margin="0,0,8,0" Style="{StaticResource QuietButton}" ToolTip="Поиск музыки">
      <StackPanel Orientation="Horizontal"><Path Data="M 8,0 A 8,8 0 1 1 7.99,0 M 14,14 L 20,20" Stroke="#B4B4B4" StrokeThickness="1.8" Width="16" Height="16" Stretch="Uniform" Margin="0,0,9,0"/><TextBlock Text="Поиск" Foreground="{StaticResource SecondaryBrush}"/></StackPanel>
     </Button>
-    <Button x:Name="NavigationMenu" Click="MenuClick" Style="{StaticResource IconButton}" ToolTip="Меню">
+    <Button x:Name="NavigationMenu" Click="MenuClick" Style="{StaticResource IconButton}" ToolTip="Профиль">
      <Grid Width="30" Height="30"><Ellipse Fill="#343434" Stroke="#777777" StrokeThickness="1"/><TextBlock Text="&#xE77B;" FontFamily="Segoe MDL2 Assets" FontSize="18" Foreground="#DCDCDC" HorizontalAlignment="Center" VerticalAlignment="Center"/><Image x:Name="NavigationAvatar" Width="29" Height="29" Stretch="UniformToFill"><Image.Clip><EllipseGeometry Center="14.5,14.5" RadiusX="14.5" RadiusY="14.5"/></Image.Clip></Image></Grid>
     </Button>
    </StackPanel>
@@ -28,7 +28,13 @@
     <Border x:Name="LibrarySidebar" Grid.Column="0" Visibility="Collapsed" Background="#E0121212" BorderBrush="#343434" BorderThickness="0,0,1,0" Padding="16,20">
      <DockPanel LastChildFill="True">
       <StackPanel DockPanel.Dock="Top">
-       <TextBlock Text="МЕДИАТЕКА" Style="{StaticResource Caption}" FontSize="11" Margin="6,0,0,20" Foreground="#B2B2B2"/>
+       <Grid Margin="0,0,0,14">
+         <Grid.ColumnDefinitions><ColumnDefinition Width="40"/><ColumnDefinition Width="40"/><ColumnDefinition Width="*"/><ColumnDefinition Width="40"/></Grid.ColumnDefinitions>
+         <Button Grid.Column="0" Content="‹" Style="{StaticResource IconButton}" Click="SidebarBackClick" ToolTip="Назад" FontSize="25"/>
+          <Button Grid.Column="1" Content="⚙" Style="{StaticResource IconButton}" Click="SettingsClick" ToolTip="Настройки" FontSize="20"/>
+         <TextBlock Grid.Column="2" Text="МЕДИАТЕКА" Style="{StaticResource Caption}" FontSize="11" VerticalAlignment="Center" TextAlignment="Center" Foreground="#B2B2B2"/>
+         <Button Grid.Column="3" Content="☰" Style="{StaticResource IconButton}" Click="LibraryAdditionalClick" ToolTip="Меню" FontSize="18"/>
+        </Grid>
        <Button Content="♡    Избранное" Style="{StaticResource QuietButton}" HorizontalContentAlignment="Left" Padding="14,12" Margin="0,0,0,4" Click="SidebarFavoritesClick" ToolTip="Открыть избранные треки"/>
        <Button Content="♫    Плейлисты" Style="{StaticResource QuietButton}" HorizontalContentAlignment="Left" Padding="14,12" Margin="0,0,0,14" Click="SidebarPlaylistsClick" ToolTip="Открыть свои плейлисты"/>
        <Grid Margin="8,0,4,12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
@@ -197,7 +203,13 @@
     <Border x:Name="MiniProgress" Background="#939393" HorizontalAlignment="Left" Width="0" Height="2" VerticalAlignment="Bottom" Margin="0,0,0,-9" Grid.ColumnSpan="3" IsHitTestVisible="False" CornerRadius="1"/>
    </Grid>
   </Border>
-  <Grid x:Name="EmbeddedSheetLayer" Grid.RowSpan="4" Panel.ZIndex="200" Visibility="Collapsed">
+  <StackPanel x:Name="BottomTabs" Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,5,0,0">
+   <Button Content="Главная" Click="LogoHomeClick" Style="{StaticResource QuietButton}" Margin="0,0,6,0" ToolTip="Главная"/>
+   <Button Content="Поиск" Click="SearchClick" Style="{StaticResource QuietButton}" Margin="0,0,6,0" ToolTip="Поиск"/>
+   <Button Content="Медиатека" Click="BottomLibraryClick" Style="{StaticResource QuietButton}" Margin="0,0,6,0" ToolTip="Медиатека"/>
+   <Button x:Name="PremiumDockButton" Visibility="Collapsed" Content="✧  Premium" Click="PremiumClick" Style="{StaticResource QuietButton}" ToolTip="Nightwell Premium"/>
+  </StackPanel>
+  <Grid x:Name="EmbeddedSheetLayer" Grid.RowSpan="5" Panel.ZIndex="200" Visibility="Collapsed">
    <Border Background="#C9000000" MouseDown="EmbeddedSheetOutsideClick"/>
    <Border x:Name="EmbeddedSheetFrame" Width="560" Height="570" MaxWidth="680"
            HorizontalAlignment="Center" VerticalAlignment="Center"

@@ -10,6 +10,94 @@ namespace Nightwell.Native;
 
 public partial class MainWindow {
  string profileNickname="";
+ bool premiumVerified;
+ string premiumVerifiedOwner="";
+ async Task RefreshPremiumNavigationAsync(){
+  string owner=account;
+  if(owner!=premiumVerifiedOwner){
+   premiumVerified=false;
+   premiumSortAllowed=false;
+   premiumVerifiedOwner=owner;
+   PremiumDockButton.Visibility=owner.Length==0?Visibility.Visible:Visibility.Collapsed;
+  }
+  if(owner.Length==0){PremiumDockButton.Visibility=Visibility.Visible;return;}
+  try{
+   var result=await api.Request("api/premium/me");
+   bool active=result.TryGetProperty("premium",out var premium)&&premium.GetBoolean()
+    &&result.TryGetProperty("expires_at",out var expires)
+    &&expires.ValueKind==JsonValueKind.Number
+    &&expires.GetDouble()>DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+   if(owner!=account)return;
+   premiumSortAllowed=active;
+   premiumVerified=true;
+   PremiumDockButton.Visibility=active?Visibility.Collapsed:Visibility.Visible;
+  }catch{
+   // Keep the last confirmed entitlement, including the hidden Premium tab.
+   // A temporary HTTP failure must not rebuild the navigation bar.
+  }
+ }
+ void ProfileWindow(){
+  if(account.Length==0){Login();return;}
+  var panel=new StackPanel{Margin=new Thickness(22,12,22,12)};
+  AddProfileSettings(panel);
+  if(premiumSortAllowed){
+   var premium=new Button{Content="✧  Nightwell Premium · Подписка активна",
+    Style=(Style)FindResource("QuietButton"),Margin=new Thickness(0,12,0,0)};
+   premium.Click+=(_,_)=>PremiumWindow();
+   panel.Children.Add(premium);
+  }
+  var logout=new Button{Content="Выйти из аккаунта",
+   Style=(Style)FindResource("QuietButton"),Margin=new Thickness(0,14,0,0)};
+  panel.Children.Add(logout);
+  var window=Sheet("Профиль",panel,570,false);
+  logout.Click+=async(_,_)=>{
+   logout.IsEnabled=false;
+   try{
+    await api.Request("api/logout","POST");
+    api.Clear();
+    await AudioCommand(()=>player.Stop());
+    roomCode="";roomCancellation?.Cancel();
+    queue=[];catalog=[];likes=[];playlists=[];account="";
+    NavigationAvatar.Source=null;profileNickname="";premiumSortAllowed=false;
+    PremiumDockButton.Visibility=Visibility.Visible;
+    window.Close();Show("Главная");
+   }catch(Exception ex){
+    Status.Text="Не удалось выйти из аккаунта: "+ex.Message;
+   }finally{
+    logout.IsEnabled=true;
+   }
+  };
+  window.Show();
+ }
+ void PremiumWindow(){
+  var panel=new StackPanel{Margin=new Thickness(24,14,24,20)};
+  panel.Children.Add(Label("Nightwell Premium"));
+  var premiumStatus=new TextBlock{
+   Text=premiumSortAllowed?"Подписка активна":"Подписка неактивна",
+   TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,14,0,14)
+  };
+  panel.Children.Add(premiumStatus);
+  var manage=new Button{Content="Открыть управление подпиской",
+   Style=(Style)FindResource("PrimaryButton")};
+  manage.Click+=(_,_)=>{
+   try{
+    var url=new Uri(api.Origin,"premium.html");
+    if(url.Scheme!=Uri.UriSchemeHttps)throw new InvalidOperationException("Требуется HTTPS");
+    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url.AbsoluteUri){UseShellExecute=true});
+   }catch(Exception ex){Status.Text="Не удалось открыть подписку: "+ex.Message;}
+  };
+  panel.Children.Add(manage);
+  var refresh=new Button{Content="Проверить подписку",Margin=new Thickness(0,10,0,0)};
+  refresh.Click+=async(_,_)=>{
+   refresh.IsEnabled=false;
+   try{
+    await RefreshPremiumNavigationAsync();
+    premiumStatus.Text=premiumSortAllowed?"Подписка активна":"Подписка неактивна";
+   }finally{refresh.IsEnabled=true;}
+  };
+  panel.Children.Add(refresh);
+  Sheet("Nightwell Premium",panel,370);
+ }
  async Task LoadProfileAsync(TextBox? edit=null){
   if(account.Length==0){NavigationAvatar.Source=null;return;}
   try{

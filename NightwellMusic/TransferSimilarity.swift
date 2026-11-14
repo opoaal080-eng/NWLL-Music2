@@ -9,6 +9,13 @@ enum TransferText {
         return Dictionary(uniqueKeysWithValues: zip(a, b))
     }()
     private static let lookalikes: [Character: Character] = ["а":"a","е":"e","о":"o","р":"p","с":"c","у":"y","х":"x","к":"k","м":"m","т":"t","в":"b","н":"h"]
+    // Providers use both full and abbreviated Russian featuring labels.
+    // Require the following whitespace so an ordinary title word beginning
+    // with these letters is not treated as a credit annotation.
+    private static let featuring = #"(?:feat\.?|ft\.?|featuring|при\s+уч(?:астии|аст)?\.?)"#
+    private static var creditSeparator: String {
+        #"(?i)\s+(?:[\(\[【]\s*)?(?:"# + featuring + #"|with|x|и)\s+|\s*[,&;/+]\s*"#
+    }
     static func replace(_ value: String, _ pattern: String, _ replacement: String = " ") -> String {
         value.replacingOccurrences(of: pattern, with: replacement, options: .regularExpression)
     }
@@ -40,16 +47,16 @@ enum TransferText {
         var value = replace(title, #"(?i)[\(\[【](?![^\)\]】]*\b(?:remix|ремикс|live|acoustic|instrumental|cover|karaoke|sped|slowed|reverb|remaster))[^\)\]】]*(?:official|music\s+video|audio|lyrics?|visuali[sz]er|официальн|видеоклип|текст\s+песни|320\s*k?bps|hq|hd|4k)[^\)\]】]*[\)\]】]"#)
         value = replace(value, #"(?i)\s+(?:[-–—|:]\s*)?(?:official\s+(?:music\s+)?(?:audio|video)|official|lyrics?\s+video|visuali[sz]er|официальн\w*\s+клип|320\s*k?bps|hq|hd|4k)\s*$"#)
         // Featuring belongs to artist credits; it does not change the song title.
-        value = replace(value, #"(?i)\s*[\(\[]?\b(?:feat\.?|ft\.?|featuring|при\s+участии)\s+[^\)\]]+[\)\]]?"#)
+        value = replace(value, #"(?i)\s*[\(\[【]?\b"# + featuring + #"\s+[^\)\]】]+[\)\]】]?"#)
         return replace(value, #"\s+"#).trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "-–—|:")))
     }
     static func artists(_ credit: String) -> [String] {
-        let separated = replace(credit, #"(?i)\s+(?:feat\.?|ft\.?|featuring|with|x|и)\s+|\s*[,&;/+]\s*"#, "\n")
+        let separated = replace(credit, creditSeparator, "\n")
         var seen = Set<String>()
         return separated.components(separatedBy: .newlines).map(key).filter { !$0.isEmpty && seen.insert($0).inserted }
     }
     static func primaryArtist(_ credit: String) -> String {
-        let separated = replace(credit, #"(?i)\s+(?:feat\.?|ft\.?|featuring|with|x|и)\s+|\s*[,&;/+]\s*"#, "\n")
+        let separated = replace(credit, creditSeparator, "\n")
         return separated.components(separatedBy: .newlines).first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? credit
     }
     static func grams(_ s: String) -> Set<String> {
