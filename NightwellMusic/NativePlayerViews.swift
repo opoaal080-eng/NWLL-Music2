@@ -1474,6 +1474,7 @@ struct NativeSettings: View {
     @AppStorage("nw-cover-style") private var coverStyle = "immersive"
     @AppStorage("nw-depth-queue") private var depthQueue = false
     @AppStorage("nw-kinetic-lyrics") private var kineticLyrics = true
+    @AppStorage(NavigationLayout.storageKey) private var navigationLayout = NavigationLayout.belowPlayer
     @State private var playbackDiagnostics = "Нет данных о запуске"
 
     private enum SettingsPage: String, CaseIterable {
@@ -1492,7 +1493,7 @@ struct NativeSettings: View {
         }
         var subtitle: String {
             switch self {
-            case .customization: return "Обложки, очередь, текст и фон"
+            case .customization: return "Вкладки, обложки, очередь, текст и фон"
             case .playback: return "Звук, буфер, громкость и офлайн"
             case .appearance: return "Ленты, темы и визуальные эффекты"
             case .about: return "Версия и сведения о сборке"
@@ -1514,6 +1515,22 @@ struct NativeSettings: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Label("Кастомизация", systemImage: "slider.horizontal.3")
                         .font(.system(size: 18, weight: .semibold))
+                    HStack {
+                        Text("Вкладки")
+                        Spacer(minLength: 8)
+                        Picker("Расположение вкладок", selection: $navigationLayout) {
+                            ForEach(NavigationLayout.allCases) { layout in
+                                Text(layout.title).tag(layout)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                        .accessibilityLabel("Расположение вкладок")
+                    }
+                    .font(.system(size: 14, weight: .medium))
+                    Text(navigationLayout.detail)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.5))
                     Text("Стиль обложки в плеере")
                         .font(.system(size: 14, weight: .medium))
                     Picker("Стиль обложки", selection: $coverStyle) {

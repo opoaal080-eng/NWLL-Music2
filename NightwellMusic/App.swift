@@ -202,10 +202,12 @@ private enum StableNavigationAction {
 /// An independently presented, stable scroll view. Playback updates cannot
 /// re-create the menu or send it back to its first item.
 /// A stable two-level sheet for profile, settings and additional tools.
-/// Main screens live in the persistent bottom navigation.
+/// Main screens use the bottom navigation or this menu, as customized.
 private struct StableNavigationSheet: View {
     let status: String
     let signedIn: Bool
+    let libraryScreen: MusicStore.Screen
+    let showsMainNavigation: Bool
     let select: (StableNavigationAction) -> Void
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var store: MusicStore
@@ -329,6 +331,12 @@ private struct StableNavigationSheet: View {
                         }
                         entry("Обращения и поддержка", icon: "envelope", action: .support)
                     } else {
+                        if showsMainNavigation {
+                            entry("Главная", icon: "house", action: .screen(.home))
+                            entry("Поиск", icon: "magnifyingglass", action: .screen(.search))
+                            entry("Медиатека", icon: "square.stack", action: .screen(libraryScreen))
+                            Divider().overlay(.white.opacity(0.16)).padding(.vertical, 6)
+                        }
                         entry(signedIn ? "Профиль" : "Войти", icon: "person.crop.circle",
                               action: signedIn ? .profile : .authentication)
                         Divider().overlay(.white.opacity(0.16)).padding(.vertical, 6)
@@ -571,6 +579,7 @@ struct NativeRoot: View {
     @StateObject private var togetherSession = NightwellTogetherSession()
     @State private var favoriteSort = "recent"
     @AppStorage("nw-library-section") private var savedLibrarySection = MusicStore.Screen.likes.rawValue
+    @AppStorage(NavigationLayout.storageKey) private var navigationLayout = NavigationLayout.belowPlayer
     @State private var libraryScrollCollapsed: [String: Bool] = [:]
     @State private var libraryScrollPositions: [MusicStore.Screen: String] = [:]
     @StateObject private var artworkPalette = NightwellArtworkPalette()
@@ -595,6 +604,7 @@ struct NativeRoot: View {
         GeometryReader { viewport in
             let landscape = viewport.size.width > viewport.size.height * 1.12 &&
                 viewport.size.height < 650
+            let bottomInset = dockContentInset(landscape: landscape) + viewport.safeAreaInsets.bottom + 12
             ZStack {
             // Shared monochrome background for Home, Search, Favorites, Playlists and Offline.
             LinearGradient(
@@ -654,9 +664,8 @@ struct NativeRoot: View {
                     if isLibraryScreen {
                         librarySectionTabs(landscape: landscape)
                     }
-                    content(bottomContentInset: (landscape ? 102 : 118) + viewport.safeAreaInsets.bottom + 12)
-                        .environment(\.nightwellBottomContentInset,
-                                     (landscape ? 102 : 118) + viewport.safeAreaInsets.bottom + 12)
+                    content(bottomContentInset: bottomInset)
+                        .environment(\.nightwellBottomContentInset, bottomInset)
                         .overlay(alignment: .bottom) {
                             playerDock(landscape: landscape)
                         }
@@ -668,8 +677,13 @@ struct NativeRoot: View {
         }
     }
 
+    private func dockContentInset(landscape: Bool) -> CGFloat {
+        if navigationLayout.showsTabs { return landscape ? 102 : 118 }
+        return landscape ? 54 : 70
+    }
+
     private func playerDock(landscape: Bool) -> some View {
-        VStack(spacing: landscape ? 2 : 4) {
+        VStack(spacing: navigationLayout.showsTabs ? (landscape ? 2 : 4) : 0) {
             MiniPlayer(clock: store.clock, open: { fullPlayer = true },
                        compactHeight: landscape)
                 .padding(.horizontal, landscape ? 18 : 16)
@@ -694,7 +708,9 @@ struct NativeRoot: View {
                             .allowsHitTesting(false)
                     }
                 }
-            bottomNavigation(landscape: landscape)
+            if navigationLayout.showsTabs {
+                bottomNavigation(landscape: landscape)
+            }
         }
         .background {
             // Blur only the scrolling content behind the dock. The controls
@@ -703,12 +719,10 @@ struct NativeRoot: View {
                 .fill(.ultraThinMaterial)
                 .opacity(0.6)
                 .mask {
-                    LinearGradient(stops: [.init(color: .clear, location: 0),
-                                           .init(color: .white, location: 0.12),
-                                           .init(color: .white, location: 1)],
+                    LinearGradient(gradient: NavigationDockAppearance.blurFade,
                                    startPoint: .top, endPoint: .bottom)
                 }
-                .padding(.top, -12)
+                .padding(.top, -32)
                 .ignoresSafeArea(.container, edges: .bottom)
                 .allowsHitTesting(false)
         }
@@ -765,7 +779,9 @@ struct NativeRoot: View {
             pendingNavigation = nil
             openNavigation(destination)
         }) {
-            StableNavigationSheet(status: store.connectionStatus, signedIn: store.account != nil) { action in
+            StableNavigationSheet(status: store.connectionStatus, signedIn: store.account != nil,
+                                  libraryScreen: lastLibraryScreen,
+                                  showsMainNavigation: !navigationLayout.showsTabs) { action in
                 pendingNavigation = action
                 navigationMenuPresented = false
             }
@@ -1100,6 +1116,16 @@ struct NativeRoot: View {
             .foregroundStyle(nightwellText)
             .accessibilityLabel("На главную")
             Spacer()
+            if !navigationLayout.showsTabs {
+                Button { navigate(to: store.screen == .search ? .home : .search) } label: {
+                    Image(systemName: store.screen == .search ? "xmark" : "magnifyingglass")
+                        .font(.system(size: 19, weight: .medium))
+                        .foregroundStyle(.white)
+                        .frame(width: 44, height: 44)
+                        .frostedGlass(22, bordered: false, intensity: 0.20)
+                }
+                .accessibilityLabel(store.screen == .search ? "Закрыть поиск" : "Поиск")
+            }
             // Hide the compact handoff button while a collection is scrolled.
             if store.hasRemotePlayback && (remoteHomeCollapsed || landscape) && compactCollectionTitle == nil {
                 Button {
