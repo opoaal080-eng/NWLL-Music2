@@ -121,17 +121,37 @@ def main():
         adb("shell", "settings", "put", "system", "accelerometer_rotation", "0")
         adb("shell", "settings", "put", "system", "user_rotation", "1")
         adb("shell", "cmd", "window", "set-user-rotation", "lock", "1", check=False)
-        # CI emulators may ignore sensor-based rotation, so force a wide display.
+        # A headless Pixel runner can ignore logical rotation commands. Try
+        # emulator rotation, then report that limitation instead of claiming
+        # portrait screenshots to be a landscape verification.
         adb("shell", "wm", "size", "2400x1080")
         time.sleep(2)
-        for name, page in [("16-landscape-home", "Главная"),
-                           ("17-landscape-library", "Медиатека"),
-                           ("18-landscape-player", "player")]:
-            print(f"Capturing {name}: {page}", flush=True)
-            launch(page)
-            capture(name, landscape=True)
-            records.append({"file": name + ".png", "screen": page,
-                            "orientation": "landscape"})
+        probe = adb("exec-out", "screencap", "-p").stdout
+        width, height = struct.unpack(">II", probe[16:24])
+        if width <= height:
+            adb("emu", "rotate", check=False)
+            time.sleep(3)
+            probe = adb("exec-out", "screencap", "-p").stdout
+            width, height = struct.unpack(">II", probe[16:24])
+        if width <= height:
+            warning = (
+                "Landscape screenshots unavailable on this headless emulator: "
+                f"rotation remained {width}x{height}. The portrait screenshots "
+                "were verified; landscape layouts were NOT tested.\\n"
+            )
+            print("WARNING: " + warning, flush=True)
+            (OUT / "landscape-unavailable.txt").write_text(
+                warning, encoding="utf-8"
+            )
+        else:
+            for name, page in [("16-landscape-home", "Главная"),
+                               ("17-landscape-library", "Медиатека"),
+                               ("18-landscape-player", "player")]:
+                print(f"Capturing {name}: {page}", flush=True)
+                launch(page)
+                capture(name, landscape=True)
+                records.append({"file": name + ".png", "screen": page,
+                                "orientation": "landscape"})
     finally:
         adb("shell", "wm", "size", "reset", check=False)
         adb("shell", "cmd", "window", "set-user-rotation", "free", check=False)
