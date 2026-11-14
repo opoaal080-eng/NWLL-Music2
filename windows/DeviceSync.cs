@@ -2,7 +2,7 @@ using System.Text.Json;
 namespace Nightwell.Native;
 public partial class MainWindow {
  bool liveOwner,liveBusy;CancellationTokenSource? liveCancellation;
- readonly string deviceID="windows-"+Guid.NewGuid().ToString("N");
+ readonly string deviceID=NativeAPI.DeviceID;
  void StartDeviceSync(){liveCancellation?.Cancel();liveCancellation=CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);_=DeviceSyncLoop(liveCancellation.Token);}
  async Task DeviceSyncLoop(CancellationToken token){
   while(!token.IsCancellationRequested){try{await Task.Delay(5000,token);if(account.Length==0||roomCode.Length>0||liveBusy)continue;liveBusy=true;
