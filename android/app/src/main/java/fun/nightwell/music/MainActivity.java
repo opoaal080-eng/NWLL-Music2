@@ -316,7 +316,8 @@ public final class MainActivity extends Activity {
     private String lastDisplayedPlayerError="";
     private android.widget.ImageView miniCover;private CircularProgressRing miniProgressRing;
     private ArtworkCache artworkCache;
-    private TextView fullTime,homePlay,fullPlay,fullLike,fullDislike,fullAudioOutput,fullShuffle;
+    private TextView fullTime,homePlay,homeMixButton,fullPlay,fullLike,fullDislike,fullAudioOutput,fullShuffle;
+    private String displayedMiniId="";
     private SeekBar seek;
     // Search glow renders behind the text and follows its true selection caret.
     // Its frame clock runs only while the input field has focus.
@@ -519,7 +520,7 @@ public final class MainActivity extends Activity {
         button.setContentDescription(label);
         button.setTextSize(21);
         button.setPadding(0,0,0,0);
-        button.setBackground(touchSurface(screen.equals(destination)?0x662d303b:0x2220232b,14));
+        button.setBackground(buttonRipple());
         LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(dp(46),dp(42));
         params.bottomMargin=dp(4);
         landscapeRail.addView(button,params);
@@ -660,9 +661,10 @@ public final class MainActivity extends Activity {
         }
     }
 
-    TextView sheetAction(String label,Runnable run){TextView v=action(label,run);v.setTextSize(14);v.setMaxLines(2);v.setEllipsize(android.text.TextUtils.TruncateAt.END);v.setGravity(Gravity.CENTER_VERTICAL);v.setTextColor(0xfff4f4f6);v.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));v.setPadding(dp(14),dp(10),dp(14),dp(10));v.setMinHeight(dp(46));v.setBackground(touchSurface(0xff292b30,15));return v;}
-    TextView action(String label,Runnable run){TextView v=NativeIconButton.isIcon(label)?new NativeIconButton(this):text(label,16);v.setText(label);v.setTextColor(0xfff3f3f5);v.setTextSize(NativeIconButton.isIcon(label)?20:16);if(NativeIconButton.isIcon(label))v.setContentDescription(iconLabel(label));v.setGravity(Gravity.CENTER);v.setPadding(dp(12),dp(9),dp(12),dp(9));v.setMinHeight(dp(48));v.setOnClickListener(x->run.run());return v;}
-    TextView iconButton(String label,Runnable run){TextView v=action(label,run);v.setPadding(0,0,0,0);v.setTextSize(19);v.setTextColor(0xfff1f1f6);v.setBackground(touchSurface(0xa52b2e34,16));return v;}
+    TextView sheetAction(String label,Runnable run){TextView v=action(label,run);v.setTextSize(14);v.setMaxLines(2);v.setEllipsize(android.text.TextUtils.TruncateAt.END);v.setGravity(Gravity.CENTER_VERTICAL);v.setTextColor(0xfff4f4f6);v.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));v.setPadding(dp(14),dp(10),dp(14),dp(10));v.setMinHeight(dp(46));v.setBackground(buttonRipple());return v;}
+    android.graphics.drawable.Drawable buttonRipple(){return new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x28ffffff),null,null);}
+    TextView action(String label,Runnable run){TextView v=NativeIconButton.isIcon(label)?new NativeIconButton(this):text(label,16);v.setText(label);v.setTextColor(0xfff3f3f5);v.setTextSize(NativeIconButton.isIcon(label)?20:16);if(NativeIconButton.isIcon(label))v.setContentDescription(iconLabel(label));v.setGravity(Gravity.CENTER);v.setPadding(dp(12),dp(9),dp(12),dp(9));v.setMinHeight(dp(48));v.setBackground(buttonRipple());v.setOnClickListener(x->run.run());return v;}
+    TextView iconButton(String label,Runnable run){TextView v=action(label,run);v.setPadding(0,0,0,0);v.setTextSize(19);v.setTextColor(0xfff1f1f6);v.setBackground(buttonRipple());return v;}
     void toggleBackgroundOnly(){backgroundOnly=!backgroundOnly;build();}
     private int depthQueuePage = 0;
 
@@ -803,7 +805,7 @@ public final class MainActivity extends Activity {
         heading.addView(headingTitle,new LinearLayout.LayoutParams(0,dp(42),1));
         TextView close=iconButton("×",()->{});
         close.setContentDescription("Закрыть очередь");
-        close.setBackground(touchSurface(0xff303238,15));
+        close.setBackground(buttonRipple());
         heading.addView(close,new LinearLayout.LayoutParams(dp(43),dp(43)));
         panel.addView(heading);
 
@@ -1107,7 +1109,7 @@ public final class MainActivity extends Activity {
         // Preserve the active collection scroll position on orientation changes.
         if(root!=null&&isCollectionScreen()&&screen.equals(displayedCollectionScreen))
             retainCollectionPosition();
-        if(ribbon!=null)ribbon.running(false);full=false;lyricsOpen=false;seek=null;fullTime=null;fullPlay=null;fullLike=null;fullDislike=null;fullAudioOutput=null;
+        if(ribbon!=null)ribbon.running(false);homeMixButton=null;displayedMiniId="";full=false;lyricsOpen=false;seek=null;fullTime=null;fullPlay=null;fullLike=null;fullDislike=null;fullAudioOutput=null;
         // Render scenery and aura across the window, outside the padded controls.
         android.widget.FrameLayout scene=new android.widget.FrameLayout(this);
         scene.setBackground(new NativeSceneryDrawable(this));
@@ -1165,11 +1167,11 @@ public final class MainActivity extends Activity {
         wordmark.addView(brandName,new LinearLayout.LayoutParams(-1,dp(landscape?27:31)));
         TextView brandCaption=text("M U S I C",12);brandCaption.setIncludeFontPadding(false);brandCaption.setSingleLine(true);brandCaption.setTextColor(0xff92959f);LinearLayout.LayoutParams captionParams=new LinearLayout.LayoutParams(-1,-2);captionParams.topMargin=dp(1);wordmark.addView(brandCaption,captionParams);
         wordmark.setOnClickListener(v->navigate("Главная"));wordmark.setContentDescription("Nightwell Music, на главный экран");headerWordmark=wordmark;head.addView(wordmark,new LinearLayout.LayoutParams(0,-2,1));wordmark.setVisibility(isCollectionScreen()?View.INVISIBLE:View.VISIBLE);if(landscape){brandName.setTextSize(20);brandCaption.setTextSize(9);}
-        compactHandoff=iconButton("⇄",this::continueLiveHere);
+        compactHandoff=iconButton("⇥",this::continueLiveHere);
         compactHandoff.setContentDescription("Продолжить на этом устройстве");
         compactHandoff.setVisibility(View.GONE);
         head.addView(compactHandoff,new LinearLayout.LayoutParams(dp(42),dp(44)));
-        android.widget.ImageView menuButton=new android.widget.ImageView(this);menuButton.setImageResource(android.R.drawable.ic_menu_myplaces);menuButton.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);menuButton.setPadding(dp(8),dp(8),dp(8),dp(8));menuButton.setBackground(touchSurface(0x40202228,22));menuButton.setOnClickListener(v->{if(!bottomNavigationEnabled())menu(true);else if(user.isEmpty())auth();else profile();});menuButton.setContentDescription("Открыть профиль");profileAvatarButton=menuButton;
+        android.widget.ImageView menuButton=new android.widget.ImageView(this);menuButton.setImageDrawable(new AvatarPlaceholderDrawable());menuButton.setScaleType(android.widget.ImageView.ScaleType.CENTER_INSIDE);menuButton.setPadding(dp(9),dp(9),dp(9),dp(9));menuButton.setBackground(buttonRipple());menuButton.setOnClickListener(v->{if(!bottomNavigationEnabled())menu(true);else if(user.isEmpty())auth();else profile();});menuButton.setContentDescription("Открыть профиль");profileAvatarButton=menuButton;
         head.addView(menuButton,new LinearLayout.LayoutParams(dp(44),dp(44)));
         libraryExtraButton=iconButton("☰",()->menu(true));
         libraryExtraButton.setContentDescription("Дополнительно");
@@ -1201,7 +1203,7 @@ public final class MainActivity extends Activity {
         setNightwellStatus(nightwellStatus);
         // Connectivity indicator lives beside the Menu title, not in a
         // dedicated line above the contents.
-        liveHandoff=sheetAction("Музыка на другом устройстве · Продолжить здесь",this::continueLiveHere);
+        liveHandoff=sheetAction("⇥  Музыка на другом устройстве · Продолжить здесь",this::continueLiveHere);
         liveHandoff.setVisibility(View.GONE);root.addView(liveHandoff);
         refreshLiveHandoff();
         LinearLayout contentRow=row();
@@ -1240,7 +1242,7 @@ public final class MainActivity extends Activity {
         miniProgressRing=new CircularProgressRing(this);
         miniProgressRing.addView(miniPlay,new android.widget.FrameLayout.LayoutParams(-1,-1));
         dock.addView(miniProgressRing,new LinearLayout.LayoutParams(dp(48),dp(48)));
-        FrameLayout dockContainer=new FrameLayout(this);
+        MiniPlayerSwipeFrame dockContainer=new MiniPlayerSwipeFrame(this,this::swipeMiniNext,this::swipeMiniPrevious);
         dockContainer.setBackground(glassDock);
         dockContainer.setClipToOutline(true);
         dockContainer.addView(dock,new FrameLayout.LayoutParams(-1,-2));
@@ -1274,7 +1276,7 @@ public final class MainActivity extends Activity {
             premiumTabButton.setVisibility(shouldShowPremiumTab()?View.VISIBLE:View.GONE);
             dockStack.addView(navigation,new LinearLayout.LayoutParams(-1,dp(58)));
         }
-        android.view.GestureDetector miniGestures=gestures(false);labels.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));dock.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));
+        dock.setOnClickListener(v->openPlayer());
         showScreen();updatePlayback();loadMiniCover(current());updateCoverBackdrop();dockOverlay.post(this::refreshDockBackdrop);
     }
     private TextView addBottomNavigationTab(LinearLayout container,String icon,String label,Runnable click){
@@ -1798,7 +1800,7 @@ public final class MainActivity extends Activity {
         panel.addView(space,new LinearLayout.LayoutParams(-1,dp(16)));
         TextView logout=sheetAction("↪    Выйти из аккаунта",()->{});
         logout.setTextColor(0xffffaaa9);
-        logout.setBackground(touchSurface(0xff30262a,17));
+        logout.setBackground(buttonRipple());
         panel.addView(logout,new LinearLayout.LayoutParams(-1,dp(54)));
         AlertDialog sheet=new AlertDialog.Builder(this).setTitle("Профиль")
             .setView(panel).setPositiveButton("Готово",null).create();
@@ -2195,8 +2197,8 @@ public final class MainActivity extends Activity {
             android.widget.FrameLayout.LayoutParams introParams=new android.widget.FrameLayout.LayoutParams(-1,-2,Gravity.CENTER);
             introParams.bottomMargin=dp(compact?150:165);
             stage.addView(intro,introParams);
-            homePlay=action("▶",()->{if(currentID.isEmpty())wave();else toggle();});homePlay.setTextColor(0xff111215);homePlay.setTextSize(31);homePlay.setBackground(touchSurface(0xfff1f1f2,44));homePlay.setElevation(dp(5));android.widget.FrameLayout.LayoutParams playParams=new android.widget.FrameLayout.LayoutParams(dp(88),dp(88),Gravity.CENTER);if(compact){playParams.gravity=Gravity.CENTER_VERTICAL|Gravity.RIGHT;playParams.rightMargin=dp(50);}else playParams.topMargin=dp(30);stage.addView(homePlay,playParams);
-            TextView mix=action("Новая подборка",this::wave);mix.setOnLongClickListener(v->{waveSettings();return true;});mix.setContentDescription("Новая подборка. Удерживай, чтобы настроить");mix.setTextSize(14);mix.setBackground(touchSurface(0xff2b2d33,21));mix.setTextColor(0xffffffff);mix.setTypeface(null,android.graphics.Typeface.BOLD);android.widget.FrameLayout.LayoutParams mixParams=new android.widget.FrameLayout.LayoutParams(dp(184),dp(44),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL);mixParams.bottomMargin=dp(compact?20:124);stage.addView(mix,mixParams);
+            homePlay=action("▶",()->{if(currentID.isEmpty())wave();else toggle();});homePlay.setTextColor(Color.WHITE);homePlay.setTextSize(34);homePlay.setBackground(buttonRipple());homePlay.setElevation(0);android.widget.FrameLayout.LayoutParams playParams=new android.widget.FrameLayout.LayoutParams(dp(88),dp(88),Gravity.CENTER);if(compact){playParams.gravity=Gravity.CENTER_VERTICAL|Gravity.RIGHT;playParams.rightMargin=dp(50);}else playParams.topMargin=dp(30);stage.addView(homePlay,playParams);
+            TextView mix=action("Новая подборка",this::wave);mix.setOnLongClickListener(v->{waveSettings();return true;});mix.setContentDescription("Новая подборка. Удерживай, чтобы настроить");mix.setTextSize(14);mix.setBackground(buttonRipple());mix.setTextColor(0xffffffff);mix.setTypeface(null,android.graphics.Typeface.BOLD);android.widget.FrameLayout.LayoutParams mixParams=new android.widget.FrameLayout.LayoutParams(dp(184),dp(44),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL);mixParams.bottomMargin=dp(compact?20:124);homeMixButton=mix;updateMixButton();stage.addView(mix,mixParams);
             homeLyric=text("",16);homeLine="";homeWord=-2;homeKineticSpans.clear();homeLyric.setGravity(Gravity.CENTER);homeLyric.setTextColor(0xffe1e1e1);homeLyric.setMaxLines(2);homeLyric.setOnClickListener(v->{JSONObject t=current();if(t!=null)showLyrics(t);});android.widget.FrameLayout.LayoutParams lyricParams=new android.widget.FrameLayout.LayoutParams(-1,dp(50),Gravity.BOTTOM);stage.addView(homeLyric,lyricParams);if(compact)homeLyric.setVisibility(View.VISIBLE);
             if(compact&&!backgroundOnly){
                 // Real two-column landscape layout. Prevent the album/lyrics
@@ -2862,14 +2864,14 @@ public final class MainActivity extends Activity {
                     String nextAccount=account==null?"":account.optString("id");
                     if(!nextAccount.equals(user)){
                         clearTogetherRoom();libraryPositions.clear();lastLibraryScreen="Медиатека";
-                        clearLibrarySnapshot();
+                        // Keep the account-keyed snapshot for instant metadata restore on login.
                         libraryGeneration++;favoriteRecoveryGeneration++;catalog=new JSONArray();shown=new JSONArray();playlists=new JSONArray();likes.clear();favoritePending.clear();favoriteTracks.clear();favoriteRecoveryAttempts.clear();selectedPlaylist="";
                         if(playback!=null)playback.stop();
                     }
                     boolean accountChanged=!nextAccount.equals(user);
                     user=nextAccount;
                     if(!nextAccount.equals(getSharedPreferences("native-api",MODE_PRIVATE).getString("account","")))searchCache.clear();
-                    if(accountChanged){restoreRecent();if(!user.isEmpty())restoreFavoriteIndex(user);}
+                    if(accountChanged){restoreRecent();if(!user.isEmpty()){restoreFavoriteIndex(user);restoreLibrarySnapshot(user);}}
                     getSharedPreferences("native-api",MODE_PRIVATE).edit().putString("account",user).apply();
                     sessionReady=true;
                     if(playback!=null&&pendingDeepLinkTrack.isEmpty())playback.restorePlayback(origin,user);
@@ -3547,7 +3549,9 @@ public final class MainActivity extends Activity {
             });
         });
     }
-    void cancelMix(){waveRequest.cancel();mixing=false;}
+    private void updateMixButton(){if(homeMixButton!=null){setLabel(homeMixButton,mixing?"Подбираем…":"Новая подборка");homeMixButton.setEnabled(!mixing);homeMixButton.setAlpha(mixing?.72f:1f);}}
+    private void setMixing(boolean active){mixing=active;updateMixButton();}
+    void cancelMix(){waveRequest.cancel();setMixing(false);}
     void wave(){
         if(mixing)return;if(user.isEmpty()){auth();return;}
         final NativeAPI client=new NativeAPI(this,origin);
@@ -3557,7 +3561,7 @@ public final class MainActivity extends Activity {
         final java.util.Set<String> hidden=hiddenRecommendations();
         hidden.addAll(SkipFeedback.recentIDs(this,origin,account));
         final java.util.Set<String> blockedArtists=hiddenArtists();
-        mixing=true;status.setText("Подбираем…");
+        setMixing(true);status.setText("Подбираем…");
         final java.util.LinkedHashSet<String> excluded=new java.util.LinkedHashSet<>(mixRecent);
         for(int i=0;i<Math.min(8,queue.length());i++)excluded.add(queue.optJSONObject(i).optString("id"));
         if(!playingID.isEmpty())excluded.add(playingID);
@@ -3586,7 +3590,7 @@ public final class MainActivity extends Activity {
                 }
                 ui.post(()->{
                     if(isDestroyed()||!waveRequest.complete(ticket))return;
-                    mixing=false;
+                    setMixing(false);
                     if(!account.equals(user))return;
                     if(ordered.length()>0){
                         status.setText("");play(ordered.optJSONObject(0),ordered,true);
@@ -3594,7 +3598,7 @@ public final class MainActivity extends Activity {
                         ?"Все найденные треки скрыты фильтрами рекомендаций."
                         :"Новых треков пока нет. Попробуй чуть позже.");
                 });
-            }catch(Exception e){ui.post(()->{if(isDestroyed()||!waveRequest.complete(ticket))return;mixing=false;status.setText(friendly(e));});}
+            }catch(Exception e){ui.post(()->{if(isDestroyed()||!waveRequest.complete(ticket))return;setMixing(false);status.setText(friendly(e));});}
             finally{client.close();}
         });
     }
@@ -3649,7 +3653,7 @@ public final class MainActivity extends Activity {
     }
     String time(double seconds){int v=Math.max(0,(int)seconds);return String.format(java.util.Locale.ROOT,"%d:%02d",v/60,v%60);}
     JSONObject current(){for(int i=0;i<queue.length();i++)if(queue.optJSONObject(i).optString("id").equals(currentID))return queue.optJSONObject(i);return null;}
-    String iconLabel(String icon){switch(icon){case "⌕":return "Поиск музыки";case "☰":return "Открыть меню";case "⋯":return "Действия с треком";case "⌄":return "Свернуть плеер";case "×":return "Закрыть";case "|‹":return "Предыдущий трек";case "›|":return "Следующий трек";case "♡":case "♥":return "Избранное";case "⇄":return "Перемешать";case "↻":return "Повтор";default:return "Воспроизведение";}}
+    String iconLabel(String icon){switch(icon){case "⌕":return "Поиск музыки";case "☰":return "Открыть меню";case "⋯":return "Действия с треком";case "⌄":return "Свернуть плеер";case "×":return "Закрыть";case "|‹":return "Предыдущий трек";case "›|":return "Следующий трек";case "♡":case "♥":return "Избранное";case "⇄":return "Перемешать";case "⇥":return "Продолжить с другого устройства";case "↻":return "Повтор";default:return "Воспроизведение";}}
     void openPlayer(){
         JSONObject track=current();if(track==null)return;if(!full)retainCollectionPosition();full=true;updateCoverBackdrop();
         if(landscapeRail!=null)landscapeRail.setVisibility(View.GONE);if(atmosphere!=null)atmosphere.setVisibility(View.GONE);if(ribbon!=null){ribbon.running(false);ribbon.setVisibility(View.GONE);}dock.setVisibility(View.GONE);if(dockOverlay!=null)dockOverlay.setVisibility(View.GONE);headerHost.setVisibility(View.GONE);body.removeAllViews();
@@ -3671,7 +3675,7 @@ public final class MainActivity extends Activity {
         fullAudioOutput.setEllipsize(android.text.TextUtils.TruncateAt.END);
         fullAudioOutput.setPadding(dp(10),0,dp(10),0);
         fullAudioOutput.setMinHeight(0);
-        fullAudioOutput.setBackground(touchSurface(0x6620222b,16));
+        fullAudioOutput.setBackground(buttonRipple());
         fullAudioOutput.setContentDescription("Устройство вывода: "+audioOutputName()+". Изменить");
         fullAudioOutput.setOnClickListener(v->chooseAudioOutput());
         LinearLayout.LayoutParams routeParams=new LinearLayout.LayoutParams(-2,dp(30));
@@ -4223,7 +4227,7 @@ public final class MainActivity extends Activity {
         final Set<String> hidden=hiddenRecommendations(),blocked=hiddenArtists();
         final JSONArray playlistCopies=cachedOwnedTracks();
         final java.util.List<String> artists=SeededRhythm.artists(seeds);
-        mixing=true;status.setText("Подбираем похожую музыку…");
+        setMixing(true);status.setText("Подбираем похожую музыку…");
         io.execute(()->{
             try{
                 if(!waveRequest.pending(ticket))return;
@@ -4251,7 +4255,7 @@ public final class MainActivity extends Activity {
                 final JSONArray result=fresh;
                 ui.post(()->{
                     if(isDestroyed()||!waveRequest.complete(ticket))return;
-                    mixing=false;
+                    setMixing(false);
                     if(!owner.equals(user))return;
                     if(result.length()==0){
                         status.setText("Не удалось найти похожие треки в доступном каталоге.");
@@ -4268,7 +4272,7 @@ public final class MainActivity extends Activity {
             }catch(Exception error){
                 ui.post(()->{
                     if(!isDestroyed()&&waveRequest.complete(ticket)){
-                        mixing=false;status.setText(friendly(error));
+                        setMixing(false);status.setText(friendly(error));
                     }
                 });
             }finally{client.close();}
