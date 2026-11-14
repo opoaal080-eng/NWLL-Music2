@@ -95,12 +95,12 @@ public final class MainActivity extends Activity {
             nightwellMenuMessage.setContentDescription("Подключение Nightwell: "+message);
         }
     }
-    // Recolor the combining dot that belongs to the lowercase i, not an
-    // additional circle sitting above the Nightwell wordmark.
+    // Keep the status indicator within the original i glyph. Repainting
+    // its dot preserves typography across font sizes and Android versions.
     private void updateWordmarkStatusDot(int color) {
         if (headerConnectionBrandName == null) return;
-        android.text.SpannableString title=new android.text.SpannableString("Nı\u0307ghtwell");
-        title.setSpan(new android.text.style.ForegroundColorSpan(color),2,3,
+        android.text.SpannableString title = new android.text.SpannableString("Nightwell");
+        title.setSpan(new WordmarkStatusDotSpan(color), 1, 2,
             android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         headerConnectionBrandName.setText(title);
     }
@@ -1161,7 +1161,7 @@ public final class MainActivity extends Activity {
         headerBrandButton=brand;
         brand.setVisibility(isCollectionScreen()?View.GONE:View.VISIBLE);
         LinearLayout wordmark=column();wordmark.setGravity(Gravity.CENTER_VERTICAL);wordmark.setPadding(dp(9),0,0,0);
-        TextView brandName=text("Nı\u0307ghtwell",25);headerConnectionBrandName=brandName;brandName.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);brandName.setTextColor(0xfff3f3f5);brandName.setIncludeFontPadding(false);brandName.setSingleLine(true);brandName.setAutoSizeTextTypeUniformWithConfiguration(18,25,1,android.util.TypedValue.COMPLEX_UNIT_SP);
+        TextView brandName=text("Nightwell",25);headerConnectionBrandName=brandName;brandName.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);brandName.setTextColor(0xfff3f3f5);brandName.setIncludeFontPadding(false);brandName.setSingleLine(true);brandName.setAutoSizeTextTypeUniformWithConfiguration(18,25,1,android.util.TypedValue.COMPLEX_UNIT_SP);
         wordmark.addView(brandName,new LinearLayout.LayoutParams(-1,dp(landscape?27:31)));
         TextView brandCaption=text("M U S I C",12);brandCaption.setIncludeFontPadding(false);brandCaption.setSingleLine(true);brandCaption.setTextColor(0xff92959f);LinearLayout.LayoutParams captionParams=new LinearLayout.LayoutParams(-1,-2);captionParams.topMargin=dp(1);wordmark.addView(brandCaption,captionParams);
         wordmark.setOnClickListener(v->navigate("Главная"));wordmark.setContentDescription("Nightwell Music, на главный экран");headerWordmark=wordmark;head.addView(wordmark,new LinearLayout.LayoutParams(0,-2,1));wordmark.setVisibility(isCollectionScreen()?View.INVISIBLE:View.VISIBLE);if(landscape){brandName.setTextSize(20);brandCaption.setTextSize(9);}
@@ -1284,7 +1284,12 @@ public final class MainActivity extends Activity {
         tab.setGravity(Gravity.CENTER);
         tab.setTextColor(label.equals(screen)||label.equals("Медиатека")&&isCollectionScreen()
             ?Color.WHITE:0xffa7a8ac);
-        tab.setBackground(touchSurface(0x11000000,12));
+        // No individual pill beneath each tab. Shared blurred dock stays behind it.
+        GradientDrawable rippleMask = new GradientDrawable();
+        rippleMask.setColor(Color.WHITE);
+        rippleMask.setCornerRadius(dp(12));
+        tab.setBackground(new android.graphics.drawable.RippleDrawable(
+            android.content.res.ColorStateList.valueOf(0x26ffffff), null, rippleMask));
         tab.setOnClickListener(v->click.run());
         tab.setContentDescription(label);
         container.addView(tab,new LinearLayout.LayoutParams(0,-1,1));
