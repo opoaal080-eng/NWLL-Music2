@@ -691,7 +691,27 @@ public final class MainActivity extends Activity {
         return v;
     }
     android.graphics.drawable.Drawable buttonRipple(){return new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x28ffffff),null,null);}
-    TextView action(String label,Runnable run){TextView v=NativeIconButton.isIcon(label)?new NativeIconButton(this):text(label,16);v.setText(label);v.setTextColor(0xfff3f3f5);v.setTextSize(NativeIconButton.isIcon(label)?20:16);if(NativeIconButton.isIcon(label))v.setContentDescription(iconLabel(label));v.setGravity(Gravity.CENTER);v.setPadding(dp(12),dp(9),dp(12),dp(9));v.setMinHeight(dp(48));v.setBackground(buttonRipple());v.setOnClickListener(x->run.run());return v;}
+    TextView action(String label,Runnable run){
+        boolean iconOnly=NativeIconButton.isIcon(label);
+        String cleaned=iconOnly?label:NightwellGlyphDrawable.cleanLabel(label);
+        TextView v=iconOnly?new NativeIconButton(this):text(cleaned,16);
+        v.setText(cleaned);
+        v.setTextColor(0xfff3f3f5);
+        v.setTextSize(iconOnly?20:16);
+        if(iconOnly)v.setContentDescription(iconLabel(label));
+        v.setGravity(Gravity.CENTER);
+        v.setPadding(dp(12),dp(9),dp(12),dp(9));
+        v.setMinHeight(dp(48));
+        if(!iconOnly&&!cleaned.equals(label)){
+            NightwellGlyphDrawable glyph=NightwellGlyphDrawable.forLabel(this,label);
+            glyph.setInk(0xffbec1ca);
+            v.setCompoundDrawablesWithIntrinsicBounds(glyph,null,null,null);
+            v.setCompoundDrawablePadding(dp(12));
+        }
+        v.setBackground(buttonRipple());
+        v.setOnClickListener(x->run.run());
+        return v;
+    }
     TextView iconButton(String label,Runnable run){TextView v=action(label,run);v.setPadding(0,0,0,0);v.setTextSize(19);v.setTextColor(0xfff1f1f6);v.setBackground(buttonRipple());return v;}
     void toggleBackgroundOnly(){backgroundOnly=!backgroundOnly;build();}
     private int depthQueuePage = 0;
@@ -1458,29 +1478,31 @@ public final class MainActivity extends Activity {
             if(startAdditional)menuTabs.add("Обращения");
             String[] tabs=menuTabs.toArray(new String[0]);
             for(String tab:tabs){
-                final String glyph;
+                String kind;
                 switch(tab){
-                    case "Главная":glyph="⌂";break;
-                    case "Поиск":glyph="⌕";break;
-                    case "Медиатека":glyph="▤";break;
-                    case "Избранное":glyph="♡";break;
-                    case "Плейлисты":glyph="▤";break;
-                    case "Офлайн":glyph="↓";break;
-                    case "Настройки":glyph="⚙";break;
-                    case "Nightwell Premium":glyph="✧";break;
-                    case "Слушать вместе":glyph="◉";break;
-                    case "Моя статистика":glyph="▥";break;
-                    case "Перенос плейлистов":glyph="⇩";break;
-                    default:glyph="↗";
+                    case "Главная":kind="home";break;
+                    case "Поиск":kind="search";break;
+                    case "Медиатека":case "Плейлисты":kind="playlist";break;
+                    case "Избранное":kind="heart";break;
+                    case "Офлайн":case "Перенос плейлистов":kind="download";break;
+                    case "Настройки":kind="sliders";break;
+                    case "Nightwell Premium":kind="star";break;
+                    case "Слушать вместе":kind="devices";break;
+                    case "Моя статистика":kind="equalizer";break;
+                    case "Обращения":kind="file";break;
+                    default:kind="person";break;
                 }
                 boolean active=tab.equals(screen)||"Медиатека".equals(tab)&&isCollectionScreen();
                 LinearLayout item=row();
                 item.setPadding(dp(16),0,dp(16),0);
                 item.setBackground(buttonRipple());
-                TextView symbol=text(glyph,18);
-                symbol.setGravity(Gravity.CENTER);
-                symbol.setTextColor(active?0xffffffff:0xffaeb3bd);
-                item.addView(symbol,new LinearLayout.LayoutParams(dp(25),dp(49)));
+                android.widget.ImageView symbol=new android.widget.ImageView(this);
+                NightwellGlyphDrawable glyph=new NightwellGlyphDrawable(this,kind);
+                glyph.setInk(active?Color.WHITE:0xffaeb3bd);
+                symbol.setImageDrawable(glyph);
+                symbol.setPadding(dp(2),dp(12),dp(2),dp(12));
+                symbol.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+                item.addView(symbol,new LinearLayout.LayoutParams(dp(29),dp(49)));
                 TextView name=text(tab,16);
                 name.setTypeface(android.graphics.Typeface.create(active?"sans-serif-medium":"sans-serif",0));
                 name.setSingleLine(true);
@@ -1488,9 +1510,12 @@ public final class MainActivity extends Activity {
                 LinearLayout.LayoutParams textParams=new LinearLayout.LayoutParams(0,-2,1);
                 textParams.leftMargin=dp(15);
                 item.addView(name,textParams);
-                TextView chevron=text("›",18);
-                chevron.setTextColor(0xff777b85);
-                item.addView(chevron);
+                android.widget.ImageView chevron=new android.widget.ImageView(this);
+                NightwellGlyphDrawable next=new NightwellGlyphDrawable(this,"chevron");
+                next.setInk(0xff777b85);
+                chevron.setImageDrawable(next);
+                chevron.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+                item.addView(chevron,new LinearLayout.LayoutParams(dp(19),dp(25)));
                 item.setOnClickListener(v->{popup.dismiss();selectMenu(tab);});
                 LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(49));
                 p.bottomMargin=dp(8);
@@ -4976,7 +5001,7 @@ public final class MainActivity extends Activity {
             "Темы и визуальные эффекты",
             "Версия и сведения о сборке"
         };
-        final String[] symbols={"◈","♫","✧","ⓘ"};
+        final String[] symbols={"appearance","sliders","star","info"};
         AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Настройки")
             .setView(list).setPositiveButton("Готово",null).create();
         for(int i=0;i<pages.length;i++){
@@ -4984,9 +5009,12 @@ public final class MainActivity extends Activity {
             LinearLayout item=row();
             item.setPadding(dp(12),0,dp(10),0);
             item.setBackground(buttonRipple());
-            TextView symbol=text(symbols[i],20);
-            symbol.setTextColor(0xffd5d6dc);symbol.setGravity(Gravity.CENTER);
-            symbol.setBackground(fieldSurface(0xff33353a,12));
+            android.widget.ImageView symbol=new android.widget.ImageView(this);
+            NightwellGlyphDrawable icon=new NightwellGlyphDrawable(this,symbols[i]);
+            icon.setInk(0xffd5d6dc);
+            symbol.setImageDrawable(icon);
+            symbol.setPadding(dp(8),dp(8),dp(8),dp(8));
+            symbol.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
             item.addView(symbol,new LinearLayout.LayoutParams(dp(40),dp(40)));
             LinearLayout names=column();names.setPadding(dp(11),0,0,0);
             TextView title=text(selected,15);
@@ -4995,8 +5023,11 @@ public final class MainActivity extends Activity {
             subtitle.setTextColor(0xffa7aab4);subtitle.setPadding(0,dp(4),0,0);
             names.addView(title);names.addView(subtitle);
             item.addView(names,new LinearLayout.LayoutParams(0,-2,1));
-            TextView chevron=text("›",21);chevron.setTextColor(0xff9b9da6);
-            item.addView(chevron,new LinearLayout.LayoutParams(dp(18),-2));
+            android.widget.ImageView chevron=new android.widget.ImageView(this);
+            NightwellGlyphDrawable next=new NightwellGlyphDrawable(this,"chevron");
+            next.setInk(0xff9b9da6);
+            chevron.setImageDrawable(next);
+            item.addView(chevron,new LinearLayout.LayoutParams(dp(18),dp(30)));
             LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,dp(68));
             params.bottomMargin=dp(7);
             list.addView(item,params);
