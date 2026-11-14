@@ -200,6 +200,8 @@ actor MusicAPI: LyricsService {
         guard let url = URL(string: path, relativeTo: origin), url.host == origin.host, url.scheme == "https" else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
         request.httpMethod = method
+        request.setValue(NightwellClientDevice.id, forHTTPHeaderField: "X-NW-Device-ID")
+        request.setValue("ios", forHTTPHeaderField: "X-NW-Device-Platform")
         if method == "GET", url.path == "/api/tracks", url.query != nil {
             request.cachePolicy = .reloadIgnoringLocalCacheData
             request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
@@ -244,6 +246,8 @@ actor MusicAPI: LyricsService {
         body.append(Data(("\r\n--" + boundary + "--\r\n").utf8))
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
+        request.setValue(NightwellClientDevice.id, forHTTPHeaderField: "X-NW-Device-ID")
+        request.setValue("ios", forHTTPHeaderField: "X-NW-Device-Platform")
         request.setValue(csrf, forHTTPHeaderField: "X-CSRF-Token")
         request.setValue("multipart/form-data; boundary=" + boundary, forHTTPHeaderField: "Content-Type")
         request.httpBody = body
@@ -257,6 +261,8 @@ actor MusicAPI: LyricsService {
     func export(_ id: String) async throws -> Data {
         let url = URL(string: "api/offline-export/" + id + "?download=true&wait=true", relativeTo: origin)!
         var request = URLRequest(url: url); request.timeoutInterval = 300
+        request.setValue(NightwellClientDevice.id, forHTTPHeaderField: "X-NW-Device-ID")
+        request.setValue("ios", forHTTPHeaderField: "X-NW-Device-Platform")
         let (file, response) = try await session.download(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { throw APIError(message: "Трек пока нельзя скачать") }
         let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
