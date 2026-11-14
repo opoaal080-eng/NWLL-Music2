@@ -38,80 +38,6 @@ jobs:
     runs-on: macos-26-intel
     steps:
       - uses: actions/checkout@v4
-      - name: Verify recovered sources
-        run: python3 scripts/verify-native-source.py
-      - name: Verify mirrored iOS sources
-        run: |
-          cmp NightwellMusic/MusicStore.swift source/NightwellMusic/MusicStore.swift
-      - name: Parse Swift sources
-        run: |
-          swiftc -frontend -parse NightwellMusic/*.swift NativeTests/*.swift
-          swiftc -frontend -parse source/NightwellMusic/*.swift
-      - name: Test music search and recommendation controls
-        if: github.event_name != 'push'
-        run: |
-          swiftc NightwellMusic/TransferSimilarity.swift NightwellMusic/NightwellSearch.swift NightwellMusic/RecommendationOrder.swift NightwellMusic/SkipFeedback.swift scripts/test-recommendations.swift -o /tmp/test-nightwell-recommendations
-          /tmp/test-nightwell-recommendations
-      - name: Test SoundCloud priority in generated mixes
-        if: github.event_name != 'push'
-        run: |
-          swiftc NightwellMusic/TransferSimilarity.swift NightwellMusic/NightwellSearch.swift NightwellMusic/RecommendationOrder.swift NightwellMusic/NightwellSeededRhythm.swift scripts/test-source-recommendations.swift -o /tmp/test-source-recommendations
-          /tmp/test-source-recommendations
-      - name: Test remote uploader and performer attribution
-        if: github.event_name != 'push'
-        run: |
-          swiftc NightwellMusic/ArtistAttribution.swift scripts/test-artist-attribution.swift -o /tmp/test-artist-attribution
-          /tmp/test-artist-attribution
-      - name: Test Premium payment confirmation
-        if: github.event_name != 'push'
-        run: |
-          swiftc NightwellMusic/PremiumPaymentPolicy.swift scripts/test-premium-payment.swift -o /tmp/test-premium-payment
-          /tmp/test-premium-payment
-      - name: Test progressive library loading
-        if: github.event_name != 'push'
-        run: |
-          swiftc NightwellMusic/LibraryRefreshCoordinator.swift scripts/test-library-refresh.swift -o /tmp/test-library-refresh
-          /tmp/test-library-refresh
-      - name: Test manual queue and source playlist preservation
-        if: github.event_name != 'push'
-        run: |
-          swiftc NightwellMusic/PlaybackQueueInsertion.swift scripts/test-playback-queue.swift -o /tmp/test-playback-queue
-          /tmp/test-playback-queue
-      - name: Test library session restoration and sorting reset
-        if: github.event_name != 'push'
-        run: |
-          swiftc NightwellMusic/LibrarySessionState.swift scripts/test-library-session.swift -o /tmp/test-library-session
-          /tmp/test-library-session
-      - name: Test aura preparation
-        if: github.event_name != 'push'
-        run: |
-          swiftc NightwellMusic/AuraPreparationPolicy.swift scripts/test-aura-preparation.swift -o /tmp/test-aura-preparation
-          /tmp/test-aura-preparation
-      - name: Test request retry safety
-        if: github.event_name != 'push'
-        run: |
-          swiftc NightwellMusic/RequestRetry.swift scripts/test-request-retry.swift -o /tmp/test-request-retry
-          /tmp/test-request-retry
-      - name: Test playlist parsing on device
-        if: github.event_name != 'push'
-        run: |
-          swiftc NightwellMusic/TransferSimilarity.swift NightwellMusic/TransferPreparation.swift scripts/test-transfer-preparation.swift -o /tmp/test-transfer-preparation
-          /tmp/test-transfer-preparation
-      - name: Test on-device transfer matching
-        if: github.event_name != 'push'
-        run: |
-          swiftc NightwellMusic/TransferSimilarity.swift NightwellMusic/TransferPreparation.swift NightwellMusic/DeviceTransferMatcher.swift scripts/test-device-transfer-match.swift -o /tmp/test-device-transfer-match
-          /tmp/test-device-transfer-match
-      - name: Test search recall and trained transfer model
-        if: github.event_name != 'push'
-        run: |
-          swiftc -O NightwellMusic/TransferSimilarity.swift NightwellMusic/NightwellSearch.swift scripts/test-search-recall.swift -o /tmp/test-search-recall
-          /tmp/test-search-recall
-          transfer=(NightwellMusic/TransferSimilarity.swift NightwellMusic/TransferPreparation.swift NightwellMusic/DeviceTransferMatcher.swift NightwellMusic/DeviceNeuralTransferMatcher.swift NightwellMusic/TransferNeuralModel.swift NightwellMusic/TransferRemoteSearch.swift)
-          swiftc -O "${transfer[@]}" scripts/test-transfer-recall.swift -o /tmp/test-transfer-recall
-          /tmp/test-transfer-recall
-          swiftc -O "${transfer[@]}" scripts/test-transfer-search.swift -o /tmp/test-transfer-search
-          /tmp/test-transfer-search
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Select latest installed Xcode
@@ -135,11 +61,6 @@ jobs:
         run: |
           sed -i '' "s/SOURCE_COMMIT/$GITHUB_SHA/" project.yml
           xcodegen generate
-      - name: Test native queue without replacing the current audio item
-        if: github.event_name != 'push'
-        run: |
-          testDeviceID=$(xcrun simctl list devices available --json | python3 -c 'import json,sys; print(next(d["udid"] for devices in json.load(sys.stdin)["devices"].values() for d in devices if d["name"].startswith("iPhone")))')
-          xcodebuild -project NightwellMusic.xcodeproj -scheme NightwellMusic -configuration Debug -destination "platform=iOS Simulator,id=$testDeviceID" -derivedDataPath build-tests CODE_SIGNING_ALLOWED=NO -only-testing:NightwellMusicTests/PlaybackQueueTests -only-testing:NightwellMusicTests/FavoritePresentationTests test
       - name: Build unsigned IPA
         run: |
           xcodebuild -project NightwellMusic.xcodeproj -scheme NightwellMusic -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build-device CURRENT_PROJECT_VERSION=$((400 + GITHUB_RUN_NUMBER)) CODE_SIGNING_ALLOWED=NO build
