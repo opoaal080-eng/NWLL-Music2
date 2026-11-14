@@ -20,7 +20,7 @@ public partial class MainWindow {
    premiumVerifiedOwner=owner;
    PremiumDockButton.Visibility=owner.Length==0?Visibility.Visible:Visibility.Collapsed;
   }
-  if(owner.Length==0)return;
+  if(owner.Length==0){PremiumDockButton.Visibility=Visibility.Visible;return;}
   try{
    var result=await api.Request("api/premium/me");
    bool active=result.TryGetProperty("premium",out var premium)&&premium.GetBoolean()
