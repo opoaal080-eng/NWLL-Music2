@@ -86,6 +86,7 @@ public partial class MainWindow {
       remove.IsEnabled=false;
       try{
        await api.Request("api/devices/"+Uri.EscapeDataString(id),"DELETE");
+       if(!current)await RegisterAccountDeviceAsync();
        await Reload();
       }catch(Exception error){
        status.Text="Не удалось удалить устройство: "+error.Message;
