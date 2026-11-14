@@ -626,7 +626,7 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
   }finally{pendingLikeIDs.Remove(t.id);}
  }
  async Task Lyrics(Track t){
-  Home.Visibility=Library.Visibility=Dock.Visibility=Visibility.Collapsed;PlayerPage.Visibility=LyricsPanel.Visibility=Visibility.Visible;Ribbon.Visibility=Visibility.Visible;Ribbon.Focused=true;Cover.Visibility=Visibility.Collapsed;StartLyricClock();
+  Home.Visibility=Library.Visibility=Dock.Visibility=BottomTabs.Visibility=Visibility.Collapsed;PlayerPage.Visibility=LyricsPanel.Visibility=Visibility.Visible;Ribbon.Visibility=Visibility.Visible;Ribbon.Focused=true;Cover.Visibility=Visibility.Collapsed;StartLyricClock();
   if(lyricsID==t.id&&currentLyrics.HasValue){SyncLyrics();return;}
   lyricsCancellation?.Cancel();lyricsCancellation=new();var token=lyricsCancellation.Token;lyricsID=t.id;currentLyrics=null;renderedLyric=int.MinValue;SyncedLyricsLines.Visibility=Visibility.Collapsed;LyricsText.Visibility=Visibility.Visible;LyricsText.Text="Ищем подходящий текст…";
   string folder=Path.Combine(NativeAPI.Storage,"lyrics");Directory.CreateDirectory(folder);string cache=Path.Combine(folder,t.id+".json");
@@ -660,7 +660,7 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
  }
  void QueueClick(object sender,RoutedEventArgs e)=>QueueWindow();
  EmbeddedSheet QueueWindow(bool show=true)=>QueueWithDepthSetting(show);
- void BackgroundClick(object sender,RoutedEventArgs e){backgroundOnly=true;Header.Visibility=Dock.Visibility=HomeControls.Visibility=HomeHeading.Visibility=Visibility.Collapsed;PlaybackBadge.Visibility=Status.Visibility=Visibility.Collapsed;HeaderRow.Height=new GridLength(0);MouseDoubleClick-=RestoreBackground;MouseDoubleClick+=RestoreBackground;}
+ void BackgroundClick(object sender,RoutedEventArgs e){backgroundOnly=true;Header.Visibility=Dock.Visibility=BottomTabs.Visibility=HomeControls.Visibility=HomeHeading.Visibility=Visibility.Collapsed;PlaybackBadge.Visibility=Status.Visibility=Visibility.Collapsed;HeaderRow.Height=new GridLength(0);MouseDoubleClick-=RestoreBackground;MouseDoubleClick+=RestoreBackground;}
  void RestoreBackground(object sender,MouseButtonEventArgs e){LeaveBackgroundMode();Show("Главная");}
  void ShowPlaylists()=>Show("Плейлисты");
  void CollectionClick(object sender,RoutedEventArgs e){if(screen=="Плейлисты"&&playlist.Length==0){ShowPlaylists();return;}if(screen=="Избранное"){
