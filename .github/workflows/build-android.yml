@@ -132,9 +132,7 @@ jobs:
           ram-size: 3072M
           heap-size: 512M
           disable-animations: true
-          script: |
-            adb install -r "$(find android/native-smoke/apk -type f -name '*.apk' -print -quit)"
-            python3 android/capture-emulator-screens.py
+          script: adb install -r "$(find android/native-smoke/apk -type f -name '*.apk' -print -quit)" && python3 android/capture-emulator-screens.py
       - name: Publish emulator screenshots and HTML gallery
         if: always()
         uses: actions/upload-artifact@v4
