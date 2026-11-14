@@ -132,7 +132,15 @@ struct NativeHome: View {
     let configureWave: () -> Void
     @State private var suppressMixTapUntil = Date.distantPast
     @EnvironmentObject var store: MusicStore
-    @ObservedObject var clock: PlaybackClock
+    @Environment(\.nightwellBottomContentInset) private var bottomContentInset
+    private let clock: PlaybackClock
+    @ObservedObject private var status: TrackStatus
+
+    init(configureWave: @escaping () -> Void, clock: PlaybackClock) {
+        self.configureWave = configureWave
+        self.clock = clock
+        _status = ObservedObject(wrappedValue: clock.status)
+    }
 
     private func homeTitle(_ compact: Bool) -> some View {
         Text("Твой ритм")
@@ -151,14 +159,14 @@ struct NativeHome: View {
             if clock.current == nil { Task { await store.wave() } }
             else { clock.toggle() }
         } label: {
-            Image(systemName: clock.playing ? "pause.fill" : "play.fill")
+            Image(systemName: status.playing ? "pause.fill" : "play.fill")
                 .font(.system(size: compact ? 25 : 31, weight: .light))
                 .foregroundStyle(.white)
                 .frame(width: compact ? 68 : 88, height: compact ? 68 : 88)
                 .frostedGlass(compact ? 34 : 44, bordered: false, intensity: 0.20)
                 .contentShape(Circle())
         }
-        .accessibilityLabel(clock.playing ? "Пауза" : "Воспроизвести")
+        .accessibilityLabel(status.playing ? "Пауза" : "Воспроизвести")
         .buttonStyle(.plain)
     }
 
@@ -189,8 +197,9 @@ struct NativeHome: View {
 
     var body: some View {
         GeometryReader { box in
-            let landscape = box.size.width > box.size.height * 1.12 &&
-                box.size.height < 450
+            let controlsHeight = max(0, box.size.height - bottomContentInset)
+            let landscape = box.size.width > controlsHeight * 1.12 &&
+                controlsHeight < 450
             Group {
                 if landscape {
                     // iPhone landscape: controls on the left, karaoke on the
@@ -213,10 +222,11 @@ struct NativeHome: View {
                         waveButton(false)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding(.bottom, max(24, box.size.height * 0.07))
+                    .padding(.bottom, max(24, controlsHeight * 0.07))
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.bottom, bottomContentInset)
             .background { HomeSparkles() }
         }
     }

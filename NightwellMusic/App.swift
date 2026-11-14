@@ -572,6 +572,7 @@ struct NativeRoot: View {
     @State private var favoriteSort = "recent"
     @AppStorage("nw-library-section") private var savedLibrarySection = MusicStore.Screen.likes.rawValue
     @State private var libraryScrollCollapsed: [String: Bool] = [:]
+    @State private var libraryScrollPositions: [MusicStore.Screen: String] = [:]
     @StateObject private var artworkPalette = NightwellArtworkPalette()
     @State private var remoteHomeCollapsed = false
     @ObservedObject private var favoritePremium = PremiumFeatureState.shared
@@ -653,39 +654,63 @@ struct NativeRoot: View {
                     if isLibraryScreen {
                         librarySectionTabs(landscape: landscape)
                     }
-                    content
-                    VStack(spacing: landscape ? 4 : 8) {
-                        MiniPlayer(clock: store.clock, open: { fullPlayer = true },
-                                   compactHeight: landscape)
-                            .padding(.horizontal, landscape ? 18 : 16)
-                            .overlay(alignment: .bottom) {
-                                if store.screen == .home && !landscape {
-                                    HomeLyricLine(model: store.lyrics, clock: store.clock)
-                                        .saturation(0)
-                                        .frame(height: 60)
-                                        .padding(.horizontal, 24)
-                                        .offset(y: -85)
-                                }
-                            }
-                            .overlay(alignment: .top) {
-                                if !store.queueNotice.isEmpty {
-                                    Text(store.queueNotice)
-                                        .font(.system(size: 13, weight: .medium))
-                                        .multilineTextAlignment(.center)
-                                        .padding(.horizontal, 16).padding(.vertical, 10)
-                                        .background(.regularMaterial, in: Capsule())
-                                        .padding(.horizontal, 20)
-                                        .offset(y: -52)
-                                        .allowsHitTesting(false)
-                                }
-                            }
-                        bottomNavigation(landscape: landscape)
-                    }
+                    content(bottomContentInset: (landscape ? 108 : 140) + viewport.safeAreaInsets.bottom + 12)
+                        .environment(\.nightwellBottomContentInset,
+                                     (landscape ? 108 : 140) + viewport.safeAreaInsets.bottom + 12)
+                        .overlay(alignment: .bottom) {
+                            playerDock(landscape: landscape)
+                        }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
         }
+        }
+    }
+
+    private func playerDock(landscape: Bool) -> some View {
+        VStack(spacing: landscape ? 4 : 8) {
+            MiniPlayer(clock: store.clock, open: { fullPlayer = true },
+                       compactHeight: landscape)
+                .padding(.horizontal, landscape ? 18 : 16)
+                .overlay(alignment: .bottom) {
+                    if store.screen == .home && !landscape {
+                        HomeLyricLine(model: store.lyrics, clock: store.clock)
+                            .saturation(0)
+                            .frame(height: 60)
+                            .padding(.horizontal, 24)
+                            .offset(y: -85)
+                    }
+                }
+                .overlay(alignment: .top) {
+                    if !store.queueNotice.isEmpty {
+                        Text(store.queueNotice)
+                            .font(.system(size: 13, weight: .medium))
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 16).padding(.vertical, 10)
+                            .background(.regularMaterial, in: Capsule())
+                            .padding(.horizontal, 20)
+                            .offset(y: -52)
+                            .allowsHitTesting(false)
+                    }
+                }
+            bottomNavigation(landscape: landscape)
+        }
+        .background {
+            // Blur only the scrolling content behind the dock. The controls
+            // stay sharp, and the upper edge blends into the same screen.
+            Rectangle()
+                .fill(.regularMaterial)
+                .overlay(Color.black.opacity(0.18))
+                .mask {
+                    LinearGradient(stops: [.init(color: .clear, location: 0),
+                                           .init(color: .white, location: 0.12),
+                                           .init(color: .white, location: 1)],
+                                   startPoint: .top, endPoint: .bottom)
+                }
+                .padding(.top, -18)
+                .ignoresSafeArea(.container, edges: .bottom)
+                .allowsHitTesting(false)
         }
     }
 
@@ -861,18 +886,17 @@ struct NativeRoot: View {
             if ProcessInfo.processInfo.arguments.contains("--native-smoke-playlist") { selectedPlaylist = Playlist(id: "native-preview", name: "Твоя ночная подборка") }
             #endif
         }
-        .animation(reducedMotion ? nil : .easeInOut(duration: 0.22), value: store.screen)
         .simultaneousGesture(DragGesture(minimumDistance: 24).onEnded { gesture in
             let dx = gesture.translation.width
             let dy = gesture.translation.height
             if gesture.startLocation.x < 24 && dx > 90 && abs(dy) < 60 {
-                store.screen = .home
+                navigate(to: .home)
             }
         })
-        .onChange(of: store.screen) { _ in
+        .onChange(of: store.screen) { oldScreen, newScreen in
             if isLibraryScreen { savedLibrarySection = store.screen.rawValue }
-            if store.screen == .search { store.scheduleSearch() }
-            else { store.leaveSearch() }
+            if oldScreen == .search { store.leaveSearch() }
+            if newScreen == .search { store.scheduleSearch() }
         }
         .onOpenURL { url in
             if let code = NightwellTogetherSession.invitationCode(from: url.absoluteString, origin: store.origin) {
@@ -950,12 +974,30 @@ struct NativeRoot: View {
                 set: { libraryScrollCollapsed[screen.rawValue] = $0 })
     }
 
+    private func libraryScrollPosition(for screen: MusicStore.Screen) -> Binding<String?> {
+        Binding(get: { libraryScrollPositions[screen] }, set: { position in
+            // SwiftUI may clear its position binding while removing the old
+            // scroll view. Preserve that section's anchor until it is reopened.
+            guard store.screen == screen else { return }
+            if libraryScrollPositions[screen] != position {
+                libraryScrollPositions[screen] = position
+            }
+        })
+    }
+
+    private func navigate(to screen: MusicStore.Screen) {
+        guard store.screen != screen else { return }
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { store.screen = screen }
+    }
+
     private func librarySectionTabs(landscape: Bool) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             if !landscape {
                 Text("Медиатека").font(.title2.bold())
             }
-            Picker("Раздел медиатеки", selection: $store.screen) {
+            Picker("Раздел медиатеки", selection: Binding(get: { store.screen }, set: { navigate(to: $0) })) {
                 ForEach(libraryScreens, id: \.self) { screen in
                     Text(screen.rawValue).tag(screen)
                 }
@@ -968,16 +1010,13 @@ struct NativeRoot: View {
     private func bottomNavigation(landscape: Bool) -> some View {
         HStack(spacing: 0) {
             navigationTab("Главная", icon: "house", selected: store.screen == .home,
-                          landscape: landscape) { store.screen = .home }
+                          landscape: landscape) { navigate(to: .home) }
             navigationTab("Поиск", icon: "magnifyingglass", selected: store.screen == .search,
-                          landscape: landscape) { store.screen = .search }
+                          landscape: landscape) { navigate(to: .search) }
             navigationTab("Медиатека", icon: "square.stack", selected: isLibraryScreen,
-                          landscape: landscape) { store.screen = lastLibraryScreen }
+                          landscape: landscape) { navigate(to: lastLibraryScreen) }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, landscape ? 0 : 4)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24))
-        .padding(.horizontal, landscape ? 18 : 16)
+        .padding(.horizontal, landscape ? 18 : 8)
         .padding(.bottom, 6)
     }
 
@@ -993,13 +1032,13 @@ struct NativeRoot: View {
                 } else {
                     VStack(spacing: 4) {
                         Image(systemName: selected && icon != "magnifyingglass" ? icon + ".fill" : icon)
-                            .font(.system(size: 19, weight: .medium))
-                        Text(title).font(.system(size: 10, weight: .medium))
+                            .font(.system(size: 22, weight: selected ? .semibold : .regular))
+                        Text(title).font(.system(size: 11, weight: selected ? .semibold : .regular))
                     }
                 }
             }
-            .foregroundStyle(.white.opacity(selected ? 1 : 0.55))
-            .frame(maxWidth: .infinity, minHeight: 44)
+            .foregroundStyle(.white.opacity(selected ? 1 : 0.46))
+            .frame(maxWidth: .infinity, minHeight: landscape ? 44 : 56)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1030,9 +1069,7 @@ struct NativeRoot: View {
     private func header(landscape: Bool) -> some View {
         HStack(spacing: landscape ? 5 : 7) {
             Button {
-                withAnimation(reducedMotion ? nil : .easeInOut(duration: 0.22)) {
-                    store.screen = .home
-                }
+                navigate(to: .home)
             } label: {
                 HStack(spacing: 9) {
                     Text("N")
@@ -1132,33 +1169,24 @@ struct NativeRoot: View {
         }
         // The catalogue order is unrelated to the time a song was liked.
         // The saved per-account favorite order is newest first.
-        let ranks = Dictionary(uniqueKeysWithValues:
-            store.favoriteOrder.enumerated().map { ($0.element, $0.offset) })
-        return entries.sorted { left, right in
-            let a = ranks[left.id] ?? Int.max
-            let b = ranks[right.id] ?? Int.max
-            if a != b { return a < b }
-            return left.title.localizedStandardCompare(right.title) == .orderedAscending
+        // The store already presents the known chronology in order. Only
+        // records absent from that chronology need the title fallback sort.
+        let orderedIDs = Set(store.favoriteOrder)
+        guard let firstUnordered = entries.firstIndex(where: { !orderedIDs.contains($0.id) }) else { return entries }
+        return Array(entries[..<firstUnordered]) + entries[firstUnordered...].sorted {
+            $0.title.localizedStandardCompare($1.title) == .orderedAscending
         }
     }
-    private var content: some View {
-        ZStack {
-            if !isLibraryScreen {
-                screenContent(for: store.screen)
-            }
-            // Keep each library ScrollView alive while switching sections or
-            // tabs, preserving its own scroll position and compact heading.
-            ForEach(libraryScreens, id: \.self) { screen in
-                screenContent(for: screen)
-                    .opacity(store.screen == screen ? 1 : 0)
-                    .allowsHitTesting(store.screen == screen)
-                    .accessibilityHidden(store.screen != screen)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    private func content(bottomContentInset: CGFloat) -> some View {
+        // Inactive lists must release their layout, subscriptions and cover
+        // tasks. Keep only small scroll anchors, never three invisible trees.
+        screenContent(for: store.screen, bottomContentInset: bottomContentInset)
+            .id(store.screen)
+            .ignoresSafeArea(.container, edges: .bottom)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
-    @ViewBuilder private func screenContent(for screen: MusicStore.Screen) -> some View {
+    @ViewBuilder private func screenContent(for screen: MusicStore.Screen, bottomContentInset: CGFloat) -> some View {
         switch screen {
         case .home:
             NativeHome(configureWave: { waveSettingsPresented = true }, clock: store.clock)
@@ -1309,11 +1337,12 @@ struct NativeRoot: View {
                 TrackList(tracks: store.results)
             }.padding(.horizontal, 20)
         case .likes:
+            let tracks = favoriteTracks
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     collectionScrollMarker
                     HStack(alignment: .center, spacing: 8) {
-                        collectionHeading("Избранное", tracks: favoriteTracks, kind: "likes")
+                        collectionHeading("Избранное", tracks: tracks, kind: "likes")
                         Spacer(minLength: 0)
                         Menu {
                             Button("Недавно добавленные", systemImage: favoriteSort == "recent" ? "checkmark" : "clock") {
@@ -1332,12 +1361,15 @@ struct NativeRoot: View {
                         }
                         .accessibilityLabel("Сортировка избранного")
                     }
-                    TrackList(tracks: favoriteTracks, embedded: true)
+                    TrackList(tracks: tracks, embedded: true)
                 }
                 .padding(.horizontal, 20)
             }
             .coordinateSpace(name: "nightwell-library-scroll")
             .modifier(NightwellLibraryScrollTracker(collapsed: libraryScrollBinding(for: .likes)))
+            .scrollPosition(id: libraryScrollPosition(for: .likes), anchor: .top)
+            .contentMargins(.bottom, bottomContentInset, for: .scrollContent)
+            .contentMargins(.bottom, bottomContentInset, for: .scrollIndicators)
             .scrollDismissesKeyboard(.interactively)
         case .playlists:
             ScrollView {
@@ -1399,13 +1431,18 @@ struct NativeRoot: View {
                             }
                             .padding(.horizontal, 18)
                             .glass()
+                            .id(playlist.id)
                         }
                     }
+                    .scrollTargetLayout()
                 }
                 .padding(.horizontal, 20)
             }
             .coordinateSpace(name: "nightwell-library-scroll")
             .modifier(NightwellLibraryScrollTracker(collapsed: libraryScrollBinding(for: .playlists)))
+            .scrollPosition(id: libraryScrollPosition(for: .playlists), anchor: .top)
+            .contentMargins(.bottom, bottomContentInset, for: .scrollContent)
+            .contentMargins(.bottom, bottomContentInset, for: .scrollIndicators)
             .scrollDismissesKeyboard(.interactively)
         case .offline:
             ScrollView {
@@ -1446,6 +1483,9 @@ struct NativeRoot: View {
             }
             .coordinateSpace(name: "nightwell-library-scroll")
             .modifier(NightwellLibraryScrollTracker(collapsed: libraryScrollBinding(for: .offline)))
+            .scrollPosition(id: libraryScrollPosition(for: .offline), anchor: .top)
+            .contentMargins(.bottom, bottomContentInset, for: .scrollContent)
+            .contentMargins(.bottom, bottomContentInset, for: .scrollIndicators)
             .scrollDismissesKeyboard(.interactively)
         }
     }
@@ -1465,6 +1505,7 @@ struct NativeRoot: View {
 
 struct TrackList: View {
     @EnvironmentObject var store: MusicStore
+    @Environment(\.nightwellBottomContentInset) private var bottomContentInset
     let tracks: [Track]
     var playlist: Playlist? = nil
     var embedded = false
@@ -1480,8 +1521,10 @@ struct TrackList: View {
             }
             ForEach(tracks) { track in
                 NativeTrackRow(track: track, queue: tracks, status: store.clock.status, playlist: playlist)
+                    .id(track.id)
             }
         }
+        .scrollTargetLayout()
     }
 
     @ViewBuilder var body: some View {
@@ -1490,6 +1533,8 @@ struct TrackList: View {
                 rows
             } else {
                 ScrollView { rows }
+                    .contentMargins(.bottom, bottomContentInset, for: .scrollContent)
+                    .contentMargins(.bottom, bottomContentInset, for: .scrollIndicators)
                     .scrollDismissesKeyboard(.interactively)
             }
         }

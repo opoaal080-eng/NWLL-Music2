@@ -122,7 +122,10 @@ private struct AudioQualityDecision: Decodable {
     @Published var results: [Track] = []
     @Published var artistResults: [ArtistDirectoryItem] = []
     @Published var searchArtistSuggestions: [ArtistDirectoryItem] = []
-    @Published var offline: [Track] = []
+    @Published var offline: [Track] = [] {
+        didSet { downloadedTrackIDs = Set(offline.map(\.id)) }
+    }
+    private var downloadedTrackIDs = Set<String>()
     @Published private(set) var damagedOffline: [Track] = []
     @Published var playlists: [Playlist] = []
     @Published var likes: Set<String> = []
@@ -360,20 +363,27 @@ private struct AudioQualityDecision: Decodable {
     // A liked track may originate in search, recommendations or a shared link,
     // and therefore not yet exist in the main catalogue.
     var favoriteDisplayTracks: [Track] {
+        guard !likes.isEmpty else { return [] }
         var byID: [String: Track] = [:]
-        for item in favoriteTrackDetails + catalog + results + clock.queue + offline {
-            if byID[item.id] == nil { byID[item.id] = item }
+        byID.reserveCapacity(likes.count)
+        // Arrays share storage here; avoid copying the full catalogue into one
+        // temporary array or indexing metadata that the favorites cannot use.
+        for source in [favoriteTrackDetails, catalog, results, clock.queue, offline] {
+            for item in source where likes.contains(item.id) && byID[item.id] == nil {
+                byID[item.id] = item
+            }
+            if byID.count == likes.count { break }
         }
         var seen = Set<String>()
-        let ordered = favoriteOrder.compactMap { id -> Track? in
-            guard likes.contains(id), seen.insert(id).inserted else { return nil }
-            return byID[id]
+        var presented: [Track] = []
+        presented.reserveCapacity(byID.count)
+        for id in favoriteOrder where likes.contains(id) && seen.insert(id).inserted {
+            if let track = byID[id] { presented.append(track) }
         }
-        let remaining = likes.sorted().compactMap { id -> Track? in
-            guard seen.insert(id).inserted else { return nil }
-            return byID[id]
+        for id in likes.subtracting(seen).sorted() {
+            if let track = byID[id] { presented.append(track) }
         }
-        return ordered + remaining
+        return presented
     }
 
     private var favoriteDetailCacheKey: String? {
@@ -514,7 +524,7 @@ private struct AudioQualityDecision: Decodable {
     private func markServerReachable() {
         consecutiveConnectionFailures = 0
         lastConfirmedServerResponse = Date()
-        connectionStatus = "Онлайн"
+        if connectionStatus != "Онлайн" { connectionStatus = "Онлайн" }
     }
 
     // HTTP 4xx or a JSON decoding error means the API responded: it is not
@@ -567,7 +577,10 @@ private struct AudioQualityDecision: Decodable {
                     self.searchTask?.cancel(); self.artistSearchTask?.cancel(); self.searchGeneration = UUID(); self.searchCache.removeAll(); self.artistResults = []; self.artistSearchCache.removeAll()
                     NativePlayer.shared.stop()
                 }
-                self.account = identity.user
+                if changedAccount || self.account?.email != identity.user?.email ||
+                    self.account?.is_admin != identity.user?.is_admin {
+                    self.account = identity.user
+                }
                 if changedAccount { self.restoreFavoriteTrackDetails() }
                 self.cacheAccount()
                 if changedAccount { self.restoreAutoFavoritesSetting(); self.startLiveSync() }
@@ -1292,7 +1305,7 @@ private struct AudioQualityDecision: Decodable {
         searchTask?.cancel(); artistSearchTask?.cancel()
         searchArtistSuggestionTask?.cancel()
         searchGeneration = UUID()
-        searchArtistSuggestions = []
+        if !searchArtistSuggestions.isEmpty { searchArtistSuggestions = [] }
     }
     // Resolve a shared track URL to the catalogue and start native playback.
     func openSharedTrack(_ id: String) async {
@@ -1813,7 +1826,7 @@ private struct AudioQualityDecision: Decodable {
         return downloadFractions[origin.absoluteString + "|" + account.id + "|" + id]
     }
     func isDownloaded(_ track: Track) -> Bool {
-        if offline.contains(where: { $0.id == track.id }) { return true }
+        if downloadedTrackIDs.contains(track.id) { return true }
         guard track._offline == true else { return false }
         let owner = track._offline_account ?? account?.id ?? "device"
         return OfflineStore.audio(origin: origin, account: owner, id: track.id) != nil
