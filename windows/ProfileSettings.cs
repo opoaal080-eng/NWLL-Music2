@@ -10,6 +10,59 @@ namespace Nightwell.Native;
 
 public partial class MainWindow {
  string profileNickname="";
+ async Task RefreshPremiumNavigationAsync(){
+  string owner=account;
+  bool active=false;
+  try{
+   if(owner.Length>0){
+    var result=await api.Request("api/premium/me");
+    active=result.TryGetProperty("premium",out var premium)&&premium.GetBoolean()
+     &&result.TryGetProperty("expires_at",out var expires)
+     &&expires.ValueKind==JsonValueKind.Number
+     &&expires.GetDouble()>DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+   }
+  }catch{
+   // When the server is unavailable, show the Premium entry instead of claiming access.
+  }
+  if(owner!=account)return;
+  premiumSortAllowed=active;
+  PremiumDockButton.Visibility=active?Visibility.Collapsed:Visibility.Visible;
+ }
+ void ProfileWindow(){
+  if(account.Length==0){Login();return;}
+  var panel=new StackPanel{Margin=new Thickness(22,12,22,12)};
+  AddProfileSettings(panel);
+  if(premiumSortAllowed){
+   var premium=new Button{Content="✧  Nightwell Premium · Подписка активна",
+    Style=(Style)FindResource("QuietButton"),Margin=new Thickness(0,12,0,0)};
+   premium.Click+=(_,_)=>PremiumWindow();
+   panel.Children.Add(premium);
+  }
+  var window=Sheet("Профиль",panel,570,false);
+  window.Show();
+ }
+ void PremiumWindow(){
+  var panel=new StackPanel{Margin=new Thickness(24,14,24,20)};
+  panel.Children.Add(Label("Nightwell Premium"));
+  panel.Children.Add(new TextBlock{
+   Text=premiumSortAllowed?"Подписка активна":"Подписка неактивна",
+   TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,14,0,14)
+  });
+  var manage=new Button{Content="Открыть управление подпиской",
+   Style=(Style)FindResource("PrimaryButton")};
+  manage.Click+=(_,_)=>{
+   try{
+    var url=new Uri(api.Origin,"premium.html");
+    if(url.Scheme!=Uri.UriSchemeHttps)throw new InvalidOperationException("Требуется HTTPS");
+    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url.AbsoluteUri){UseShellExecute=true});
+   }catch(Exception ex){Status.Text="Не удалось открыть подписку: "+ex.Message;}
+  };
+  panel.Children.Add(manage);
+  var refresh=new Button{Content="Проверить подписку",Margin=new Thickness(0,10,0,0)};
+  refresh.Click+=async(_,_)=>{await RefreshPremiumNavigationAsync();PremiumWindow();};
+  panel.Children.Add(refresh);
+  Sheet("Nightwell Premium",panel,370);
+ }
  async Task LoadProfileAsync(TextBox? edit=null){
   if(account.Length==0){NavigationAvatar.Source=null;return;}
   try{
