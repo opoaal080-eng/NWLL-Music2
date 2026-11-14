@@ -51,6 +51,11 @@ jobs:
         run: |
           javac -d /tmp/playlist-import-test app/src/main/java/fun/nightwell/music/PlaylistImportFile.java tests/PlaylistImportFileTest.java
           java -cp /tmp/playlist-import-test fun.nightwell.music.PlaylistImportFileTest
+      - name: Test responsive player artwork geometry
+        run: |
+          mkdir -p /tmp/nightwell-player-size-test
+          javac -encoding UTF-8 -d /tmp/nightwell-player-size-test app/src/main/java/fun/nightwell/music/PlayerArtworkSizing.java tests/PlayerArtworkSizingTest.java
+          java -cp /tmp/nightwell-player-size-test fun.nightwell.music.PlayerArtworkSizingTest
       - name: Test playlist parsing on device
         run: gradle --no-daemon :app:testDebugUnitTest
       - name: Build debug APK
