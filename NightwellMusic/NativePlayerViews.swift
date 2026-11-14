@@ -1594,7 +1594,7 @@ struct NativeSettings: View {
                         set: { store.setAutomaticFavoritesDownload($0) }
                     ))
                     .disabled(store.account == nil)
-                    Text(premium.allowed
+                    Text((premium.allowed || !premium.entitlementVerified)
                         ? "Новые избранные треки сохраняются для офлайна."
                         : "Новые избранные треки сохраняются для офлайна. Требуется активный Premium.")
                         .font(.system(size: 12)).foregroundStyle(.white.opacity(0.50))
@@ -1639,7 +1639,7 @@ struct NativeSettings: View {
                 }.padding(16).frame(maxWidth: .infinity, minHeight: 166, alignment: .leading).background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
         case .appearance:
                 VStack(alignment: .leading, spacing: 8) {
-                    Button(premium.allowed ? "Темы и ленты" : "Темы и ленты · Premium") { feature = .appearance }
+                    Button((premium.allowed || !premium.entitlementVerified) ? "Темы и ленты" : "Темы и ленты · Premium") { feature = .appearance }
                         .sheet(item: $feature) { PremiumFeatureView(kind: $0).environmentObject(store) }
                     Label("Оформление", systemImage: "paintbrush").font(.system(size: 18, weight: .semibold)).foregroundStyle(Color.white)
                     Toggle("Текст вместе с лентами", isOn: $ambientLyrics)
