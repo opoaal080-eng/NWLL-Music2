@@ -10,23 +10,31 @@ namespace Nightwell.Native;
 
 public partial class MainWindow {
  string profileNickname="";
+ bool premiumVerified;
+ string premiumVerifiedOwner="";
  async Task RefreshPremiumNavigationAsync(){
   string owner=account;
-  bool active=false;
-  try{
-   if(owner.Length>0){
-    var result=await api.Request("api/premium/me");
-    active=result.TryGetProperty("premium",out var premium)&&premium.GetBoolean()
-     &&result.TryGetProperty("expires_at",out var expires)
-     &&expires.ValueKind==JsonValueKind.Number
-     &&expires.GetDouble()>DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-   }
-  }catch{
-   // When the server is unavailable, show the Premium entry instead of claiming access.
+  if(owner!=premiumVerifiedOwner){
+   premiumVerified=false;
+   premiumSortAllowed=false;
+   premiumVerifiedOwner=owner;
+   PremiumDockButton.Visibility=owner.Length==0?Visibility.Visible:Visibility.Collapsed;
   }
-  if(owner!=account)return;
-  premiumSortAllowed=active;
-  PremiumDockButton.Visibility=active?Visibility.Collapsed:Visibility.Visible;
+  if(owner.Length==0)return;
+  try{
+   var result=await api.Request("api/premium/me");
+   bool active=result.TryGetProperty("premium",out var premium)&&premium.GetBoolean()
+    &&result.TryGetProperty("expires_at",out var expires)
+    &&expires.ValueKind==JsonValueKind.Number
+    &&expires.GetDouble()>DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+   if(owner!=account)return;
+   premiumSortAllowed=active;
+   premiumVerified=true;
+   PremiumDockButton.Visibility=active?Visibility.Collapsed:Visibility.Visible;
+  }catch{
+   // Keep the last confirmed entitlement, including the hidden Premium tab.
+   // A temporary HTTP failure must not rebuild the navigation bar.
+  }
  }
  void ProfileWindow(){
   if(account.Length==0){Login();return;}
