@@ -669,7 +669,7 @@ struct NativeRoot: View {
     }
 
     private func playerDock(landscape: Bool) -> some View {
-        VStack(spacing: landscape ? 4 : 8) {
+        VStack(spacing: landscape ? 6 : 14) {
             MiniPlayer(clock: store.clock, open: { fullPlayer = true },
                        compactHeight: landscape)
                 .padding(.horizontal, landscape ? 18 : 16)
@@ -700,8 +700,8 @@ struct NativeRoot: View {
             // Blur only the scrolling content behind the dock. The controls
             // stay sharp, and the upper edge blends into the same screen.
             Rectangle()
-                .fill(.regularMaterial)
-                .overlay(Color.black.opacity(0.18))
+                .fill(.ultraThinMaterial)
+                .opacity(0.6)
                 .mask {
                     LinearGradient(stops: [.init(color: .clear, location: 0),
                                            .init(color: .white, location: 0.12),
@@ -1017,7 +1017,7 @@ struct NativeRoot: View {
                           landscape: landscape) { navigate(to: lastLibraryScreen) }
         }
         .padding(.horizontal, landscape ? 18 : 8)
-        .padding(.bottom, 6)
+        .padding(.bottom, landscape ? 4 : 0)
     }
 
     private func navigationTab(_ title: String, icon: String, selected: Bool,
@@ -1038,7 +1038,8 @@ struct NativeRoot: View {
                 }
             }
             .foregroundStyle(.white.opacity(selected ? 1 : 0.46))
-            .frame(maxWidth: .infinity, minHeight: landscape ? 44 : 56)
+            .frame(maxWidth: .infinity, minHeight: landscape ? 44 : 56,
+                   alignment: landscape ? .center : .bottom)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
