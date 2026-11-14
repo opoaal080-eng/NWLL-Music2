@@ -152,9 +152,9 @@ final class FavoriteTracks {
         for(String id:order) {
             if(liked.contains(id)&&used.add(id))updated.add(id);
         }
-        // Server IDs are typically oldest -> newest. Preserve the user's
-        // local order first, then append previously unseen liked tracks.
-        if(serverIds!=null)for(int i=serverIds.length()-1;i>=0;i--){
+        // Server returns favorites newest first. After a reinstall no local
+        // order remains, so keep the API sequence rather than reversing it.
+        if(serverIds!=null)for(int i=0;i<serverIds.length();i++){
             String id=serverIds.optString(i);
             if(liked.contains(id)&&used.add(id))updated.add(id);
         }
