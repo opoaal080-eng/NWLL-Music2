@@ -208,6 +208,7 @@ private struct StableNavigationSheet: View {
     let signedIn: Bool
     let libraryScreen: MusicStore.Screen
     let showsMainNavigation: Bool
+    let opensAdditional: Bool
     let select: (StableNavigationAction) -> Void
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var store: MusicStore
@@ -340,16 +341,13 @@ private struct StableNavigationSheet: View {
                         entry(signedIn ? "Профиль" : "Войти", icon: "person.crop.circle",
                               action: signedIn ? .profile : .authentication)
                         Divider().overlay(.white.opacity(0.16)).padding(.vertical, 6)
-                        if signedIn {
-                            entry("Nightwell Premium", icon: "star", action: .premium)
-                        }
-                        entry("Настройки", icon: "gearshape", action: .settings)
                     }
                 }
                 .padding(.horizontal, 20).padding(.bottom, 24)
             }
         }
         .background { NightwellMonochromeGlassBackground() }
+        .onAppear { showingAdditional = opensAdditional }
         .tint(.white)
         .preferredColorScheme(.dark)
         .presentationDetents([.height(430), .large])
@@ -574,6 +572,8 @@ struct NativeRoot: View {
     @State private var waveSettingsPresented = false
     @State private var supportPresented = false
     @State private var premiumPresented = false
+    @State private var profilePremiumPresented = false
+    @State private var libraryMenuStartsAdditional = false
     @State private var transferPresented = false
     @State private var togetherPresented = false
     @StateObject private var togetherSession = NightwellTogetherSession()
@@ -781,7 +781,8 @@ struct NativeRoot: View {
         }) {
             StableNavigationSheet(status: store.connectionStatus, signedIn: store.account != nil,
                                   libraryScreen: libraryDestination,
-                                  showsMainNavigation: !navigationLayout.showsTabs) { action in
+                                  showsMainNavigation: !navigationLayout.showsTabs,
+                                  opensAdditional: libraryMenuStartsAdditional) { action in
                 pendingNavigation = action
                 navigationMenuPresented = false
             }
@@ -799,6 +800,25 @@ struct NativeRoot: View {
                     VStack(spacing: 10) {
                         ProfileSettingsView()
                             .environmentObject(store)
+                        if store.account != nil && favoritePremium.allowed {
+                            Button {
+                                profilePremiumPresented = true
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "star.fill")
+                                    Text("Nightwell Premium · Подписка активна")
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                }
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 15)
+                                .padding(.vertical, 13)
+                                .frame(maxWidth: .infinity)
+                                .nightwellMonochromeGlass(radius: 19)
+                            }
+                            .buttonStyle(.plain)
+                        }
                         if store.account != nil {
                             Button {
                                 guard !profileSigningOut else { return }
@@ -854,6 +874,7 @@ struct NativeRoot: View {
                 }
             }
             .preferredColorScheme(.dark)
+            .sheet(isPresented: $profilePremiumPresented) { PremiumView(api: store.api) }
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
             .presentationBackground(.clear)
@@ -931,7 +952,7 @@ struct NativeRoot: View {
                 fullPlayer = true
             }
         }
-        .fullScreenCover(isPresented: $fullPlayer) { FullPlayer(clock: store.clock) }
+        .fullScreenCover(isPresented: $fullPlayer) { FullPlayer(clock: store.clock).environmentObject(togetherSession) }
         .sheet(item: $selectedArtist) { artist in
             ArtistProfileView(name: artist.name).environmentObject(store)
         }
@@ -1026,30 +1047,34 @@ struct NativeRoot: View {
     }
 
     private func libraryHeader(landscape: Bool) -> some View {
-        HStack {
+        HStack(spacing: 2) {
+            Button { settings = true } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 21, weight: .regular))
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel("Настройки")
             if store.screen != .library {
                 Button { navigate(to: .library) } label: {
-                        Image(systemName: "chevron.left").font(.system(size: 20, weight: .medium))
-                        .frame(width: 44, height: 44).contentShape(Rectangle())
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 20, weight: .medium))
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
                 .accessibilityLabel("Назад в медиатеку")
-            } else {
-                Color.clear.frame(width: 44, height: 44)
-                    .allowsHitTesting(false).accessibilityHidden(true)
             }
             Spacer()
-            Button { navigationMenuPresented = true } label: {
-                Group {
-                    if let avatar = store.profileAvatar {
-                        Image(uiImage: avatar).resizable().scaledToFill()
-                            .frame(width: 30, height: 30).clipShape(Circle())
-                    } else {
-                        Image(systemName: "person.crop.circle").font(.system(size: 26, weight: .regular))
-                    }
-                }
-                .frame(width: 44, height: 44).contentShape(Rectangle())
+            Button {
+                libraryMenuStartsAdditional = true
+                navigationMenuPresented = true
+            } label: {
+                Image(systemName: "line.3.horizontal")
+                    .font(.system(size: 23, weight: .medium))
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
-            .accessibilityLabel("Меню и профиль")
+            .accessibilityLabel("Дополнительно")
         }
         .buttonStyle(.plain)
         .foregroundStyle(.white)
@@ -1058,7 +1083,7 @@ struct NativeRoot: View {
                 Text(store.screen == .library ? "Медиатека" : store.screen.rawValue)
                     .font(.system(size: 20, weight: .semibold))
                     .lineLimit(1).minimumScaleFactor(0.8)
-                    .padding(.horizontal, 60)
+                    .padding(.horizontal, 100)
                     .allowsHitTesting(false)
                     .accessibilityAddTraits(.isHeader)
             }
@@ -1075,6 +1100,10 @@ struct NativeRoot: View {
                           landscape: landscape) { navigate(to: .search) }
             navigationTab("Медиатека", icon: "square.stack", selected: isLibraryScreen,
                           landscape: landscape) { navigate(to: libraryDestination) }
+            if !favoritePremium.allowed {
+                navigationTab("Premium", icon: "star", selected: false,
+                              landscape: landscape) { premiumPresented = true }
+            }
         }
         .padding(.horizontal, landscape ? 18 : 8)
         .padding(.bottom, landscape ? 2 : 0)
@@ -1188,7 +1217,10 @@ struct NativeRoot: View {
             }
             // Keep the existing avatar menu for profile and additional tools.
             if !navigationMenuPresented {
-                Button { navigationMenuPresented = true } label: {
+                Button {
+                    libraryMenuStartsAdditional = false
+                    navigationMenuPresented = true
+                } label: {
                     Group {
                         if let avatar=store.profileAvatar {
                             Image(uiImage:avatar).resizable().scaledToFill()
