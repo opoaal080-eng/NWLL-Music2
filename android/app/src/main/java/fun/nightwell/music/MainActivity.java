@@ -581,7 +581,7 @@ public final class MainActivity extends Activity {
                 button.setTextColor(which==AlertDialog.BUTTON_NEGATIVE?
                     0xffb6bac7:0xffeeeeee);
                 button.setMinHeight(dp(49));
-                button.setBackground(touchSurface(0xff292b30,19));
+                button.setBackground(buttonRipple());
             }
             if(android.animation.ValueAnimator.areAnimatorsEnabled()){
                 decor.setAlpha(0f);
@@ -623,7 +623,7 @@ public final class MainActivity extends Activity {
                 button.setAllCaps(false);
                 button.setTextSize(14);
                 button.setTextColor(0xfff1f2f5);
-                button.setBackground(touchSurface(0xff33353b,14));
+                button.setBackground(buttonRipple());
                 button.setPadding(dp(14),dp(9),dp(14),dp(9));
             }
             if(android.animation.ValueAnimator.areAnimatorsEnabled()){
@@ -1444,7 +1444,7 @@ public final class MainActivity extends Activity {
                 boolean active=tab.equals(screen)||"Медиатека".equals(tab)&&isCollectionScreen();
                 LinearLayout item=row();
                 item.setPadding(dp(16),0,dp(16),0);
-                item.setBackground(touchSurface(active?0xff3b3d43:0xff25272c,19));
+                item.setBackground(buttonRipple());
                 TextView symbol=text(glyph,18);
                 symbol.setGravity(Gravity.CENTER);
                 symbol.setTextColor(active?0xffffffff:0xffaeb3bd);
@@ -3224,7 +3224,7 @@ public final class MainActivity extends Activity {
             option.setSingleLine(true);
             option.setEllipsize(android.text.TextUtils.TruncateAt.END);
             option.setPadding(dp(13),dp(7),dp(10),dp(7));
-            option.setBackground(touchSurface(0x4425272e,12));
+            option.setBackground(buttonRipple());
             LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(35));
             p.bottomMargin=dp(3);
             searchSuggestions.addView(option,p);
@@ -3406,7 +3406,7 @@ public final class MainActivity extends Activity {
             // such a directory entry unless a normalized track really credits that name.
             LinearLayout chip=row();chip.setGravity(Gravity.CENTER_VERTICAL);
             chip.setPadding(dp(10),dp(6),dp(12),dp(6));
-            chip.setBackground(touchSurface(0x553a3a42,22));
+            chip.setBackground(buttonRipple());
             TextView initial=text(name.substring(0,1).toUpperCase(java.util.Locale.ROOT),14);
             initial.setGravity(Gravity.CENTER);
             initial.setBackground(touchSurface(0x6635353c,14));
@@ -3570,7 +3570,7 @@ public final class MainActivity extends Activity {
                     for(int option=start;option<Math.min(start+2,WaveSettings.VALUES[group].length);option++){
                         final int choice=option;boolean checked=draft.selected[section]==choice;
                         TextView chip=action((checked?"✓  ":"")+WaveSettings.LABELS[section][choice],()->{draft.selected[section]=choice;render[0].run();});
-                        chip.setTextSize(13);chip.setTextColor(checked?0xff201914:0xfff0e7f7);GradientDrawable chipFill=new GradientDrawable();chipFill.setCornerRadius(dp(24));chipFill.setColor(checked?0xffeeeeee:0xaa282c35);chipFill.setStroke(dp(1),checked?0x4dfff0d0:0x20ffffff);chip.setBackground(chipFill);chip.setSelected(checked);
+                        chip.setTextSize(13);chip.setTextColor(checked?Color.WHITE:0xffc5c7ce);chip.setBackground(buttonRipple());chip.setSelected(checked);
                         LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(0,dp(44),1);params.setMargins(dp(3),dp(3),dp(3),dp(3));line.addView(chip,params);
                     }panel.addView(line);
                 }
@@ -4593,7 +4593,7 @@ public final class MainActivity extends Activity {
             entry.setTextSize(16);
             entry.setMinHeight(dp(49));
             entry.setPadding(dp(16),0,dp(16),0);
-            entry.setBackground(touchSurface(0xff25272c,19));
+            entry.setBackground(buttonRipple());
             LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(49));
             lp.setMargins(0,dp(4),0,dp(4));panel.addView(entry,lp);
         }
@@ -4880,7 +4880,7 @@ public final class MainActivity extends Activity {
             final String selected=pages[i];
             LinearLayout item=row();
             item.setPadding(dp(12),0,dp(10),0);
-            item.setBackground(touchSurface(0xff282a30,15));
+            item.setBackground(buttonRipple());
             TextView symbol=text(symbols[i],20);
             symbol.setTextColor(0xffd5d6dc);symbol.setGravity(Gravity.CENTER);
             symbol.setBackground(fieldSurface(0xff33353a,12));
@@ -5189,7 +5189,7 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(9);parent.addView(card,lp);
         if(!title.isEmpty()){TextView label=text(title,17);label.setTextColor(0xfff3f3f5);label.setTypeface(null,android.graphics.Typeface.BOLD);label.setPadding(0,0,0,dp(8));card.addView(label);}return card;
     }
-    TextView premiumAction(String label,Runnable action){TextView button=sheetAction(label,action);button.setMinHeight(dp(48));button.setPadding(dp(14),dp(10),dp(14),dp(10));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.topMargin=dp(8);button.setLayoutParams(lp);if(label.startsWith("Сохранить")||label.equals("Проверить оплату")){button.setGravity(Gravity.CENTER);button.setTypeface(null,android.graphics.Typeface.BOLD);button.setTextColor(0xff191a20);button.setBackground(touchSurface(0xffeeeeee,24));}return button;}
+    TextView premiumAction(String label,Runnable action){TextView button=sheetAction(label,action);button.setMinHeight(dp(48));button.setPadding(dp(14),dp(10),dp(14),dp(10));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.topMargin=dp(8);button.setLayoutParams(lp);if(label.startsWith("Сохранить")||label.equals("Проверить оплату")){button.setGravity(Gravity.CENTER);button.setTypeface(null,android.graphics.Typeface.BOLD);button.setTextColor(0xff191a20);button.setTextColor(Color.WHITE);button.setBackground(buttonRipple());}return button;}
     EditText premiumInput(String hint,int limit){EditText input=new EditText(this);input.setHint(hint);input.setTextColor(Color.WHITE);input.setHintTextColor(0xff999ca8);input.setSingleLine(true);input.setFilters(new InputFilter[]{new InputFilter.LengthFilter(limit)});input.setPadding(dp(12),dp(12),dp(12),dp(12));input.setBackground(touchSurface(0xff292c33,22));return input;}
     Dialog premiumSheet(String title,LinearLayout panel,boolean compact,Runnable extra){
         Dialog dialog=new Dialog(this);LinearLayout shell=column();shell.setPadding(dp(14),dp(8),dp(14),dp(10));GradientDrawable sheet=surface();sheet.setColor(0xff17191f);sheet.setCornerRadius(dp(30));shell.setBackground(sheet);
