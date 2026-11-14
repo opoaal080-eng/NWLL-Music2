@@ -28,6 +28,10 @@ struct PremiumPreferences: Codable {
     static let presets: [(String,[Double])] = [("Без изменений",[0,0,0,0,0]),("Бас",[4,2,0,-1,0]),("Вокал",[-2,0,3,2,-1]),("Мягкий звук",[1,0,-1,-2,-3])]
     @Published var preferences = PremiumPreferences()
     @Published var allowed = false
+    @Published private(set) var entitlementVerified = false
+    func shouldOfferPremium(for accountID: String?) -> Bool {
+        entitlementVerified && owner == accountID && !allowed
+    }
     @Published var note = "Проверяем Premium…"
     private var owner: String?, until = 0.0, checked = Date.distantPast, checking = false
     private func cacheKey(_ id: String) -> String { "nw-aura-" + id }
@@ -37,7 +41,7 @@ struct PremiumPreferences: Codable {
         UserDefaults.standard.set(preferences.aura_mid, forKey: cacheKey(id)+"-mid")
         UserDefaults.standard.set(preferences.aura_high, forKey: cacheKey(id)+"-high")
         await save(store) }
-    func reset() { allowed = false; until = 0; preferences = PremiumPreferences(); apply() }
+    func reset() { allowed = false; until = 0; entitlementVerified = false; preferences = PremiumPreferences(); apply() }
     func apply() { NativePlayer.shared.setPremiumSound(allowed && Date().timeIntervalSince1970 < until ? preferences.bands : [0,0,0,0,0], until: until) }
     func tick(_ store: MusicStore) {
         if owner != store.account?.id || allowed && Date().timeIntervalSince1970 >= until { reset(); owner = store.account?.id; checked = .distantPast }
@@ -46,21 +50,56 @@ struct PremiumPreferences: Codable {
     func refresh(_ store: MusicStore) async {
         if checking {
             while checking { do { try await Task.sleep(nanoseconds: 50_000_000) } catch { return } }
-            if owner != store.account?.id { await refresh(store) }; return
+            if owner != store.account?.id { await refresh(store) }
+            return
         }
         checking = true; checked = Date(); defer { checking = false }
-        let account = store.account?.id; owner = account; reset()
-        guard account != nil else { note = "Войдите в аккаунт. Для этой функции нужен Premium."; return }
+        let account = store.account?.id
+        if owner != account {
+            reset()
+            owner = account
+        }
+        guard let account else {
+            entitlementVerified = true
+            note = "Войдите в аккаунт. Для этой функции нужен Premium."
+            return
+        }
         struct Status: Decodable { let premium: Bool; let expires_at: Double? }
         struct Response: Decodable { let preferences: PremiumPreferences }
         do {
             let state: Status = try await store.api.request("api/premium/me")
             guard store.account?.id == account else { return }
-            guard state.premium, let expiry = state.expires_at, expiry > Date().timeIntervalSince1970 else { note = "Для этой функции нужен Premium. Музыку можно слушать бесплатно."; return }
-            let response: Response = try await store.api.request("api/premium/preferences")
+            guard state.premium, let expiry = state.expires_at,
+                  expiry > Date().timeIntervalSince1970 else {
+                allowed = false
+                until = 0
+                entitlementVerified = true
+                note = "Для этой функции нужен Premium. Музыку можно слушать бесплатно."
+                apply()
+                return
+            }
+            // A verified active subscription controls navigation immediately.
+            // Preferences may take longer or fail, but cannot briefly hide Premium.
+            until = expiry
+            allowed = true
+            entitlementVerified = true
+            note = "Настройки сохраняются в вашем аккаунте."
+            apply()
+            do {
+                let response: Response = try await store.api.request("api/premium/preferences")
+                guard store.account?.id == account else { return }
+                preferences = response.preferences
+                restore(account)
+                apply()
+            } catch {
+                guard store.account?.id == account else { return }
+                note = "Подписка активна. Настройки Premium временно недоступны."
+            }
+        } catch {
             guard store.account?.id == account else { return }
-            preferences = response.preferences; restore(account!); until = expiry; allowed = true; note = "Настройки сохраняются в вашем аккаунте."; apply()
-        } catch { note = "Не удалось проверить Premium. Проверьте соединение." }
+            // Preserve the last confirmed entitlement during network failures.
+            note = "Не удалось проверить Premium. Проверьте соединение."
+        }
     }
     func save(_ store: MusicStore) async {
         guard allowed, owner == store.account?.id, Date().timeIntervalSince1970 < until else { reset(); note = "Нужен действующий Premium."; return }
