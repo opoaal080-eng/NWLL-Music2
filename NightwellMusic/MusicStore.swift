@@ -195,7 +195,12 @@ struct NightwellAccountDevicesResponse: Decodable {
         guard account != nil, !id.isEmpty else { return }
         do {
             let _: OK = try await api.request("/api/devices/" + id, method: "DELETE", timeout: 10)
-            await refreshAccountDevices()
+            if id != NightwellClientDevice.id {
+                // A newly signed-in device can claim the freed slot immediately.
+                await registerAccountDevice()
+            } else {
+                await refreshAccountDevices()
+            }
         } catch {
             accountDeviceNotice = error.localizedDescription
         }
