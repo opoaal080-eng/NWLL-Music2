@@ -1224,7 +1224,7 @@ public final class MainActivity extends Activity {
             }
             public void afterTextChanged(Editable value){}
         });
-        dock=row();dock.setPadding(dp(10),dp(10),dp(10),dp(11));GradientDrawable glassDock=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{0xa6303138,0x8c1a1b20});glassDock.setCornerRadius(dp(24));glassDock.setStroke(dp(1),0x30ffffff);dock.setBackground(null);
+        dock=row();dock.setPadding(dp(10),dp(10),dp(10),dp(11));GradientDrawable glassDock=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{0xa6303138,0x8c1a1b20});glassDock.setCornerRadius(dp(34));glassDock.setStroke(dp(1),0x30ffffff);dock.setBackground(null);
         miniCover=new android.widget.ImageView(this);miniCover.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);GradientDrawable coverShape=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{0xff53565c,0xff24262c});coverShape.setCornerRadius(dp(12));miniCover.setBackground(coverShape);miniCover.setClipToOutline(true);miniCover.setOnClickListener(v->openPlayer());LinearLayout.LayoutParams coverParams=new LinearLayout.LayoutParams(dp(47),dp(47));coverParams.rightMargin=dp(10);dock.addView(miniCover,coverParams);
         LinearLayout labels=column();miniTitle=text("Выбери трек",15);miniTitle.setMaxLines(1);miniTitle.setTextSize(15);miniTitle.setLetterSpacing(-.015f);miniTitle.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);miniArtist=text("Nightwell Music",12);miniArtist.setMaxLines(1);miniArtist.setTextSize(12);miniArtist.setLetterSpacing(.005f);miniArtist.setTextColor(0xffa4a6b1);miniTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);miniArtist.setEllipsize(android.text.TextUtils.TruncateAt.END);labels.addView(miniTitle);labels.addView(miniArtist);labels.setOnClickListener(v->openPlayer());dock.addView(labels,new LinearLayout.LayoutParams(0,-2,1));// Match the latest iOS compact mini player: heart and play/pause only.
         // Track skips remain available from the full player, gestures and queue.
@@ -2268,12 +2268,14 @@ public final class MainActivity extends Activity {
             search.setSingleLine(true);
             search.setTextSize(15);
             search.setHintTextColor(0xff999ca8);
-            search.setPadding(dp(14),dp(7),dp(14),dp(7));
+            search.setPadding(dp(14),0,dp(14),0);
             search.setBackgroundColor(Color.TRANSPARENT);
             search.setHint("Поиск треков, артистов и плейлистов");
             search.setSelectAllOnFocus(false);
-            searchBox.addView(search,new FrameLayout.LayoutParams(-1,dp(42)));
-            LinearLayout.LayoutParams searchParams=new LinearLayout.LayoutParams(-1,-2);
+            searchBox.addView(search,new FrameLayout.LayoutParams(-1,-1));
+            // The glow child is MATCH_PARENT: never measure this box with WRAP_CONTENT.
+            // A fixed height prevents the search backdrop from filling the screen.
+            LinearLayout.LayoutParams searchParams=new LinearLayout.LayoutParams(-1,dp(44));
             searchParams.bottomMargin=dp(11);
             body.addView(searchBox,searchParams);
             searchSuggestions=column();
