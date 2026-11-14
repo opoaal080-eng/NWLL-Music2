@@ -2910,16 +2910,16 @@ public final class MainActivity extends Activity {
                     JSONObject account=me.optJSONObject("user");
                     String nextAccount=account==null?"":account.optString("id");
                     if(!nextAccount.equals(user)){
+                        if(!user.isEmpty()){
+                            ui.removeCallbacks(pendingFavoriteIndexSave);
+                            persistFavoriteIndex();
+                        }
                         clearTogetherRoom();libraryPositions.clear();lastLibraryScreen="Медиатека";
                         // Keep the account-keyed snapshot for instant metadata restore on login.
                         libraryGeneration++;favoriteRecoveryGeneration++;catalog=new JSONArray();shown=new JSONArray();playlists=new JSONArray();likes.clear();favoritePending.clear();favoriteTracks.clear();favoriteRecoveryAttempts.clear();selectedPlaylist="";
                         if(playback!=null)playback.stop();
                     }
                     boolean accountChanged=!nextAccount.equals(user);
-                    if(accountChanged&&!user.isEmpty()){
-                        ui.removeCallbacks(pendingFavoriteIndexSave);
-                        persistFavoriteIndex();
-                    }
                     user=nextAccount;
                     if(!nextAccount.equals(getSharedPreferences("native-api",MODE_PRIVATE).getString("account","")))searchCache.clear();
                     if(accountChanged){restoreRecent();if(!user.isEmpty()){restoreFavoriteIndex(user);restoreLibrarySnapshot(user);}}
