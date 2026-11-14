@@ -65,7 +65,10 @@ public final class PlaybackService extends MediaSessionService {
         }
         @Override public boolean shouldStartPlayback(androidx.media3.exoplayer.LoadControl.Parameters parameters){
             int selected=bufferChoiceSeconds;
-            long thresholdUs=(selected==0?1000:selected*1000)*1000L;
+            // Auto uses ExoPlayer's adaptive startup/rebuffer decisions instead
+            // of disguising a fixed 1-second threshold as an automatic preset.
+            if(selected==0)return super.shouldStartPlayback(parameters);
+            long thresholdUs=selected*1000000L;
             if(parameters.rebuffering)thresholdUs=Math.max(thresholdUs,minimumRebufferMs*1000L);
             if(parameters.targetLiveOffsetUs!=C.TIME_UNSET)
                 thresholdUs=Math.min(thresholdUs,parameters.targetLiveOffsetUs/2);
