@@ -1445,7 +1445,7 @@ struct NativeRoot: View {
                             if favoritePremium.allowed {
                                 Button("По названию") { changeFavoriteSort("title") }
                                 Button("По исполнителю") { changeFavoriteSort("artist") }
-                            } else {
+                            } else if favoritePremium.entitlementVerified {
                                 Button("Другие виды сортировки · Premium") { premiumPresented = true }
                             }
                         } label: {
@@ -1478,7 +1478,7 @@ struct NativeRoot: View {
                         }
                         .accessibilityLabel("Новый плейлист")
                     }
-                    Button(favoritePremium.allowed ? "Умные плейлисты" : "Умные плейлисты · Premium") { feature = .smart }
+                    Button((favoritePremium.allowed || !favoritePremium.entitlementVerified) ? "Умные плейлисты" : "Умные плейлисты · Premium") { feature = .smart }
                     LazyVStack(spacing: 12) {
                         ForEach(store.playlists) { playlist in
                             HStack {
