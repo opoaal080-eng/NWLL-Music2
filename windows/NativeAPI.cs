@@ -8,27 +8,11 @@ using System.IO;
 namespace Nightwell.Native;
 public sealed class NativeAPI:IDisposable {
  public static readonly string Storage=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"NightwellMusicNative");
- public static readonly string DeviceID=LoadDeviceID();
- static string LoadDeviceID(){
-  Directory.CreateDirectory(Storage);
-  var path=Path.Combine(Storage,"device-id.dat");
-  try{
-   var data=ProtectedData.Unprotect(File.ReadAllBytes(path),null,DataProtectionScope.CurrentUser);
-   var value=Encoding.UTF8.GetString(data);
-   if(System.Text.RegularExpressions.Regex.IsMatch(value,@"^windows-[a-f0-9]{32}$"))return value;
-  }catch{}
-  var created="windows-"+Guid.NewGuid().ToString("N");
-  File.WriteAllBytes(path,ProtectedData.Protect(Encoding.UTF8.GetBytes(created),
-      null,DataProtectionScope.CurrentUser));
-  return created;
- }
- public static string DeviceLabel=Environment.MachineName.Length>80
-     ?Environment.MachineName[..80]:Environment.MachineName;
  public Uri Origin {get;}
  public HttpClient HTTP {get;}
  readonly CookieContainer cookies=new();
  public string Csrf="";
- public NativeAPI(string origin){Origin=new Uri(origin);Directory.CreateDirectory(Storage);try{var value=Encoding.UTF8.GetString(ProtectedData.Unprotect(File.ReadAllBytes(Path.Combine(Storage,"session")),null,DataProtectionScope.CurrentUser));var parts=value.Split('\n',2);if(parts.Length==2&&parts[0]==Origin.AbsoluteUri)cookies.SetCookies(Origin,parts[1]);}catch{}HTTP=new HttpClient(new HttpClientHandler{CookieContainer=cookies,AllowAutoRedirect=false}){BaseAddress=Origin,Timeout=TimeSpan.FromSeconds(180)};HTTP.DefaultRequestHeaders.Add("X-NW-Device-ID",DeviceID);HTTP.DefaultRequestHeaders.Add("X-NW-Device-Platform","windows");}
+ public NativeAPI(string origin){Origin=new Uri(origin);Directory.CreateDirectory(Storage);try{var value=Encoding.UTF8.GetString(ProtectedData.Unprotect(File.ReadAllBytes(Path.Combine(Storage,"session")),null,DataProtectionScope.CurrentUser));var parts=value.Split('\n',2);if(parts.Length==2&&parts[0]==Origin.AbsoluteUri)cookies.SetCookies(Origin,parts[1]);}catch{}HTTP=new HttpClient(new HttpClientHandler{CookieContainer=cookies,AllowAutoRedirect=false}){BaseAddress=Origin,Timeout=TimeSpan.FromSeconds(180)};}
  public async Task<JsonElement> Request(string path,string method="GET",object? body=null,CancellationToken cancellation=default){
   // Keep the shared HttpClient's longer timeout for streaming downloads.
   // Small JSON calls must not hang the library UI for three minutes.
