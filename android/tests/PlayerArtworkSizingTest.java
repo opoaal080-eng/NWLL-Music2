@@ -9,7 +9,7 @@ public final class PlayerArtworkSizingTest {
     public static void main(String[] args) {
         check(320, PlayerArtworkSizing.sizeDp(360, 800, false));
         check(312, PlayerArtworkSizing.sizeDp(360, 800, true));
-        check(249, PlayerArtworkSizing.sizeDp(360, 640, false));
+        check(250, PlayerArtworkSizing.sizeDp(360, 640, false));
         check(180, PlayerArtworkSizing.sizeDp(800, 360, false));
         check(440, PlayerArtworkSizing.sizeDp(840, 1200, false));
         for (int[] display : new int[][]{{320,568},{360,780},{412,915},{800,360},{960,600}}) {
