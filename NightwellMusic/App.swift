@@ -538,6 +538,7 @@ struct NativeRoot: View {
     @State private var favoriteSort = "recent"
     @State private var librarySession = LibrarySessionState<MusicStore.Screen>(overview: .library)
     @AppStorage(NavigationLayout.storageKey) private var navigationLayout = NavigationLayout.belowPlayer
+    @AppStorage("nw-ambient-lyrics") private var showHomeLyrics = true
     @State private var libraryScrollCollapsed: [String: Bool] = [:]
     @StateObject private var artworkPalette = NightwellArtworkPalette()
     @State private var remoteHomeCollapsed = false
@@ -632,7 +633,7 @@ struct NativeRoot: View {
                        compactHeight: landscape)
                 .padding(.horizontal, landscape ? 18 : 16)
                 .overlay(alignment: .bottom) {
-                    if store.screen == .home && !landscape {
+                    if store.screen == .home && !landscape && showHomeLyrics {
                         HomeLyricLine(model: store.lyrics, clock: store.clock)
                             .saturation(0)
                             .frame(height: 60)

@@ -15,6 +15,7 @@ struct SeasonBackground: View {
 // Never multiply absolute time by audio energy or the play state: that causes
 // huge phase jumps whenever the audio meter or the transport state changes.
 struct RibbonScene: View {
+    @ObservedObject private var premium = PremiumFeatureState.shared
     @EnvironmentObject private var palette: NightwellArtworkPalette
     let playing: Bool
     let flash: Int
@@ -24,6 +25,9 @@ struct RibbonScene: View {
     @AppStorage("nw-ambient-animate-when-paused") private var animatePaused = true
     @AppStorage("nw-ambient-audio-sensitivity") private var sensitivity = 4.0
     @State private var frozenTime = Date().timeIntervalSinceReferenceDate
+    @State private var phaseReference = Date().timeIntervalSinceReferenceDate
+    @State private var phaseBase = 0.0
+    @State private var phaseSpeed = 1.0
 
     var body: some View {
         TimelineView(.animation(minimumInterval: playing ? 1.0 / 30.0 : 1.0 / 15.0,
@@ -34,13 +38,23 @@ struct RibbonScene: View {
                     ? frozenTime : tick.date.timeIntervalSinceReferenceDate
                 let colors = palette.at(ProcessInfo.processInfo.systemUptime)
                 let values = playing ? NativePlayer.shared.auraLevels() : []
-                let valid = values.filter { $0.isFinite }.map { min(1, max(0, $0)) }
+                let enabled = premium.allowed
+                    ? [premium.preferences.aura_voice, premium.preferences.aura_low,
+                       premium.preferences.aura_mid, premium.preferences.aura_high]
+                    : [true, true, true, true]
+                let valid = values.enumerated().map { index, value -> Double in
+                    guard index < enabled.count, enabled[index], value.isFinite else { return 0 }
+                    return min(1, max(0, value))
+                }
                 let level = valid.reduce(0, +) / Double(max(1, valid.count))
                 let gain = sensitivity.isFinite ? min(4, max(0.5, sensitivity)) : 4.0
-                // A wider dynamic range reacts to quiet notes and bass hits
-                // without pushing ordinary music permanently to full brightness.
-                let energy = playing ? min(1, pow(level, 0.56) * gain * 0.50) : 0.0
-                draw(context: context, size: size, colors: colors, time: t, energy: energy)
+                let intensity = premium.allowed ? premium.preferences.ribbon_intensity : 1.0
+                let safeIntensity = intensity.isFinite ? min(1.5, max(0.5, intensity)) : 1.0
+                // Preserve the cover-based palette; legacy frequency controls now
+                // affect only the energy of the current ambient gradient.
+                let energy = playing ? min(1, pow(level, 0.56) * gain * 0.50 * safeIntensity) : 0.0
+                let smoothTime = phaseBase + (t - phaseReference) * phaseSpeed
+                draw(context: context, size: size, colors: colors, time: smoothTime, energy: energy)
             }
         }
         .onChange(of: playing) { value in
@@ -52,8 +66,19 @@ struct RibbonScene: View {
         .onChange(of: active) { value in
             if !value { frozenTime = Date().timeIntervalSinceReferenceDate }
         }
+        .onAppear { updatePhaseSpeed() }
+        .onChange(of: premium.allowed) { _, _ in updatePhaseSpeed() }
+        .onChange(of: premium.preferences.ribbon_speed) { _, _ in updatePhaseSpeed() }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+
+    private func updatePhaseSpeed() {
+        let now = Date().timeIntervalSinceReferenceDate
+        phaseBase += max(0, now - phaseReference) * phaseSpeed
+        phaseReference = now
+        let selected = premium.allowed ? premium.preferences.ribbon_speed : 1.0
+        phaseSpeed = selected.isFinite ? min(1.5, max(0.5, selected)) : 1.0
     }
 
     private func draw(context: GraphicsContext, size: CGSize,
@@ -133,6 +158,7 @@ struct NativeHome: View {
     @State private var suppressMixTapUntil = Date.distantPast
     @EnvironmentObject var store: MusicStore
     @Environment(\.nightwellBottomContentInset) private var bottomContentInset
+    @AppStorage("nw-ambient-lyrics") private var showHomeLyrics = true
     private let clock: PlaybackClock
     @ObservedObject private var status: TrackStatus
 
@@ -211,8 +237,10 @@ struct NativeHome: View {
                         }
                         .frame(maxWidth: .infinity)
                         playButton(true)
-                        HomeLyricLine(model: store.lyrics, clock: clock, fontSize: 20)
-                            .frame(maxWidth: .infinity, minHeight: 70)
+                        if showHomeLyrics {
+                            HomeLyricLine(model: store.lyrics, clock: clock, fontSize: 20)
+                                .frame(maxWidth: .infinity, minHeight: 70)
+                        }
                     }
                     .padding(.horizontal, 18)
                 } else {
@@ -1467,7 +1495,6 @@ struct AuthSheet: View {
 }
 
 struct NativeSettings: View {
-    @State private var feature: PremiumFeatureView.Kind?
     @ObservedObject private var premium = PremiumFeatureState.shared
     let close: () -> Void
     @EnvironmentObject var store: MusicStore
@@ -1488,14 +1515,12 @@ struct NativeSettings: View {
     private enum SettingsPage: String, CaseIterable {
         case customization = "Кастомизация"
         case playback = "Воспроизведение"
-        case appearance = "Оформление"
         case about = "О приложении"
 
         var icon: String {
             switch self {
             case .customization: return "slider.horizontal.3"
             case .playback: return "waveform"
-            case .appearance: return "paintbrush"
             case .about: return "info.circle"
             }
         }
@@ -1503,7 +1528,6 @@ struct NativeSettings: View {
             switch self {
             case .customization: return "Вкладки, обложки, очередь, текст и фон"
             case .playback: return "Звук, буфер, громкость и офлайн"
-            case .appearance: return "Ленты, темы и визуальные эффекты"
             case .about: return "Версия и сведения о сборке"
             }
         }
@@ -1558,6 +1582,15 @@ struct NativeSettings: View {
                     Toggle("Кинетический текст песен", isOn: $kineticLyrics)
                     Text("Плавная подсветка слов и строк. Если точных таймкодов слов нет, движение рассчитывается по времени строки.")
                         .font(.system(size: 12)).foregroundStyle(.white.opacity(0.5))
+                    Toggle("Текст на главном экране", isOn: $ambientLyrics)
+                        .onChange(of: ambientLyrics) { enabled in
+                            if enabled {
+                                store.lyrics.select(store.clock.current, api: store.api,
+                                                    origin: store.origin, online: store.account != nil)
+                            }
+                        }
+                    Text("Показывать строки песни на главной. По умолчанию включено.")
+                        .font(.system(size: 12)).foregroundStyle(.white.opacity(0.5))
                     Toggle("Переливание фона на паузе", isOn: $animatePausedAmbient)
                     Text("Плавный цветной градиент продолжает двигаться, даже если музыка остановлена.")
                         .font(.system(size: 12)).foregroundStyle(.white.opacity(0.5))
@@ -1575,6 +1608,44 @@ struct NativeSettings: View {
                                 valueText: String(format: "%.2fx", ambientSensitivity))
                     Text("Усиливает реакцию на тихие звуки. На паузе работает только плавный градиент.")
                         .font(.system(size: 12)).foregroundStyle(.white.opacity(0.5))
+
+                    Divider().overlay(.white.opacity(0.10))
+                    Label("Реакция фона на музыку", systemImage: "waveform.path")
+                        .font(.system(size: 16, weight: .semibold))
+                    Text("Настройки звуковой реакции. Варианты тем пока разрабатываются и не отображаются.")
+                        .font(.system(size: 12)).foregroundStyle(.white.opacity(0.5))
+                    VStack(alignment: .leading, spacing: 12) {
+                        Picker("Скорость анимации", selection: $premium.preferences.ribbon_speed) {
+                            Text("Медленно").tag(0.5)
+                            Text("Обычно").tag(1.0)
+                            Text("Быстро").tag(1.5)
+                        }
+                        .pickerStyle(.menu)
+                        Picker("Выразительность", selection: $premium.preferences.ribbon_intensity) {
+                            Text("Мягко").tag(0.5)
+                            Text("Обычно").tag(1.0)
+                            Text("Ярко").tag(1.5)
+                        }
+                        .pickerStyle(.menu)
+                        Toggle("Голос", isOn: $premium.preferences.aura_voice)
+                        Toggle("Низкие частоты", isOn: $premium.preferences.aura_low)
+                        Toggle("Средние частоты", isOn: $premium.preferences.aura_mid)
+                        Toggle("Высокие частоты", isOn: $premium.preferences.aura_high)
+                        Button("Сохранить настройки фона") {
+                            Task { await premium.saveAppearance(store) }
+                        }
+                        .font(.system(size: 15, weight: .semibold))
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .background(.white.opacity(0.09), in: RoundedRectangle(cornerRadius: 14))
+                    }
+                    .disabled(!premium.allowed)
+                    if !premium.allowed {
+                        Text(premium.entitlementVerified
+                             ? "Изменение реакции фона доступно с Premium."
+                             : "Проверяем статус Premium…")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.white.opacity(0.5))
+                    }
                 }
                 .padding(16)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1637,17 +1708,6 @@ struct NativeSettings: View {
                             }
                         }
                 }.padding(16).frame(maxWidth: .infinity, minHeight: 166, alignment: .leading).background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
-        case .appearance:
-                VStack(alignment: .leading, spacing: 8) {
-                    Button((premium.allowed || !premium.entitlementVerified) ? "Темы и ленты" : "Темы и ленты · Premium") { feature = .appearance }
-                        .sheet(item: $feature) { PremiumFeatureView(kind: $0).environmentObject(store) }
-                    Label("Оформление", systemImage: "paintbrush").font(.system(size: 18, weight: .semibold)).foregroundStyle(Color.white)
-                    Toggle("Текст вместе с лентами", isOn: $ambientLyrics)
-                        .onChange(of: ambientLyrics) { enabled in
-                            if enabled { store.lyrics.select(store.clock.current, api: store.api, origin: store.origin, online: store.account != nil) }
-                        }
-                    Text("Строки с таймкодами появляются во время песни.").font(.system(size: 13)).foregroundStyle(.white.opacity(0.43))
-                }.padding(16).frame(maxWidth: .infinity, minHeight: 160, alignment: .leading).background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
         case .about:
             VStack(alignment: .leading, spacing: 12) {
                 Label("О приложении", systemImage: "info.circle")

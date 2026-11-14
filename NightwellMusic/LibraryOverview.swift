@@ -28,9 +28,13 @@ struct LibraryOverview: View {
     }
 
     var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 12) {
-                favoritesEntry
+        GeometryReader { geometry in
+            // The dock floats over this scroll view. Tighten the overview on
+            // shorter phones so the last two tiles clear the mini-player.
+            let compact = geometry.size.height - bottomContentInset < 650
+            ScrollView {
+            LazyVStack(alignment: .leading, spacing: compact ? 8 : 12) {
+                favoritesEntry(compact: compact)
                     .id("library-favorites")
 
                 ForEach(favorites.prefix(3)) { track in
@@ -43,23 +47,23 @@ struct LibraryOverview: View {
                 Text("Ещё в медиатеке")
                     .font(.title3.bold())
                     .accessibilityAddTraits(.isHeader)
-                    .padding(.top, 24)
+                    .padding(.top, compact ? 10 : 24)
                     .id("library-sections")
 
-                LazyVGrid(columns: columns, alignment: .leading, spacing: 12) {
+                LazyVGrid(columns: columns, alignment: .leading, spacing: compact ? 8 : 12) {
                     libraryTile("Плейлисты", icon: "music.note.list",
                                 detail: countText(store.playlists.count,
                                                   one: "плейлист", few: "плейлиста", many: "плейлистов"),
-                                action: openPlaylists)
+                                compact: compact, action: openPlaylists)
                         .id("library-playlists")
                     libraryTile("Офлайн", icon: "arrow.down.to.line",
-                                detail: countText(store.offline.count), action: openOffline)
+                                detail: countText(store.offline.count), compact: compact, action: openOffline)
                         .id("library-offline")
                     libraryTile("Подборки дня", icon: "sparkles",
-                                detail: "Для тебя", action: openDailyPlaylists)
+                                detail: "Для тебя", compact: compact, action: openDailyPlaylists)
                         .id("library-daily")
                     libraryTile("Умные плейлисты", icon: "waveform.path",
-                                detail: (premium.allowed || !premium.entitlementVerified) ? "Для тебя" : "Premium", action: openSmartPlaylists)
+                                detail: (premium.allowed || !premium.entitlementVerified) ? "Для тебя" : "Premium", compact: compact, action: openSmartPlaylists)
                         .id("library-smart")
                 }
                 .scrollTargetLayout()
@@ -72,9 +76,10 @@ struct LibraryOverview: View {
         .contentMargins(.bottom, bottomContentInset, for: .scrollContent)
         .contentMargins(.bottom, bottomContentInset, for: .scrollIndicators)
         .scrollDismissesKeyboard(.interactively)
+        }
     }
 
-    private var favoritesEntry: some View {
+    private func favoritesEntry(compact: Bool) -> some View {
         Button(action: openFavorites) {
             favoritesLayout {
                 Image(systemName: "heart.fill")
@@ -85,7 +90,7 @@ struct LibraryOverview: View {
                                  Color(red: 0.73, green: 0.48, blue: 0.96),
                                  Color(red: 0.42, green: 0.27, blue: 0.75)],
                         startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .frame(width: 80, height: 84)
+                    .frame(width: compact ? 70 : 80, height: compact ? 72 : 84)
                     .rotationEffect(.degrees(-8))
                     .shadow(color: .purple.opacity(0.18), radius: 16, y: 8)
                     .accessibilityHidden(true)
@@ -108,7 +113,7 @@ struct LibraryOverview: View {
                         .accessibilityHidden(true)
                 }
             }
-            .frame(maxWidth: .infinity, minHeight: 112, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: compact ? 96 : 112, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -119,13 +124,13 @@ struct LibraryOverview: View {
     }
 
     private func libraryTile(_ title: String, icon: String, detail: String,
-                             action: @escaping () -> Void) -> some View {
+                             compact: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 8) {
                 Image(systemName: icon)
                     .font(.system(size: 24, weight: .regular))
                     .foregroundStyle(.white.opacity(0.9))
-                    .frame(width: 48, height: 48)
+                    .frame(width: compact ? 44 : 48, height: compact ? 44 : 48)
                     .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 12))
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 4) {
@@ -140,8 +145,8 @@ struct LibraryOverview: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(.vertical, 8)
-            .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+            .padding(.vertical, compact ? 5 : 8)
+            .frame(maxWidth: .infinity, minHeight: compact ? 64 : 72, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
