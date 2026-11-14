@@ -133,7 +133,9 @@ jobs:
           heap-size: 512M
           disable-animations: true
           script: |
-            adb install -r android/native-smoke/apk/app-debug.apk
+            APK_PATH="$(find android/native-smoke/apk -type f -name '*.apk' -print -quit)"
+            test -n "$APK_PATH"
+            adb install -r "$APK_PATH"
             python3 android/capture-emulator-screens.py
       - name: Publish emulator screenshots and HTML gallery
         if: always()
