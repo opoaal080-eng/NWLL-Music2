@@ -1659,6 +1659,17 @@ public final class MainActivity extends Activity {
                                 .setPositiveButton("Удалить",(ask,which)->io.execute(()->{
                                     try{
                                         api.request("api/devices/"+id,"DELETE",null);
+                                        if(!current){
+                                            // Claim the newly freed place right away, even if
+                                            // registration was refused when the account was full.
+                                            try{
+                                                api.request("api/devices/register","POST",
+                                                    new JSONObject()
+                                                        .put("device_id",NativeAPI.deviceID(this))
+                                                        .put("platform","android")
+                                                        .put("name",NativeAPI.deviceLabel()));
+                                            }catch(Exception ignored){}
+                                        }
                                         ui.post(()->{if(dialog.isShowing())dialog.dismiss();accountDevices();});
                                     }catch(Exception error){
                                         ui.post(()->message.setText("Не удалось удалить: "+friendly(error)));
