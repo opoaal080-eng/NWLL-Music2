@@ -212,7 +212,14 @@ private struct StableNavigationSheet: View {
     let select: (StableNavigationAction) -> Void
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var store: MusicStore
-    @State private var showingAdditional = false
+    private var connectionMessage: String {
+        switch status {
+        case "Онлайн": return "API доступен. Подключено"
+        case "Ограничен": return "API ограничен. Подключение нестабильно"
+        case "Оффлайн": return "API недоступен. Нет подключения"
+        default: return "Проверка API. Подключаемся"
+        }
+    }
 
     private func choose(_ action: StableNavigationAction) {
         // Parent dismisses this sheet and presents the destination afterward.
@@ -241,15 +248,9 @@ private struct StableNavigationSheet: View {
 
     var body: some View {
         VStack(spacing: 14) {
-            HStack(spacing: 12) {
-                Text(showingAdditional ? "Дополнительно" : "Меню")
-                    .font(.system(size: 24, weight: .bold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.76)
-                // Compact connectivity indicator on the same baseline as
-                // "Меню", without using a separate row in navigation.
+            HStack(spacing: 10) {
                 Group {
-                    if status == "Загрузка…" {
+                    if status == "Загрузка…" || status == "Проверка…" {
                         ProgressView()
                             .progressViewStyle(.circular)
                             .tint(Color(red: 0.25, green: 0.60, blue: 1.0))
@@ -257,71 +258,25 @@ private struct StableNavigationSheet: View {
                     } else {
                         Image(systemName: status == "Онлайн" ? "wifi" :
                               status == "Ограничен" ? "wifi.exclamationmark" : "wifi.slash")
-                            .font(.system(size: 15, weight: .semibold))
+                            .font(.system(size: 16, weight: .semibold))
                             .foregroundStyle(status == "Онлайн" ? Color.green :
                                              status == "Ограничен" ? Color.orange : Color.gray)
                     }
                 }
-                .frame(width: 22, height: 28)
-                .accessibilityLabel("Подключение Nightwell: " + status)
-                Spacer(minLength: 8)
-                // Always one tap from the menu header, immediately to the
-                // left of the profile avatar. Tapping again returns to Menu.
-                if opensAdditional {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        showingAdditional.toggle()
-                    }
-                } label: {
-                    Image(systemName: showingAdditional ? "square.grid.2x2.fill" : "square.grid.2x2")
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundStyle(.white)
-                        .frame(width: 42, height: 42)
-                        .background {
-                            Circle().fill(.ultraThinMaterial)
-                                .overlay {
-                                    Circle().fill(.white.opacity(showingAdditional ? 0.15 : 0.07))
-                                }
-                        }
-                        .overlay(Circle().strokeBorder(.white.opacity(showingAdditional ? 0.40 : 0.27), lineWidth: 1))
-                        .shadow(color: .black.opacity(0.17), radius: 9, y: 4)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(showingAdditional ? "Назад в меню" : "Дополнительно")
-                }
-                // Avatar replaces the close icon in the menu header.
-                // Its identity comes from the existing cached user profile.
-                Button {
-                    choose(signedIn ? .profile : .authentication)
-                } label: {
-                    Group {
-                        if let image = store.profileAvatar, signedIn {
-                            Image(uiImage: image)
-                                .resizable()
-                                .scaledToFill()
-                        } else {
-                            Image(systemName: "person.crop.circle.fill")
-                                .resizable()
-                                .scaledToFit()
-                                .foregroundStyle(.white.opacity(0.78))
-                                .padding(5)
-                        }
-                    }
-                    .frame(width: 38, height: 38)
-                    .clipShape(Circle())
-                    .frame(width: 42, height: 42)
-                    .background(Circle().fill(.ultraThinMaterial))
-                    .overlay(Circle().strokeBorder(.white.opacity(0.36), lineWidth: 1))
-                    .shadow(color: .black.opacity(0.2), radius: 9, y: 4)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(signedIn ? "Открыть профиль" : "Войти в аккаунт")
+                .frame(width: 24, height: 28)
+                Text(connectionMessage)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .lineLimit(2)
+                Spacer(minLength: 0)
             }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Подключение Nightwell: " + connectionMessage)
             .padding(.horizontal, 20).padding(.top, 24)
 
             ScrollView(.vertical, showsIndicators: false) {
                 LazyVStack(alignment: .leading, spacing: 8) {
-                    if showingAdditional {
+                    if opensAdditional {
                         Text("Совместное прослушивание и другие возможности Nightwell")
                             .font(.system(size: 13))
                             .foregroundStyle(.white.opacity(0.65))
@@ -349,7 +304,6 @@ private struct StableNavigationSheet: View {
             }
         }
         .background { NightwellMonochromeGlassBackground() }
-        .onAppear { showingAdditional = opensAdditional }
         .tint(.white)
         .preferredColorScheme(.dark)
         .presentationDetents([.height(430), .large])
@@ -640,7 +594,9 @@ struct NativeRoot: View {
                             .fill(store.connectionStatus == "Онлайн" ? Color.green :
                                   store.connectionStatus == "Ограничен" ? Color.orange : Color.gray)
                             .frame(width: 6, height: 6)
-                        Text("Nightwell · \(store.connectionStatus)")
+                        Text(store.connectionStatus == "Онлайн" ? "API доступен. Подключено" :
+                             store.connectionStatus == "Ограничен" ? "API ограничен. Подключение нестабильно" :
+                             store.connectionStatus == "Оффлайн" ? "API недоступен. Нет подключения" : "Проверка API. Подключаемся")
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(.white.opacity(0.65))
                         Spacer()
@@ -1058,13 +1014,6 @@ struct NativeRoot: View {
 
     private func libraryHeader(landscape: Bool) -> some View {
         HStack(spacing: 2) {
-            Button { settings = true } label: {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 21, weight: .regular))
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-            }
-            .accessibilityLabel("Настройки")
             if store.screen != .library {
                 Button { navigate(to: .library) } label: {
                     Image(systemName: "chevron.left")
@@ -1074,6 +1023,13 @@ struct NativeRoot: View {
                 }
                 .accessibilityLabel("Назад в медиатеку")
             }
+            Button { settings = true } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 21, weight: .regular))
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel("Настройки")
             Spacer()
             Button {
                 libraryMenuStartsAdditional = true
@@ -1228,8 +1184,8 @@ struct NativeRoot: View {
             // Keep the existing avatar menu for profile and additional tools.
             if !navigationMenuPresented {
                 Button {
-                    libraryMenuStartsAdditional = false
-                    navigationMenuPresented = true
+                    if store.account == nil { store.authPresented = true }
+                    else { profilePresented = true }
                 } label: {
                     Group {
                         if let avatar=store.profileAvatar {
@@ -1245,7 +1201,7 @@ struct NativeRoot: View {
                         .frostedGlass(22, bordered: false, intensity: 0.20)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Меню")
+                .accessibilityLabel(store.account == nil ? "Войти в аккаунт" : "Открыть профиль")
                 .transition(.asymmetric(
                     insertion: .scale(scale: 0.72, anchor: .trailing).combined(with: .opacity),
                     removal: .scale(scale: 0.72, anchor: .trailing).combined(with: .opacity)
