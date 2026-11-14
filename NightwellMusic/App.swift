@@ -588,22 +588,6 @@ struct NativeRoot: View {
                     } else {
                         header(landscape: landscape)
                     }
-                    if !landscape && !isLibraryScreen {
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(store.connectionStatus == "Онлайн" ? Color.green :
-                                  store.connectionStatus == "Ограничен" ? Color.orange : Color.gray)
-                            .frame(width: 6, height: 6)
-                        Text(store.connectionStatus == "Онлайн" ? "API доступен. Подключено" :
-                             store.connectionStatus == "Ограничен" ? "API ограничен. Подключение нестабильно" :
-                             store.connectionStatus == "Оффлайн" ? "API недоступен. Нет подключения" : "Проверка API. Подключаемся")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.65))
-                        Spacer()
-                    }
-                    .accessibilityLabel("Подключение Nightwell: \(store.connectionStatus)")
-                    .padding(.horizontal, 22)
-                    }
                     if !landscape && !isLibraryScreen && store.hasRemotePlayback && !remoteHomeCollapsed {
                         Button {
                             Task { await store.continuePlaybackHere() }
@@ -1123,6 +1107,21 @@ struct NativeRoot: View {
         .accessibilityHidden(true)
     }
 
+    // The colored mark is the actual dot in the lowercase i glyph, not
+    // another circle drawn above the wordmark.
+    private var connectionBrandName: AttributedString {
+        let name = NSMutableAttributedString(string: "Nı\u{0307}ghtwell")
+        let color: UIColor
+        switch store.connectionStatus {
+        case "Онлайн": color = .systemGreen
+        case "Ограничен": color = .systemOrange
+        case "Оффлайн": color = .systemGray
+        default: color = .systemBlue
+        }
+        name.addAttribute(.foregroundColor, value: color, range: NSRange(location: 2, length: 1))
+        return AttributedString(name)
+    }
+
     private func header(landscape: Bool) -> some View {
         HStack(spacing: landscape ? 5 : 7) {
             Button {
@@ -1138,13 +1137,13 @@ struct NativeRoot: View {
                     // Keep only the N icon when scrolling Favorites, Playlists or Offline.
                     if compactCollectionTitle == nil {
                         if landscape {
-                            Text("Nightwell Music")
+                            (Text(connectionBrandName) + Text(" Music"))
                                 .font(.system(size: 16, weight: .semibold))
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.8)
                         } else {
                             VStack(alignment: .leading, spacing: 1) {
-                                Text("Nightwell").font(.system(size: 25, weight: .bold))
+                                Text(connectionBrandName).font(.system(size: 25, weight: .bold))
                                 Text("M U S I C").font(.caption).foregroundStyle(.secondary)
                             }
                         }
