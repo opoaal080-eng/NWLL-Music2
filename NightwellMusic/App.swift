@@ -1023,6 +1023,7 @@ struct ArtistProfileView: View {
 
     @MainActor private func load() async {
         loading = true
+        let deadline = ProcessInfo.processInfo.systemUptime + 18
         message = ""
         profileImageURL = store.artistResults.first {
             ArtistNames.normalized($0.name) == ArtistNames.normalized(name)
@@ -1036,7 +1037,7 @@ struct ArtistProfileView: View {
         if store.account != nil {
             do {
                 let profile: ArtistDirectoryProfile = try await store.api.request(
-                    "/api/artists/profile?name=" + encoded, timeout: 12)
+                    "/api/artists/profile?name=" + encoded, timeout: 8)
                 guard !Task.isCancelled else { return }
                 let confirmed = profile.tracks.filter { ArtistNames.track($0, includes: name) }
                 if !confirmed.isEmpty {
@@ -1056,19 +1057,27 @@ struct ArtistProfileView: View {
 
         for _ in 0..<4 {
             if Task.isCancelled { return }
+            let remaining = deadline - ProcessInfo.processInfo.systemUptime
+            if remaining <= 0 { break }
             do {
-                let response: TrackResult = try await store.api.request("/api/tracks?q=" + encoded, timeout: 12)
+                let response: TrackResult = try await store.api.request("/api/tracks?q=" + encoded, timeout: min(8, remaining))
                 guard !Task.isCancelled else { return }
                 combined += response.tracks.filter { ArtistNames.track($0, includes: name) }
                 tracks = unique(combined)
                 if response.search_pending != true { break }
-                let delay = max(1.0, min(3.0, response.search_retry_after ?? 1.5))
+                let delay = min(max(1.0, min(3.0, response.search_retry_after ?? 1.5)),
+                                max(0, deadline - ProcessInfo.processInfo.systemUptime))
+                if delay <= 0 { break }
                 try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             } catch is CancellationError { return }
               catch {
                 if tracks.isEmpty { message = "Не удалось загрузить каталог: " + error.localizedDescription }
                 break
             }
+        }
+        if ProcessInfo.processInfo.systemUptime >= deadline && message.isEmpty {
+            message = tracks.isEmpty ? "Каталог отвечает слишком долго. Повтори попытку." :
+                "Показаны уже найденные треки. Остальные можно загрузить повторно."
         }
         loading = false
     }

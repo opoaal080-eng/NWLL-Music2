@@ -35,6 +35,11 @@ VARIANTS = {"economy": ("hls_aac_96_url", 96), "high": ("hls_aac_160_url", 160)}
 SC_API = "https://api.soundcloud.com"
 SC_AUTH = "https://secure.soundcloud.com/oauth/token"
 PLAYER_HOST = "playback.media-streaming.soundcloud.cloud"
+# httpx timeouts do not bound in-process ASGI calls. These are wall-clock
+# budgets, including queued provider calls, before the original stream fallback.
+TRACK_LOOKUP_TIMEOUT_SECONDS = 2.5
+RESOLUTION_TIMEOUT_SECONDS = 4.0
+FAILED_RESOLUTION_TTL_SECONDS = 2.0
 
 
 def permitted_soundcloud_permalink(value):
@@ -89,6 +94,9 @@ class SoundCloudQuality:
         self.token_lock = asyncio.Lock()
         self.cached = {}
         self.cache_lock = asyncio.Lock()
+        self.track_inflight = {}
+        self.stream_inflight = {}
+        self.failed_resolutions = {}
 
     async def account(self, request):
         value = self.identity(request)
@@ -131,7 +139,8 @@ class SoundCloudQuality:
         # Only the logged-in user's own catalogue can authorize a track lookup.
         headers = {
             key: value for key, value in request.headers.items()
-            if key.lower() in ("cookie", "x-csrf-token", "origin")
+            if key.lower() in ("cookie", "authorization", "x-csrf-token", "origin",
+                               "x-nw-device-token", "x-nw-device-id", "x-nw-device-platform")
         }
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=self.app),
@@ -180,12 +189,65 @@ class SoundCloudQuality:
             response.raise_for_status()
             return response.json()
 
+    async def shared(self, pending, marker, factory):
+        # Different quality requests for one track share only work that is
+        # currently running. Authorization is never cached across requests.
+        async with self.cache_lock:
+            task = pending.get(marker)
+            if task is None or task.done():
+                task = asyncio.create_task(factory())
+                pending[marker] = task
+
+                def finished(completed):
+                    if pending.get(marker) is completed:
+                        pending.pop(marker, None)
+                    if not completed.cancelled():
+                        completed.exception()  # consume errors if all waiters left
+
+                task.add_done_callback(finished)
+        # A cancelled UI/options request must not cancel the shared playback job.
+        return await asyncio.shield(task)
+
+    async def authorized_track(self, request, owner, track_id):
+        async def lookup():
+            return await asyncio.wait_for(
+                self.track_for(request, track_id), TRACK_LOOKUP_TIMEOUT_SECONDS)
+        return await self.shared(self.track_inflight, (owner, track_id), lookup)
+
+    async def resolved_streams(self, owner, track_id, track):
+        fingerprint = (str(track.get("source_url") or ""),
+                       str(track.get("soundcloud_urn") or track.get("soundcloud_id") or ""))
+        marker = (owner, track_id, fingerprint)
+        if self.failed_resolutions.get(marker, 0) > time.monotonic():
+            return {}
+
+        async def resolve():
+            async def chain():
+                token = await self.official_token()
+                return await self.streams_for(track, token)
+            try:
+                streams = await asyncio.wait_for(chain(), RESOLUTION_TIMEOUT_SECONDS)
+                if isinstance(streams, dict) and any(safe_media_url(streams.get(key)) for key, _ in VARIANTS.values()):
+                    return streams
+            except (asyncio.TimeoutError, httpx.HTTPError, ValueError, TypeError, KeyError):
+                pass
+            # Brief backoff only for failed rendition lookups, not catalogue
+            # authorization. The ordinary authorized host stream remains usable.
+            self.failed_resolutions[marker] = time.monotonic() + FAILED_RESOLUTION_TTL_SECONDS
+            if len(self.failed_resolutions) > 1200:
+                now = time.monotonic()
+                self.failed_resolutions = {key: expiry for key, expiry in self.failed_resolutions.items() if expiry > now}
+            return {}
+        return await self.shared(self.stream_inflight, marker, resolve)
+
     async def selected(self, request, owner, track_id, quality):
-        marker = (owner, track_id, quality)
-        cached = self.cached.get(marker)
-        if cached and cached[0] > time.monotonic():
-            return cached[1]
-        track = await self.track_for(request, track_id)
+        # Recheck the signed-in user's current catalogue BEFORE using a cached
+        # signed stream URL. Removing access must take effect on the next call.
+        try:
+            track = await self.authorized_track(request, owner, track_id)
+        except (asyncio.TimeoutError, httpx.HTTPError, ValueError, TypeError):
+            return self.status(quality, None, None, None,
+                               "Каталог отвечает слишком долго. Используется обычный поток.", "original")
         if not isinstance(track, dict):
             return self.status(quality, None, None, None, "Трек не найден в доступном каталоге", "original")
         source = str(track.get("source", "")).lower()
@@ -195,12 +257,13 @@ class SoundCloudQuality:
         if not is_sc:
             return self.status(quality, None, None, None,
                                "Для этого источника доступен исходный поток", "original")
-        try:
-            token = await self.official_token()
-            streams = await self.streams_for(track, token)
-            selected, kbps, url, fallback = choose(streams, quality)
-        except (httpx.HTTPError, ValueError, TypeError, KeyError):
-            selected, kbps, url, fallback = None, None, None, True
+        fingerprint = (str(source_url or ""), str(track.get("soundcloud_urn") or track.get("soundcloud_id") or ""))
+        marker = (owner, track_id, quality, fingerprint)
+        cached = self.cached.get(marker)
+        if cached and cached[0] > time.monotonic():
+            return cached[1]
+        streams = await self.resolved_streams(owner, track_id, track)
+        selected, kbps, url, fallback = choose(streams, quality)
         if selected:
             message = ""
             if fallback:
@@ -209,7 +272,7 @@ class SoundCloudQuality:
             result = self.status(quality, selected, kbps, url, message, "soundcloud", fallback)
             self.cached[marker] = (time.monotonic() + 45, result)
             if len(self.cached) > 1200:
-                self.cached = {k:v for k,v in self.cached.items() if v[0] > time.monotonic()}
+                self.cached = {key: value for key, value in self.cached.items() if value[0] > time.monotonic()}
             return result
         return self.status(quality, None, None, None,
                            "Качество SoundCloud не удалось определить. "

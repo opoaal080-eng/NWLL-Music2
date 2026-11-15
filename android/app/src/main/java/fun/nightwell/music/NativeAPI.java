@@ -18,6 +18,56 @@ final class NativeAPI {
             worker.setDaemon(true);
             return worker;
         });
+    private static final java.util.concurrent.ScheduledExecutorService READ_DEADLINES =
+        java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread worker = new Thread(r, "NightwellReadDeadlines");
+            worker.setDaemon(true);
+            return worker;
+        });
+    /** Foreground reads share a deadline, not three full retry windows. */
+    static final class ReadRequest implements AutoCloseable {
+        final RequestBudget budget;
+        private final java.util.Set<HttpURLConnection> connections = new java.util.HashSet<>();
+        private final java.util.concurrent.ScheduledFuture<?> expiry;
+        private volatile boolean cancelled, timedOut;
+        ReadRequest(long millis) {
+            budget = new RequestBudget(millis);
+            expiry = READ_DEADLINES.schedule(() -> { timedOut = true; disconnect(); }, millis,
+                    java.util.concurrent.TimeUnit.MILLISECONDS);
+        }
+        void check() throws IOException {
+            if (timedOut) throw new SocketTimeoutException("Источник музыки отвечает слишком долго. Повтори запрос.");
+            if (cancelled || Thread.currentThread().isInterrupted()) throw new InterruptedIOException("Запрос отменён");
+            budget.remainingMillis();
+        }
+        synchronized void attach(HttpURLConnection connection) throws IOException {
+            check(); connections.add(connection);
+        }
+        synchronized void detach(HttpURLConnection connection) { connections.remove(connection); }
+        private void disconnect() {
+            final HttpURLConnection[] pending;
+            synchronized (this) { pending = connections.toArray(new HttpURLConnection[0]); }
+            for (HttpURLConnection connection : pending) SEARCH_CANCEL_IO.execute(connection::disconnect);
+        }
+        void cancel() { cancelled = true; expiry.cancel(false); disconnect(); }
+        @Override public void close() { cancel(); }
+    }
+    ReadRequest interactive(long millis) { return new ReadRequest(millis); }
+    JSONObject requestInteractive(String path, ReadRequest scope) throws Exception {
+        scope.check();
+        HttpURLConnection c = connection(path);
+        try {
+            scope.attach(c);
+            c.setConnectTimeout(Math.min(4000, scope.budget.remainingMillis()));
+            c.setReadTimeout(scope.budget.remainingMillis());
+            c.connect();
+            // Connection setup has already spent part of this same deadline.
+            c.setReadTimeout(scope.budget.remainingMillis());
+            JSONObject result = response(c, scope);
+            scope.check();
+            return result;
+        } finally { scope.detach(c); c.disconnect(); }
+    }
     private volatile boolean closed;
     private final java.util.Set<HttpURLConnection> activeConnections=java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>());
     NativeAPI(Context context,String origin){this.context=context.getApplicationContext();this.origin=origin;csrf=this.context.getSharedPreferences("native-api",Context.MODE_PRIVATE).getString("csrf|"+origin,"");}
@@ -60,15 +110,30 @@ final class NativeAPI {
         if(value!=null)SEARCH_CANCEL_IO.execute(value::disconnect);
     }
     private synchronized boolean searchCancelled(long generation){return closed||searchGeneration!=generation;}
-    JSONObject search(String path)throws Exception {
+    JSONObject search(String path)throws Exception { return search(path, 12000); }
+    JSONObject search(String path,long budgetMillis)throws Exception {
         final long generation;
         synchronized(this){generation=searchGeneration;}
-        return NetworkRetry.run(true,()->searchCancelled(generation),()->{
+        try (ReadRequest scope = interactive(Math.max(1, Math.min(12000, budgetMillis)))) {
+            scope.check();
             HttpURLConnection c=connection(path);
             synchronized(this){if(closed||searchGeneration!=generation){c.disconnect();throw new InterruptedIOException("Поиск отменён");}activeSearch=c;}
-            try{return response(c);}
-            finally{synchronized(this){if(activeSearch==c)activeSearch=null;}c.disconnect();}
-        });
+            try {
+                scope.attach(c);
+                c.setConnectTimeout(Math.min(4000, scope.budget.remainingMillis()));
+                c.setReadTimeout(scope.budget.remainingMillis());
+                c.connect();
+                c.setReadTimeout(scope.budget.remainingMillis());
+                JSONObject result=response(c,scope);
+                if(searchCancelled(generation))throw new InterruptedIOException("Поиск отменён");
+                scope.check();
+                return result;
+            } finally {
+                scope.detach(c);
+                synchronized(this){if(activeSearch==c)activeSearch=null;}
+                c.disconnect();
+            }
+        }
     }
     JSONObject request(String path,String method,JSONObject body) throws Exception {
         return NetworkRetry.run(method.equals("GET"),()->closed,()->requestOnce(path,method,body));
@@ -96,16 +161,18 @@ final class NativeAPI {
             return value;
         }finally{c.disconnect();}
     }
-    private JSONObject response(HttpURLConnection c)throws Exception {
+    private JSONObject response(HttpURLConnection c)throws Exception { return response(c,null); }
+    private JSONObject response(HttpURLConnection c,ReadRequest scope)throws Exception {
+        if(scope!=null)scope.check();
         int code=c.getResponseCode();
         if(code>=400){
             String message="Ошибка сервера: "+code;
-            try{message=new JSONObject(new String(read(c.getErrorStream(),4*1024*1024),StandardCharsets.UTF_8)).optString("error",message);}
+            try{message=new JSONObject(new String(read(c.getErrorStream(),4*1024*1024,scope),StandardCharsets.UTF_8)).optString("error",message);}
             catch(Exception ignored){} // HTML/empty error bodies must retain the HTTP status.
             throw new NetworkRetry.HttpFailure(code,message);
         }
         int limit=c.getURL().getPath().equals("/api/tracks")?32*1024*1024:4*1024*1024;
-        JSONObject payload=new JSONObject(new String(read(c.getInputStream(),limit),StandardCharsets.UTF_8));
+        JSONObject payload=new JSONObject(new String(read(c.getInputStream(),limit,scope),StandardCharsets.UTF_8));
         normalizeArtistCredits(payload);
         return payload;
     }
@@ -157,7 +224,8 @@ final class NativeAPI {
         return c;
     }
     byte[] export(String id)throws Exception{HttpURLConnection c=connection("api/offline-export/"+id);c.setReadTimeout(180000);try{if(c.getResponseCode()!=200)throw new IOException("Не удалось скачать трек");return read(c.getInputStream(),OfflineStore.LIMIT);}finally{c.disconnect();}}
-    static byte[] read(InputStream input,int limit)throws Exception{if(input==null)throw new IOException("Пустой ответ сервера");try(InputStream in=input;ByteArrayOutputStream out=new ByteArrayOutputStream()){byte[] b=new byte[16384];int count;while((count=in.read(b))!=-1){if(out.size()+count>limit)throw new IOException("Слишком большой файл");out.write(b,0,count);}return out.toByteArray();}}
+    static byte[] read(InputStream input,int limit)throws Exception{return read(input,limit,null);}
+    private static byte[] read(InputStream input,int limit,ReadRequest scope)throws Exception{if(input==null)throw new IOException("Пустой ответ сервера");try(InputStream in=input;ByteArrayOutputStream out=new ByteArrayOutputStream()){byte[] b=new byte[16384];int count;while((count=in.read(b))!=-1){if(scope!=null)scope.check();if(out.size()+count>limit)throw new IOException("Слишком большой файл");out.write(b,0,count);}if(scope!=null)scope.check();return out.toByteArray();}}
 }
 
 

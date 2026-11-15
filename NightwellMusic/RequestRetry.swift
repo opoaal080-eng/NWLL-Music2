@@ -1,6 +1,23 @@
 import Foundation
 
 enum RequestRetry {
+    /// Bounds an entire cooperative network operation, including read retries.
+    /// URLRequest.timeoutInterval alone only measures idle time between bytes.
+    static func withDeadline<T: Sendable>(seconds: TimeInterval,
+                                        operation: @escaping @Sendable () async throws -> T) async throws -> T {
+        guard seconds.isFinite, seconds > 0 else { throw URLError(.timedOut) }
+        return try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask { try await operation() }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(min(seconds, 3600) * 1_000_000_000))
+                throw URLError(.timedOut)
+            }
+            defer { group.cancelAll() }
+            guard let result = try await group.next() else { throw CancellationError() }
+            return result
+        }
+    }
+
     struct HTTPFailure: LocalizedError {
         let status: Int
         let message: String

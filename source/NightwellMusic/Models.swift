@@ -141,6 +141,10 @@ actor MusicAPI: LyricsService {
         config.httpCookieStorage = .shared
         config.httpShouldSetCookies = true
         config.timeoutIntervalForRequest = 25
+        // Ordinary JSON requests have their own total budget below. The shared
+        // session also supports intentional long offline exports/attachments.
+        config.timeoutIntervalForResource = 300
+        config.waitsForConnectivity = false
         config.urlCache = URLCache(memoryCapacity: 16 * 1024 * 1024, diskCapacity: 40 * 1024 * 1024, diskPath: "native-api")
         session = URLSession(configuration: config)
     }
@@ -155,18 +159,23 @@ actor MusicAPI: LyricsService {
             request.setValue(csrf, forHTTPHeaderField: "X-CSRF-Token")
             request.httpBody = try JSONSerialization.data(withJSONObject: body ?? [:])
         }
-        return try await RequestRetry.run(readOnly: method == "GET") {
-            let (data, response) = try await self.session.data(for: request)
-            try Task.checkCancellation()
-            guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
-            guard (200..<300).contains(http.statusCode) else {
-                let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-                let message = payload?["error"] as? String ?? payload?["detail"] as? String
-                throw RequestRetry.HTTPFailure(status: http.statusCode,
-                    message: message ?? "Сервер недоступен. Повтори попытку.")
+        let prepared = request, transport = session
+        let data: Data = try await RequestRetry.withDeadline(seconds: timeout ?? 25) {
+            try await RequestRetry.run(readOnly: method == "GET") {
+                let (data, response) = try await transport.data(for: prepared)
+                try Task.checkCancellation()
+                guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+                guard (200..<300).contains(http.statusCode) else {
+                    let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+                    let message = payload?["error"] as? String ?? payload?["detail"] as? String
+                    throw RequestRetry.HTTPFailure(status: http.statusCode,
+                        message: message ?? "Сервер недоступен. Повтори попытку.")
+                }
+                return data
             }
-            return try JSONDecoder().decode(T.self, from: data)
         }
+        try Task.checkCancellation()
+        return try JSONDecoder().decode(T.self, from: data)
     }
     func downloadSupportAttachment(ticketID: String, attachmentID: String) async throws -> URL {
         guard let url = URL(string: "api/support/tickets/" + ticketID + "/attachments/" + attachmentID, relativeTo: origin) else { throw URLError(.badURL) }

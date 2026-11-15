@@ -18,7 +18,7 @@ public partial class MainWindow {
  string quality="auto",character="balanced",mood="any",language="any";
  List<string> tasteArtists=[];
  HashSet<string> hiddenTracks=[];
- CancellationTokenSource? nextCancellation;
+ CancellationTokenSource? nextCancellation,coverCancellation,artistCancellation;
  string WaveRoute=>tasteLoaded?"api/wave-artists/mix":"api/wave";
  string WaveQuery=>"&character="+character+"&mood="+mood+"&language="+language;
  async Task AudioCommand(Action command){
@@ -50,7 +50,7 @@ public partial class MainWindow {
    var previous=player;player=candidate;staged=null;index=next;
    player.EndReached+=(_,_)=>Dispatcher.InvokeAsync(()=>Advance());
    player.EncounteredError+=(_,_)=>Dispatcher.InvokeAsync(()=>Status.Text="Не удалось воспроизвести трек");
-   currentID=track.id;ActiveArtwork=null;PlayingTrackId=currentID;Ribbon.ResetPalette();UpdatePlaybackChrome();TakePlaybackHere();pausedAtMs=0;MiniTitle.Text=FullTitle.Text=track.title;MiniArtist.Text=FullArtist.Text=track.artist;
+   coverCancellation?.Cancel();currentID=track.id;ActiveArtwork=null;PlayingTrackId=currentID;Ribbon.ResetPalette();UpdatePlaybackChrome();TakePlaybackHere();pausedAtMs=0;MiniTitle.Text=FullTitle.Text=track.title;MiniArtist.Text=FullArtist.Text=track.artist;
    lyricsCancellation?.Cancel();currentLyrics=null;lyricsID="";renderedLyric=int.MinValue;
    Cover.Source=MiniCover.Source=null;LyricsPanel.Visibility=Visibility.Collapsed;Cover.Visibility=Visibility.Visible;
    if(Uri.TryCreate(api.Origin,track.cover_url??("api/covers/"+track.id),out var uri)&&uri.Scheme=="https")_=LoadCover(uri,track.id);
@@ -115,13 +115,29 @@ public partial class MainWindow {
  async Task ArtistProfile(string credit){
   var names=Regex.Split(credit,@"\s*(?:,|&|feat\.?|ft\.?| x | / )\s*",RegexOptions.IgnoreCase).Where(x=>x.Length>0).ToArray();
   if(names.Length>1){var panel=new StackPanel{Margin=new Thickness(22)};var window=Sheet("Выбери исполнителя",panel,320);foreach(var name in names){var b=new Button{Content=name};b.Click+=async(_,_)=>{window.Close();await Guard(()=>ArtistProfile(name));};panel.Children.Add(b);}return;}
-  var response=await api.Request("api/artists/profile?name="+Uri.EscapeDataString(credit));
-  Show("Исполнитель");Heading.Text=credit;shown=ParseTracks(response);Tracks.ItemsSource=shown;
-  if(response.TryGetProperty("artist",out var artist)&&artist.TryGetProperty("image_url",out var image)&&Uri.TryCreate(image.GetString(),UriKind.Absolute,out var uri)&&uri.Scheme=="https"){
-   var panel=new StackPanel{Margin=new Thickness(22)};var picture=new Image{Height=240,Stretch=Stretch.Uniform};panel.Children.Add(picture);panel.Children.Add(Label(credit));Sheet("Исполнитель",panel,360);
-   var bytes=await artworkHTTP.GetByteArrayAsync(uri);var bitmap=await Task.Run(()=>{using var stream=new MemoryStream(bytes);var b=new BitmapImage();b.BeginInit();b.CacheOption=BitmapCacheOption.OnLoad;b.DecodePixelWidth=480;b.StreamSource=stream;b.EndInit();b.Freeze();return b;});picture.Source=bitmap;
+  Show("Исполнитель");Heading.Text=credit;shown=[];Tracks.ItemsSource=shown;Status.Text="Загружаем треки исполнителя…";
+  var pending=CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);artistCancellation=pending;
+  try{
+   var response=await api.Request("api/artists/profile?name="+Uri.EscapeDataString(credit),cancellation:pending.Token);
+   pending.Token.ThrowIfCancellationRequested();
+   if(screen!="Исполнитель"||Heading.Text!=credit)return;
+   shown=ParseTracks(response);Tracks.ItemsSource=shown;Status.Text="";
+   if(response.TryGetProperty("artist",out var artist)&&artist.TryGetProperty("image_url",out var image)&&Uri.TryCreate(image.GetString(),UriKind.Absolute,out var uri)&&uri.Scheme=="https"){
+    var panel=new StackPanel{Margin=new Thickness(22)};var picture=new Image{Height=240,Stretch=Stretch.Uniform};panel.Children.Add(picture);panel.Children.Add(Label(credit));var window=Sheet("Исполнитель",panel,360);
+    EventHandler closed=(_,_)=>pending.Cancel();window.Closed+=closed;
+    try{
+     var bytes=await MediaRequestPolicy.ReadArtworkAsync(artworkHTTP,uri,pending.Token);
+     var bitmap=await Task.Run(()=>{using var stream=new MemoryStream(bytes);var b=new BitmapImage();b.BeginInit();b.CacheOption=BitmapCacheOption.OnLoad;b.DecodePixelWidth=480;b.StreamSource=stream;b.EndInit();b.Freeze();return b;},pending.Token);
+     if(window.IsVisible&&!pending.IsCancellationRequested)picture.Source=bitmap;
+    }catch(OperationCanceledException){}catch(IOException){}catch(System.NotSupportedException){}
+    finally{window.Closed-=closed;}
+   }
+  }finally{
+   if(ReferenceEquals(artistCancellation,pending))artistCancellation=null;
+   pending.Dispose();
   }
  }
+
  async Task BrowsePlaylists(bool daily,string query=""){
   var response=await api.Request(daily?"api/daily-public-playlists":"api/community-playlists?q="+Uri.EscapeDataString(query)+"&limit=30");
   var panel=new StackPanel{Margin=new Thickness(24)};var window=Sheet(daily?"Подборки дня":"Плейлисты в поиске",panel);

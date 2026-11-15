@@ -2,16 +2,21 @@ import SwiftUI
 import UIKit
 import ImageIO
 
-/// One artwork downloader shared by track rows, mini player, full player and
-/// backdrop. Deduplicates concurrent requests, caches bytes and decodes thumbnails
-/// off the main thread so opening a list never decodes full resolution JPEGs.
+/// Shared, bounded artwork loading. Consumers leaving search rows release their
+/// work; a slow/failed cover cannot occupy a connection indefinitely.
 actor CoverImagePipeline {
     static let shared = CoverImagePipeline()
 
+    private struct Pending<Value> {
+        let id = UUID()
+        let task: Task<Value?, Never>
+        var consumers: Set<UUID>
+    }
     private let decoded = NSCache<NSString, UIImage>()
     private let compressed = NSCache<NSString, NSData>()
-    private var pendingData: [String: Task<Data?, Never>] = [:]
-    private var pendingImages: [String: Task<UIImage?, Never>] = [:]
+    private var pendingData: [String: Pending<Data>] = [:]
+    private var pendingImages: [String: Pending<UIImage>] = [:]
+    private var failures: [String: Date] = [:]
     private let session: URLSession
 
     private init() {
@@ -19,100 +24,134 @@ actor CoverImagePipeline {
         decoded.countLimit = 180
         compressed.totalCostLimit = 28 * 1024 * 1024
         compressed.countLimit = 100
-
         let configuration = URLSessionConfiguration.default
-        configuration.urlCache = URLCache(
-            memoryCapacity: 28 * 1024 * 1024,
-            diskCapacity: 160 * 1024 * 1024,
-            diskPath: "nightwell-cover-thumbnails"
-        )
+        configuration.urlCache = URLCache(memoryCapacity: 28 * 1024 * 1024,
+            diskCapacity: 160 * 1024 * 1024, diskPath: "nightwell-cover-thumbnails")
         configuration.httpCookieStorage = .shared
         configuration.httpShouldSetCookies = true
         configuration.httpMaximumConnectionsPerHost = 5
-        configuration.timeoutIntervalForRequest = 18
+        configuration.timeoutIntervalForRequest = 8
+        // The request timeout only bounds idle time. A trickling response needs
+        // a separate total transfer limit, otherwise it can last for minutes.
+        configuration.timeoutIntervalForResource = 12
+        configuration.waitsForConnectivity = false
         session = URLSession(configuration: configuration)
     }
 
-    /// Resolve the same server/CDN cover used by the lock-screen player.
-    /// Provider tracks sometimes have no cover_url but do have /api/covers/id.
     static func coverURL(for track: Track, origin: URL) -> URL? {
         let raw = track.cover_url?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let path: String
-        if !raw.isEmpty {
-            path = raw
-        } else if track.is_remote == true || track.source?.lowercased().contains("soundcloud") == true {
+        if !raw.isEmpty { path = raw }
+        else if track.is_remote == true || track.source?.lowercased().contains("soundcloud") == true {
             path = "/api/covers/" + track.id
-        } else {
-            return nil
-        }
+        } else { return nil }
         guard let url = URL(string: path, relativeTo: origin)?.absoluteURL,
               url.scheme?.lowercased() == "https", url.user == nil, url.password == nil else { return nil }
         return url
     }
 
     func image(for url: URL, maxPixel: Int = 160) async -> UIImage? {
+        guard !Task.isCancelled, url.scheme?.lowercased() == "https",
+              url.user == nil, url.password == nil else { return nil }
         let dimension = min(1200, max(96, maxPixel))
-        let key = "\(url.absoluteString)#\(dimension)"
+        let key = "\(url.absoluteString)#\(dimension)", consumer = UUID()
         if let hit = decoded.object(forKey: key as NSString) { return hit }
-        if let inFlight = pendingImages[key] { return await inFlight.value }
+        let entry: Pending<UIImage>
+        if var current = pendingImages[key] {
+            current.consumers.insert(consumer); pendingImages[key] = current; entry = current
+        } else {
+            let task = Task<UIImage?, Never>(priority: .userInitiated) {
+                guard let bytes = await self.data(for: url), !Task.isCancelled else { return nil }
+                return await Task.detached(priority: .utility) {
+                    guard !Task.isCancelled,
+                          let source = CGImageSourceCreateWithData(bytes as CFData, nil) else { return nil }
+                    let options: [CFString: Any] = [
+                        kCGImageSourceCreateThumbnailFromImageAlways: true,
+                        kCGImageSourceCreateThumbnailWithTransform: true,
+                        kCGImageSourceThumbnailMaxPixelSize: dimension,
+                        kCGImageSourceShouldCacheImmediately: true
+                    ]
+                    guard let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+                    else { return nil }
+                    return UIImage(cgImage: thumbnail)
+                }.value
+            }
+            entry = Pending(task: task, consumers: [consumer]); pendingImages[key] = entry
+        }
+        let result = await withTaskCancellationHandler {
+            await entry.task.value
+        } onCancel: {
+            Task { await self.releaseImage(key, entryID: entry.id, consumer: consumer) }
+        }
+        if pendingImages[key]?.id == entry.id {
+            pendingImages[key] = nil
+            if let result, let cgImage = result.cgImage {
+                decoded.setObject(result, forKey: key as NSString, cost: cgImage.bytesPerRow * cgImage.height)
+            }
+        }
+        return Task.isCancelled ? nil : result
+    }
 
-        let task = Task<UIImage?, Never>(priority: .userInitiated) {
-            guard let bytes = await self.data(for: url), !bytes.isEmpty else { return nil }
-            // ImageIO's thumbnail creation handles orientation without decoding
-            // the original multi-megapixel cover into a main-thread UIImage.
-            return await Task.detached(priority: .utility) {
-                guard let source = CGImageSourceCreateWithData(bytes as CFData, nil) else { return nil }
-                let options: [CFString: Any] = [
-                    kCGImageSourceCreateThumbnailFromImageAlways: true,
-                    kCGImageSourceCreateThumbnailWithTransform: true,
-                    kCGImageSourceThumbnailMaxPixelSize: dimension,
-                    kCGImageSourceShouldCacheImmediately: true
-                ]
-                guard let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
-                else { return nil }
-                return UIImage(cgImage: thumbnail)
-            }.value
-        }
-        pendingImages[key] = task
-        let result = await task.value
-        pendingImages[key] = nil
-        if let result, let cgImage = result.cgImage {
-            decoded.setObject(result, forKey: key as NSString,
-                              cost: cgImage.bytesPerRow * cgImage.height)
-        }
-        return result
+    private func releaseImage(_ key: String, entryID: UUID, consumer: UUID) {
+        guard var entry = pendingImages[key], entry.id == entryID else { return }
+        entry.consumers.remove(consumer)
+        if entry.consumers.isEmpty {
+            pendingImages[key] = nil; entry.task.cancel()
+        } else { pendingImages[key] = entry }
     }
 
     private func data(for url: URL) async -> Data? {
-        let key = url.absoluteString
+        guard !Task.isCancelled else { return nil }
+        let key = url.absoluteString, consumer = UUID()
         if let hit = compressed.object(forKey: key as NSString) { return hit as Data }
-        if let inFlight = pendingData[key] { return await inFlight.value }
-        let task = Task<Data?, Never>(priority: .userInitiated) {
-            do {
-                var request = URLRequest(url: url)
-                // Cover URLs are content-addressed; reuse downloaded images even
-                // when the API serves conservative cache headers.
-                request.cachePolicy = .returnCacheDataElseLoad
-                let (bytes, response) = try await session.data(for: request)
-                guard let http = response as? HTTPURLResponse,
-                      (200..<300).contains(http.statusCode),
-                      bytes.count > 0, bytes.count <= 8 * 1024 * 1024 else { return nil }
-                return bytes
-            } catch {
-                return nil
+        if let until = failures[key], until > Date() { return nil }
+        let entry: Pending<Data>
+        if var current = pendingData[key] {
+            current.consumers.insert(consumer); pendingData[key] = current; entry = current
+        } else {
+            let task = Task<Data?, Never>(priority: .userInitiated) { [session] in
+                do {
+                    var request = URLRequest(url: url)
+                    request.cachePolicy = .returnCacheDataElseLoad
+                    request.timeoutInterval = 8
+                    let (bytes, response) = try await session.data(for: request)
+                    guard !Task.isCancelled, let http = response as? HTTPURLResponse,
+                          (200..<300).contains(http.statusCode), !bytes.isEmpty,
+                          bytes.count <= 8 * 1024 * 1024 else { return nil }
+                    return bytes
+                } catch { return nil }
+            }
+            entry = Pending(task: task, consumers: [consumer]); pendingData[key] = entry
+        }
+        let result = await withTaskCancellationHandler {
+            await entry.task.value
+        } onCancel: {
+            Task { await self.releaseData(key, entryID: entry.id, consumer: consumer) }
+        }
+        if pendingData[key]?.id == entry.id {
+            pendingData[key] = nil
+            if let result {
+                failures[key] = nil
+                compressed.setObject(result as NSData, forKey: key as NSString, cost: result.count)
+            } else if !entry.task.isCancelled {
+                // Brief negative caching collapses repeated failing rows without
+                // permanently hiding artwork after login/network recovery.
+                if failures.count >= 128 { failures = failures.filter { $0.value > Date() } }
+                if failures.count >= 128 { failures.removeAll(keepingCapacity: true) }
+                failures[key] = Date().addingTimeInterval(3)
             }
         }
-        pendingData[key] = task
-        let result = await task.value
-        pendingData[key] = nil
-        if let result {
-            compressed.setObject(result as NSData, forKey: key as NSString, cost: result.count)
-        }
-        return result
+        return Task.isCancelled ? nil : result
     }
 
-    /// Warm small groups without serially waiting for each remote cover.
-    /// Limit concurrent speculative requests to leave bandwidth for audio.
+    private func releaseData(_ key: String, entryID: UUID, consumer: UUID) {
+        guard var entry = pendingData[key], entry.id == entryID else { return }
+        entry.consumers.remove(consumer)
+        if entry.consumers.isEmpty {
+            pendingData[key] = nil; entry.task.cancel()
+        } else { pendingData[key] = entry }
+    }
+
     func prefetch(_ urls: [URL], maxPixel: Int = 160) async {
         var seen = Set<URL>()
         let candidates = urls.prefix(6).filter { seen.insert($0).inserted }
@@ -121,9 +160,7 @@ actor CoverImagePipeline {
             let groupURLs = Array(candidates[start..<min(start + 2, candidates.count)])
             await withTaskGroup(of: Void.self) { group in
                 for url in groupURLs {
-                    group.addTask(priority: .utility) {
-                        _ = await self.image(for: url, maxPixel: maxPixel)
-                    }
+                    group.addTask(priority: .utility) { _ = await self.image(for: url, maxPixel: maxPixel) }
                 }
             }
         }
