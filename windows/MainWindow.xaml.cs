@@ -249,7 +249,8 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
   coverCancellation?.Cancel();
   var pending=CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);coverCancellation=pending;
   try{
-   var bytes=await MediaRequestPolicy.ReadArtworkAsync(uri.Authority==api.Origin.Authority?api.HTTP:artworkHTTP,uri,pending.Token);
+   var own=uri.Scheme=="https"&&uri.Authority==api.Origin.Authority;
+    var bytes=await MediaRequestPolicy.ReadArtworkAsync(own?api.HTTP:artworkHTTP,uri,pending.Token,deviceToken:own?api.DeviceToken:null);
    if(currentID!=id)return;
    var result=await Task.Run(()=>{
     using var stream=new MemoryStream(bytes);
