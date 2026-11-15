@@ -592,14 +592,14 @@ public final class MainActivity extends Activity {
         entries.addView(libraryLabel);
 
         String[] tabs={"Главная","Поиск","Избранное","Плейлисты","Офлайн",
-            "Слушать вместе","Моя статистика","Nightwell Premium",
+            "Слушать вместе","Моя статистика","Nightwell Premium","Устройства и семья",
             "Перенести музыку","Настройки","Настройка подборки",
             "Обращения",user.isEmpty()?"Войти":"Выйти"};
         String[] icons={"home","search","heart","list","download",
-            "list","stats","star","download","settings","sliders","mail","person"};
+            "list","stats","star","person","download","settings","sliders","mail","person"};
         for(int i=0;i<tabs.length;i++){
-            if(i==5||i==8||i==12){
-                TextView title=sectionLabel(i==5?"ВОЗМОЖНОСТИ":i==8?"ПРИЛОЖЕНИЕ":"АККАУНТ");
+            if(i==5||i==9||i==13){
+                TextView title=sectionLabel(i==5?"ВОЗМОЖНОСТИ":i==9?"ПРИЛОЖЕНИЕ":"АККАУНТ");
                 title.setPadding(dp(10),dp(18),0,dp(8));
                 entries.addView(title);
             }
@@ -671,6 +671,7 @@ public final class MainActivity extends Activity {
     }
     void selectMenu(String tab){
         if(tab.equals("Слушать вместе")){together.open();return;}
+        if(tab.equals("Устройства и семья")){accountAccess();return;}
         if(tab.equals("Перенести музыку")){nativeTransfer();return;}
          if(tab.equals("Моя статистика")){feature("stats");return;}
         if(tab.equals("Nightwell Premium")){premium();return;}
@@ -679,7 +680,7 @@ public final class MainActivity extends Activity {
         else if(tab.equals("Обращения"))supportTickets(false);
         else if(tab.equals("Только фон")||tab.equals("Показать интерфейс"))toggleBackgroundOnly();
         else if(tab.equals("Войти"))auth();
-        else if(tab.equals("Выйти")){cancelMix();accountRequest.cancel();task(()->{api.request("api/logout","POST",null);new SessionStore(this).clear();clearLibrarySnapshot();getSharedPreferences("favorite-track-cache",MODE_PRIVATE).edit().remove(favoriteDetailsKey()).apply();return new JSONObject();},v->{libraryGeneration++;user="";searchCache.clear();playlists=new JSONArray();selectedPlaylist="";sessionReady=true;openPendingTogether();api.updateCSRF("");getSharedPreferences("native-api",MODE_PRIVATE).edit().putString("account","").apply();catalog=new JSONArray();shown=new JSONArray();likes.clear();likeOrder.clear();if(playback!=null)playback.stop();navigate("Главная");});}
+        else if(tab.equals("Выйти")){cancelMix();accountRequest.cancel();task(()->{api.request("api/logout","POST",null);new SessionStore(this).clear();clearLibrarySnapshot();getSharedPreferences("favorite-track-cache",MODE_PRIVATE).edit().remove(favoriteDetailsKey()).apply();return new JSONObject();},v->{libraryGeneration++;user="";searchCache.clear();playlists=new JSONArray();selectedPlaylist="";sessionReady=true;openPendingTogether();api.updateCSRF("");getSharedPreferences("native-api",MODE_PRIVATE).edit().putString("account","").apply();api.updateDeviceToken("");catalog=new JSONArray();shown=new JSONArray();likes.clear();likeOrder.clear();if(playback!=null)playback.stop();navigate("Главная");});}
         else navigate(tab);
     }
 
@@ -1273,6 +1274,16 @@ public final class MainActivity extends Activity {
         io.execute(()->{
             try {
                 JSONObject me=api.request("api/me");
+                api.updateCSRF(me.optString("csrf",""));
+                JSONObject verifiedUser=me.optJSONObject("user");
+                String verifiedAccount=verifiedUser==null?"":verifiedUser.optString("id","");
+                String deviceIssue=null;
+                try {
+                    AccountDeviceAccess.bind(api,verifiedAccount);
+                } catch(Exception error) {
+                    deviceIssue=friendly(error);
+                }
+                final String accessError=deviceIssue;
                 ui.post(()->{
                     if(isDestroyed()||!accountRequest.complete(ticket))return;
                     connectionRecoveryAttempts=0;
@@ -1294,7 +1305,9 @@ public final class MainActivity extends Activity {
                     if(playback!=null&&pendingDeepLinkTrack.isEmpty())playback.restorePlayback(origin,user);
                     if(!full&&!screen.equals("Поиск"))showScreen();
                     openPendingTrack();
-                    if(!user.isEmpty())loadLibrary(user);
+                    if(accessError!=null){
+                        status.setText("Устройство: "+accessError+" Открой «Устройства и семья» в меню.");
+                    }else if(!user.isEmpty())loadLibrary(user);
                 });
             }catch(Exception ex){
                 ui.post(()->{
@@ -1639,7 +1652,7 @@ public final class MainActivity extends Activity {
                 image.setClipToOutline(true);
                 chip.removeView(initial);
                 chip.addView(image,new LinearLayout.LayoutParams(dp(29),dp(29)));
-                artworkCache.loadArtist(image,url);
+                artworkCache.loadArtist(image,origin,url);
             }
             TextView label=text(name,13);label.setSingleLine(true);label.setMaxWidth(dp(145));
             label.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -1736,7 +1749,7 @@ public final class MainActivity extends Activity {
                 JSONObject artist=finalProfile==null?null:finalProfile.optJSONObject("artist");
                 if(artist!=null) {
                     String url=artist.optString("image_url");
-                    if(artworkCache!=null)artworkCache.loadArtist(photo,url);
+                    if(artworkCache!=null)artworkCache.loadArtist(photo,origin,url);
                 }
                 int total=finalProfile==null?finalTracks.length():finalProfile.optInt("total",finalTracks.length());
                 info.setText(total==0?(failureMessage==null?"Треки пока не найдены":failureMessage):"Треки · "+total);
@@ -2618,6 +2631,171 @@ public final class MainActivity extends Activity {
         seek.setMinimumHeight(dp(44));
     }
 
+
+    void accountAccess(){
+        if(user.isEmpty()){auth();return;}
+        LinearLayout panel=column();
+        panel.setPadding(dp(18),dp(10),dp(18),dp(16));
+        android.widget.ScrollView scroll=new android.widget.ScrollView(this);
+        scroll.addView(panel);
+        TextView info=text("Загружаем устройства и семейный Premium…",13);
+        info.setTextColor(NightwellDesign.MUTED);
+        panel.addView(info);
+        TextView summary=text("",15);
+        panel.addView(summary);
+        LinearLayout devicesPanel=column();
+        panel.addView(devicesPanel);
+        LinearLayout familyPanel=column();
+        panel.addView(familyPanel);
+        TextView reload=sheetAction("Обновить",()->{});
+        panel.addView(reload);
+        AlertDialog dialog=new AlertDialog.Builder(this)
+            .setTitle("Устройства и семья").setView(scroll)
+            .setPositiveButton("Готово",(d,w)->{}).create();
+        styleSheet(dialog);
+        dialog.show();
+        final String viewer=user;
+        final Runnable[] refresh=new Runnable[1];
+        refresh[0]=()->{
+            if(!viewer.equals(user)||!dialog.isShowing())return;
+            info.setText("Обновляем данные…");
+            io.execute(()->{
+                try{
+                    JSONObject deviceData=api.request("api/devices");
+                    JSONObject familyData=api.request("api/family");
+                    ui.post(()->{
+                        if(!viewer.equals(user)||!dialog.isShowing())return;
+                        info.setText("Устройства привязаны к отдельному аккаунту. Чужие устройства можно удалить.");
+                        devicesPanel.removeAllViews();
+                        devicesPanel.addView(sectionLabel("УСТРОЙСТВА"));
+                        int limit=deviceData.optInt("limit",2),count=deviceData.optInt("count",0);
+                        summary.setText("Устройств: "+count+" / "+limit);
+                        JSONArray devices=deviceData.optJSONArray("devices");
+                        if(devices!=null)for(int i=0;i<devices.length();i++){
+                            JSONObject device=devices.optJSONObject(i);
+                            if(device==null)continue;
+                            String id=device.optString("id");
+                            String label=device.optString("name","Устройство");
+                            boolean current=device.optBoolean("current");
+                            boolean blocked=device.optBoolean("blocked");
+                            String state=blocked?" · заблокировано":current?" · это устройство":"";
+                            if(current){
+                                TextView line=text(label+state,14);
+                                line.setPadding(dp(6),dp(9),0,dp(9));
+                                devicesPanel.addView(line);
+                            }else{
+                                devicesPanel.addView(sheetAction(label+state+" · удалить",()->{
+                                    new AlertDialog.Builder(this)
+                                        .setTitle("Удалить устройство?")
+                                        .setMessage("На удалённом устройстве потребуется новый вход.")
+                                        .setNegativeButton("Отмена",null)
+                                        .setPositiveButton("Удалить",(d,w)->task(
+                                            ()->api.request("api/devices/"+id,"DELETE",null),
+                                            ok->refresh[0].run())).show();
+                                }));
+                            }
+                        }
+                        familyPanel.removeAllViews();
+                        familyPanel.addView(sectionLabel("СЕМЕЙНЫЙ PREMIUM"));
+                        JSONObject access=familyData.optJSONObject("access");
+                        String source=access==null?"free":access.optString("source","free");
+                        boolean billed=access!=null&&access.optBoolean("billing_owner");
+                        TextView accessLabel=text("Доступ: "+("family".equals(source)?"семейный Premium":
+                            "direct".equals(source)?"личный Premium":"Free"),15);
+                        accessLabel.setPadding(dp(4),dp(9),0,dp(9));
+                        familyPanel.addView(accessLabel);
+                        JSONObject group=familyData.optJSONObject("family");
+                        if(group!=null){
+                            boolean owner="owner".equals(group.optString("role"));
+                            JSONArray members=group.optJSONArray("members");
+                            familyPanel.addView(text("Участники: "+(members==null?0:members.length())+" / 3",14));
+                            if(members!=null)for(int i=0;i<members.length();i++){
+                                JSONObject member=members.optJSONObject(i);
+                                if(member==null)continue;
+                                String id=member.optString("account_id");
+                                boolean self=viewer.equals(id);
+                                String label=self?"Вы":id;
+                                if(owner&&!self){
+                                    familyPanel.addView(sheetAction(label+" · исключить",()->{
+                                        new AlertDialog.Builder(this).setTitle("Исключить участника?")
+                                            .setNegativeButton("Отмена",null)
+                                            .setPositiveButton("Исключить",(d,w)->task(
+                                                ()->api.request("api/family/members/"+id,"DELETE",null),
+                                                ok->refresh[0].run())).show();
+                                    }));
+                                }else familyPanel.addView(text(label,14));
+                            }
+                            if(owner){
+                                JSONArray pending=group.optJSONArray("pending_invites");
+                                if(pending!=null)for(int i=0;i<pending.length();i++){
+                                    JSONObject invite=pending.optJSONObject(i);
+                                    if(invite==null)continue;
+                                    String id=invite.optString("id");
+                                    familyPanel.addView(sheetAction("Отозвать приглашение",()->task(
+                                        ()->api.request("api/family/invitations/"+id,"DELETE",null),
+                                        ok->refresh[0].run())));
+                                }
+                                familyPanel.addView(sheetAction("Распустить семью",()->{
+                                    new AlertDialog.Builder(this).setTitle("Распустить семью?")
+                                        .setNegativeButton("Отмена",null)
+                                        .setPositiveButton("Распустить",(d,w)->task(
+                                            ()->api.request("api/family","DELETE",null),
+                                            ok->refresh[0].run())).show();
+                                }));
+                            }else{
+                                familyPanel.addView(sheetAction("Выйти из семьи",()->{
+                                    new AlertDialog.Builder(this).setTitle("Выйти из семьи?")
+                                        .setNegativeButton("Отмена",null)
+                                        .setPositiveButton("Выйти",(d,w)->task(
+                                            ()->api.request("api/family/leave","POST",new JSONObject()),
+                                            ok->refresh[0].run())).show();
+                                }));
+                            }
+                        }
+                        boolean owner=group!=null&&"owner".equals(group.optString("role"));
+                        if(billed&&(group==null||owner&&(group.optInt("available_invites",0)>0))){
+                            familyPanel.addView(sheetAction("Пригласить участника",()->{
+                                task(()->api.request("api/family/invitations","POST",new JSONObject()),result->{
+                                    String link=result.optString("invite_url","");
+                                    if(!link.startsWith("https://")){info.setText("Не удалось создать приглашение.");return;}
+                                    Intent share=new Intent(Intent.ACTION_SEND);
+                                    share.setType("text/plain");
+                                    share.putExtra(Intent.EXTRA_TEXT,link);
+                                    startActivity(Intent.createChooser(share,"Приглашение Nightwell"));
+                                    refresh[0].run();
+                                });
+                            }));
+                        }
+                        if(group==null){
+                            TextView hint=text("Вставь ссылку владельца, чтобы присоединиться.",13);
+                            hint.setTextColor(NightwellDesign.MUTED);
+                            familyPanel.addView(hint);
+                        }
+                        EditText inviteInput=new EditText(this);
+                        inviteInput.setHint("Ссылка или код приглашения");
+                        styleField(inviteInput);
+                        familyPanel.addView(inviteInput);
+                        familyPanel.addView(sheetAction("Принять приглашение",()->{
+                            String raw=inviteInput.getText().toString().trim();
+                            int offset=raw.indexOf("#invite=");
+                            String token=offset>=0?raw.substring(offset+8):raw;
+                            if(!token.matches("[A-Za-z0-9_-]{43}")){
+                                info.setText("Неверная ссылка приглашения.");return;
+                            }
+                            task(()->api.request("api/family/invitations/accept","POST",
+                                new JSONObject().put("token",token)),ok->{inviteInput.setText("");refresh[0].run();});
+                        }));
+                    });
+                }catch(Exception ex){
+                    ui.post(()->{if(dialog.isShowing()&&viewer.equals(user))
+                        info.setText("Не удалось открыть модуль: "+friendly(ex));});
+                }
+            });
+        };
+        reload.setOnClickListener(v->refresh[0].run());
+        refresh[0].run();
+    }
+
     void settings(){
         LinearLayout panel=column();
         panel.setPadding(dp(16),dp(12),dp(16),dp(16));
@@ -2745,7 +2923,7 @@ public final class MainActivity extends Activity {
     }
     void premiumTick(){if(!premiumOwner.equals(user)||premiumUntil>0&&!premiumAllowed()){premiumUntil=0;premiumPrefs=new JSONObject();premiumOwner=user;premiumChecked=0;applyPremium();}if(!premiumLoading&&System.currentTimeMillis()-premiumChecked>300000)loadPremium(()->{});}
     void loadPremium(Runnable done){if(premiumLoading)return;premiumLoading=true;premiumChecked=System.currentTimeMillis();String owner=user;premiumUntil=0;applyPremium();io.execute(()->{
-        JSONObject prefs=null;long expiry=0;try{JSONObject state=api.request("api/premium/me");if(state.optBoolean("premium")){prefs=api.request("api/premium/preferences").getJSONObject("preferences");expiry=(long)(state.optDouble("expires_at")*1000);}}catch(Exception ignored){}
+        JSONObject prefs=null;long expiry=0;try{JSONObject state=api.request("api/premium/me");if(state.optBoolean("premium")){prefs=api.request("api/premium/preferences").getJSONObject("preferences");double ends=state.optDouble("expires_at",Double.NaN);expiry=Double.isFinite(ends)&&ends*1000>System.currentTimeMillis()?(long)(ends*1000):System.currentTimeMillis()+300000;}}catch(Exception ignored){}
         final JSONObject result=prefs;final long until=expiry;ui.post(()->{premiumLoading=false;if(isDestroyed()||!owner.equals(user))return;premiumOwner=owner;premiumPrefs=result==null?new JSONObject():result;premiumUntil=until;applyPremium();done.run();});
     });}
     void feature(String kind){loadPremium(()->{if(!premiumAllowed()){status.setText("Для этой функции нужен Premium. Музыку можно слушать бесплатно.");return;}if(kind.equals("sound"))equalizerPanel();else if(kind.equals("appearance"))appearancePanel();else if(kind.equals("smart"))smartPanel();else statisticsPanel();});}
@@ -2908,8 +3086,27 @@ public final class MainActivity extends Activity {
                 final boolean confirmed=ok;ui.post(()->{if(isDestroyed()||!dialog.isShowing()||!owner.equals(user))return;renewalCancel.setEnabled(true);renewalNote.setText(confirmed?"Автопродление отключено. Оплаченный срок сохранён.":"Lava не подтвердила отмену.");if(confirmed)renewalCancel.setVisibility(View.GONE);});});
         }).show());
         Runnable check=()->{if(checking[0]||!dialog.isShowing())return;checking[0]=true;refresh.setEnabled(false);String owner=user;io.execute(()->{
-            String message,renewalText="";long expiry=0;boolean allowCancel=false;try{JSONObject value=api.request("api/premium/me");expiry=value.optBoolean("premium")?(long)(value.optDouble("expires_at",0)*1000):0;message=expiry>System.currentTimeMillis()?"":value.optBoolean("test_premium")?"Тестовый платёж подтверждён; платная подписка не активирована.":"Активной подписки нет.";if(expiry>System.currentTimeMillis())try{JSONObject renewal=api.request("api/premium/lava/renewal");boolean subscribed=renewal.optBoolean("has_lava_subscription"),disabled="disabled".equals(renewal.optString("auto_renewal"));allowCancel=subscribed&&!disabled;renewalText=disabled?"Автопродление отключено":subscribed?"Статус автопродления не подтверждён":"Автопродление не требуется";}catch(Exception e){renewalText="Статус автопродления недоступен";}}catch(Exception e){message="Статус недоступен. Войдите в аккаунт и проверьте соединение.";}
-            final String result=message,renewalLabel=renewalText;final long until=expiry;final boolean showCancel=allowCancel;ui.post(()->{checking[0]=false;if(isDestroyed()||!dialog.isShowing())return;refresh.setEnabled(true);if(!owner.equals(user)){consent.setChecked(false);note.setText("Аккаунт изменился. Откройте Premium заново.");return;}boolean enabled=until>System.currentTimeMillis();active.setVisibility(enabled?View.VISIBLE:View.GONE);summary.setVisibility(enabled?View.GONE:View.VISIBLE);read.setVisibility(enabled?View.GONE:View.VISIBLE);terms.setVisibility(View.GONE);consent.setVisibility(enabled?View.GONE:View.VISIBLE);pay.setVisibility(enabled?View.GONE:View.VISIBLE);refresh.setText(enabled?"Обновить статус":"Проверить оплату");for(int i=0;i<panel.getChildCount();i++){View child=panel.getChildAt(i);if(child!=active&&child!=note&&child!=refresh)child.setVisibility(enabled?View.GONE:View.VISIBLE);}terms.setVisibility(View.GONE);renewalNote.setText(enabled?renewalLabel:"");renewalCancel.setVisibility(enabled&&showCancel?View.VISIBLE:View.GONE);activeDate.setText(enabled?"Активна до "+java.text.DateFormat.getDateInstance(java.text.DateFormat.LONG,new java.util.Locale("ru","RU")).format(new java.util.Date(until)):"");if(enabled){checkmark.setScaleX(.45f);checkmark.setScaleY(.45f);checkmark.setAlpha(0f);checkmark.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(420).start();}note.setText(result);});
+             String message,renewalText="";long expiry=0;boolean allowCancel=false,familyAccess=false,expiryKnown=false,entitled=false;
+             try{
+                 JSONObject value=api.request("api/premium/me");
+                 entitled=value.optBoolean("premium");
+                 familyAccess=entitled&&("family".equals(value.optString("subscription_source")) ||
+                     value.has("billing_owner")&&!value.optBoolean("billing_owner"));
+                 double ends=value.optDouble("expires_at",Double.NaN);
+                 expiryKnown=entitled&&Double.isFinite(ends)&&ends*1000>System.currentTimeMillis();
+                 expiry=entitled?(expiryKnown?(long)(ends*1000):System.currentTimeMillis()+300000):0;
+                 message=entitled?"":value.optBoolean("test_premium")?
+                     "Тестовый платёж подтверждён; платная подписка не активирована.":"Активной подписки нет.";
+                 if(entitled&&!familyAccess)try{
+                     JSONObject renewal=api.request("api/premium/lava/renewal");
+                     boolean subscribed=renewal.optBoolean("has_lava_subscription");
+                     boolean disabled="disabled".equals(renewal.optString("auto_renewal"));
+                     allowCancel=subscribed&&!disabled;
+                     renewalText=disabled?"Автопродление отключено":
+                         subscribed?"Статус автопродления не подтверждён":"Автопродление не требуется";
+                 }catch(Exception e){renewalText="Статус автопродления недоступен";}
+             }catch(Exception e){message="Статус недоступен. Войдите в аккаунт и проверьте соединение.";}
+            final String result=message,renewalLabel=renewalText;final long until=expiry;final boolean showCancel=allowCancel,fromFamily=familyAccess,knownExpiry=expiryKnown;ui.post(()->{checking[0]=false;if(isDestroyed()||!dialog.isShowing())return;refresh.setEnabled(true);if(!owner.equals(user)){consent.setChecked(false);note.setText("Аккаунт изменился. Откройте Premium заново.");return;}boolean enabled=until>System.currentTimeMillis();active.setVisibility(enabled?View.VISIBLE:View.GONE);summary.setVisibility(enabled?View.GONE:View.VISIBLE);read.setVisibility(enabled?View.GONE:View.VISIBLE);terms.setVisibility(View.GONE);consent.setVisibility(enabled?View.GONE:View.VISIBLE);pay.setVisibility(enabled?View.GONE:View.VISIBLE);refresh.setText(enabled?"Обновить статус":"Проверить оплату");for(int i=0;i<panel.getChildCount();i++){View child=panel.getChildAt(i);if(child!=active&&child!=note&&child!=refresh)child.setVisibility(enabled?View.GONE:View.VISIBLE);}terms.setVisibility(View.GONE);activeTitle.setText(fromFamily?"Семейный Premium активен":"Подписка активна");renewalNote.setText(enabled?(fromFamily?"Подписку оплачивает владелец семьи.":renewalLabel):"");renewalCancel.setVisibility(enabled&&!fromFamily&&showCancel?View.VISIBLE:View.GONE);activeDate.setText(enabled?(knownExpiry?"Активна до "+java.text.DateFormat.getDateInstance(java.text.DateFormat.LONG,new java.util.Locale("ru","RU")).format(new java.util.Date(until)):"Статус подтверждён сервером"):"");if(enabled){checkmark.setScaleX(.45f);checkmark.setScaleY(.45f);checkmark.setAlpha(0f);checkmark.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(420).start();}note.setText(result);});
         });};
         refresh.setOnClickListener(v->check.run());premiumRefresh=check;dialog.setOnDismissListener(d->{if(premiumRefresh==check)premiumRefresh=null;});dialog.show();check.run();
     }

@@ -381,6 +381,11 @@ private struct AudioQualityDecision: Decodable {
                 self.cacheAccount()
                 if changedAccount { self.restoreAutoFavoritesSetting(); self.startLiveSync() }
                 await client.setCSRF(identity.csrf)
+                if let user = identity.user {
+                    try await client.bindDevice(account: user.id)
+                } else {
+                    await client.clearDeviceSession()
+                }
                 guard !Task.isCancelled, self.origin == server,
                       self.sessionGeneration == session, self.connectionCheckGeneration == checkID else { return }
                 if changedAccount { self.restoreSessionSnapshot() }
@@ -507,6 +512,19 @@ private struct AudioQualityDecision: Decodable {
             restoreAutoFavoritesSetting()
             cacheAccount()
             await client.setCSRF(identity.csrf)
+            if let user = identity.user {
+                do {
+                    try await client.bindDevice(account: user.id)
+                } catch {
+                    self.error = error.localizedDescription
+                    connectionStatus = "Ограничен"
+                    sessionReady = true
+                    await localFiles
+                    return
+                }
+            } else {
+                await client.clearDeviceSession()
+            }
             restoreSessionSnapshot()
             connectionStatus = "Онлайн"
             sessionReady = true
@@ -759,6 +777,7 @@ private struct AudioQualityDecision: Decodable {
         emailChallenge = nil
         cacheAccount()
         await api.setCSRF(response.csrf)
+        try await api.bindDevice(account: user.id)
         restoreSessionSnapshot()
         authPresented = false
         restorePlayback()
@@ -816,7 +835,7 @@ private struct AudioQualityDecision: Decodable {
             sessionGeneration = UUID(); starting = false; snapshotSaveTask?.cancel(); libraryRefresh.cancel()
             connectionCheck?.cancel(); connectionCheck = nil; connectionCheckGeneration = UUID(); sessionReady = false
             stopLiveSync()
-            account = nil; restoreAutoFavoritesSetting(); mixRecentIDs = []; cacheAccount(); catalog = []; results = []; likes = []; likeOrder = []; playlists = []; lastWave = []; query = ""; await api.setCSRF(nil)
+            account = nil; restoreAutoFavoritesSetting(); mixRecentIDs = []; cacheAccount(); catalog = []; results = []; likes = []; likeOrder = []; playlists = []; lastWave = []; query = ""; await api.setCSRF(nil); await api.clearDeviceSession()
         } catch { self.error = error.localizedDescription }
     }
     private func refreshSearchArtists(for text: String, generation: UUID) {

@@ -21,7 +21,7 @@ public sealed class StreamProxy:IDisposable {
   var path=context.Request.RawUrl??"";string prefix="/"+key+"/";
   if(!path.StartsWith(prefix)||context.Request.HttpMethod!="GET"){context.Response.StatusCode=404;return;}path=path[prefix.Length..];
   if(!(path.StartsWith("api/audio-quality/stream/")||path.StartsWith("api/stream/")||path.StartsWith("api/soundcloud/media/"))||path.Contains("..")){context.Response.StatusCode=404;return;}
-  using var request=new HttpRequestMessage(HttpMethod.Get,path);if(context.Request.Headers["Range"] is string range)request.Headers.TryAddWithoutValidation("Range",range);
+  using var request=new HttpRequestMessage(HttpMethod.Get,path);if(api.DeviceToken.Length>0)request.Headers.TryAddWithoutValidation("X-NW-Device-Token",api.DeviceToken);if(context.Request.Headers["Range"] is string range)request.Headers.TryAddWithoutValidation("Range",range);
   HttpResponseMessage upstream;
   // Dispose this deadline immediately after headers; it must not limit the
   // duration of an otherwise healthy multi-minute audio response.

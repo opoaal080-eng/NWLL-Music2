@@ -114,6 +114,16 @@ actor CoverImagePipeline {
                     var request = URLRequest(url: url)
                     request.cachePolicy = .returnCacheDataElseLoad
                     request.timeoutInterval = 8
+                    // Only authenticate artwork hosted on our configured Nightwell origin.
+                    // Never forward this private header to an external cover/CDN URL.
+                    let configured = UserDefaults.standard.string(forKey: "nightwell.server") ?? "https://music.nightwell.fun/"
+                    if let origin = ServerAddress.validated(configured),
+                       url.host == origin.host, url.port == origin.port,
+                       let data = UserDefaults.standard.data(forKey: "native.account"),
+                       let account = try? JSONDecoder().decode(Account.self, from: data),
+                       let credential = try? AccountDeviceVault.read(origin: origin, account: account.id) {
+                        request.setValue(credential.device_token, forHTTPHeaderField: "X-NW-Device-Token")
+                    }
                     let (bytes, response) = try await session.data(for: request)
                     guard !Task.isCancelled, let http = response as? HTTPURLResponse,
                           (200..<300).contains(http.statusCode), !bytes.isEmpty,

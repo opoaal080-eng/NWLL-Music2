@@ -135,6 +135,7 @@ actor MusicAPI: LyricsService {
     let origin: URL
     private let session: URLSession
     private var csrf = ""
+    private var deviceToken = ""
     init(origin: URL) {
         self.origin = origin
         let config = URLSessionConfiguration.default
@@ -149,10 +150,37 @@ actor MusicAPI: LyricsService {
         session = URLSession(configuration: config)
     }
     func setCSRF(_ value: String?) { csrf = value ?? "" }
+    func clearDeviceSession() { deviceToken = "" }
+
+    /// Register only after the server has verified the login and returned CSRF.
+    /// A 404 means the optional module has not been deployed yet.
+    func bindDevice(account: String) async throws {
+        deviceToken = ""
+        let saved = try AccountDeviceVault.read(origin: origin, account: account)
+        var body: [String: Any] = ["platform": "ios", "name": "Nightwell iPhone / iPad"]
+        if let saved {
+            deviceToken = saved.device_token
+            body["device_id"] = saved.device_id
+            body["device_token"] = saved.device_token
+        }
+        do {
+            let result: DeviceRegistration = try await request("/api/devices/register",
+                                                                  method: "POST", body: body)
+            guard result.ok else { throw APIError(message: "Сервер не подтвердил устройство.") }
+            let credential = AccountDeviceCredential(device_id: result.device_id,
+                                                      device_token: result.device_token)
+            try AccountDeviceVault.save(credential, origin: origin, account: account)
+            deviceToken = result.device_token
+        } catch let error as RequestRetry.HTTPFailure where error.status == 404 {
+            // Older installations without Account Access remain compatible.
+            deviceToken = ""
+        }
+    }
     func request<T: Decodable>(_ path: String, method: String = "GET", body: [String: Any]? = nil, timeout: TimeInterval? = nil) async throws -> T {
         guard let url = URL(string: path, relativeTo: origin), url.host == origin.host, url.scheme == "https" else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
         request.httpMethod = method
+        if !deviceToken.isEmpty { request.setValue(deviceToken, forHTTPHeaderField: "X-NW-Device-Token") }
         if let timeout { request.timeoutInterval = timeout }
         if method != "GET" {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -179,7 +207,9 @@ actor MusicAPI: LyricsService {
     }
     func downloadSupportAttachment(ticketID: String, attachmentID: String) async throws -> URL {
         guard let url = URL(string: "api/support/tickets/" + ticketID + "/attachments/" + attachmentID, relativeTo: origin) else { throw URLError(.badURL) }
-        let (data, response) = try await session.data(from: url)
+        var request = URLRequest(url: url)
+        if !deviceToken.isEmpty { request.setValue(deviceToken, forHTTPHeaderField: "X-NW-Device-Token") }
+        let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw APIError(message: "Не удалось открыть вложение")
         }
@@ -199,6 +229,7 @@ actor MusicAPI: LyricsService {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue(csrf, forHTTPHeaderField: "X-CSRF-Token")
+        if !deviceToken.isEmpty { request.setValue(deviceToken, forHTTPHeaderField: "X-NW-Device-Token") }
         request.setValue("multipart/form-data; boundary=" + boundary, forHTTPHeaderField: "Content-Type")
         request.httpBody = body
         let (responseData, response) = try await session.data(for: request)
@@ -211,6 +242,7 @@ actor MusicAPI: LyricsService {
     func export(_ id: String) async throws -> Data {
         let url = URL(string: "api/offline-export/" + id + "?download=true&wait=true", relativeTo: origin)!
         var request = URLRequest(url: url); request.timeoutInterval = 300
+        if !deviceToken.isEmpty { request.setValue(deviceToken, forHTTPHeaderField: "X-NW-Device-Token") }
         let (file, response) = try await session.download(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { throw APIError(message: "Трек пока нельзя скачать") }
         let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
