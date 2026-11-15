@@ -27,11 +27,13 @@ internal static class MediaRequestPolicy {
  }
 
  internal static async Task<byte[]> ReadArtworkAsync(HttpClient client,Uri uri,
-     CancellationToken cancellation,TimeSpan? deadline=null) {
+     CancellationToken cancellation,TimeSpan? deadline=null,string? deviceToken=null) {
   using var budget=CancellationTokenSource.CreateLinkedTokenSource(cancellation);
   budget.CancelAfter(deadline??ArtworkDeadline);
   try {
-   using var response=await client.GetAsync(uri,HttpCompletionOption.ResponseHeadersRead,budget.Token).ConfigureAwait(false);
+   using var request=new HttpRequestMessage(HttpMethod.Get,uri);
+   if(!string.IsNullOrEmpty(deviceToken))request.Headers.TryAddWithoutValidation("X-NW-Device-Token",deviceToken);
+   using var response=await client.SendAsync(request,HttpCompletionOption.ResponseHeadersRead,budget.Token).ConfigureAwait(false);
    response.EnsureSuccessStatusCode();
    if(response.Content.Headers.ContentLength>MaxArtworkBytes)throw new IOException("Слишком большая обложка");
    var type=response.Content.Headers.ContentType?.MediaType;
