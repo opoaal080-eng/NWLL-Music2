@@ -381,6 +381,11 @@ private struct AudioQualityDecision: Decodable {
                 self.cacheAccount()
                 if changedAccount { self.restoreAutoFavoritesSetting(); self.startLiveSync() }
                 await client.setCSRF(identity.csrf)
+                if let user = identity.user {
+                    try await client.bindDevice(account: user.id)
+                } else {
+                    await client.clearDeviceSession()
+                }
                 guard !Task.isCancelled, self.origin == server,
                       self.sessionGeneration == session, self.connectionCheckGeneration == checkID else { return }
                 if changedAccount { self.restoreSessionSnapshot() }
