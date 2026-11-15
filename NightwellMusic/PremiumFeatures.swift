@@ -74,9 +74,15 @@ struct PremiumPreferences: Codable {
         struct Response: Decodable { let preferences: PremiumPreferences }
         do {
             let state: Status = try await store.api.request("api/premium/me")
+            let family: AccountAccessStatus? = try? await store.api.request("/api/account/access")
             guard store.account?.id == account else { return }
-            guard state.premium, let expiry = state.expires_at,
-                  expiry > Date().timeIntervalSince1970 else {
+            let effective = state.premium || family?.premium == true
+            // Expiry is authoritative when supplied. For valid family access without a
+            // reported date, refresh its server-confirmed entitlement in five minutes.
+            let expiry = state.premium ? state.expires_at :
+                         family?.expires_at ?? (family?.premium == true ?
+                             Date().timeIntervalSince1970 + 300 : nil)
+            guard effective, let expiry, expiry > Date().timeIntervalSince1970 else {
                 allowed = false
                 until = 0
                 entitlementVerified = true
