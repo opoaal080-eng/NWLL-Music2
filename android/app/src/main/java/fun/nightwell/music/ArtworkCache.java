@@ -133,6 +133,9 @@ final class ArtworkCache {
             c.setInstanceFollowRedirects(false);
             c.setConnectTimeout(5000);c.setReadTimeout(9000);
             c.setRequestProperty("Cookie",NativeAPI.cookie(context,origin));
+            String account=context.getSharedPreferences("native-api",Context.MODE_PRIVATE).getString("account","");
+            String token=AccountDeviceAccess.token(context,origin,account);
+            if(!token.isEmpty())c.setRequestProperty("X-NW-Device-Token",token);
             byte[] bytes;
             try {
                 if (c.getResponseCode()!=200 || c.getContentLengthLong()>5*1024*1024) return null;
