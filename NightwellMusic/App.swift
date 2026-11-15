@@ -371,6 +371,7 @@ struct NativeRoot: View {
     @State private var supportPresented = false
     @State private var premiumPresented = false
     @State private var accountAccessPresented = false
+    @State private var profileAccessPresented = false
     @State private var profilePremiumPresented = false
     @State private var libraryMenuStartsAdditional = false
     @State private var transferPresented = false
@@ -595,7 +596,7 @@ struct NativeRoot: View {
                             .environmentObject(store)
                         if store.account != nil {
                             Button {
-                                accountAccessPresented = true
+                                profileAccessPresented = true
                             } label: {
                                 HStack(spacing: 12) {
                                     Image(systemName: "person.2")
@@ -689,6 +690,9 @@ struct NativeRoot: View {
             .sheet(isPresented: $profilePremiumPresented, onDismiss: {
                 Task { await favoritePremium.refresh(store) }
             }) { PremiumView(api: store.api) }
+            .sheet(isPresented: $profileAccessPresented) {
+                AccountAccessView(api: store.api, accountID: store.account?.id)
+            }
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
             .presentationBackground(.clear)
