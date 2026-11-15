@@ -209,6 +209,15 @@ struct AccountAccessView: View {
                                             }
                                         }
                                     } else {
+                                        if state.access.billing_owner {
+                                            Button("Создать приглашение") { Task { await createInvite() } }
+                                                .disabled(loading)
+                                            if let url = invitationURL {
+                                                ShareLink(item: url) {
+                                                    Label("Отправить ссылку", systemImage: "square.and.arrow.up")
+                                                }
+                                            }
+                                        }
                                         Text("Приглашение можно принять по ссылке от владельца Premium.")
                                             .font(.footnote).foregroundStyle(.secondary)
                                     }
