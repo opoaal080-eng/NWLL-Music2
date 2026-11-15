@@ -679,7 +679,7 @@ public final class MainActivity extends Activity {
         else if(tab.equals("Обращения"))supportTickets(false);
         else if(tab.equals("Только фон")||tab.equals("Показать интерфейс"))toggleBackgroundOnly();
         else if(tab.equals("Войти"))auth();
-        else if(tab.equals("Выйти")){cancelMix();accountRequest.cancel();task(()->{api.request("api/logout","POST",null);new SessionStore(this).clear();clearLibrarySnapshot();getSharedPreferences("favorite-track-cache",MODE_PRIVATE).edit().remove(favoriteDetailsKey()).apply();return new JSONObject();},v->{libraryGeneration++;user="";searchCache.clear();playlists=new JSONArray();selectedPlaylist="";sessionReady=true;openPendingTogether();api.updateCSRF("");getSharedPreferences("native-api",MODE_PRIVATE).edit().putString("account","").apply();catalog=new JSONArray();shown=new JSONArray();likes.clear();likeOrder.clear();if(playback!=null)playback.stop();navigate("Главная");});}
+        else if(tab.equals("Выйти")){cancelMix();accountRequest.cancel();task(()->{api.request("api/logout","POST",null);new SessionStore(this).clear();clearLibrarySnapshot();getSharedPreferences("favorite-track-cache",MODE_PRIVATE).edit().remove(favoriteDetailsKey()).apply();return new JSONObject();},v->{libraryGeneration++;user="";searchCache.clear();playlists=new JSONArray();selectedPlaylist="";sessionReady=true;openPendingTogether();api.updateCSRF("");getSharedPreferences("native-api",MODE_PRIVATE).edit().putString("account","").apply();api.updateDeviceToken("");catalog=new JSONArray();shown=new JSONArray();likes.clear();likeOrder.clear();if(playback!=null)playback.stop();navigate("Главная");});}
         else navigate(tab);
     }
 
@@ -1273,6 +1273,16 @@ public final class MainActivity extends Activity {
         io.execute(()->{
             try {
                 JSONObject me=api.request("api/me");
+                api.updateCSRF(me.optString("csrf",""));
+                JSONObject verifiedUser=me.optJSONObject("user");
+                String verifiedAccount=verifiedUser==null?"":verifiedUser.optString("id","");
+                String deviceIssue=null;
+                try {
+                    AccountDeviceAccess.bind(api,verifiedAccount);
+                } catch(Exception error) {
+                    deviceIssue=friendly(error);
+                }
+                final String accessError=deviceIssue;
                 ui.post(()->{
                     if(isDestroyed()||!accountRequest.complete(ticket))return;
                     connectionRecoveryAttempts=0;
@@ -1294,7 +1304,9 @@ public final class MainActivity extends Activity {
                     if(playback!=null&&pendingDeepLinkTrack.isEmpty())playback.restorePlayback(origin,user);
                     if(!full&&!screen.equals("Поиск"))showScreen();
                     openPendingTrack();
-                    if(!user.isEmpty())loadLibrary(user);
+                    if(accessError!=null){
+                        status.setText("Устройство: "+accessError+" Открой «Устройства и семья» в меню.");
+                    }else if(!user.isEmpty())loadLibrary(user);
                 });
             }catch(Exception ex){
                 ui.post(()->{
