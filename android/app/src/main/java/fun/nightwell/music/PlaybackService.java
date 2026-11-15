@@ -243,10 +243,14 @@ public final class PlaybackService extends MediaSessionService {
             if(own){
                 String cookie=NativeAPI.cookie(this,origin);
                 if(cookie!=null)headers.put("Cookie",cookie);
+                String accountID=getSharedPreferences("native-api",MODE_PRIVATE).getString("account","");
+                String token=AccountDeviceAccess.token(this,origin,accountID);
+                if(!token.isEmpty())headers.put("X-NW-Device-Token",token);
             }else{
-                // Session cookies never accompany SoundCloud CDN segments.
+                // Session and device credentials never accompany CDN segments.
                 headers.remove("Cookie");
                 headers.remove("Authorization");
+                headers.remove("X-NW-Device-Token");
             }
             return data.buildUpon().setHttpRequestHeaders(headers).build();
         });
