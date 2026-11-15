@@ -36,7 +36,7 @@ class InstallerTests(unittest.TestCase):
         self.target.mkdir()
         self.source = self.root / "package"
         self.source.mkdir()
-        (self.target / "app.py").write_text(APP, encoding="utf-8")
+        (self.target / "app.py").write_bytes(APP.encode("utf-8"))
         self.adapter = self.root / "configured_adapter.py"
         self.adapter.write_text(ADAPTER, encoding="utf-8")
         for index, name in enumerate(installer.REQUIRED_MODULES):

@@ -1,5 +1,6 @@
 """Family limits, token lifecycle, owner isolation, and concurrent mutations."""
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 import hashlib
 from pathlib import Path
 import sqlite3
@@ -171,7 +172,7 @@ class FamilyServiceTests(unittest.TestCase):
     def test_premium_check_runs_under_write_lock(self):
         def checked(owner):
             self.assertEqual(owner, "owner")
-            with sqlite3.connect(self.path, timeout=0) as outsider:
+            with closing(sqlite3.connect(self.path, timeout=0)) as outsider:
                 with self.assertRaises(sqlite3.OperationalError):
                     outsider.execute("BEGIN IMMEDIATE")
             return True
