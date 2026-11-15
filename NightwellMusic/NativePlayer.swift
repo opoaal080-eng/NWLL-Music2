@@ -549,6 +549,18 @@ final class NativePlayer {
             let host = origin.host?.lowercased() ?? ""
             return (host == domain || host.hasSuffix("." + domain)) && (cookie.expiresDate ?? .distantFuture) > Date()
         }
+        // iOS AVPlayer cannot attach custom headers reliably. The Nightwell server
+        // supports the same device credential as a scoped in-memory HTTP cookie.
+        // Never save this cookie in the global cookie jar or send it to an outside host.
+        if self.offlineAccount != "device",
+           let credential = try? AccountDeviceVault.read(origin: origin, account: self.offlineAccount),
+           let tokenCookie = HTTPCookie(properties: [
+                .domain: origin.host ?? "", .path: "/", .name: "nw_device_token",
+                .value: credential.device_token, .secure: "TRUE"
+           ]) {
+            self.cookies.removeAll(where: { $0.name == "nw_device_token" })
+            self.cookies.append(tokenCookie)
+        }
         let nextWave = data["wave"] as? Bool ?? false
         if !waveActive || !nextWave || previousOrigin != origin { waveSeen = [] }
         waveTask?.cancel(); waveTask = nil; waveGeneration = UUID()
