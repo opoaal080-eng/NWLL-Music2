@@ -592,14 +592,14 @@ public final class MainActivity extends Activity {
         entries.addView(libraryLabel);
 
         String[] tabs={"Главная","Поиск","Избранное","Плейлисты","Офлайн",
-            "Слушать вместе","Моя статистика","Nightwell Premium",
+            "Слушать вместе","Моя статистика","Nightwell Premium","Устройства и семья",
             "Перенести музыку","Настройки","Настройка подборки",
             "Обращения",user.isEmpty()?"Войти":"Выйти"};
         String[] icons={"home","search","heart","list","download",
-            "list","stats","star","download","settings","sliders","mail","person"};
+            "list","stats","star","person","download","settings","sliders","mail","person"};
         for(int i=0;i<tabs.length;i++){
-            if(i==5||i==8||i==12){
-                TextView title=sectionLabel(i==5?"ВОЗМОЖНОСТИ":i==8?"ПРИЛОЖЕНИЕ":"АККАУНТ");
+            if(i==5||i==9||i==13){
+                TextView title=sectionLabel(i==5?"ВОЗМОЖНОСТИ":i==9?"ПРИЛОЖЕНИЕ":"АККАУНТ");
                 title.setPadding(dp(10),dp(18),0,dp(8));
                 entries.addView(title);
             }
@@ -671,6 +671,7 @@ public final class MainActivity extends Activity {
     }
     void selectMenu(String tab){
         if(tab.equals("Слушать вместе")){together.open();return;}
+        if(tab.equals("Устройства и семья")){accountAccess();return;}
         if(tab.equals("Перенести музыку")){nativeTransfer();return;}
          if(tab.equals("Моя статистика")){feature("stats");return;}
         if(tab.equals("Nightwell Premium")){premium();return;}
@@ -2628,6 +2629,171 @@ public final class MainActivity extends Activity {
         seek.setProgressBackgroundTintList(android.content.res.ColorStateList.valueOf(NightwellDesign.BORDER));
         seek.setPadding(dp(4),dp(6),dp(4),dp(6));
         seek.setMinimumHeight(dp(44));
+    }
+
+
+    void accountAccess(){
+        if(user.isEmpty()){auth();return;}
+        LinearLayout panel=column();
+        panel.setPadding(dp(18),dp(10),dp(18),dp(16));
+        android.widget.ScrollView scroll=new android.widget.ScrollView(this);
+        scroll.addView(panel);
+        TextView info=text("Загружаем устройства и семейный Premium…",13);
+        info.setTextColor(NightwellDesign.MUTED);
+        panel.addView(info);
+        TextView summary=text("",15);
+        panel.addView(summary);
+        LinearLayout devicesPanel=column();
+        panel.addView(devicesPanel);
+        LinearLayout familyPanel=column();
+        panel.addView(familyPanel);
+        TextView reload=sheetAction("Обновить",()->{});
+        panel.addView(reload);
+        AlertDialog dialog=new AlertDialog.Builder(this)
+            .setTitle("Устройства и семья").setView(scroll)
+            .setPositiveButton("Готово",(d,w)->{}).create();
+        styleSheet(dialog);
+        dialog.show();
+        final String viewer=user;
+        final Runnable[] refresh=new Runnable[1];
+        refresh[0]=()->{
+            if(!viewer.equals(user)||!dialog.isShowing())return;
+            info.setText("Обновляем данные…");
+            io.execute(()->{
+                try{
+                    JSONObject deviceData=api.request("api/devices");
+                    JSONObject familyData=api.request("api/family");
+                    ui.post(()->{
+                        if(!viewer.equals(user)||!dialog.isShowing())return;
+                        info.setText("Устройства привязаны к отдельному аккаунту. Чужие устройства можно удалить.");
+                        devicesPanel.removeAllViews();
+                        devicesPanel.addView(sectionLabel("УСТРОЙСТВА"));
+                        int limit=deviceData.optInt("limit",2),count=deviceData.optInt("count",0);
+                        summary.setText("Устройств: "+count+" / "+limit);
+                        JSONArray devices=deviceData.optJSONArray("devices");
+                        if(devices!=null)for(int i=0;i<devices.length();i++){
+                            JSONObject device=devices.optJSONObject(i);
+                            if(device==null)continue;
+                            String id=device.optString("id");
+                            String label=device.optString("name","Устройство");
+                            boolean current=device.optBoolean("current");
+                            boolean blocked=device.optBoolean("blocked");
+                            String state=blocked?" · заблокировано":current?" · это устройство":"";
+                            if(current){
+                                TextView line=text(label+state,14);
+                                line.setPadding(dp(6),dp(9),0,dp(9));
+                                devicesPanel.addView(line);
+                            }else{
+                                devicesPanel.addView(sheetAction(label+state+" · удалить",()->{
+                                    new AlertDialog.Builder(this)
+                                        .setTitle("Удалить устройство?")
+                                        .setMessage("На удалённом устройстве потребуется новый вход.")
+                                        .setNegativeButton("Отмена",null)
+                                        .setPositiveButton("Удалить",(d,w)->task(
+                                            ()->api.request("api/devices/"+id,"DELETE",null),
+                                            ok->refresh[0].run())).show();
+                                }));
+                            }
+                        }
+                        familyPanel.removeAllViews();
+                        familyPanel.addView(sectionLabel("СЕМЕЙНЫЙ PREMIUM"));
+                        JSONObject access=familyData.optJSONObject("access");
+                        String source=access==null?"free":access.optString("source","free");
+                        boolean billed=access!=null&&access.optBoolean("billing_owner");
+                        TextView accessLabel=text("Доступ: "+("family".equals(source)?"семейный Premium":
+                            "direct".equals(source)?"личный Premium":"Free"),15);
+                        accessLabel.setPadding(dp(4),dp(9),0,dp(9));
+                        familyPanel.addView(accessLabel);
+                        JSONObject group=familyData.optJSONObject("family");
+                        if(group!=null){
+                            boolean owner="owner".equals(group.optString("role"));
+                            JSONArray members=group.optJSONArray("members");
+                            familyPanel.addView(text("Участники: "+(members==null?0:members.length())+" / 3",14));
+                            if(members!=null)for(int i=0;i<members.length();i++){
+                                JSONObject member=members.optJSONObject(i);
+                                if(member==null)continue;
+                                String id=member.optString("account_id");
+                                boolean self=viewer.equals(id);
+                                String label=self?"Вы":id;
+                                if(owner&&!self){
+                                    familyPanel.addView(sheetAction(label+" · исключить",()->{
+                                        new AlertDialog.Builder(this).setTitle("Исключить участника?")
+                                            .setNegativeButton("Отмена",null)
+                                            .setPositiveButton("Исключить",(d,w)->task(
+                                                ()->api.request("api/family/members/"+id,"DELETE",null),
+                                                ok->refresh[0].run())).show();
+                                    }));
+                                }else familyPanel.addView(text(label,14));
+                            }
+                            if(owner){
+                                JSONArray pending=group.optJSONArray("pending_invites");
+                                if(pending!=null)for(int i=0;i<pending.length();i++){
+                                    JSONObject invite=pending.optJSONObject(i);
+                                    if(invite==null)continue;
+                                    String id=invite.optString("id");
+                                    familyPanel.addView(sheetAction("Отозвать приглашение",()->task(
+                                        ()->api.request("api/family/invitations/"+id,"DELETE",null),
+                                        ok->refresh[0].run())));
+                                }
+                                familyPanel.addView(sheetAction("Распустить семью",()->{
+                                    new AlertDialog.Builder(this).setTitle("Распустить семью?")
+                                        .setNegativeButton("Отмена",null)
+                                        .setPositiveButton("Распустить",(d,w)->task(
+                                            ()->api.request("api/family","DELETE",null),
+                                            ok->refresh[0].run())).show();
+                                }));
+                            }else{
+                                familyPanel.addView(sheetAction("Выйти из семьи",()->{
+                                    new AlertDialog.Builder(this).setTitle("Выйти из семьи?")
+                                        .setNegativeButton("Отмена",null)
+                                        .setPositiveButton("Выйти",(d,w)->task(
+                                            ()->api.request("api/family/leave","POST",new JSONObject()),
+                                            ok->refresh[0].run())).show();
+                                }));
+                            }
+                        }
+                        boolean owner=group!=null&&"owner".equals(group.optString("role"));
+                        if(billed&&(group==null||owner&&(group.optInt("available_invites",0)>0))){
+                            familyPanel.addView(sheetAction("Пригласить участника",()->{
+                                task(()->api.request("api/family/invitations","POST",new JSONObject()),result->{
+                                    String link=result.optString("invite_url","");
+                                    if(!link.startsWith("https://")){info.setText("Не удалось создать приглашение.");return;}
+                                    Intent share=new Intent(Intent.ACTION_SEND);
+                                    share.setType("text/plain");
+                                    share.putExtra(Intent.EXTRA_TEXT,link);
+                                    startActivity(Intent.createChooser(share,"Приглашение Nightwell"));
+                                    refresh[0].run();
+                                });
+                            }));
+                        }
+                        if(group==null){
+                            TextView hint=text("Вставь ссылку владельца, чтобы присоединиться.",13);
+                            hint.setTextColor(NightwellDesign.MUTED);
+                            familyPanel.addView(hint);
+                        }
+                        EditText inviteInput=new EditText(this);
+                        inviteInput.setHint("Ссылка или код приглашения");
+                        styleField(inviteInput);
+                        familyPanel.addView(inviteInput);
+                        familyPanel.addView(sheetAction("Принять приглашение",()->{
+                            String raw=inviteInput.getText().toString().trim();
+                            int offset=raw.indexOf("#invite=");
+                            String token=offset>=0?raw.substring(offset+8):raw;
+                            if(!token.matches("[A-Za-z0-9_-]{43}")){
+                                info.setText("Неверная ссылка приглашения.");return;
+                            }
+                            task(()->api.request("api/family/invitations/accept","POST",
+                                new JSONObject().put("token",token)),ok->{inviteInput.setText("");refresh[0].run();});
+                        }));
+                    });
+                }catch(Exception ex){
+                    ui.post(()->{if(dialog.isShowing()&&viewer.equals(user))
+                        info.setText("Не удалось открыть модуль: "+friendly(ex));});
+                }
+            });
+        };
+        reload.setOnClickListener(v->refresh[0].run());
+        refresh[0].run();
     }
 
     void settings(){
