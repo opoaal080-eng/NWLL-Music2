@@ -126,7 +126,8 @@ public partial class MainWindow {
     var panel=new StackPanel{Margin=new Thickness(22)};var picture=new Image{Height=240,Stretch=Stretch.Uniform};panel.Children.Add(picture);panel.Children.Add(Label(credit));var window=Sheet("Исполнитель",panel,360);
     EventHandler closed=(_,_)=>pending.Cancel();window.Closed+=closed;
     try{
-     var bytes=await MediaRequestPolicy.ReadArtworkAsync(artworkHTTP,uri,pending.Token);
+     var own=uri.Scheme=="https"&&uri.Authority==api.Origin.Authority;
+      var bytes=await MediaRequestPolicy.ReadArtworkAsync(own?api.HTTP:artworkHTTP,uri,pending.Token,deviceToken:own?api.DeviceToken:null);
      var bitmap=await Task.Run(()=>{using var stream=new MemoryStream(bytes);var b=new BitmapImage();b.BeginInit();b.CacheOption=BitmapCacheOption.OnLoad;b.DecodePixelWidth=480;b.StreamSource=stream;b.EndInit();b.Freeze();return b;},pending.Token);
      if(window.IsVisible&&!pending.IsCancellationRequested)picture.Source=bitmap;
     }catch(OperationCanceledException){}catch(IOException){}catch(System.NotSupportedException){}
