@@ -1652,7 +1652,7 @@ public final class MainActivity extends Activity {
                 image.setClipToOutline(true);
                 chip.removeView(initial);
                 chip.addView(image,new LinearLayout.LayoutParams(dp(29),dp(29)));
-                artworkCache.loadArtist(image,url);
+                artworkCache.loadArtist(image,origin,url);
             }
             TextView label=text(name,13);label.setSingleLine(true);label.setMaxWidth(dp(145));
             label.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -1749,7 +1749,7 @@ public final class MainActivity extends Activity {
                 JSONObject artist=finalProfile==null?null:finalProfile.optJSONObject("artist");
                 if(artist!=null) {
                     String url=artist.optString("image_url");
-                    if(artworkCache!=null)artworkCache.loadArtist(photo,url);
+                    if(artworkCache!=null)artworkCache.loadArtist(photo,origin,url);
                 }
                 int total=finalProfile==null?finalTracks.length():finalProfile.optInt("total",finalTracks.length());
                 info.setText(total==0?(failureMessage==null?"Треки пока не найдены":failureMessage):"Треки · "+total);
