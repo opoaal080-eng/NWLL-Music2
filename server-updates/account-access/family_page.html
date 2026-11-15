@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer"><title>Семья · Nightwell Music</title>
+<style nonce="__NW_CSP_NONCE__">
+:root{color-scheme:dark;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#080808;color:#f5f5f5}*{box-sizing:border-box}body{margin:0}main{max-width:760px;margin:auto;padding:32px 18px 64px}header{display:flex;justify-content:space-between;align-items:center;gap:16px;border-bottom:1px solid #292929;padding-bottom:20px;margin-bottom:28px}a{color:#eee;text-underline-offset:4px}h1{font-size:clamp(28px,6vw,40px);letter-spacing:-1px;margin:8px 0}h2{font-size:20px;margin:0 0 14px}.eyebrow{font-size:12px;color:#aaa;letter-spacing:1.5px;text-transform:uppercase}.card{border:1px solid #303030;border-radius:20px;background:linear-gradient(150deg,#1b1b1b,#101010);padding:22px;margin:16px 0}.muted{color:#aaa;font-size:14px;line-height:1.6}p{line-height:1.6}button{font:inherit;font-size:14px;padding:11px 16px;border:1px solid #505050;border-radius:12px;color:#fff;background:#292929;cursor:pointer;min-height:44px}button:hover{background:#3a3a3a}button:disabled{opacity:.5;cursor:wait}.primary{color:#111;background:#f3f3f3;border-color:#f3f3f3}.primary:hover{background:#ddd}.danger{color:#ffc0c0}.row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:13px 0;border-bottom:1px solid #292929}.row:last-child{border:0}.actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px}.badge{display:inline-block;padding:5px 10px;border:1px solid #414141;border-radius:99px;font-size:12px;color:#ddd}.notice{border:1px solid #555;background:#1a1a1a;border-radius:13px;padding:13px 16px;margin:18px 0;white-space:pre-wrap;line-height:1.5}.error{border-color:#885555;color:#ffd4d4}input{font:inherit;font-size:13px;background:#080808;color:white;border:1px solid #555;border-radius:10px;padding:13px;width:100%;margin:10px 0;min-height:44px}small{display:block;color:#aaa;margin-top:4px;overflow-wrap:anywhere}strong{overflow-wrap:anywhere}[hidden]{display:none!important}footer{font-size:12px;color:#888;margin-top:30px;line-height:1.6}button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid #fff;outline-offset:3px}@media(max-width:450px){.card{padding:18px}.row{align-items:flex-start;flex-wrap:wrap}header{align-items:flex-start}}
+</style>
+</head>
+<body><main>
+<header><div><div class="eyebrow">Nightwell Music</div><strong>Семейный Premium</strong></div><a href="/">К музыке</a></header>
+<h1>Одна подписка.<br>До трёх аккаунтов.</h1>
+<p class="muted">Владелец и два приглашённых участника. Цена обычного Premium сохраняется. У каждого — своя библиотека и до 5 устройств при действующей подписке владельца.</p>
+<div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+<section id="invite" class="card" hidden><span class="badge">Приглашение</span><h2>Присоединиться к подписке</h2><p id="inviteInfo" class="muted"></p><button id="accept" class="primary" hidden>Принять приглашение</button></section>
+<section id="login" class="card" hidden><h2>Войдите в свой аккаунт</h2><p class="muted">Откройте главную страницу, войдите или зарегистрируйтесь, затем снова откройте полученную ссылку. Приглашение принимает именно ваш отдельный аккаунт.</p><a href="/">Открыть Nightwell Music</a></section>
+<section id="account" class="card" hidden><h2>Ваш доступ</h2><p id="accessText"></p><p class="muted">Без подписки — 2 устройства. С личным или семейным Premium — 5 на каждый аккаунт. Личные плейлисты и данные не передаются владельцу семьи.</p><div class="actions"><button id="registerDevice">Подтвердить этот браузер</button><button id="refresh">Обновить</button></div></section>
+<section id="family" class="card" hidden><h2>Участники семьи</h2><p id="familyInfo" class="muted"></p><div id="members"></div><div id="pending"></div><div class="actions"><button id="createInvite" class="primary" hidden>Создать приглашение</button><button id="leave" class="danger" hidden>Выйти из семьи</button><button id="dissolve" class="danger" hidden>Распустить семью</button></div></section>
+<section id="newLink" class="card" hidden><h2>Ссылка готова</h2><p class="muted">Отправьте её одному человеку. Ссылка одноразовая и действует 7 дней. Место зарезервировано до её использования, истечения или отзыва.</p><input id="inviteURL" readonly aria-label="Ссылка приглашения"><button id="copy">Копировать ссылку</button><small>Ссылка показывается только сейчас. Если потеряете её, отзовите приглашение и создайте новое.</small></section>
+<section id="devices" class="card" hidden><h2>Устройства</h2><p id="deviceInfo" class="muted"></p><div id="deviceList"></div><p class="muted">При окончании Premium дополнительные устройства сохраняются в списке, но блокируются. Удаление устройства отзывает его привязанные сессии: потребуется новый вход.</p></section>
+<footer>Когда оплаченный Premium владельца истекает, семейный доступ приостанавливается до продления. Личная действующая подписка участника продолжает работать. Ранее полученные разрешённые офлайн-файлы этот модуль не удаляет.</footer>
+</main>
+<script nonce="__NW_CSP_NONCE__">
+'use strict';
+(() => {
+ const byID = id => document.getElementById(id);
+ const fragment = new URLSearchParams(location.hash.slice(1));
+ const inviteToken = fragment.get('invite');
+ if (inviteToken) history.replaceState(null, '', location.pathname);
+ let csrf = '', authenticated = false, previewAvailable = false, familyState = null;
+ function show(id, value = true) { byID(id).hidden = !value; }
+ function message(text, error = false) { const box=byID('notice');box.textContent=text;box.classList.toggle('error',error);box.hidden=false; }
+ function date(value) { return new Date(value*1000).toLocaleString('ru-RU'); }
+ async function api(path, method='GET', body) {
+  const headers = {Accept:'application/json'};
+  if (method !== 'GET') headers['X-CSRF-Token'] = csrf;
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  const response = await fetch(path,{method,credentials:'same-origin',cache:'no-store',headers,body:body===undefined?undefined:JSON.stringify(body)});
+  const data = await response.json().catch(()=>({}));
+  if (!response.ok) { const err = new Error(data.error || data.detail || ('HTTP '+response.status));err.status=response.status;throw err; }
+  return data;
+ }
+ function button(text, action, danger=false) { const node=document.createElement('button');node.textContent=text;if(danger)node.classList.add('danger');node.addEventListener('click',()=>run(action));return node; }
+ function row(title, detail, action) { const node=document.createElement('div');node.className='row';const left=document.createElement('div');const strong=document.createElement('strong');strong.textContent=title;left.append(strong);if(detail){const small=document.createElement('small');small.textContent=detail;left.append(small);}node.append(left);if(action)node.append(action);return node; }
+ async function run(action) { const controls=[...document.querySelectorAll('button')];controls.forEach(b=>b.disabled=true);try{await action();}catch(error){message(error.message,true);}finally{controls.forEach(b=>b.disabled=false);} }
+ async function preview() {
+  if(!inviteToken)return;
+  show('invite');
+  try { const p=await api('/api/family/invitations/preview','POST',{token:inviteToken});previewAvailable=p.available;
+   byID('inviteInfo').textContent=p.available?'Ссылка действует до '+date(p.expires_at)+'. После подтверждения вы получите семейный Premium.':'Ссылка уже использована, отозвана, истекла или подписка владельца приостановлена.';
+  } catch(error){previewAvailable=false;byID('inviteInfo').textContent=error.message;}
+  show('accept',authenticated&&previewAvailable);
+ }
+ async function refresh() {
+  try { const me=await api('/api/me');csrf=typeof me.csrf==='string'?me.csrf:'';
+   familyState=await api('/api/family');authenticated=true;show('login',false);show('account');show('family');show('devices');
+   const access=familyState.access;
+   byID('accessText').textContent=(access.premium?(access.source==='family'?'Семейный Premium':'Личный Premium'):'Бесплатный доступ')+' · Лимит устройств: '+access.device_limit;
+   const f=familyState.family;const members=byID('members');members.replaceChildren();const pending=byID('pending');pending.replaceChildren();
+   byID('familyInfo').textContent=f?f.member_count+' из 3 участников · '+(f.active?'подписка владельца активна':'семейный доступ приостановлен'):'Семья пока не создана. Владелец личного Premium может пригласить двух человек.';
+   if(f){for(const m of f.members){const action=f.role==='owner'&&m.role!=='owner'?button('Удалить',async()=>{if(confirm('Удалить участника из семьи?')){await api('/api/family/members/'+encodeURIComponent(m.account_id),'DELETE');await refresh();}},true):null;members.append(row(m.account_id,m.role==='owner'?'Владелец':'Участник',action));}
+    for(const p of (f.pending_invites||[])){pending.append(row('Ожидает принятия','До '+date(p.expires_at),button('Отозвать',async()=>{await api('/api/family/invitations/'+encodeURIComponent(p.id),'DELETE');await refresh();})));}}
+   const ownerCanInvite=access.source==='direct'&&(!f||f.role==='owner')&&(!f||f.available_invites>0);
+   show('createInvite',ownerCanInvite);show('leave',!!f&&f.role==='member');show('dissolve',!!f&&f.role==='owner');
+   const d=await api('/api/devices');byID('deviceInfo').textContent=d.count+' привязано · лимит '+d.limit;
+   byID('deviceList').replaceChildren();for(const dev of d.devices){byID('deviceList').append(row(dev.name,(dev.current?'Это устройство · ':'')+dev.platform+(dev.blocked?' · Заблокировано лимитом':''),button('Отвязать',async()=>{if(confirm('Отвязать устройство и отозвать его сессии?')){await api('/api/devices/'+encodeURIComponent(dev.id),'DELETE');await refresh();}},true)));}
+  }catch(error){if(error.status===401){authenticated=false;show('login');show('newLink',false);byID('inviteURL').value='';for(const id of ['account','family','devices'])show(id,false);}else{message(error.message,true);}}
+  show('accept',authenticated&&previewAvailable);
+ }
+ byID('refresh').addEventListener('click',()=>run(refresh));
+ byID('createInvite').addEventListener('click',()=>run(async()=>{const result=await api('/api/family/invitations','POST',{});byID('inviteURL').value=result.invite_url;show('newLink');await refresh();}));
+ byID('copy').addEventListener('click',()=>run(async()=>{try{await navigator.clipboard.writeText(byID('inviteURL').value);message('Ссылка скопирована.');}catch{byID('inviteURL').focus();byID('inviteURL').select();message('Выделите и скопируйте ссылку.');}}));
+ byID('accept').addEventListener('click',()=>run(async()=>{await api('/api/family/invitations/accept','POST',{token:inviteToken});previewAvailable=false;show('accept',false);message('Вы присоединились к семейной подписке.');await refresh();}));
+ byID('leave').addEventListener('click',()=>run(async()=>{if(confirm('Выйти из семейной подписки?')){await api('/api/family/leave','POST',{});await refresh();}}));
+ byID('dissolve').addEventListener('click',()=>run(async()=>{if(confirm('Распустить семью и отключить общий доступ участников?')){await api('/api/family','DELETE');await refresh();}}));
+ byID('registerDevice').addEventListener('click',()=>run(async()=>{await api('/api/devices/register','POST',{platform:'web',name:'Браузер Nightwell'});message('Браузер подтверждён.');await refresh();}));
+ (async()=>{await preview();await refresh();})();
+})();
+</script></body></html>
