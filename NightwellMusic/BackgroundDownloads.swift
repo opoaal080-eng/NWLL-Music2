@@ -94,6 +94,9 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
         var request = URLRequest(url: job.origin.appendingPathComponent("api/offline-export/" + job.track.id))
         request.url = URL(string: "api/offline-export/" + job.track.id + "?download=true&wait=true", relativeTo: job.origin)
         request.timeoutInterval = 70
+        if let credential = try? AccountDeviceVault.read(origin: job.origin, account: job.account) {
+            request.setValue(credential.device_token, forHTTPHeaderField: "X-NW-Device-Token")
+        }
         if let cookies = HTTPCookieStorage.shared.cookies(for: job.origin), !cookies.isEmpty {
             for (key, value) in HTTPCookie.requestHeaderFields(with: cookies) { request.setValue(value, forHTTPHeaderField: key) }
         }
