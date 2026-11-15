@@ -19,6 +19,7 @@ import javax.crypto.spec.GCMParameterSpec;
 final class AccountDeviceAccess {
     private static final String ALIAS = "nightwell.account-device.v1";
     private static final String PREFS = "nw-device-credentials";
+    private static final java.util.concurrent.ConcurrentHashMap<String,String> TOKENS = new java.util.concurrent.ConcurrentHashMap<>();
     private AccountDeviceAccess() {}
 
     private static SecretKey key() throws Exception {
@@ -70,9 +71,14 @@ final class AccountDeviceAccess {
 
     static String token(Context context, String origin, String account) {
         if (account == null || account.isEmpty()) return "";
+        String scope = origin + "|" + account;
+        String cached = TOKENS.get(scope);
+        if (cached != null) return cached;
         try {
             JSONObject credential = read(context, origin, account);
-            return credential == null ? "" : credential.optString("device_token", "");
+            String value = credential == null ? "" : credential.optString("device_token", "");
+            TOKENS.putIfAbsent(scope, value);
+            return value;
         } catch (Exception ignored) {
             // Do not fall back to plaintext or invent a replacement credential.
             return "";
@@ -82,6 +88,7 @@ final class AccountDeviceAccess {
     static void bind(NativeAPI api, String account) throws Exception {
         api.updateDeviceToken("");
         if (account == null || account.isEmpty()) return;
+        TOKENS.remove(api.origin + "|" + account);
         JSONObject saved = read(api.context, api.origin, account);
         JSONObject request = new JSONObject();
         request.put("platform", "android");
@@ -102,9 +109,11 @@ final class AccountDeviceAccess {
             credential.put("device_token", response.getString("device_token"));
             save(api.context, api.origin, account, credential);
             api.updateDeviceToken(credential.getString("device_token"));
+            TOKENS.put(api.origin + "|" + account, credential.getString("device_token"));
         } catch (NetworkRetry.HttpFailure error) {
             if (error.status == 404) { // Old server without Account Access.
                 api.updateDeviceToken("");
+                TOKENS.put(api.origin + "|" + account, "");
                 return;
             }
             throw error;
