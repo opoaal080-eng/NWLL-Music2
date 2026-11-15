@@ -207,7 +207,9 @@ actor MusicAPI: LyricsService {
     }
     func downloadSupportAttachment(ticketID: String, attachmentID: String) async throws -> URL {
         guard let url = URL(string: "api/support/tickets/" + ticketID + "/attachments/" + attachmentID, relativeTo: origin) else { throw URLError(.badURL) }
-        let (data, response) = try await session.data(from: url)
+        var request = URLRequest(url: url)
+        if !deviceToken.isEmpty { request.setValue(deviceToken, forHTTPHeaderField: "X-NW-Device-Token") }
+        let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw APIError(message: "Не удалось открыть вложение")
         }
@@ -227,6 +229,7 @@ actor MusicAPI: LyricsService {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue(csrf, forHTTPHeaderField: "X-CSRF-Token")
+        if !deviceToken.isEmpty { request.setValue(deviceToken, forHTTPHeaderField: "X-NW-Device-Token") }
         request.setValue("multipart/form-data; boundary=" + boundary, forHTTPHeaderField: "Content-Type")
         request.httpBody = body
         let (responseData, response) = try await session.data(for: request)
@@ -239,6 +242,7 @@ actor MusicAPI: LyricsService {
     func export(_ id: String) async throws -> Data {
         let url = URL(string: "api/offline-export/" + id + "?download=true&wait=true", relativeTo: origin)!
         var request = URLRequest(url: url); request.timeoutInterval = 300
+        if !deviceToken.isEmpty { request.setValue(deviceToken, forHTTPHeaderField: "X-NW-Device-Token") }
         let (file, response) = try await session.download(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { throw APIError(message: "Трек пока нельзя скачать") }
         let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
