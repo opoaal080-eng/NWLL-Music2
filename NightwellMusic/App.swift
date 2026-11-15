@@ -181,7 +181,7 @@ struct NightwellPopup<Content: View>: View {
 
 private enum StableNavigationAction {
     case screen(MusicStore.Screen)
-    case backgroundOnly, statistics, premium, transfer, settings, waveSettings, support, authentication, together
+    case backgroundOnly, statistics, premium, accountAccess, transfer, settings, waveSettings, support, authentication, together
 }
 
 /// An independently presented, stable scroll view. Playback updates cannot
@@ -242,6 +242,7 @@ private struct StableNavigationSheet: View {
                     entry("Только фон", icon: "sparkles", action: .backgroundOnly)
                     entry("Моя статистика", icon: "chart.bar", action: .statistics)
                     entry("Nightwell Premium", icon: "star", action: .premium)
+                    entry("Устройства и семья", icon: "person.2", action: .accountAccess)
                     entry("Перенести музыку", icon: "square.and.arrow.down", action: .transfer)
                     entry("Настройки", icon: "gearshape", action: .settings)
                     entry("Настройка подборки", icon: "slider.horizontal.3", action: .waveSettings)
@@ -271,6 +272,7 @@ struct NativeRoot: View {
     @StateObject private var together = NativeTogether()
     @State private var togetherPresented = false
     @State private var premiumPresented = false
+    @State private var accessPresented = false
     @State private var transferPresented = false
     @State private var favoriteSort = "recent"
     @State private var collectionTitleCollapsed = false
@@ -403,6 +405,7 @@ struct NativeRoot: View {
             PremiumFeatureView(kind: kind).environmentObject(store)
         }
         .sheet(isPresented: $premiumPresented) { PremiumView(api: store.api) }
+        .sheet(isPresented: $accessPresented) { AccountAccessView(api: store.api, accountID: store.account?.id) }
         .sheet(isPresented: $togetherPresented) { NativeTogetherView(together: together).environmentObject(store) }
         .overlay { if launching { MonochromeNightwellLaunch().transition(.opacity) } }
         .task { try? await Task.sleep(nanoseconds: reducedMotion ? 150_000_000 : 1_200_000_000); withAnimation(.easeOut(duration: 0.3)) { launching = false } }
@@ -457,6 +460,7 @@ struct NativeRoot: View {
         case .backgroundOnly: backgroundOnly = true
         case .statistics: feature = .statistics
         case .premium: premiumPresented = true
+        case .accountAccess: accessPresented = true
         case .transfer: transferPresented = true
         case .settings: settings = true
         case .waveSettings: waveSettingsPresented = true
