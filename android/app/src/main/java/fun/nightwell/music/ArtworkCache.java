@@ -190,7 +190,7 @@ final class ArtworkCache {
         for(int i=0;i<files.length-100;i++)files[i].delete();
     }
     /** Load a server-approved HTTPS artist portrait, never track cover art. */
-    void loadArtist(ImageView target, String imageUrl) {
+    void loadArtist(ImageView target, String origin, String imageUrl) {
         target.setImageDrawable(null);
         if (imageUrl == null || imageUrl.length() > 2048 || !imageUrl.startsWith("https://")) {
             target.setTag(null);
@@ -204,7 +204,7 @@ final class ArtworkCache {
             return;
         }
         CompletableFuture<Bitmap> job = inFlight.computeIfAbsent(identity,
-            key -> CompletableFuture.supplyAsync(() -> fetchArtistImage(imageUrl), io));
+            key -> CompletableFuture.supplyAsync(() -> fetchArtistImage(origin,imageUrl), io));
         job.whenComplete((bitmap, error) -> {
             inFlight.remove(identity, job);
             if (bitmap == null || error != null) return;
@@ -214,7 +214,7 @@ final class ArtworkCache {
             });
         });
     }
-    private Bitmap fetchArtistImage(String address) {
+    private Bitmap fetchArtistImage(String origin, String address) {
         HttpURLConnection connection = null;
         try {
             URL url = new URL(address);
@@ -223,6 +223,12 @@ final class ArtworkCache {
             connection.setInstanceFollowRedirects(false);
             connection.setConnectTimeout(6000);
             connection.setReadTimeout(8000);
+            if(ServerAddress.sameOrigin(origin,address)){
+                connection.setRequestProperty("Cookie",NativeAPI.cookie(context,origin));
+                String account=context.getSharedPreferences("native-api",Context.MODE_PRIVATE).getString("account","");
+                String token=AccountDeviceAccess.token(context,origin,account);
+                if(!token.isEmpty())connection.setRequestProperty("X-NW-Device-Token",token);
+            }
             if (connection.getResponseCode() != 200 ||
                     connection.getContentLengthLong() > 5 * 1024 * 1024) return null;
             String type = connection.getContentType();
