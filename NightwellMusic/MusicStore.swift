@@ -1900,8 +1900,12 @@ struct NightwellAccountDevicesResponse: Decodable {
         let owner = account.id
         do {
             let state: DownloadAccess = try await api.request("api/premium/me")
+            let family: AccountAccessStatus? = try? await api.request("/api/account/access")
             guard self.account?.id == owner else { return }
-            guard state.premium else { error = "Скачивание доступно с Premium — 150 ₽ за 30 дней."; return }
+            guard state.premium || family?.premium == true else {
+                error = "Скачивание доступно с личным или семейным Premium."
+                return
+            }
         } catch { self.error = error.localizedDescription; return }
         BackgroundDownloads.shared.enqueue(list, origin: origin, account: account.id)
     }
