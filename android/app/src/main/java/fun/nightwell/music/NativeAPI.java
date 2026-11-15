@@ -9,6 +9,8 @@ final class NativeAPI {
     final Context context;
     final String origin;
     volatile String csrf="";
+    private volatile String deviceToken="";
+    void updateDeviceToken(String token) { deviceToken = token == null ? "" : token; }
     private HttpURLConnection activeSearch;
     private long searchGeneration;
     // Disconnect may block on an underlying socket. Never do that on Android's UI thread.
@@ -220,6 +222,7 @@ final class NativeAPI {
         if(closed)throw new InterruptedIOException("Запрос отменён");
         URL url=new URL(new URL(origin),path);if(!ServerAddress.sameOrigin(origin,url.toString()))throw new IOException("Некорректный адрес");
         HttpURLConnection c=(HttpURLConnection)url.openConnection();c.setInstanceFollowRedirects(false);c.setConnectTimeout(10000);c.setReadTimeout(15000);c.setRequestProperty("Cookie",cookie(context,origin));
+        if(!deviceToken.isEmpty())c.setRequestProperty("X-NW-Device-Token",deviceToken);
         synchronized(activeConnections){if(closed){c.disconnect();throw new InterruptedIOException("Запрос отменён");}activeConnections.add(c);}
         return c;
     }
