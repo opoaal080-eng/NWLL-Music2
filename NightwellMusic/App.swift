@@ -202,7 +202,7 @@ struct NightwellPopup<Content: View>: View {
 
 private enum StableNavigationAction {
     case screen(MusicStore.Screen)
-    case backgroundOnly, statistics, premium, transfer, settings, waveSettings, support, together, profile, authentication
+    case backgroundOnly, statistics, premium, accountAccess, transfer, settings, waveSettings, support, together, profile, authentication
 }
 
 /// An independently presented, stable scroll view. Playback updates cannot
@@ -291,6 +291,7 @@ private struct StableNavigationSheet: View {
                             entry("Nightwell Premium", icon: "star", action: .premium)
                         }
                         entry("Настройки", icon: "gearshape", action: .settings)
+                        if signedIn { entry("Устройства и семья", icon: "person.2", action: .accountAccess) }
                         Divider().overlay(.white.opacity(0.16)).padding(.vertical, 6)
                     }
                     if showsMainNavigation || opensAdditional {
@@ -369,6 +370,7 @@ struct NativeRoot: View {
     @State private var waveSettingsPresented = false
     @State private var supportPresented = false
     @State private var premiumPresented = false
+    @State private var accountAccessPresented = false
     @State private var profilePremiumPresented = false
     @State private var libraryMenuStartsAdditional = false
     @State private var transferPresented = false
@@ -591,6 +593,25 @@ struct NativeRoot: View {
                     VStack(spacing: 10) {
                         ProfileSettingsView()
                             .environmentObject(store)
+                        if store.account != nil {
+                            Button {
+                                accountAccessPresented = true
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "person.2")
+                                    Text("Устройства и семья")
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                }
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 15)
+                                .padding(.vertical, 13)
+                                .frame(maxWidth: .infinity)
+                                .nightwellMonochromeGlass(radius: 19)
+                            }
+                            .buttonStyle(.plain)
+                        }
                         if store.account != nil && favoritePremium.allowed {
                             Button {
                                 profilePremiumPresented = true
@@ -671,6 +692,9 @@ struct NativeRoot: View {
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
             .presentationBackground(.clear)
+        }
+        .sheet(isPresented: $accountAccessPresented) {
+            AccountAccessView(api: store.api, accountID: store.account?.id)
         }
         .sheet(isPresented: $premiumPresented, onDismiss: {
             Task { await favoritePremium.refresh(store) }
@@ -767,6 +791,7 @@ struct NativeRoot: View {
         case .backgroundOnly: backgroundOnly = true
         case .statistics: feature = .statistics
         case .premium: premiumPresented = true
+        case .accountAccess: accountAccessPresented = true
         case .transfer: transferPresented = true
         case .settings: settings = true
         case .profile: profilePresented = true
