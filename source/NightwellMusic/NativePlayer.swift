@@ -220,6 +220,17 @@ final class NativePlayer {
             let host = origin.host?.lowercased() ?? ""
             return (host == domain || host.hasSuffix("." + domain)) && (cookie.expiresDate ?? .distantFuture) > Date()
         }
+        // AVPlayer and metadata URLSession use the same in-memory cookies.
+        // Do not persist the device secret in HTTPCookieStorage: Keychain is its source.
+        if self.offlineAccount != "device",
+           let credential = try? AccountDeviceVault.read(origin: origin, account: self.offlineAccount),
+           let cookie = HTTPCookie(properties: [
+                .domain: origin.host ?? "", .path: "/", .name: "nw_device_token",
+                .value: credential.device_token, .secure: "TRUE"
+           ]) {
+            self.cookies.removeAll(where: { $0.name == "nw_device_token" })
+            self.cookies.append(cookie)
+        }
         let nextWave = data["wave"] as? Bool ?? false
         if !waveActive || !nextWave || previousOrigin != origin { waveSeen = [] }
         waveTask?.cancel(); waveTask = nil; waveGeneration = UUID()
