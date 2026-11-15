@@ -1,4 +1,16 @@
 import Foundation
+private actor DeadlineProbe {
+    private(set) var cancelled = false
+    func wait() async throws -> Int {
+        do {
+            try await Task.sleep(nanoseconds: 5_000_000_000)
+            return 1
+        } catch {
+            cancelled = true
+            throw error
+        }
+    }
+}
 @main struct RequestRetryTests {
     static func main() async throws {
         var calls = 0
@@ -42,6 +54,28 @@ import Foundation
             }
             preconditionFailure("Cancelled backoff must stop")
         } catch is CancellationError { precondition(calls == 1) }
-        print("Read retry, transient HTTP failures, bounded attempts, mutation safety and cancellation passed")
+        let immediate: Int = try await RequestRetry.withDeadline(seconds: 1) { 42 }
+        precondition(immediate == 42)
+        let probe = DeadlineProbe()
+        do {
+            let _: Int = try await RequestRetry.withDeadline(seconds: 0.03) { try await probe.wait() }
+            preconditionFailure("The total deadline must cancel a slow request")
+        } catch let error as URLError { precondition(error.code == .timedOut) }
+        let cancelled = await probe.cancelled
+        precondition(cancelled, "The losing request must be cancelled, not left downloading")
+        do {
+            let _: Int = try await RequestRetry.withDeadline(seconds: 0) { 42 }
+            preconditionFailure("An exhausted budget must not start another request")
+        } catch let error as URLError { precondition(error.code == .timedOut) }
+        let parent = Task<Int, Error> {
+            try await RequestRetry.withDeadline(seconds: 10) {
+                try await Task.sleep(nanoseconds: 5_000_000_000)
+                return 1
+            }
+        }
+        parent.cancel()
+        do { _ = try await parent.value; preconditionFailure("Parent cancellation must propagate") }
+        catch is CancellationError { }
+        print("Read retry, total deadlines, child cancellation, mutation safety and bounded attempts passed")
     }
 }

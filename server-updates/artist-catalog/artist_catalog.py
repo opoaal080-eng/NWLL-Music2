@@ -22,6 +22,9 @@ from artist_metadata import clean_track, has_performer
 MAX_TRACKS_PER_RESPONSE = 3000
 MAX_PROFILE_TRACKS = 500
 MAX_QUERY_CHARS = 120
+# In-process ASGI transports do not enforce httpx network timeouts.
+ARTIST_REFRESH_TIMEOUT_SECONDS = 3.0
+FAILED_REFRESH_TTL_SECONDS = 2.0
 
 
 def normalized(value):
@@ -74,7 +77,10 @@ class ArtistDirectory:
         self._image_updated = 0
         self._lookups = {}
         self._lookup_lock = asyncio.Lock()
+        self._refresh_slots = asyncio.Semaphore(4)
+        self._refresh_tasks = {}
         with self.connect() as db:
+            db.execute("PRAGMA journal_mode=WAL")
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS artist_directory_tracks (
                     owner TEXT NOT NULL, track_id TEXT NOT NULL, payload TEXT NOT NULL,
@@ -279,26 +285,70 @@ def install(app, identity, db_path, image_map=None, image_hosts=None):
             raise HTTPException(status_code=401, detail="Войди в Nightwell Music")
         return directory.owner_key(account)
 
-    async def ingest(request, owner, q):
-        if not directory.should_refresh(owner, q):
-            return
-        # Call the existing API through ASGI, forwarding only session headers,
-        # never fetching an arbitrary remote URL or touching private files.
-        import httpx
-        headers = {k: v for k, v in request.headers.items()
-                   if k.lower() in ("cookie", "x-csrf-token", "origin")}
-        try:
-            async with httpx.AsyncClient(
-                transport=httpx.ASGITransport(app=app), base_url=str(request.base_url),
-                headers=headers, timeout=10
-            ) as client:
-                response = await client.get("/api/tracks", params={"q": q} if q else None)
-            if response.status_code != 200:
-                return
-            tracks = response.json().get("tracks", [])
-            await asyncio.to_thread(directory.record, owner, tracks)
-        except (httpx.HTTPError, ValueError, TypeError):
-            return
+    async def ingest(request, owner, q, *, wait=True):
+        marker = (owner, normalized(q))
+        async with directory._lookup_lock:
+            task = directory._refresh_tasks.get(marker)
+            if task is None or task.done():
+                if not directory.should_refresh(owner, q):
+                    return None
+                # Forward credentials only to this SAME application. In strict
+                # account-access mode a native request also needs its device key.
+                headers = {key: value for key, value in request.headers.items()
+                           if key.lower() in ("cookie", "authorization", "x-csrf-token", "origin",
+                                              "x-nw-device-token", "x-nw-device-id", "x-nw-device-platform")}
+
+                async def refresh():
+                    import httpx
+
+                    async def work():
+                        async with directory._refresh_slots:
+                            async with httpx.AsyncClient(
+                                transport=httpx.ASGITransport(app=app),
+                                base_url=str(request.base_url), headers=headers, timeout=10
+                            ) as client:
+                                response = await client.get("/api/tracks", params={"q": q} if q else None)
+                            if response.status_code != 200:
+                                return False
+                            payload = response.json()
+                            if not isinstance(payload, dict) or not isinstance(payload.get("tracks"), list):
+                                return False
+                            await asyncio.to_thread(directory.record, owner, payload["tracks"])
+                            return True
+                    try:
+                        successful = await asyncio.wait_for(work(), ARTIST_REFRESH_TIMEOUT_SECONDS)
+                    except (asyncio.TimeoutError, httpx.HTTPError, ValueError, TypeError, OSError, sqlite3.Error):
+                        successful = False
+                    if not successful:
+                        # Do not hide a transient catalogue failure for a whole
+                        # minute; retry shortly without a tight failure loop.
+                        directory._lookups[marker] = time.monotonic() + FAILED_REFRESH_TTL_SECONDS
+                    return successful
+
+                task = asyncio.create_task(refresh())
+                directory._refresh_tasks[marker] = task
+
+                def finished(completed):
+                    if directory._refresh_tasks.get(marker) is completed:
+                        directory._refresh_tasks.pop(marker, None)
+                    if not completed.cancelled():
+                        completed.exception()
+                task.add_done_callback(finished)
+        if wait:
+            return await asyncio.shield(task)
+        return None
+
+    async def refresh_initial(request, owner):
+        if directory.should_refresh(owner, "__initial_catalog__", ttl=600):
+            await ingest(request, owner, "", wait=False)
+
+    async def stop_refreshes():
+        tasks = list(directory._refresh_tasks.values())
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+    app.router.add_event_handler("shutdown", stop_refreshes)
 
     @app.get("/api/artists")
     async def artists(request: Request, q: str = "", limit: int = 16):
@@ -306,11 +356,15 @@ def install(app, identity, db_path, image_map=None, image_hosts=None):
         q = q.strip()
         if not 2 <= len(q) <= MAX_QUERY_CHARS:
             return {"artists": []}
-        # First request also indexes the user's visible catalogue. Cached later.
-        if directory.should_refresh(owner, "__initial_catalog__", ttl=600):
-            await asyncio.gather(ingest(request, owner, ""), ingest(request, owner, q))
-        else:
-            await ingest(request, owner, q)
+        existing = await asyncio.to_thread(directory.search, owner, q, limit)
+        if existing:
+            # Local metadata and portraits must not wait for a slow provider.
+            # Revalidation is bounded and coalesced in the background.
+            await ingest(request, owner, q, wait=False)
+            await refresh_initial(request, owner)
+            return {"artists": existing}
+        await ingest(request, owner, q)
+        await refresh_initial(request, owner)
         return {"artists": await asyncio.to_thread(directory.search, owner, q, limit)}
 
     @app.get("/api/artists/profile")
@@ -319,9 +373,15 @@ def install(app, identity, db_path, image_map=None, image_hosts=None):
         name = name.strip()
         if not 1 <= len(name) <= MAX_QUERY_CHARS:
             raise HTTPException(status_code=400, detail="Укажи исполнителя")
-        await ingest(request, owner, name)
+        existing = await asyncio.to_thread(directory.profile, owner, name)
+        if existing:
+            await ingest(request, owner, name, wait=False)
+            return existing
+        refreshed = await ingest(request, owner, name)
         profile = await asyncio.to_thread(directory.profile, owner, name)
         if not profile:
+            if refreshed is False:
+                raise HTTPException(status_code=503, detail="Каталог временно недоступен. Повтори запрос.")
             raise HTTPException(status_code=404, detail="Исполнитель не найден")
         return profile
 

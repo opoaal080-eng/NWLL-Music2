@@ -1,0 +1,110 @@
+name: Verify media loading fixes
+on:
+  pull_request:
+    paths:
+      - 'NightwellMusic/**'
+      - 'source/NightwellMusic/**'
+      - 'android/**'
+      - 'windows/**'
+      - 'source/windows/**'
+      - 'server-updates/artist-catalog/**'
+      - 'server-updates/audio-quality/**'
+      - 'scripts/test-*'
+      - '.github/workflows/test-media-latency.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install fastapi httpx
+      - name: Artist cache and deadline regressions
+        run: python -m unittest discover -s server-updates/artist-catalog -p "test_*.py" -v
+      - name: Audio resolution and concurrency regressions
+        run: python -m unittest discover -s server-updates/audio-quality -p "test_*.py" -v
+  ios:
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse sources and verify mirror
+        run: |
+          swiftc -frontend -parse NightwellMusic/*.swift NativeTests/*.swift
+          swiftc -frontend -parse source/NightwellMusic/*.swift
+          cmp NightwellMusic/MusicStore.swift source/NightwellMusic/MusicStore.swift
+      - name: Retry safety and deadlines
+        run: |
+          swiftc NightwellMusic/RequestRetry.swift scripts/test-request-retry.swift -o /tmp/nightwell-retry-tests
+          /tmp/nightwell-retry-tests
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Select latest installed Xcode
+        run: |
+          python3 - <<'PY'
+          import glob, subprocess
+          versions = []
+          for app in glob.glob('/Applications/Xcode*.app'):
+              developer = app + '/Contents/Developer'
+              result = subprocess.run(['env', 'DEVELOPER_DIR=' + developer, 'xcodebuild', '-version'], capture_output=True, text=True)
+              if result.returncode == 0:
+                  version = tuple(int(x) for x in result.stdout.splitlines()[0].split()[1].split('.'))
+                  versions.append((version, developer))
+          subprocess.run(['sudo', 'xcode-select', '-s', max(versions)[1]], check=True)
+          PY
+      - name: Build native iPhone app
+        run: |
+          python3 scripts/make-neutral-app-icon.py --platform ios
+          sed -i '' "s/SOURCE_COMMIT/$GITHUB_SHA/" project.yml
+          xcodegen generate
+          xcodebuild -project NightwellMusic.xcodeproj -scheme NightwellMusic -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath media-build CODE_SIGNING_ALLOWED=NO build
+      - name: Package unsigned IPA
+        run: |
+          mkdir -p media-output/Payload
+          cp -R media-build/Build/Products/Release-iphoneos/NightwellMusic.app media-output/Payload/
+          cd media-output && zip -qr Nightwell-Music-media-fixes.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Nightwell-Music-media-fixes-iOS
+          path: media-output/Nightwell-Music-media-fixes.ipa
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Install Android SDK
+        run: |
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | head -n 1)"
+          "$SDKMANAGER" --install "platforms;android-36" "build-tools;36.0.0"
+      - name: Test and build Android
+        working-directory: android
+        run: |
+          gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Nightwell-Music-media-fixes-Android
+          path: android/app/build/outputs/apk/debug/*.apk
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Test network budgets
+        run: dotnet run --project windows/tests/MediaNetworkTests.csproj -c Release
+      - name: Build native Windows app
+        run: dotnet publish windows/Nightwell.Native.csproj -c Release -r win-x64 --self-contained false -o media-windows
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Nightwell-Music-media-fixes-Windows
+          path: media-windows/**

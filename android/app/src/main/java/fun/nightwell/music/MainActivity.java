@@ -17,6 +17,8 @@ import java.util.concurrent.*;
 public final class MainActivity extends Activity {
     private final Handler ui=new Handler(Looper.getMainLooper());
     private final ExecutorService io=Executors.newFixedThreadPool(3);
+    private final ExecutorService browseIO=Executors.newFixedThreadPool(3);
+    private long searchStartedAt;
     private final ExecutorService prefetch=Executors.newSingleThreadExecutor();
     private final ExecutorService favoriteIO=Executors.newSingleThreadExecutor();
     private TextView liveHandoff;
@@ -380,7 +382,7 @@ public final class MainActivity extends Activity {
 
     @Override protected void onResume(){super.onResume();restoreRecent();visible=true;openPendingTogether();ui.removeCallbacks(nightwellProbe);ui.post(nightwellProbe);if(!smokeMode&&sessionReady&&SystemClock.elapsedRealtime()-lastResumeRefresh>30000)load();if(premiumRefresh!=null)premiumRefresh.run();BackgroundDownloads.reconcile(this);updateArtworkAppearance();ui.removeCallbacks(tick);if(!smokeMode)ui.post(tick);}
     @Override protected void onPause(){super.onPause();ui.removeCallbacks(nightwellProbe);ui.removeCallbacks(connectionRecovery);if(navigationPopup!=null)navigationPopup.dismiss();if(playback!=null)playback.persistPlayback(true);visible=false;if(ribbon!=null)ribbon.running(false);ui.removeCallbacks(tick);}
-    @Override protected void onDestroy(){if(together!=null)together.shutdown();ui.removeCallbacks(nightwellProbe);generation++;cancelMix();accountRequest.cancel();if(api!=null)api.close();ui.removeCallbacksAndMessages(null);if(artworkCache!=null)artworkCache.close();favoriteRecoveryGeneration++;favoriteIO.shutdownNow();io.shutdownNow();prefetch.shutdownNow();if(playback!=null)playback.player.removeListener(playbackIntentObserver);if(bindingRegistered){unbindService(connection);bindingRegistered=false;}super.onDestroy();}
+    @Override protected void onDestroy(){if(together!=null)together.shutdown();ui.removeCallbacks(nightwellProbe);generation++;cancelMix();accountRequest.cancel();if(api!=null)api.close();ui.removeCallbacksAndMessages(null);if(artworkCache!=null)artworkCache.close();favoriteRecoveryGeneration++;favoriteIO.shutdownNow();io.shutdownNow();browseIO.shutdownNow();prefetch.shutdownNow();if(playback!=null)playback.player.removeListener(playbackIntentObserver);if(bindingRegistered){unbindService(connection);bindingRegistered=false;}super.onDestroy();}
     int dp(float n){return (int)(n*getResources().getDisplayMetrics().density+.5f);}
     LinearLayout column(){LinearLayout v=new LinearLayout(this);v.setOrientation(LinearLayout.VERTICAL);return v;}
     LinearLayout row(){LinearLayout v=new LinearLayout(this);v.setGravity(Gravity.CENTER_VERTICAL);return v;}
@@ -1436,6 +1438,8 @@ public final class MainActivity extends Activity {
     void search(String value) { search(value,0); }
     void search(String value,int attempt) {
         final int gen=++generation;
+        if(attempt==0)searchStartedAt=SystemClock.elapsedRealtime();
+        final long startedAt=searchStartedAt;
         api.cancelSearch();
         if(pendingSearch!=null)ui.removeCallbacks(pendingSearch);
         final String text=value.trim();
@@ -1457,7 +1461,7 @@ public final class MainActivity extends Activity {
         }
         pendingSearch=()->{
             status.setText("Ищем полные версии…");
-            io.execute(()->{
+            browseIO.execute(()->{
                 if(gen!=generation)return;
                 if(attempt==0&&cached==null) {
                     java.util.List<JSONObject> local=new java.util.ArrayList<>();
@@ -1487,9 +1491,13 @@ public final class MainActivity extends Activity {
                     if(gen!=generation)return;
                     if(attempt==0&&!user.isEmpty()) {
                         // Do not block audio-track search while the artist directory responds.
-                        io.execute(()->{
+                        browseIO.execute(()->{
                             try {
-                                JSONObject artistData=api.request("api/artists?q="+java.net.URLEncoder.encode(text,"UTF-8")+"&limit=16");
+                                if(gen!=generation)return;
+                                JSONObject artistData;
+                                try(NativeAPI.ReadRequest scope=api.interactive(8000)) {
+                                    artistData=api.requestInteractive("api/artists?q="+java.net.URLEncoder.encode(text,"UTF-8")+"&limit=16",scope);
+                                }
                                 JSONArray serverArtists=artistData.optJSONArray("artists");
                                 if(serverArtists!=null&&serverArtists.length()>0) {
                                     final JSONArray verified = verifyDirectoryArtists(serverArtists);
@@ -1500,7 +1508,9 @@ public final class MainActivity extends Activity {
                         });
                     }
                     if(gen!=generation)return;
-                    JSONObject found=api.search("api/tracks?q="+java.net.URLEncoder.encode(text,"UTF-8"));
+                    long remaining=25000-(SystemClock.elapsedRealtime()-startedAt);
+                    if(remaining<=0)throw new java.net.SocketTimeoutException("Источник музыки отвечает слишком долго. Повтори поиск.");
+                    JSONObject found=api.search("api/tracks?q="+java.net.URLEncoder.encode(text,"UTF-8"),remaining);
                     if(gen!=generation)return;
                     // Sorting and artist suggestions can take hundreds of milliseconds.
                     // Complete both on the worker before touching the UI.
@@ -1515,9 +1525,12 @@ public final class MainActivity extends Activity {
                         }
                         if(!pending)searchCache.put(cacheKey,remote);
                         status.setText(found.optString("search_message",""));
-                        if(pending&&attempt<11)ui.postDelayed(()->{
-                            if(gen==generation)search(text,attempt+1);
-                        },Math.max(1500,Math.min(10000,found.optLong("search_retry_after",2)*1000)));
+                        long delay=Math.max(1500,Math.min(10000,found.optLong("search_retry_after",2)*1000));
+                        if(pending&&attempt<11&&SystemClock.elapsedRealtime()-startedAt+delay<25000) {
+                            ui.postDelayed(()->{if(gen==generation)search(text,attempt+1);},delay);
+                        } else if(pending) {
+                            status.setText("Источник ещё готовит результаты. Можно слушать найденное или повторить поиск.");
+                        }
                     });
                 }catch(Exception ex){
                     ui.post(()->{if(gen==generation)status.setText(friendly(ex));});
@@ -1683,13 +1696,16 @@ public final class MainActivity extends Activity {
             .setNegativeButton("Закрыть",(d,w)->{}).create();
         styleSheet(dialog);dialog.show();
         String owner=user;
-        io.execute(()->{
+        NativeAPI.ReadRequest artistRequest=api.interactive(12000);
+        dialog.setOnDismissListener(d->artistRequest.cancel());
+        browseIO.execute(()->{
             JSONObject profile=null;
             JSONArray candidates=null;
-            try {
+            Exception failure=null;
+            try(NativeAPI.ReadRequest scope=artistRequest) {
                 String encoded=java.net.URLEncoder.encode(artistName,"UTF-8");
                 try {
-                    profile=api.request("api/artists/profile?name="+encoded);
+                    profile=api.requestInteractive("api/artists/profile?name="+encoded,scope);
                     candidates=profile.optJSONArray("tracks");
                 }catch(Exception ex){
                     // Older server may not have this route.
@@ -1702,10 +1718,12 @@ public final class MainActivity extends Activity {
                 if(!anyCredited){
                     // Old directory indexed the uploader. Do not use its avatar/count.
                     profile=null;
-                    JSONObject fallback=api.request("api/tracks?q="+encoded);
+                    scope.check();
+                    JSONObject fallback=api.requestInteractive("api/tracks?q="+encoded,scope);
                     candidates=fallback.optJSONArray("tracks");
                 }
-            } catch(Exception ex) {}
+            } catch(Exception ex) {failure=ex;}
+            final String failureMessage=failure==null?null:friendly(failure);
             JSONArray filtered=new JSONArray();
             if(candidates!=null)for(int i=0;i<candidates.length()&&filtered.length()<250;i++){
                 JSONObject track=candidates.optJSONObject(i);
@@ -1721,7 +1739,7 @@ public final class MainActivity extends Activity {
                     if(artworkCache!=null)artworkCache.loadArtist(photo,url);
                 }
                 int total=finalProfile==null?finalTracks.length():finalProfile.optInt("total",finalTracks.length());
-                info.setText(total==0?"Треки пока не найдены":"Треки · "+total);
+                info.setText(total==0?(failureMessage==null?"Треки пока не найдены":failureMessage):"Треки · "+total);
                 for(int i=0;i<finalTracks.length();i++) {
                     JSONObject track=finalTracks.optJSONObject(i);
                     if(track==null)continue;

@@ -7,6 +7,7 @@ namespace Nightwell.Native;
 // Only authenticated audio endpoints are proxied; HTML and arbitrary URLs are rejected.
 public sealed class StreamProxy:IDisposable {
  readonly HttpListener listener=new();readonly NativeAPI api;readonly string key=Guid.NewGuid().ToString("N");
+ readonly CancellationTokenSource stopped=new();
  public string Base{get;}
  public StreamProxy(NativeAPI api){this.api=api;var probe=new TcpListener(IPAddress.Loopback,0);probe.Start();int port=((IPEndPoint)probe.LocalEndpoint).Port;probe.Stop();Base=$"http://127.0.0.1:{port}/{key}/";listener.Prefixes.Add($"http://127.0.0.1:{port}/");listener.Start();_=Serve();}
  public string URL(string path)=>Base+path.TrimStart('/');
@@ -21,13 +22,27 @@ public sealed class StreamProxy:IDisposable {
   if(!path.StartsWith(prefix)||context.Request.HttpMethod!="GET"){context.Response.StatusCode=404;return;}path=path[prefix.Length..];
   if(!(path.StartsWith("api/audio-quality/stream/")||path.StartsWith("api/stream/")||path.StartsWith("api/soundcloud/media/"))||path.Contains("..")){context.Response.StatusCode=404;return;}
   using var request=new HttpRequestMessage(HttpMethod.Get,path);if(context.Request.Headers["Range"] is string range)request.Headers.TryAddWithoutValidation("Range",range);
-  using var response=await api.HTTP.SendAsync(request,HttpCompletionOption.ResponseHeadersRead);
+  HttpResponseMessage upstream;
+  // Dispose this deadline immediately after headers; it must not limit the
+  // duration of an otherwise healthy multi-minute audio response.
+  using(var headers=CancellationTokenSource.CreateLinkedTokenSource(stopped.Token)){
+   headers.CancelAfter(MediaRequestPolicy.StreamHeadersDeadline);
+   upstream=await api.HTTP.SendAsync(request,HttpCompletionOption.ResponseHeadersRead,headers.Token);
+  }
+  using var response=upstream;
   context.Response.StatusCode=(int)response.StatusCode;context.Response.ContentType=response.Content.Headers.ContentType?.ToString()??"application/octet-stream";
   if(response.Content.Headers.ContentRange!=null)context.Response.Headers["Content-Range"]=response.Content.Headers.ContentRange.ToString();
   if(context.Response.ContentType.Contains("mpegurl",StringComparison.OrdinalIgnoreCase)){
-    var text=await response.Content.ReadAsStringAsync();var bytes=Encoding.UTF8.GetBytes(Rewrite(text,path));context.Response.ContentLength64=bytes.Length;await context.Response.OutputStream.WriteAsync(bytes);
-  }else{if(response.Content.Headers.ContentLength is long length)context.Response.ContentLength64=length;await response.Content.CopyToAsync(context.Response.OutputStream);}
+    using var manifest=CancellationTokenSource.CreateLinkedTokenSource(stopped.Token);
+    manifest.CancelAfter(MediaRequestPolicy.StreamIdleDeadline);
+    await using var input=await response.Content.ReadAsStreamAsync(manifest.Token);
+    var raw=await MediaRequestPolicy.ReadLimitedAsync(input,1024*1024,manifest.Token);
+    var text=Encoding.UTF8.GetString(raw);var bytes=Encoding.UTF8.GetBytes(Rewrite(text,path));context.Response.ContentLength64=bytes.Length;await context.Response.OutputStream.WriteAsync(bytes,manifest.Token);
+  }else{
+    if(response.Content.Headers.ContentLength is long length)context.Response.ContentLength64=length;
+    await using var input=await response.Content.ReadAsStreamAsync(stopped.Token);
+    await MediaRequestPolicy.CopyWithIdleTimeoutAsync(input,context.Response.OutputStream,stopped.Token);
+  }
  }catch{try{context.Response.StatusCode=502;}catch{}}finally{try{context.Response.Close();}catch{}}}
- public void Dispose(){listener.Close();}
+ public void Dispose(){stopped.Cancel();listener.Close();}
 }
-

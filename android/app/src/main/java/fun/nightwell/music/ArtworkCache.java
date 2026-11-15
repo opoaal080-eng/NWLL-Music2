@@ -25,6 +25,11 @@ final class ArtworkCache {
         @Override protected int sizeOf(String key, Bitmap bitmap) { return bitmap.getByteCount(); }
     };
     private final ExecutorService io = Executors.newFixedThreadPool(5);
+    // Speculative next-track covers must not occupy the visible-image workers.
+    private final java.util.concurrent.ThreadPoolExecutor speculativeIO =
+        new java.util.concurrent.ThreadPoolExecutor(1,1,0L,java.util.concurrent.TimeUnit.MILLISECONDS,
+            new java.util.concurrent.ArrayBlockingQueue<>(12));
+    private final ConcurrentHashMap<String,Runnable> queuedPrefetch = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, CompletableFuture<Bitmap>> inFlight = new ConcurrentHashMap<>();
     private int savedCount;
     private final ConcurrentHashMap<String,Long> failedUntil=new ConcurrentHashMap<>();
@@ -71,20 +76,46 @@ final class ArtworkCache {
         });
     }
     void prefetch(String origin, String path) {
-        if (valid(path) && memory.get(key(origin,path)) == null) request(origin,path);
+        if (valid(path) && memory.get(key(origin,path)) == null) request(origin,path,true);
     }
     private CompletableFuture<Bitmap> request(String origin, String path) {
+        return request(origin,path,false);
+    }
+    private CompletableFuture<Bitmap> request(String origin, String path, boolean speculative) {
         String identity = key(origin,path);
         Long denied=failedUntil.get(identity);
         if(denied!=null&&android.os.SystemClock.elapsedRealtime()<denied)
             return CompletableFuture.completedFuture(null);
-        CompletableFuture<Bitmap> job = inFlight.computeIfAbsent(identity,
-            k -> CompletableFuture.supplyAsync(() -> decodeAndFetch(origin,path,identity),io));
-        job.whenComplete((result,error) -> {
-            inFlight.remove(identity,job);
-            if(result!=null)failedUntil.remove(identity);
+        CompletableFuture<Bitmap> job = new CompletableFuture<>();
+        CompletableFuture<Bitmap> existing = inFlight.putIfAbsent(identity,job);
+        if(existing!=null) {
+            if(!speculative) {
+                Runnable queued=queuedPrefetch.remove(identity);
+                if(queued!=null&&speculativeIO.remove(queued))io.execute(queued);
+            }
+            return existing;
+        }
+        Runnable work=()->{
+            queuedPrefetch.remove(identity);
+            Bitmap bitmap=null;
+            try {bitmap=decodeAndFetch(origin,path,identity);}
+            catch(Exception ignored) {}
+            if(bitmap!=null)failedUntil.remove(identity);
             else failedUntil.put(identity,android.os.SystemClock.elapsedRealtime()+12000);
-        });
+            inFlight.remove(identity,job);
+            job.complete(bitmap);
+        };
+        try {
+            if(speculative) {
+                queuedPrefetch.put(identity,work);
+                speculativeIO.execute(work);
+            } else io.execute(work);
+        } catch(java.util.concurrent.RejectedExecutionException stoppedOrFull) {
+            // Dropped prefetches remain eligible for a later foreground request.
+            queuedPrefetch.remove(identity,work);
+            inFlight.remove(identity,job);
+            job.complete(null);
+        }
         return job;
     }
     private Bitmap decodeAndFetch(String origin, String path, String identity) {
@@ -199,5 +230,5 @@ final class ArtworkCache {
         } catch (Exception ignored) { return null; }
         finally { if (connection != null) connection.disconnect(); }
     }
-    void close() { io.shutdownNow(); inFlight.clear();failedUntil.clear();memory.evictAll(); }
+    void close() { io.shutdownNow();speculativeIO.shutdownNow();queuedPrefetch.clear();for(CompletableFuture<Bitmap> job:inFlight.values())job.complete(null);inFlight.clear();failedUntil.clear();memory.evictAll(); }
 }
