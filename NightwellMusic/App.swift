@@ -588,7 +588,7 @@ struct NativeRoot: View {
         .sheet(isPresented: $dailyPlaylistsPresented) {
             DailyPublicPlaylistsScreen(store: store)
         }
-        .sheet(isPresented: $profilePresented) {
+        .fullScreenCover(isPresented: $profilePresented) {
             NavigationStack {
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 10) {
@@ -690,14 +690,11 @@ struct NativeRoot: View {
             .sheet(isPresented: $profilePremiumPresented, onDismiss: {
                 Task { await favoritePremium.refresh(store) }
             }) { PremiumView(api: store.api) }
-            .sheet(isPresented: $profileAccessPresented) {
+            .fullScreenCover(isPresented: $profileAccessPresented) {
                 AccountAccessView(api: store.api, accountID: store.account?.id)
             }
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
-            .presentationBackground(.clear)
         }
-        .sheet(isPresented: $accountAccessPresented) {
+        .fullScreenCover(isPresented: $accountAccessPresented) {
             AccountAccessView(api: store.api, accountID: store.account?.id)
         }
         .sheet(isPresented: $premiumPresented, onDismiss: {
