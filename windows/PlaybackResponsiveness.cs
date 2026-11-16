@@ -111,7 +111,6 @@ public partial class MainWindow
                 }, DispatcherPriority.Background).Task;
             }
             catch (OperationCanceledException) { break; }
-            catch (TaskCanceledException) { break; }
             catch { if (lifetime.IsCancellationRequested) break; }
         }
     }
