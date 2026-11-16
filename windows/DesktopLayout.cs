@@ -258,6 +258,48 @@ public partial class MainWindow
         if (Current != null) await Guard(() => Lyrics(Current));
     }
 
+    DataTemplate CreateMediaRowTemplate(string titlePath, string? detailPath)
+    {
+        var template = new DataTemplate();
+        var row = new FrameworkElementFactory(typeof(StackPanel));
+        row.SetValue(StackPanel.OrientationProperty, Orientation.Horizontal);
+        row.SetValue(FrameworkElement.MarginProperty, new Thickness(4, 5, 4, 5));
+        row.SetValue(FrameworkElement.MinHeightProperty, 52.0);
+
+        var badge = new FrameworkElementFactory(typeof(Border));
+        badge.SetValue(FrameworkElement.WidthProperty, 44.0);
+        badge.SetValue(FrameworkElement.HeightProperty, 44.0);
+        badge.SetValue(Border.CornerRadiusProperty, new CornerRadius(12));
+        badge.SetValue(Border.BackgroundProperty, SelectedBackground);
+        var symbol = new FrameworkElementFactory(typeof(TextBlock));
+        symbol.SetValue(TextBlock.TextProperty, "♫");
+        symbol.SetValue(TextBlock.FontSizeProperty, 23.0);
+        symbol.SetValue(TextBlock.ForegroundProperty, Brushes.White);
+        symbol.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+        symbol.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
+        badge.AppendChild(symbol);
+        row.AppendChild(badge);
+
+        var labels = new FrameworkElementFactory(typeof(StackPanel));
+        labels.SetValue(FrameworkElement.MarginProperty, new Thickness(13, 4, 0, 0));
+        labels.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
+        var title = new FrameworkElementFactory(typeof(TextBlock));
+        title.SetBinding(TextBlock.TextProperty, new Binding(titlePath));
+        title.SetValue(TextBlock.FontSizeProperty, 15.0);
+        title.SetValue(TextBlock.FontWeightProperty, FontWeights.SemiBold);
+        labels.AppendChild(title);
+        var detail = new FrameworkElementFactory(typeof(TextBlock));
+        if (detailPath != null) detail.SetBinding(TextBlock.TextProperty, new Binding(detailPath));
+        else detail.SetValue(TextBlock.TextProperty, "Открыть плейлист");
+        detail.SetValue(TextBlock.ForegroundProperty, SecondaryText);
+        detail.SetValue(TextBlock.FontSizeProperty, 12.0);
+        detail.SetValue(FrameworkElement.MarginProperty, new Thickness(0, 4, 0, 0));
+        labels.AppendChild(detail);
+        row.AppendChild(labels);
+        template.VisualTree = row;
+        return template;
+    }
+
     void CreatePlaylistDirectory()
     {
         if (Library.Children.OfType<Grid>().FirstOrDefault(g => Grid.GetRow(g) == 2) is not Grid tracksArea)
@@ -267,7 +309,7 @@ public partial class MainWindow
             Visibility = Visibility.Collapsed,
             Background = (Brush)FindResource("SurfaceBrush"),
             BorderThickness = new Thickness(0),
-            DisplayMemberPath = "name",
+            ItemTemplate = CreateMediaRowTemplate("name", null),
             FontSize = 17,
             Padding = new Thickness(8),
             ToolTip = "Двойной щелчок открывает плейлист"
@@ -338,14 +380,17 @@ public partial class MainWindow
         }
         if (libraryBackButton != null)
             libraryBackButton.Visibility = playlist.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        LibraryCount.Visibility = next == "Плейлисты" ? Visibility.Collapsed : Visibility.Visible;
         if (next == "Плейлисты")
         {
-            CollectionActions.Content = "＋";
+            CollectionActions.Content = "+";
+            CollectionActions.FontFamily = new FontFamily("Segoe UI");
             CollectionActions.ToolTip = "Создать плейлист";
         }
         else
         {
             CollectionActions.Content = "\uE712";
+            CollectionActions.FontFamily = new FontFamily("Segoe MDL2 Assets");
             CollectionActions.ToolTip = "Действия с коллекцией";
         }
         UpdateSidebarSelection();
@@ -364,7 +409,7 @@ public partial class MainWindow
 
     void CreateQueuePane()
     {
-        queueList = new ListBox { DisplayMemberPath = "title", FontSize = 14, Background = Brushes.Transparent };
+        queueList = new ListBox { ItemTemplate = CreateMediaRowTemplate("title", "artist"), FontSize = 14, Background = Brushes.Transparent };
         queueList.MouseDoubleClick += async (_, _) =>
         {
             if (queueList.SelectedItem is not Track selected) return;

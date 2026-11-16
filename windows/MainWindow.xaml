@@ -50,7 +50,7 @@
     <Grid x:Name="Library" Visibility="Collapsed" Margin="24">
      <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
      <Grid Margin="0,0,0,16"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-      <StackPanel><TextBlock x:Name="LibraryEyebrow" Text="ТВОЯ МУЗЫКА" Style="{StaticResource Caption}"/><TextBlock x:Name="Heading" Text="Поиск" FontSize="28" FontWeight="SemiBold" Margin="0,6,0,0"/><TextBlock Foreground="{StaticResource MutedBrush}" FontSize="11" Margin="0,6,0,0" Text="{Binding Items.Count,ElementName=Tracks,Converter={StaticResource TrackCount}}"/></StackPanel>
+      <StackPanel><TextBlock x:Name="LibraryEyebrow" Text="ТВОЯ МУЗЫКА" Style="{StaticResource Caption}"/><TextBlock x:Name="Heading" Text="Поиск" FontSize="28" FontWeight="SemiBold" Margin="0,6,0,0"/><TextBlock x:Name="LibraryCount" Foreground="{StaticResource MutedBrush}" FontSize="11" Margin="0,6,0,0" Text="{Binding Items.Count,ElementName=Tracks,Converter={StaticResource TrackCount}}"/></StackPanel>
       <Button x:Name="CollectionActions" Grid.Column="1" Content="&#xE712;" FontFamily="Segoe MDL2 Assets" Style="{StaticResource IconButton}" Click="CollectionClick" VerticalAlignment="Bottom" ToolTip="Действия с коллекцией"/>
      </Grid>
      <StackPanel x:Name="SearchOptions" Grid.Row="1" Margin="0,0,0,16">
