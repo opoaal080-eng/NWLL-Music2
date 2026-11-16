@@ -83,6 +83,11 @@ public partial class MainWindow
         if (HomeControls.Children.Count > 2 && HomeControls.Children[2] is StackPanel)
             HomeControls.Children.RemoveAt(2);
 
+        // Keep one compact home control in the title bar; the wordmark lives in the rail.
+        LogoHome.Content = new TextBlock { Text = "N", FontSize = 31,
+            FontWeight = FontWeights.Black, Foreground = Brushes.White,
+            VerticalAlignment = VerticalAlignment.Center };
+
         CreatePlaylistDirectory();
         CreateQueuePane();
         CreateSettingsPane();
