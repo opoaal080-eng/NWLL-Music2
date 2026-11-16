@@ -82,8 +82,11 @@ public partial class MainWindow
         button.Tag = state;
     }
 
+    bool? lastHeartVector;
     void SetHeartVector(bool active)
     {
+        if(lastHeartVector==active && FullLike.Content is Path && MiniLike.Content is Path)return;
+        lastHeartVector=active;
         var color = active ? Brushes.White : (Brush)FindResource("TextBrush");
         FullLike.Content = NightwellIcons.Draw("heart", 22, color, active);
         MiniLike.Content = NightwellIcons.Draw("heart", 22, color, active);
