@@ -152,34 +152,47 @@ struct AccountAccessView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .scrollDismissesKeyboard(.interactively)
-            .background { NightwellMonochromeGlassBackground() }
-            .navigationTitle("Устройства и семья")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button { dismiss() } label: {
-                        Text("Закрыть")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 15)
-                            .padding(.vertical, 9)
-                            .nightwellMonochromeGlass(radius: 20)
+            // An independent header avoids iOS 27 compressing or clipping
+            // custom glass buttons inside NavigationStack toolbar slots.
+            .safeAreaInset(edge: .top, spacing: 0) {
+                ZStack {
+                    Text("Устройства и семья")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                        .padding(.horizontal, 58)
+                    HStack {
+                        Button { dismiss() } label: {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .frame(width: 46, height: 46)
+                                .nightwellMonochromeGlass(radius: 23)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Закрыть")
+                        Spacer(minLength: 0)
+                        Button { Task { await refresh() } } label: {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .frame(width: 46, height: 46)
+                                .nightwellMonochromeGlass(radius: 23)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(loading || accountID == nil)
+                        .opacity(loading || accountID == nil ? 0.55 : 1)
+                        .accessibilityLabel("Обновить устройства и семью")
                     }
-                    .buttonStyle(.plain)
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { Task { await refresh() } } label: {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 17, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .frame(width: 43, height: 38)
-                            .nightwellMonochromeGlass(radius: 20)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(loading || accountID == nil)
-                    .accessibilityLabel("Обновить устройства и семью")
-                }
+                .frame(height:54)
+                .padding(.horizontal,18)
+                .padding(.vertical,7)
+                .background(.black.opacity(0.16))
             }
+            .background { NightwellMonochromeGlassBackground() }
+            .toolbar(.hidden, for: .navigationBar)
             .task { await refresh() }
             .confirmationDialog("Удалить устройство?", isPresented: Binding(
                 get: { pendingRemoval != nil },
