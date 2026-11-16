@@ -669,22 +669,34 @@ struct NativeRoot: View {
                     .padding(.top, 10)
                     .padding(.bottom, 16)
                 }
-                .background { NightwellMonochromeGlassBackground() }
-                .navigationTitle("Профиль")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button { profilePresented = false } label: {
-                            Text("Готово")
-                                .font(.system(size: 15, weight: .medium))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 17)
-                                .padding(.vertical, 9)
-                                .nightwellMonochromeGlass(radius: 22)
+                // Keep the full-screen profile title centred independently
+                // of the Done button. Native navigation bars truncate glass
+                // toolbar controls on narrow iPhones and iOS 27.
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    ZStack {
+                        Text("Профиль")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(.white)
+                        HStack {
+                            Spacer(minLength: 0)
+                            Button { profilePresented = false } label: {
+                                Text("Готово")
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 88, height: 44)
+                                    .nightwellMonochromeGlass(radius: 22)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Закрыть профиль")
                         }
-                        .buttonStyle(.plain)
                     }
+                    .frame(height:54)
+                    .padding(.horizontal,18)
+                    .padding(.vertical,7)
+                    .background(.black.opacity(0.16))
                 }
+                .background { NightwellMonochromeGlassBackground() }
+                .toolbar(.hidden, for: .navigationBar)
             }
             .preferredColorScheme(.dark)
             .sheet(isPresented: $profilePremiumPresented, onDismiss: {
