@@ -109,6 +109,7 @@ struct AccessJoined: Decodable {
 struct AccountAccessView: View {
     let api: MusicAPI
     let accountID: String?
+
     @Environment(\.dismiss) private var dismiss
     @State private var devices: AccessDeviceList?
     @State private var family: AccessFamilyState?
@@ -118,155 +119,383 @@ struct AccountAccessView: View {
     @State private var invitationURL: URL?
     @State private var pendingRemoval: AccessDevice?
     @State private var pendingMember: AccessFamilyMember?
+    @State private var confirmDissolve = false
+    @State private var confirmLeave = false
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 17) {
                     if accountID == nil {
                         Text("Войди в аккаунт, чтобы управлять устройствами и семьёй.")
-                            .foregroundStyle(.secondary)
+                            .font(.system(size: 15))
+                            .foregroundStyle(.white.opacity(0.75))
+                            .padding(18)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .nightwellMonochromeGlass(radius: 25)
                     } else {
-                        Text(message).font(.footnote).foregroundStyle(.secondary)
-                        if loading { ProgressView().tint(.white) }
-                        if let devices {
-                            GroupBox("Мои устройства · \(devices.count) из \(devices.limit)") {
-                                VStack(alignment: .leading, spacing: 14) {
-                                    ForEach(devices.devices) { device in
-                                        HStack(spacing: 12) {
-                                            Image(systemName: device.platform == "ios" ? "iphone" :
-                                                  device.platform == "android" ? "apps.iphone" :
-                                                  device.platform == "windows" ? "desktopcomputer" : "globe")
-                                                .frame(width: 28)
-                                            VStack(alignment: .leading, spacing: 4) {
-                                                Text(device.name).font(.subheadline.weight(.medium))
-                                                Text(device.blocked ? "Заблокировано лимитом" :
-                                                     device.current ? "Это устройство" : device.platform.capitalized)
-                                                    .font(.caption).foregroundStyle(device.blocked ? .orange : .secondary)
-                                            }
-                                            Spacer()
-                                            if !device.current {
-                                                Button(role: .destructive) { pendingRemoval = device } label: {
-                                                    Image(systemName: "trash").padding(8)
-                                                }.buttonStyle(.plain)
-                                            }
-                                        }
-                                    }
-                                }.padding(.vertical, 5)
-                            }
+                        if !message.isEmpty {
+                            Label(message, systemImage: "info.circle")
+                                .font(.system(size: 13))
+                                .foregroundStyle(.white.opacity(0.83))
+                                .padding(15)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .nightwellMonochromeGlass(radius: 18)
                         }
-                        if let state = family {
-                            GroupBox("Семейный Premium") {
-                                VStack(alignment: .leading, spacing: 12) {
-                                    Text(state.access.premium ?
-                                         (state.access.source == "family" ? "Premium через семью" : "Premium активен") :
-                                         "Семейный Premium не активен")
-                                        .font(.headline)
-                                    Text("У каждого аккаунта своя музыка и свой лимит устройств.")
-                                        .font(.footnote).foregroundStyle(.secondary)
-                                    if let group = state.family {
-                                        Text("Участники: \(group.members.count) из 3")
-                                        ForEach(group.members) { member in
-                                            HStack {
-                                                Image(systemName: member.role == "owner" ? "crown" : "person")
-                                                Text(member.account_id == accountID ? "Вы" : member.account_id)
-                                                    .font(.caption)
-                                                    .lineLimit(1)
-                                                Spacer()
-                                                if group.role == "owner" && member.role != "owner" {
-                                                    Button("Исключить", role: .destructive) {
-                                                        pendingMember = member
-                                                    }.font(.caption)
-                                                }
-                                            }
-                                        }
-                                        if group.role == "owner" {
-                                            Text("Свободных приглашений: \(group.available_invites ?? 0)")
-                                                .font(.footnote).foregroundStyle(.secondary)
-                                            Button("Создать приглашение") { Task { await createInvite() } }
-                                                .disabled((group.available_invites ?? 0) < 1 || loading)
-                                            if let url = invitationURL {
-                                                ShareLink(item: url) {
-                                                    Label("Отправить ссылку", systemImage: "square.and.arrow.up")
-                                                }
-                                            }
-                                            ForEach(group.pending_invites ?? []) { item in
-                                                HStack {
-                                                    Text("Приглашение · до \(Date(timeIntervalSince1970: item.expires_at).formatted(date: .abbreviated, time: .omitted))")
-                                                        .font(.caption)
-                                                    Spacer()
-                                                    Button("Отозвать", role: .destructive) {
-                                                        Task { await act("api/family/invitations/" + item.id, method: "DELETE") }
-                                                    }.font(.caption)
-                                                }
-                                            }
-                                            Button("Распустить семью", role: .destructive) {
-                                                Task { await act("api/family", method: "DELETE") }
-                                            }
-                                        } else {
-                                            Button("Выйти из семьи", role: .destructive) {
-                                                Task { await act("api/family/leave", method: "POST") }
-                                            }
-                                        }
-                                    } else {
-                                        if state.access.billing_owner {
-                                            Button("Создать приглашение") { Task { await createInvite() } }
-                                                .disabled(loading)
-                                            if let url = invitationURL {
-                                                ShareLink(item: url) {
-                                                    Label("Отправить ссылку", systemImage: "square.and.arrow.up")
-                                                }
-                                            }
-                                        }
-                                        Text("Приглашение можно принять по ссылке от владельца Premium.")
-                                            .font(.footnote).foregroundStyle(.secondary)
-                                    }
-                                    TextField("Ссылка или код приглашения", text: $inviteInput)
-                                        .textInputAutocapitalization(.never)
-                                        .autocorrectionDisabled()
-                                        .textFieldStyle(.roundedBorder)
-                                    Button("Принять приглашение") { Task { await acceptInvite() } }
-                                        .disabled(inviteInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || loading)
-                                }.padding(.vertical, 5)
-                            }
-                        }
+                        devicesSection
+                        familySection
                     }
                 }
-                .padding(18)
+                .padding(.horizontal, 18)
+                .padding(.top, 18)
+                .padding(.bottom, 40)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .scrollDismissesKeyboard(.interactively)
+            .background { NightwellMonochromeGlassBackground() }
             .navigationTitle("Устройства и семья")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button("Закрыть") { dismiss() } }
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { dismiss() } label: {
+                        Text("Закрыть")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 15)
+                            .padding(.vertical, 9)
+                            .nightwellMonochromeGlass(radius: 20)
+                    }
+                    .buttonStyle(.plain)
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { Task { await refresh() } } label: {
                         Image(systemName: "arrow.clockwise")
-                    }.disabled(loading || accountID == nil)
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 43, height: 38)
+                            .nightwellMonochromeGlass(radius: 20)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(loading || accountID == nil)
+                    .accessibilityLabel("Обновить устройства и семью")
                 }
             }
             .task { await refresh() }
             .confirmationDialog("Удалить устройство?", isPresented: Binding(
-                get: { pendingRemoval != nil }, set: { if !$0 { pendingRemoval = nil } }
+                get: { pendingRemoval != nil },
+                set: { if !$0 { pendingRemoval = nil } }
             )) {
                 if let device = pendingRemoval {
-                    Button("Удалить \(device.name)", role: .destructive) {
+                    Button("Удалить " + device.name, role: .destructive) {
                         pendingRemoval = nil
                         Task { await act("api/devices/" + device.id, method: "DELETE") }
                     }
                 }
-            } message: { Text("Для повторного входа на удалённом устройстве потребуется авторизация.") }
+                Button("Отмена", role: .cancel) { pendingRemoval = nil }
+            } message: {
+                Text("Для повторного входа на удалённом устройстве потребуется авторизация.")
+            }
             .confirmationDialog("Исключить участника?", isPresented: Binding(
-                get: { pendingMember != nil }, set: { if !$0 { pendingMember = nil } }
+                get: { pendingMember != nil },
+                set: { if !$0 { pendingMember = nil } }
             )) {
                 if let member = pendingMember {
-                    Button("Исключить", role: .destructive) {
+                    Button("Исключить из семьи", role: .destructive) {
                         pendingMember = nil
                         Task { await act("api/family/members/" + member.account_id, method: "DELETE") }
                     }
                 }
+                Button("Отмена", role: .cancel) { pendingMember = nil }
+            } message: {
+                Text("Участник потеряет доступ к семейному Premium.")
+            }
+            .confirmationDialog("Распустить семью?", isPresented: $confirmDissolve) {
+                Button("Распустить семью", role: .destructive) {
+                    Task { await act("api/family", method: "DELETE") }
+                }
+                Button("Отмена", role: .cancel) {}
+            } message: {
+                Text("Все приглашённые участники потеряют семейный Premium.")
+            }
+            .confirmationDialog("Выйти из семьи?", isPresented: $confirmLeave) {
+                Button("Выйти из семьи", role: .destructive) {
+                    Task { await act("api/family/leave", method: "POST") }
+                }
+                Button("Отмена", role: .cancel) {}
             }
         }
+        .tint(.white)
         .preferredColorScheme(.dark)
+    }
+
+    private func heading(_ text: String, icon: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 20, weight: .medium))
+                .frame(width: 28)
+                .foregroundStyle(.white.opacity(0.87))
+            Text(text)
+                .font(.system(size: 19, weight: .semibold))
+                .foregroundStyle(.white)
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func actionLabel(_ title: String, icon: String, destructive: Bool = false) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 16, weight: .medium))
+                .frame(width: 23)
+            Text(title)
+                .font(.system(size: 15, weight: .medium))
+                .multilineTextAlignment(.leading)
+            Spacer(minLength: 0)
+        }
+        .foregroundStyle(destructive ? Color(red: 1.0, green: 0.55, blue: 0.55) : .white)
+        .frame(maxWidth: .infinity, minHeight: 46, alignment: .leading)
+        .padding(.horizontal, 14)
+        .nightwellMonochromeGlass(radius: 17)
+    }
+
+    private func action(_ title: String, icon: String, disabled: Bool = false,
+                        destructive: Bool = false, perform: @escaping () -> Void) -> some View {
+        Button(action: perform) {
+            actionLabel(title, icon: icon, destructive: destructive)
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .opacity(disabled ? 0.45 : 1.0)
+    }
+
+    private var devicesSection: some View {
+        VStack(alignment: .leading, spacing: 15) {
+            heading("Мои устройства", icon: "iphone.and.arrow.forward")
+            if let devices {
+                Text("Подключено: \(devices.count) из \(devices.limit)")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.white.opacity(0.62))
+                if devices.devices.isEmpty {
+                    Text("Пока нет привязанных устройств.")
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.66))
+                } else {
+                    ForEach(devices.devices) { device in
+                        deviceRow(device)
+                    }
+                }
+            } else if loading {
+                ProgressView("Загружаем устройства")
+                    .tint(.white)
+                    .foregroundStyle(.white.opacity(0.75))
+            } else {
+                Text("Список устройств пока недоступен.")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.65))
+            }
+        }
+        .padding(17)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .nightwellMonochromeGlass(radius: 25)
+    }
+
+    private func deviceRow(_ device: AccessDevice) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: device.platform == "ios" ? "iphone" :
+                  device.platform == "android" ? "apps.iphone" :
+                  device.platform == "windows" ? "desktopcomputer" : "globe")
+                .font(.system(size: 19))
+                .frame(width: 30)
+                .foregroundStyle(.white.opacity(0.85))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(device.name)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                Text(device.blocked ? "Заблокировано лимитом" :
+                     device.current ? "Это устройство" : device.platform.capitalized)
+                    .font(.system(size: 12))
+                    .foregroundStyle(device.blocked ? Color.orange : .white.opacity(0.58))
+            }
+            Spacer(minLength: 8)
+            if !device.current {
+                Button { pendingRemoval = device } label: {
+                    Image(systemName: "trash")
+                        .font(.system(size: 16))
+                        .foregroundStyle(.white.opacity(0.88))
+                        .frame(width: 40, height: 40)
+                        .nightwellMonochromeGlass(radius: 14)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Удалить устройство " + device.name)
+            } else {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 17))
+                    .foregroundStyle(.white.opacity(0.55))
+            }
+        }
+        .padding(12)
+        .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private var familySection: some View {
+        VStack(alignment: .leading, spacing: 15) {
+            heading("Семейный Premium", icon: "person.2")
+            if let state = family {
+                HStack(spacing: 10) {
+                    Image(systemName: state.access.premium ? "checkmark.seal.fill" : "star")
+                        .foregroundStyle(.white.opacity(0.88))
+                    Text(state.access.premium ?
+                         (state.access.source == "family" ? "Premium через семью" : "Premium активен") :
+                         "Семейный Premium не активен")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+                .padding(.vertical, 4)
+                Text("У каждого аккаунта своя музыка, плейлисты и лимит устройств.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.white.opacity(0.63))
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if let group = state.family {
+                    membersSection(group)
+                    if group.role == "owner" {
+                        ownerActions(group)
+                    } else {
+                        action("Выйти из семьи", icon: "rectangle.portrait.and.arrow.right",
+                               disabled: loading, destructive: true) {
+                            confirmLeave = true
+                        }
+                    }
+                } else {
+                    if state.access.billing_owner {
+                        action("Создать приглашение", icon: "person.badge.plus",
+                               disabled: loading) { Task { await createInvite() } }
+                        shareInvitation
+                    }
+                    invitationEntry
+                }
+            } else if loading {
+                ProgressView("Загружаем семейный Premium")
+                    .tint(.white)
+                    .foregroundStyle(.white.opacity(0.75))
+            } else {
+                Text("Данные семейной подписки пока недоступны.")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.65))
+            }
+        }
+        .padding(17)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .nightwellMonochromeGlass(radius: 25)
+    }
+
+    private func membersSection(_ group: AccessFamily) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Участники · \(group.members.count) из 3")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(.white.opacity(0.74))
+                .padding(.top, 5)
+            ForEach(group.members) { member in
+                HStack(spacing: 11) {
+                    Image(systemName: member.role == "owner" ? "crown" : "person.crop.circle")
+                        .font(.system(size: 18))
+                        .frame(width: 27)
+                    Text(member.account_id == accountID ? "Вы" : member.account_id)
+                        .font(.system(size: 14, weight: .medium))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer(minLength: 8)
+                    if group.role == "owner" && member.role != "owner" {
+                        Button { pendingMember = member } label: {
+                            Image(systemName: "person.crop.circle.badge.minus")
+                                .font(.system(size: 17))
+                                .frame(width: 40, height: 40)
+                                .nightwellMonochromeGlass(radius: 14)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Исключить участника")
+                    }
+                }
+                .foregroundStyle(.white.opacity(0.9))
+                .padding(11)
+                .background(.white.opacity(0.045),
+                            in: RoundedRectangle(cornerRadius: 17, style: .continuous))
+            }
+        }
+    }
+
+    private func ownerActions(_ group: AccessFamily) -> some View {
+        VStack(alignment: .leading, spacing: 11) {
+            Text("Свободных приглашений: \(group.available_invites ?? 0)")
+                .font(.system(size: 13))
+                .foregroundStyle(.white.opacity(0.65))
+            action("Создать приглашение", icon: "person.badge.plus",
+                   disabled: (group.available_invites ?? 0) < 1 || loading) {
+                Task { await createInvite() }
+            }
+            shareInvitation
+            ForEach(group.pending_invites ?? []) { invite in
+                HStack(spacing: 10) {
+                    Image(systemName: "envelope")
+                        .frame(width: 25)
+                    Text("Действует до " + Date(timeIntervalSince1970: invite.expires_at)
+                        .formatted(date: .abbreviated, time: .omitted))
+                        .font(.system(size: 12))
+                        .lineLimit(2)
+                    Spacer(minLength: 4)
+                    Button {
+                        Task { await act("api/family/invitations/" + invite.id, method: "DELETE") }
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 13, weight: .semibold))
+                            .frame(width: 38, height: 38)
+                            .nightwellMonochromeGlass(radius: 13)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(loading)
+                    .accessibilityLabel("Отозвать приглашение")
+                }
+                .foregroundStyle(.white.opacity(0.82))
+                .padding(10)
+                .background(.white.opacity(0.045),
+                            in: RoundedRectangle(cornerRadius: 17, style: .continuous))
+            }
+            action("Распустить семью", icon: "person.2.slash",
+                   disabled: loading, destructive: true) {
+                confirmDissolve = true
+            }
+        }
+    }
+
+    @ViewBuilder private var shareInvitation: some View {
+        if let url = invitationURL {
+            ShareLink(item: url) {
+                actionLabel("Поделиться приглашением", icon: "square.and.arrow.up")
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private var invitationEntry: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Присоединиться по приглашению")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(.white.opacity(0.78))
+            TextField("Ссылка или код приглашения", text: $inviteInput)
+                .font(.system(size: 15))
+                .foregroundStyle(.white)
+                .tint(.white)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .textFieldStyle(.plain)
+                .padding(.horizontal, 15)
+                .frame(minHeight: 51)
+                .nightwellMonochromeGlass(radius: 17)
+            action("Принять приглашение", icon: "checkmark.circle",
+                   disabled: loading || inviteInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
+                Task { await acceptInvite() }
+            }
+        }
     }
 
     @MainActor private func refresh() async {
