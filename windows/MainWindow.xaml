@@ -5,6 +5,24 @@
   <Grid.RowDefinitions><RowDefinition x:Name="HeaderRow" Height="58"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
    <!-- Continuous ambient scene behind the header and the mini player. -->
    <local:RibbonScene x:Name="Ribbon" Grid.RowSpan="4" IsHitTestVisible="False"/>
+   <!-- Album-based ambient backdrop fills the full player workspace. -->
+   <Grid x:Name="PlayerAmbientLayer" Grid.RowSpan="4" Visibility="Collapsed" Background="#0D0D0F" ClipToBounds="True" IsHitTestVisible="False">
+      <Image x:Name="PlayerAmbientA" Opacity="0" Stretch="Fill" RenderOptions.BitmapScalingMode="HighQuality" RenderTransformOrigin=".5,.5">
+       <Image.RenderTransform><ScaleTransform ScaleX="1.16" ScaleY="1.16"/></Image.RenderTransform>
+       <Image.Effect><BlurEffect Radius="50" RenderingBias="Performance"/></Image.Effect>
+      </Image>
+      <Image x:Name="PlayerAmbientB" Opacity="0" Stretch="Fill" RenderOptions.BitmapScalingMode="HighQuality" RenderTransformOrigin=".5,.5">
+       <Image.RenderTransform><ScaleTransform ScaleX="1.16" ScaleY="1.16"/></Image.RenderTransform>
+       <Image.Effect><BlurEffect Radius="50" RenderingBias="Performance"/></Image.Effect>
+      </Image>
+      <Border Background="#6807090D"/>
+      <Border>
+       <Border.Background><LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Color="#8308090C" Offset="0"/><GradientStop Color="#1708090C" Offset=".45"/>
+        <GradientStop Color="#A0090A0D" Offset="1"/>
+       </LinearGradientBrush></Border.Background>
+      </Border>
+     </Grid>
   <Grid x:Name="Header" Margin="24,8,24,4">
    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
    <Button x:Name="LogoHome" Click="LogoHomeClick" Style="{StaticResource QuietButton}" HorizontalAlignment="Left" VerticalAlignment="Center" Padding="4,0" Margin="-4,0,0,0" ToolTip="На главную" AutomationProperties.Name="Nightwell Music, на главную">
@@ -83,26 +101,9 @@
      </Grid>
     </Grid>
 
-    <Grid x:Name="PlayerPage" Visibility="Collapsed" ClipToBounds="True" Background="#0D0D0F">
+    <Grid x:Name="PlayerPage" Visibility="Collapsed" ClipToBounds="True" Background="Transparent">
      <Grid.RowDefinitions><RowDefinition Height="44"/><RowDefinition Height="*"/></Grid.RowDefinitions>
      <!-- Coloured background belongs only to the full player, not the monochrome library. -->
-     <Grid Grid.RowSpan="2" ClipToBounds="True" IsHitTestVisible="False">
-      <Image x:Name="PlayerAmbientA" Opacity="0" Stretch="Fill" RenderOptions.BitmapScalingMode="HighQuality" RenderTransformOrigin=".5,.5">
-       <Image.RenderTransform><ScaleTransform ScaleX="1.16" ScaleY="1.16"/></Image.RenderTransform>
-       <Image.Effect><BlurEffect Radius="50" RenderingBias="Performance"/></Image.Effect>
-      </Image>
-      <Image x:Name="PlayerAmbientB" Opacity="0" Stretch="Fill" RenderOptions.BitmapScalingMode="HighQuality" RenderTransformOrigin=".5,.5">
-       <Image.RenderTransform><ScaleTransform ScaleX="1.16" ScaleY="1.16"/></Image.RenderTransform>
-       <Image.Effect><BlurEffect Radius="50" RenderingBias="Performance"/></Image.Effect>
-      </Image>
-      <Border Background="#6807090D"/>
-      <Border>
-       <Border.Background><LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-        <GradientStop Color="#8308090C" Offset="0"/><GradientStop Color="#1708090C" Offset=".45"/>
-        <GradientStop Color="#A0090A0D" Offset="1"/>
-       </LinearGradientBrush></Border.Background>
-      </Border>
-     </Grid>
      <Grid Margin="22,9,22,0"><Grid.ColumnDefinitions><ColumnDefinition Width="88"/><ColumnDefinition Width="*"/><ColumnDefinition Width="88"/></Grid.ColumnDefinitions>
       <Button x:Name="PlayerCloseButton" Click="ClosePlayerClick" Style="{StaticResource IconButton}" HorizontalAlignment="Left" ToolTip="Свернуть плеер"/>
       <TextBlock Grid.Column="1" Text="СЕЙЧАС ИГРАЕТ" Style="{StaticResource Caption}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
