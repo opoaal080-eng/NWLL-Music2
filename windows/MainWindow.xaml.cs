@@ -15,6 +15,11 @@ namespace Nightwell.Native;
 public partial class MainWindow:Window {
  NativeAPI api=null!;StreamProxy proxy=null!;LibVLC vlc=null!;LibVLCSharp.Shared.MediaPlayer player=null!;
  readonly DispatcherTimer timer=new(){Interval=TimeSpan.FromMilliseconds(400)};
+ // Small account-scoped artwork cache. No repeated HTTP request on track replay.
+ readonly object artworkGate=new();
+ readonly Dictionary<string,byte[]> artworkMemory=new();
+ readonly Queue<string> artworkOrder=new();
+
  int savePending;
  int normalization=0;
  bool playerAmbientAVisible;
@@ -179,7 +184,7 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
  }
  async void ToggleClick(object sender,RoutedEventArgs e){if(Current==null){await NewWave();return;}if(roomCode.Length>0){await Guard(()=>RoomCommand(audioPlaying?"pause":"play"));return;}TakePlaybackHere();await AudioCommand(()=>{if(player.IsPlaying){pausedAtMs=Math.Max(0,player.Time);player.Pause();}else player.Play();});}
  async void TrackDoubleClick(object sender,MouseButtonEventArgs e){if(Tracks.SelectedItem is Track t){if(roomCode.Length>0){await Guard(()=>RoomCommand("track",t.id));return;}TakePlaybackHere();queue=shown.ToList();index=queue.FindIndex(v=>v.id==t.id);wave=false;PlayCurrent();}}
- void PlayCurrent(){nextCancellation?.Cancel();var t=Current;if(t==null)return;pausedAtMs=0;var local=LocalAudioPath(t);if(local==null&&account.Length==0){Login();return;}string path=local??StreamPath(t);_=AudioCommand(()=>{using var media=new Media(vlc,path,local==null?FromType.FromLocation:FromType.FromPath);player.Play(media);});lyricsCancellation?.Cancel();currentLyrics=null;lyricsID="";renderedLyric=int.MinValue;currentID=t.id;ActiveArtwork=null;Ribbon.ResetPalette();PlayingTrackId=t.id;UpdatePlaybackChrome();mixRecent.Enqueue(t.id);while(mixRecent.Count>120)mixRecent.Dequeue();MiniTitle.Text=FullTitle.Text=t.title;MiniArtist.Text=FullArtist.Text=t.artist;LyricsText.Text="";LyricsPanel.Visibility=Visibility.Collapsed;Cover.Visibility=Visibility.Visible;if(Uri.TryCreate(api.Origin,t.cover_url??("api/covers/"+t.id),out var coverURI)&&coverURI.Scheme=="https")_=LoadCover(coverURI,t.id);else {Cover.Source=MiniCover.Source=null;SetPlayerAmbient(null);}RecordTrackStart();Dock.BeginAnimation(OpacityProperty,new System.Windows.Media.Animation.DoubleAnimation(.6,1,TimeSpan.FromSeconds(.7)));}
+ void PlayCurrent(){nextCancellation?.Cancel();var t=Current;if(t==null)return;pausedAtMs=0;var local=LocalAudioPath(t);if(local==null&&account.Length==0){Login();return;}string path=local??StreamPath(t);_=AudioCommand(()=>{using var media=new Media(vlc,path,local==null?FromType.FromLocation:FromType.FromPath);player.Play(media);});lyricsCancellation?.Cancel();currentLyrics=null;lyricsID="";renderedLyric=int.MinValue;currentID=t.id;ActiveArtwork=null;Ribbon.ResetPalette();PlayingTrackId=t.id;UpdatePlaybackChrome();mixRecent.Enqueue(t.id);while(mixRecent.Count>120)mixRecent.Dequeue();MiniTitle.Text=FullTitle.Text=t.title;MiniArtist.Text=FullArtist.Text=t.artist;LyricsText.Text="";LyricsPanel.Visibility=Visibility.Collapsed;Cover.Visibility=Visibility.Visible;if(Uri.TryCreate(api.Origin,t.cover_url??("api/covers/"+t.id),out var coverURI)&&coverURI.Scheme=="https")_=LoadCover(coverURI,t.id);else {Cover.Source=MiniCover.Source=null;SetPlayerAmbient(null);}RecordTrackStart();Dock.BeginAnimation(OpacityProperty,new System.Windows.Media.Animation.DoubleAnimation(.6,1,TimeSpan.FromSeconds(.7)));WarmNextCovers();}
  // Make an iPhone-like 6x6 artwork colour map, off the UI thread.
  static BitmapSource ArtworkAmbient(BitmapSource source){
   const int size=6;
@@ -219,9 +224,44 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
   outgoing.BeginAnimation(OpacityProperty,new DoubleAnimation(0,fade){EasingFunction=ease});
   playerAmbientAVisible=nextA;
  }
+ async Task<byte[]> GetArtworkBytes(Uri uri,string expectedAccount){
+   string key=expectedAccount+"|"+uri.AbsoluteUri;
+   lock(artworkGate)if(artworkMemory.TryGetValue(key,out var cached))return cached;
+   var bytes=await (uri.Authority==api.Origin.Authority?api.HTTP:artworkHTTP).GetByteArrayAsync(uri,lifetime.Token);
+   // Only small covers are retained; larger images still display normally.
+   if(bytes.Length>0 && bytes.Length<=2*1024*1024 && expectedAccount==account){
+    lock(artworkGate){
+     if(!artworkMemory.ContainsKey(key)){
+      artworkMemory[key]=bytes;artworkOrder.Enqueue(key);
+      while(artworkOrder.Count>16)artworkMemory.Remove(artworkOrder.Dequeue());
+     }
+    }
+   }
+   return bytes;
+ }
+ void WarmNextCovers(){
+   var owner=account;
+   var urls=new List<Uri>();
+   foreach(var candidate in queue.Skip(index+1).Take(3)){
+    if(Uri.TryCreate(api.Origin,candidate.cover_url??("api/covers/"+candidate.id),out var uri)
+       && uri.Scheme=="https" && uri.Authority==api.Origin.Authority)urls.Add(uri);
+   }
+   if(urls.Count==0)return;
+   _=Task.Run(async()=>{
+    try{
+     // Current audio wins; artwork preloads never block startup.
+     await Task.Delay(1700,lifetime.Token);
+     if(!player.IsPlaying || owner!=account)return;
+     foreach(var uri in urls.Take(2)){
+      if(lifetime.IsCancellationRequested || owner!=account)return;
+      await GetArtworkBytes(uri,owner);
+     }
+    }catch(OperationCanceledException){}catch{}
+   });
+ }
  async Task LoadCover(Uri uri,string id){
   try{
-   var bytes=await (uri.Authority==api.Origin.Authority?api.HTTP:artworkHTTP).GetByteArrayAsync(uri,lifetime.Token);
+   var bytes=await GetArtworkBytes(uri,account);
    if(bytes.Length>5*1024*1024||currentID!=id)return;
    var result=await Task.Run(()=>{
     using var stream=new MemoryStream(bytes);
