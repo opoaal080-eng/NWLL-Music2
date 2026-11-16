@@ -1,6 +1,10 @@
 name: Build Nightwell Music Windows (Recovered)
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - 'windows/**'
+      - '.github/workflows/build-windows.yml'
   push:
     branches: [main]
     paths:
