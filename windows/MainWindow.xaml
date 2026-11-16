@@ -62,7 +62,7 @@
        </Border>
        <Border Width="38" Height="38" CornerRadius="10" Background="#282828" BorderBrush="#3E3E3E" BorderThickness="1" HorizontalAlignment="Left" VerticalAlignment="Center" ClipToBounds="True">
         <Grid><Path Data="M 7,4 L 7,18 M 7,6 L 17,3 L 17,15 M 7,10 L 17,7 M 7,18 C 4,16 1,18 2,21 C 3,24 8,23 8,20 M 17,15 C 14,13 11,15 12,18 C 13,21 18,20 18,17" Stroke="#999999" StrokeThickness="1.7" StrokeLineCap="Round" StrokeLineJoin="Round" Width="19" Height="23" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-         <Image Width="36" Height="36" Stretch="UniformToFill" Loaded="TrackArtworkLoaded" DataContextChanged="TrackArtworkContextChanged"><Image.Clip><RectangleGeometry Rect="0,0,36,36" RadiusX="9" RadiusY="9"/></Image.Clip></Image>
+         <local:NativeArtworkView Width="36" Height="36" Stretch="UniformToFill"><Image.Clip><RectangleGeometry Rect="0,0,36,36" RadiusX="9" RadiusY="9"/></Image.Clip></local:NativeArtworkView>
         </Grid>
        </Border>
        <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="4,0,12,0">
