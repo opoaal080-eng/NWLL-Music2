@@ -87,6 +87,14 @@ public partial class MainWindow
             FontWeight = FontWeights.Black, Foreground = Brushes.White,
             VerticalAlignment = VerticalAlignment.Center };
 
+        // Keep the player's blurred artwork continuous behind its top toolbar and controls.
+        PlayerPage.IsVisibleChanged += (_, _) =>
+        {
+            PlayerAmbientLayer.Visibility = PlayerPage.Visibility == Visibility.Visible
+                ? Visibility.Visible : Visibility.Collapsed;
+        };
+        PlayerAmbientLayer.Visibility = PlayerPage.Visibility == Visibility.Visible
+            ? Visibility.Visible : Visibility.Collapsed;
         ApplyPlayerVectorIcons();
         CreatePlaylistDirectory();
         CreateQueuePane();
