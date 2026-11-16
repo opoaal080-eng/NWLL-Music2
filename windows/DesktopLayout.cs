@@ -105,7 +105,7 @@ public partial class MainWindow
         brand.Children.Add(new TextBlock { Text = "N", FontSize = 38, FontWeight = FontWeights.Black });
         brand.Children.Add(new TextBlock { Text = "NIGHTWELL MUSIC", FontSize = 10, FontWeight = FontWeights.SemiBold,
             Foreground = SecondaryText, Margin = new Thickness(1, -3, 0, 0) });
-        DockPanel.SetDock(brand, Dock.Top);
+        DockPanel.SetDock(brand, System.Windows.Controls.Dock.Top);
         dock.Children.Add(brand);
 
         var footer = new StackPanel();
@@ -113,7 +113,7 @@ public partial class MainWindow
             Margin = new Thickness(10, 7, 10, 11) });
         AddAction(footer, "⚙", "Настройки", OpenSettingsPane);
         AddAction(footer, "◉", "Профиль", OpenProfilePane);
-        DockPanel.SetDock(footer, Dock.Bottom);
+        DockPanel.SetDock(footer, System.Windows.Controls.Dock.Bottom);
         dock.Children.Add(footer);
 
         var list = new StackPanel();
@@ -347,7 +347,7 @@ public partial class MainWindow
         grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         panelContent.Children.Add(new Button { Content = "Готово", Style = (Style)FindResource("QuietButton"),
             HorizontalAlignment = HorizontalAlignment.Left, Command = null });
-        if (panelContent.Children.Last() is Button close) close.Click += (_, _) => ToggleDesktopQueue(false);
+        if (panelContent.Children[panelContent.Children.Count - 1] is Button close) close.Click += (_, _) => ToggleDesktopQueue(false);
         grid.Children.Add(panelContent);
         Grid.SetRow(queueList, 1);
         grid.Children.Add(queueList);
@@ -377,7 +377,7 @@ public partial class MainWindow
         var top = new DockPanel { Margin = new Thickness(0, 0, 0, 22) };
         var done = new Button { Content = "Готово", Style = (Style)FindResource("PrimaryButton"), MinWidth = 100 };
         done.Click += (_, _) => CloseDesktopPanes();
-        DockPanel.SetDock(done, Dock.Right);
+        DockPanel.SetDock(done, System.Windows.Controls.Dock.Right);
         top.Children.Add(done);
         top.Children.Add(new TextBlock { Text = title, FontSize = 29, FontWeight = FontWeights.Bold,
             VerticalAlignment = VerticalAlignment.Center });
