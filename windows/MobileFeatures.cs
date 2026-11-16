@@ -12,6 +12,9 @@ namespace Nightwell.Native;
 public partial class MainWindow {
  readonly CancellationTokenSource lifetime=new();
  readonly SemaphoreSlim audioGate=new(1,1);
+ readonly SemaphoreSlim prefetchGate=new(1,1);
+ string lastPrefetchSignature="";
+ long lastPrefetchSent;
  static readonly HttpClient artworkHTTP=new(){Timeout=TimeSpan.FromSeconds(12)};
  bool qualityReady,nextRequestBusy,sampleBusy,audioPlaying,nextPreparing,tasteLoaded,autoDownload,syncLyrics=true;
  long audioTime,audioLength,lastPrefetch;
@@ -59,10 +62,26 @@ public partial class MainWindow {
   }finally{if(staged!=null){var unused=staged;_=Task.Run(()=>{unused.Stop();unused.Dispose();});}nextPreparing=false;}
  }
  async Task Prefetch(){
-  if(account.Length==0)return;
-  var ids=queue.Skip(index+1).Take(12).Where(t=>t.LocalPath==null).Select(t=>t.id).ToArray();
+  // Do not compete with the startup audio stream. The server needs to focus
+  // on the current track before preparing just a few upcoming tracks.
+  if(account.Length==0||!audioPlaying||audioTime<400||lifetime.IsCancellationRequested)return;
+  var ids=queue.Skip(index+1).Where(t=>t.LocalPath==null)
+   .Select(t=>t.id).Distinct().Take(4).ToArray();
   if(ids.Length==0)return;
-  try{await api.Request("api/preload","POST",new{ids,current_id=currentID},lifetime.Token);}catch{}
+  string signature=account+"|"+string.Join(",",ids);
+  long now=Environment.TickCount64;
+  if(signature==lastPrefetchSignature&&now-lastPrefetchSent<90000)return;
+  if(!await prefetchGate.WaitAsync(0))return;
+  try{
+   // Record the attempt before making the request: even a slow upstream must
+   // not create a storm of identical preloads.
+   lastPrefetchSignature=signature;
+   lastPrefetchSent=now;
+   using var timeout=CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+   timeout.CancelAfter(TimeSpan.FromSeconds(10));
+   await api.Request("api/preload","POST",new{ids,current_id=currentID},timeout.Token);
+  }catch(OperationCanceledException){}catch(Exception){}
+  finally{prefetchGate.Release();}
  }
  async Task InitializeMobileFeatures(){
   StartDeviceSync();
