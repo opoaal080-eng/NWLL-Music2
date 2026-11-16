@@ -303,7 +303,7 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
   _=AudioCommand(ApplyVolume);
   if(wave&&queue.Count-index<8&&!refilling)_=Refill();
   UpdateListening();
-  if(Environment.TickCount64-lastPrefetch>12000){lastPrefetch=Environment.TickCount64;_=Prefetch();}
+  if(Environment.TickCount64-lastPrefetch>45000){lastPrefetch=Environment.TickCount64;_=Prefetch();}
  }
  string Time(double s)=>$"{(int)s/60}:{(int)s%60:00}";
  void SeekStart(object sender,MouseButtonEventArgs e)=>scrubbing=true;
