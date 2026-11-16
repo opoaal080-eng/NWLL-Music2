@@ -102,5 +102,12 @@ public partial class MainWindow
         RepeatButton.Content = NightwellIcons.Draw("repeat", 21);
         NavigationMenu.Content = NightwellIcons.Draw("playlist", 21);
         CollectionActions.Content = NightwellIcons.Draw("more", 20);
+        FullPrevious.Content = NightwellIcons.Draw("previous", 23);
+        FullNext.Content = NightwellIcons.Draw("next", 23);
+        MiniPrevious.Content = NightwellIcons.Draw("previous", 22);
+        MiniNext.Content = NightwellIcons.Draw("next", 22);
+        PlayerCloseButton.Content = NightwellIcons.Draw("down", 21);
+        PlayerMoreButton.Content = NightwellIcons.Draw("more", 21);
+        LyricsCloseButton.Content = NightwellIcons.Draw("close", 20);
     }
 }
