@@ -52,7 +52,8 @@ public partial class MainWindow
         desktopSidebar = CreateSidebar();
         Grid.SetColumn(desktopSidebar, 0);
         desktopShell.Children.Add(desktopSidebar);
-        existing.Margin = new Thickness(20, 18, 20, 18);
+        // The ambient scene owns the whole workspace, including header and mini-player.
+        existing.Margin = new Thickness(0);
         desktopWorkspace = existing;
         Grid.SetColumn(existing, 1);
         desktopShell.Children.Add(existing);
