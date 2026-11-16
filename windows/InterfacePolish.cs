@@ -16,7 +16,7 @@ public partial class MainWindow {
  void LeaveBackgroundMode(){if(backgroundOnly)RestoreSidebarAfterBackground();backgroundOnly=false;Status.ClearValue(VisibilityProperty);Header.Visibility=HomeControls.Visibility=HomeHeading.Visibility=PlaybackBadge.Visibility=Visibility.Visible;HeaderRow.Height=new GridLength(58);MouseDoubleClick-=RestoreBackground;}
  void UpdatePlaybackChrome(){
   PlayingTrackId=currentID;Ribbon.Playing=audioPlaying;Ribbon.Intensity=userVolume;Ribbon.Focused=PlayerPage.Visibility==Visibility.Visible;
-  FullLike.Content=MiniLike.Content=likes.Contains(currentID)?"♥":"♡";
+  SetHeartVector(likes.Contains(currentID));
   FullLike.ToolTip=MiniLike.ToolTip=likes.Contains(currentID)?"Убрать из избранного":"В избранное";
   PlaybackBadgeText.Text=Current==null?"ТВОЙ ПОТОК":audioPlaying?"СЕЙЧАС ИГРАЕТ":"НА ПАУЗЕ";
   PlaybackDot.Opacity=audioPlaying?1:.4;

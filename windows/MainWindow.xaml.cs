@@ -88,7 +88,7 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
 }catch(Exception ex){Status.Text="Не удалось запустить плеер: "+ex.Message;if(IsDesignPreview||Environment.GetCommandLineArgs().Contains("--native-smoke")){File.WriteAllText("ui-preview-error.txt",ex.ToString());Environment.ExitCode=1;Close();}}};Closed+=(_,_)=>{if(!IsDesignPreview)QueueSavePlayback();timer.Stop();searchCancellation?.Cancel();lyricsCancellation?.Cancel();lifetime.Cancel();_ = Task.Run(()=>{player?.Stop();player?.Dispose();vlc?.Dispose();proxy?.Dispose();api?.Dispose();});};}
  async Task Guard(Func<Task> action){try{await action();}catch(OperationCanceledException){}catch(Exception e){Status.Text=e.Message;}}
  List<Track> ParseTracks(JsonElement json)=>json.GetProperty("tracks").Deserialize<List<Track>>()??[];
- async Task LoadAccount(){await Guard(async()=>{var me=await api.Request("api/me");api.Csrf=me.GetProperty("csrf").GetString()??"";account=me.GetProperty("user").ValueKind==JsonValueKind.Object?me.GetProperty("user").GetProperty("id").GetString()??"":"";if(account.Length==0){Status.Text="Войди в аккаунт или открой офлайн-файлы";return;}var tasks=await Task.WhenAll(api.Request("api/tracks"),api.Request("api/likes"),api.Request("api/playlists"));catalog=ParseTracks(tasks[0]);likeOrder=tasks[1].GetProperty("ids").Deserialize<List<string>>()??[];likes=likeOrder.ToHashSet();playlists=tasks[2].GetProperty("playlists").Deserialize<List<Playlist>>()??[];Status.Text="";if(screen!="Поиск")Show(screen);});}
+ async Task LoadAccount(){await Guard(async()=>{var me=await api.Request("api/me");api.Csrf=me.GetProperty("csrf").GetString()??"";account=me.GetProperty("user").ValueKind==JsonValueKind.Object?me.GetProperty("user").GetProperty("id").GetString()??"":"";api.SetDeviceAccount(account);if(account.Length==0){Status.Text="Войди в аккаунт или открой офлайн-файлы";return;}await api.RegisterWindowsDevice();var tasks=await Task.WhenAll(api.Request("api/tracks"),api.Request("api/likes"),api.Request("api/playlists"));catalog=ParseTracks(tasks[0]);likeOrder=tasks[1].GetProperty("ids").Deserialize<List<string>>()??[];likes=likeOrder.ToHashSet();playlists=tasks[2].GetProperty("playlists").Deserialize<List<Playlist>>()??[];Status.Text="";if(screen!="Поиск")Show(screen);});}
  void Show(string next){searchCancellation?.Cancel();if(next!=screen)playlist="";screen=next;Dock.Visibility=Visibility.Visible;Home.Visibility=next=="Главная"?Visibility.Visible:Visibility.Collapsed;Library.Visibility=next=="Главная"?Visibility.Collapsed:Visibility.Visible;PlayerPage.Visibility=Visibility.Collapsed;Heading.Text=next;Ribbon.Visibility=next=="Главная"?Visibility.Visible:Visibility.Collapsed;Ribbon.Focused=false;LibraryEyebrow.Text=next=="Поиск"?"НАХОДИ НОВОЕ":"ТВОЯ МУЗЫКА";EmptyStateTitle.Text=next=="Поиск"?"Найди свою музыку":next=="Офлайн"?"Музыка всегда с тобой":"Твоя музыка будет здесь";EmptyStateBody.Text=next=="Поиск"?"Введи название трека или имя исполнителя":next=="Офлайн"?"Скачай треки или добавь файлы с компьютера":"Добавляй любимые треки и возвращайся к ним";SearchOptions.Visibility=SearchBox.Visibility=next=="Поиск"?Visibility.Visible:Visibility.Collapsed;CollectionActions.Visibility=next=="Поиск"?Visibility.Collapsed:Visibility.Visible;if(next=="Поиск"){SearchBox.Focus();shown=[];}else if(next=="Избранное"){shown=catalog.Where(t=>likes.Contains(t.id)).ToList();if(premiumSortAllowed&&favoriteOrder=="title")shown=shown.OrderBy(t=>t.title,StringComparer.CurrentCultureIgnoreCase).ToList();else if(premiumSortAllowed&&favoriteOrder=="artist")shown=shown.OrderBy(t=>t.artist,StringComparer.CurrentCultureIgnoreCase).ToList();else{var rank=likeOrder.Select((id,i)=>(id,i)).ToDictionary(t=>t.id,t=>t.i);shown=shown.OrderBy(t=>rank.GetValueOrDefault(t.id,int.MaxValue)).ToList();}}else if(next=="Офлайн"){shown=[];_=LoadOfflineTracksAsync();}Tracks.ItemsSource=shown;AfterDesktopNavigation(next);}
  async Task LoadOfflineTracksAsync(){try{
   var local=await Task.Run(ReadOffline);
@@ -150,7 +150,41 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
 
  void MenuClick(object sender,RoutedEventArgs e)=>ToggleDesktopSidebar();
  async void WaveClick(object sender,RoutedEventArgs e)=>await NewWave();
- async Task NewWave(){if(mixing)return;if(account.Length==0){Login();return;}mixing=true;Status.Text="Подбираем…";try{await Guard(async()=>{var exclude=mixRecent.Concat(queue.Take(8).Select(t=>t.id)).Append(currentID).Where(id=>id.Length>0).Distinct().TakeLast(200);string nonce=Guid.NewGuid().ToString("N");var result=await api.Request(WaveRoute+"?mix="+nonce+WaveQuery+"&exclude="+Uri.EscapeDataString(string.Join(',',exclude)));var next=ParseTracks(result).Where(t=>t.id!=currentID&&!hiddenTracks.Contains(t.id)).ToList();if(next.Count==0&&currentID.Length>0)next=ParseTracks(await api.Request(WaveRoute+"?mix="+nonce+WaveQuery+"&exclude="+currentID)).Where(t=>t.id!=currentID).ToList();if(next.Count==0){Status.Text="Новых треков пока нет. Попробуй чуть позже.";return;}queue=next;index=0;wave=true;TakePlaybackHere();PlayCurrent();Status.Text="";});}finally{mixing=false;}}
+ async Task NewWave(){
+  if(mixing)return;
+  if(account.Length==0){Login();return;}
+  mixing=true;
+  HomeWaveButton.IsEnabled=false;
+  HomeWaveButton.Content="Подбираем…";
+  HomeWaveNote.Text="";
+  HomeWaveNote.Visibility=Visibility.Collapsed;
+  try{
+   var exclude=mixRecent.Concat(queue.Take(8).Select(t=>t.id)).Append(currentID)
+     .Where(id=>id.Length>0).Distinct().TakeLast(200);
+   string nonce=Guid.NewGuid().ToString("N");
+   var response=await api.Request(WaveRoute+"?mix="+nonce+WaveQuery+
+      "&exclude="+Uri.EscapeDataString(string.Join(',',exclude)));
+   var next=ParseTracks(response).Where(t=>t.id!=currentID&&!hiddenTracks.Contains(t.id)).ToList();
+   if(next.Count==0 && currentID.Length>0){
+    response=await api.Request(WaveRoute+"?mix="+nonce+WaveQuery+
+       "&exclude="+Uri.EscapeDataString(currentID));
+    next=ParseTracks(response).Where(t=>t.id!=currentID).ToList();
+   }
+   if(next.Count==0){
+    HomeWaveNote.Text="Новых треков пока нет. Попробуй чуть позже.";
+    HomeWaveNote.Visibility=Visibility.Visible;
+    return;
+   }
+   queue=next;index=0;wave=true;TakePlaybackHere();PlayCurrent();
+  }catch(Exception ex){
+   HomeWaveNote.Text=ex.Message;
+   HomeWaveNote.Visibility=Visibility.Visible;
+  }finally{
+   mixing=false;
+   HomeWaveButton.Content="Новая подборка";
+   HomeWaveButton.IsEnabled=true;
+  }
+ }
 
  void VolumeChanged(object sender,RoutedPropertyChangedEventArgs<double> e){
     if(!volumeSettingReady || player==null || sender is not Slider slider)return;
@@ -260,9 +294,9 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
   if(!playing&&positionMs==0&&pausedAtMs>0&&audioLength>0)positionMs=pausedAtMs;
   double duration=Math.Max(1,audioLength/1000.0),position=positionMs/1000.0;
   SyncLyrics();
-  MiniLike.Content=likes.Contains(currentID)?"♥":"♡";
+  SetHeartVector(likes.Contains(currentID));
   MiniProgress.Width=Math.Max(0,Dock.ActualWidth-32)*Math.Clamp(positionMs/(double)Math.Max(1,audioLength),0,1);
-  MiniPlay.Content=HomePlay.Content=FullPlay.Content=playing?"\uE769":"\uE768";
+  SetPlayVector(MiniPlay,playing);SetPlayVector(HomePlay,playing);SetPlayVector(FullPlay,playing);
   UpdatePlaybackChrome();
   if(!scrubbing){FullSeek.Maximum=duration;FullSeek.Value=Math.Min(duration,position);}
   FullTime.Text=$"{Time(position)}    /    {Time(duration)}";

@@ -52,7 +52,8 @@ public partial class MainWindow
         desktopSidebar = CreateSidebar();
         Grid.SetColumn(desktopSidebar, 0);
         desktopShell.Children.Add(desktopSidebar);
-        existing.Margin = new Thickness(20, 18, 20, 18);
+        // The ambient scene owns the whole workspace, including header and mini-player.
+        existing.Margin = new Thickness(0);
         desktopWorkspace = existing;
         Grid.SetColumn(existing, 1);
         desktopShell.Children.Add(existing);
@@ -80,18 +81,26 @@ public partial class MainWindow
                 subtitle.TextAlignment = TextAlignment.Center;
             }
         }
-        if (HomeControls.Children.Count > 2 && HomeControls.Children[2] is StackPanel)
-            HomeControls.Children.RemoveAt(2);
 
         // Keep one compact home control in the title bar; the wordmark lives in the rail.
         LogoHome.Content = new TextBlock { Text = "N", FontSize = 31,
             FontWeight = FontWeights.Black, Foreground = Brushes.White,
             VerticalAlignment = VerticalAlignment.Center };
 
+        // Keep the player's blurred artwork continuous behind its top toolbar and controls.
+        PlayerPage.IsVisibleChanged += (_, _) =>
+        {
+            PlayerAmbientLayer.Visibility = PlayerPage.Visibility == Visibility.Visible
+                ? Visibility.Visible : Visibility.Collapsed;
+        };
+        PlayerAmbientLayer.Visibility = PlayerPage.Visibility == Visibility.Visible
+            ? Visibility.Visible : Visibility.Collapsed;
+        ApplyPlayerVectorIcons();
         CreatePlaylistDirectory();
         CreateQueuePane();
         CreateSettingsPane();
         CreateProfilePane();
+        CreateFamilyPane();
         UpdateSidebarSelection();
     }
 
@@ -139,7 +148,6 @@ public partial class MainWindow
         AddAction(list, "✧", "Подборки дня", () => _ = Guard(() => BrowsePlaylists(true)));
         AddAction(list, "⇩", "Перенести музыку", NativeTransfer);
         AddAction(list, "◇", "Nightwell Premium", OpenPremiumPane);
-        AddAction(list, "✦", "Только фон", () => BackgroundClick(this, new RoutedEventArgs()));
 
         dock.Children.Add(new ScrollViewer
         {
@@ -168,10 +176,10 @@ public partial class MainWindow
     Button RailButton(string symbol, string label)
     {
         var contents = new StackPanel { Orientation = Orientation.Horizontal, Width = 184 };
-        contents.Children.Add(new TextBlock
-        {
-            Text = symbol, FontSize = 19, Width = 32, VerticalAlignment = VerticalAlignment.Center
-        });
+        var icon = NightwellIcons.Draw(NightwellIcons.Symbol(symbol), 21);
+        icon.Margin = new Thickness(2, 0, 11, 0);
+        icon.VerticalAlignment = VerticalAlignment.Center;
+        contents.Children.Add(icon);
         contents.Children.Add(new TextBlock
         {
             Text = label, FontSize = 14, VerticalAlignment = VerticalAlignment.Center,
@@ -271,13 +279,22 @@ public partial class MainWindow
         badge.SetValue(FrameworkElement.HeightProperty, 44.0);
         badge.SetValue(Border.CornerRadiusProperty, new CornerRadius(12));
         badge.SetValue(Border.BackgroundProperty, SelectedBackground);
-        var symbol = new FrameworkElementFactory(typeof(TextBlock));
-        symbol.SetValue(TextBlock.TextProperty, "♫");
-        symbol.SetValue(TextBlock.FontSizeProperty, 23.0);
-        symbol.SetValue(TextBlock.ForegroundProperty, Brushes.White);
+        var overlay = new FrameworkElementFactory(typeof(Grid));
+        var symbol = new FrameworkElementFactory(typeof(System.Windows.Shapes.Path));
+        symbol.SetValue(System.Windows.Shapes.Path.DataProperty, Geometry.Parse("M8,18 V5 L20,3 V16 M8,9 L20,7 M8,18 C4,16 2,19 4,21 C7,23 10,21 10,19 M20,16 C16,14 13,17 15,20 C18,22 21,20 21,18"));
+        symbol.SetValue(System.Windows.Shapes.Path.StrokeProperty, Brushes.White);
+        symbol.SetValue(System.Windows.Shapes.Path.StrokeThicknessProperty, 1.75);
+        symbol.SetValue(FrameworkElement.WidthProperty, 24.0);
+        symbol.SetValue(FrameworkElement.HeightProperty, 24.0);
         symbol.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center);
         symbol.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
-        badge.AppendChild(symbol);
+        overlay.AppendChild(symbol);
+        var artwork = new FrameworkElementFactory(typeof(NativeArtworkView));
+        artwork.SetValue(FrameworkElement.WidthProperty, 42.0);
+        artwork.SetValue(FrameworkElement.HeightProperty, 42.0);
+        artwork.SetValue(UIElement.ClipProperty, new RectangleGeometry(new Rect(0, 0, 42, 42), 11, 11));
+        overlay.AppendChild(artwork);
+        badge.AppendChild(overlay);
         row.AppendChild(badge);
 
         var labels = new FrameworkElementFactory(typeof(StackPanel));
@@ -323,7 +340,7 @@ public partial class MainWindow
 
         libraryBackButton = new Button
         {
-            Content = "‹", FontSize = 25, Style = (Style)FindResource("IconButton"),
+            Content = NightwellIcons.Draw("back", 21), Style = (Style)FindResource("IconButton"),
             Visibility = Visibility.Collapsed, ToolTip = "Назад к плейлистам", Margin = new Thickness(0, 0, 9, 0)
         };
         libraryBackButton.Click += (_, _) => Show("Плейлисты");
@@ -383,14 +400,12 @@ public partial class MainWindow
         LibraryCount.Visibility = next == "Плейлисты" ? Visibility.Collapsed : Visibility.Visible;
         if (next == "Плейлисты")
         {
-            CollectionActions.Content = "+";
-            CollectionActions.FontFamily = new FontFamily("Segoe UI");
+            CollectionActions.Content = NightwellIcons.Draw("upload", 20);
             CollectionActions.ToolTip = "Создать плейлист";
         }
         else
         {
-            CollectionActions.Content = "\uE712";
-            CollectionActions.FontFamily = new FontFamily("Segoe MDL2 Assets");
+            CollectionActions.Content = NightwellIcons.Draw("more", 20);
             CollectionActions.ToolTip = "Действия с коллекцией";
         }
         UpdateSidebarSelection();
@@ -495,6 +510,7 @@ public partial class MainWindow
     {
         if (settingsPane != null) settingsPane.Visibility = Visibility.Collapsed;
         if (profilePane != null) profilePane.Visibility = Visibility.Collapsed;
+        if (familyPane != null) familyPane.Visibility = Visibility.Collapsed;
         if (queuePane != null) queuePane.Visibility = Visibility.Collapsed;
     }
 
@@ -612,6 +628,15 @@ public partial class MainWindow
             });
         };
         content.Children.Add(signOutButton);
+        var familyButton = RailButton("◉", "Устройства и семья");
+        familyButton.Content = new StackPanel { Orientation = Orientation.Horizontal, Children =
+        {
+            NightwellIcons.Draw("devices", 22),
+            new TextBlock { Text = "Устройства и семья", Margin = new Thickness(14, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center, FontSize = 14 }
+        } };
+        familyButton.Click += (_, _) => OpenFamilyPane();
+        content.Children.Add(familyButton);
         var continueButton = RailButton("◷", "Продолжить здесь");
         continueButton.Click += (_, _) => _ = Guard(ContinueHere);
         content.Children.Add(continueButton);
