@@ -38,7 +38,8 @@ public sealed class StreamProxy : IDisposable
         // Reject path traversal and keep the loopback endpoint narrowly scoped.
         path = path.TrimStart('/');
         if (path.Contains("..", StringComparison.Ordinal) ||
-            path.Contains('\\') || path.Contains('%'))
+            Uri.UnescapeDataString(path).Contains("..", StringComparison.Ordinal) ||
+            path.Contains('\\') || Uri.UnescapeDataString(path).Contains('\\'))
             return false;
         return path.StartsWith("api/audio-quality/stream/", StringComparison.Ordinal) ||
                path.StartsWith("api/stream/", StringComparison.Ordinal) ||
