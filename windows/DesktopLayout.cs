@@ -144,7 +144,7 @@ public partial class MainWindow
         dock.Children.Add(new ScrollViewer
         {
             Content = list,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
         });
         return rail;
