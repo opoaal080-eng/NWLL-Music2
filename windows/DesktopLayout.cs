@@ -27,6 +27,7 @@ public partial class MainWindow
     TextBlock? transitionText, normalizationText;
     CheckBox? autoDownloadsControl, syncedLyricsControl;
     bool settingsReady;
+    bool sidebarBeforeBackground = true;
 
     static readonly Brush RailBackground = new SolidColorBrush(Color.FromRgb(19, 19, 21));
     static readonly Brush PaneBackground = new SolidColorBrush(Color.FromRgb(18, 18, 20));
@@ -215,6 +216,43 @@ public partial class MainWindow
         NavigationMenu.ToolTip = expanded ? "Скрыть медиатеку" : "Показать медиатеку";
     }
 
+    void HideSidebarForBackground()
+    {
+        if (desktopSidebar == null || sidebarColumn == null) return;
+        sidebarBeforeBackground = desktopSidebar.Visibility == Visibility.Visible;
+        desktopSidebar.Visibility = Visibility.Collapsed;
+        sidebarColumn.Width = new GridLength(0);
+    }
+
+    void RestoreSidebarAfterBackground()
+    {
+        if (desktopSidebar == null || sidebarColumn == null) return;
+        desktopSidebar.Visibility = sidebarBeforeBackground ? Visibility.Visible : Visibility.Collapsed;
+        sidebarColumn.Width = new GridLength(sidebarBeforeBackground ? 224 : 0);
+    }
+
+    bool HandleDesktopEscape()
+    {
+        if ((settingsPane?.Visibility == Visibility.Visible) ||
+            (profilePane?.Visibility == Visibility.Visible) ||
+            (queuePane?.Visibility == Visibility.Visible))
+        {
+            CloseDesktopPanes();
+            return true;
+        }
+        if (playlist.Length > 0 && PlayerPage.Visibility != Visibility.Visible)
+        {
+            Show("Плейлисты");
+            return true;
+        }
+        return false;
+    }
+
+    async void LyricsButtonClick(object sender, RoutedEventArgs e)
+    {
+        if (Current != null) await Guard(() => Lyrics(Current));
+    }
+
     void CreatePlaylistDirectory()
     {
         if (Library.Children.OfType<Grid>().FirstOrDefault(g => Grid.GetRow(g) == 2) is not Grid tracksArea)
@@ -266,6 +304,8 @@ public partial class MainWindow
         PlayerPage.Visibility = Visibility.Collapsed;
         Dock.Visibility = Visibility.Visible;
         Ribbon.Visibility = Visibility.Collapsed;
+        shown = [];
+        Tracks.ItemsSource = shown;
         Heading.Text = chosen.name;
         LibraryEyebrow.Text = "ПЛЕЙЛИСТ";
         SearchOptions.Visibility = Visibility.Collapsed;
