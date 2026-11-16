@@ -31,7 +31,7 @@ public sealed class RibbonScene:FrameworkElement {
  void Refresh(){if(IsVisible&&IsLoaded&&owner?.WindowState!=WindowState.Minimized){if(!hooked){last=clock.Elapsed.TotalSeconds;CompositionTarget.Rendering+=Frame;hooked=true;}}else Detach();}
  void Detach(){if(hooked)CompositionTarget.Rendering-=Frame;hooked=false;}
  void Frame(object? sender,EventArgs args){
-  double now=clock.Elapsed.TotalSeconds;int fps=(RenderCapability.Tier>>16)==0?(Playing?15:4):(Playing?24:8);
+  double now=clock.Elapsed.TotalSeconds;int fps=(RenderCapability.Tier>>16)==0?(Playing?12:3):(Playing?18:4);
   if(now-last<1.0/fps)return;double dt=Math.Clamp(now-last,0,.12);last=now;
   energy+=( (Playing?.38+.38*Math.Clamp(Intensity,0,1):.10)-energy)*Math.Min(1,dt*2.0);
   speed+=((Playing?.19:.045)-speed)*Math.Min(1,dt*1.5);phase+=dt*speed;
