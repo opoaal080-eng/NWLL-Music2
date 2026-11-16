@@ -9,11 +9,11 @@
    <Grid x:Name="PlayerAmbientLayer" Grid.RowSpan="4" Visibility="Collapsed" Background="#0D0D0F" ClipToBounds="True" IsHitTestVisible="False">
       <Image x:Name="PlayerAmbientA" Opacity="0" Stretch="Fill" RenderOptions.BitmapScalingMode="HighQuality" RenderTransformOrigin=".5,.5">
        <Image.RenderTransform><ScaleTransform ScaleX="1.16" ScaleY="1.16"/></Image.RenderTransform>
-       <Image.Effect><BlurEffect Radius="50" RenderingBias="Performance"/></Image.Effect>
+       <Image.Effect><BlurEffect Radius="24" RenderingBias="Performance"/></Image.Effect>
       </Image>
       <Image x:Name="PlayerAmbientB" Opacity="0" Stretch="Fill" RenderOptions.BitmapScalingMode="HighQuality" RenderTransformOrigin=".5,.5">
        <Image.RenderTransform><ScaleTransform ScaleX="1.16" ScaleY="1.16"/></Image.RenderTransform>
-       <Image.Effect><BlurEffect Radius="50" RenderingBias="Performance"/></Image.Effect>
+       <Image.Effect><BlurEffect Radius="24" RenderingBias="Performance"/></Image.Effect>
       </Image>
       <Border Background="#6807090D"/>
       <Border>

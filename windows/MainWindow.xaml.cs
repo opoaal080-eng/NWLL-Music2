@@ -14,7 +14,7 @@ using Microsoft.Win32;
 namespace Nightwell.Native;
 public partial class MainWindow:Window {
  NativeAPI api=null!;StreamProxy proxy=null!;LibVLC vlc=null!;LibVLCSharp.Shared.MediaPlayer player=null!;
- readonly DispatcherTimer timer=new(){Interval=TimeSpan.FromMilliseconds(400)};
+ readonly DispatcherTimer timer=new(DispatcherPriority.Background){Interval=TimeSpan.FromMilliseconds(400)};
  int savePending;
  int normalization=0;
  bool playerAmbientAVisible;
@@ -81,7 +81,7 @@ vlc=new LibVLC(audioArgs.ToArray());player=new LibVLCSharp.Shared.MediaPlayer(vl
 VolumeSlider.Value=FullVolumeSlider.Value=userVolume*100;
 MiniVolumeValue.Text=FullVolumeValue.Text=Math.Round(userVolume*100).ToString("0")+"%";
 volumeSettingReady=true;
-player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatcher.InvokeAsync(()=>Advance());player.EncounteredError+=(_,_)=>Dispatcher.InvokeAsync(()=>Status.Text="Не удалось воспроизвести трек. Проверь подключение и повтори попытку.");timer.Tick+=(_,_)=>Tick();timer.Start();
+player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatcher.InvokeAsync(()=>Advance());player.EncounteredError+=(_,_)=>Dispatcher.InvokeAsync(()=>Status.Text="Не удалось воспроизвести трек. Проверь подключение и повтори попытку.");timer.Tick+=(_,_)=>Tick();timer.Start();StartResponsivenessMonitor();
  if(Environment.GetCommandLineArgs().Contains("--native-smoke")){
   await Task.Delay(1200);var bitmap=new RenderTargetBitmap((int)ActualWidth,(int)ActualHeight,96,96,PixelFormats.Pbgra32);bitmap.Render(this);var encoder=new PngBitmapEncoder();encoder.Frames.Add(BitmapFrame.Create(bitmap));using(var file=File.Create("windows-native-smoke.png"))encoder.Save(file);Close();
  }else {await LoadAccount();await RestorePlaybackAsync();await InitializeMobileFeatures();}
@@ -96,7 +96,11 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
   shown=local;Tracks.ItemsSource=local;
  }catch(Exception ex){if(screen=="Офлайн")Status.Text="Не удалось открыть офлайн-файлы: "+ex.Message;}}
  void SearchClick(object sender,RoutedEventArgs e)=>Show("Поиск");
- async void SearchChanged(object sender,TextChangedEventArgs e){if(screen!="Поиск")return;searchCancellation?.Cancel();searchCancellation=new();var cancellation=searchCancellation.Token;string query=SearchBox.Text.Trim();if(query.Length==0){Tracks.ItemsSource=new List<Track>();return;}await Guard(async()=>{await Task.Delay(300,cancellation);var local=await Task.Run(()=>catalog.Where(t=>(t.title+" "+t.artist).Contains(query,StringComparison.OrdinalIgnoreCase)).ToList(),cancellation);cancellation.ThrowIfCancellationRequested();shown=local;Tracks.ItemsSource=shown;Status.Text="Ищем полные версии…";for(int i=0;i<30;i++){var result=await api.Request("api/tracks?q="+Uri.EscapeDataString(query),cancellation:cancellation);cancellation.ThrowIfCancellationRequested();shown=ParseTracks(result);Tracks.ItemsSource=shown;Status.Text=result.TryGetProperty("search_message",out var message)?message.GetString():"";if(!result.TryGetProperty("search_pending",out var pending)||!pending.GetBoolean())break;await Task.Delay(2000,cancellation);}});}
+ async void SearchChanged(object sender,TextChangedEventArgs e){if(screen!="Поиск")return;searchCancellation?.Cancel();searchCancellation=new();var cancellation=searchCancellation.Token;string query=SearchBox.Text.Trim();if(query.Length==0){Tracks.ItemsSource=new List<Track>();return;}await Guard(async()=>{await Task.Delay(300,cancellation);var local=await Task.Run(()=>catalog.Where(t=>(t.title+" "+t.artist).Contains(query,StringComparison.OrdinalIgnoreCase)).ToList(),cancellation);cancellation.ThrowIfCancellationRequested();shown=local;Tracks.ItemsSource=shown;Status.Text="Ищем полные версии…";for(int i=0;i<30;i++){var result=await api.Request("api/tracks?q="+Uri.EscapeDataString(query),cancellation:cancellation);cancellation.ThrowIfCancellationRequested();var latest=await Task.Run(()=>ParseTracks(result),cancellation);
+if(latest.Count!=shown.Count || !latest.Select(t=>(t.id,t.title,t.artist)).SequenceEqual(shown.Select(t=>(t.id,t.title,t.artist)))){
+  shown=latest;Tracks.ItemsSource=shown;
+}
+Status.Text=result.TryGetProperty("search_message",out var message)?message.GetString():"";if(!result.TryGetProperty("search_pending",out var pending)||!pending.GetBoolean())break;await Task.Delay(2000,cancellation);}});}
 
  async Task SortFavorites(){
   await Guard(async()=>{
@@ -192,25 +196,10 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
     if(!ReferenceEquals(slider,VolumeSlider))VolumeSlider.Value=userVolume*100;
     if(!ReferenceEquals(slider,FullVolumeSlider))FullVolumeSlider.Value=userVolume*100;
     MiniVolumeValue.Text=FullVolumeValue.Text=Math.Round(userVolume*100).ToString("0")+"%";
-    _=AudioCommand(ApplyVolume);
+    ScheduleVolumeUpdate();
     SaveSettings();
  }
- void ApplyVolume(){
-    if(player==null)return;
-    double gain=1;
-    if(transition>0 && player.IsPlaying){
-      double seconds=Math.Max(0,player.Time/1000.0);
-      double duration=Math.Max(0,player.Length/1000.0);
-      double span=duration>0.2?Math.Min(transition,duration/4):transition;
-      if(span>0){
-        gain=Math.Clamp(seconds/span,0,1);
-        if(duration>0.2&&(index+1<queue.Count||wave||repeat>0))
-          gain=Math.Min(gain,Math.Clamp((duration-seconds)/span,0,1));
-      }
-    }
-    var volume=(int)Math.Round(100*Math.Clamp(userVolume*gain,0,1));
-    if(player.Volume!=volume)player.Volume=volume;
- }
+
  async void ToggleClick(object sender,RoutedEventArgs e){if(Current==null){await NewWave();return;}if(roomCode.Length>0){await Guard(()=>RoomCommand(audioPlaying?"pause":"play"));return;}TakePlaybackHere();await AudioCommand(()=>{if(player.IsPlaying){pausedAtMs=Math.Max(0,player.Time);player.Pause();}else player.Play();});}
  async void TrackDoubleClick(object sender,MouseButtonEventArgs e){if(Tracks.SelectedItem is Track t){if(roomCode.Length>0){await Guard(()=>RoomCommand("track",t.id));return;}TakePlaybackHere();queue=shown.ToList();index=queue.FindIndex(v=>v.id==t.id);wave=false;PlayCurrent();}}
  void PlayCurrent(){nextCancellation?.Cancel();var t=Current;if(t==null)return;pausedAtMs=0;var local=LocalAudioPath(t);if(local==null&&account.Length==0){Login();return;}string path=local??StreamPath(t);_=AudioCommand(()=>{using var media=new Media(vlc,path,local==null?FromType.FromLocation:FromType.FromPath);player.Play(media);});lyricsCancellation?.Cancel();currentLyrics=null;lyricsID="";renderedLyric=int.MinValue;currentID=t.id;ActiveArtwork=null;Ribbon.ResetPalette();PlayingTrackId=t.id;UpdatePlaybackChrome();mixRecent.Enqueue(t.id);while(mixRecent.Count>120)mixRecent.Dequeue();MiniTitle.Text=FullTitle.Text=t.title;MiniArtist.Text=FullArtist.Text=t.artist;LyricsText.Text="";LyricsPanel.Visibility=Visibility.Collapsed;Cover.Visibility=Visibility.Visible;if(Uri.TryCreate(api.Origin,t.cover_url??("api/covers/"+t.id),out var coverURI)&&coverURI.Scheme=="https")_=LoadCover(coverURI,t.id);else {Cover.Source=MiniCover.Source=null;SetPlayerAmbient(null);}RecordTrackStart();Dock.BeginAnimation(OpacityProperty,new System.Windows.Media.Animation.DoubleAnimation(.6,1,TimeSpan.FromSeconds(.7)));}
@@ -278,8 +267,18 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
  void Advance(){if(nextPreparing||queue.Count==0)return;if(repeat==2){PlayCurrent();return;}if(wave&&index+1>=queue.Count){_=Refill();return;}if(shuffle&&queue.Count>1)index=(index+Random.Shared.Next(1,queue.Count))%queue.Count;else if(index+1<queue.Count)index++;else if(repeat==1)index=0;else return;PlayCurrent();}
  async Task Refill(){if(refilling||!wave||account.Length==0)return;refilling=true;await Guard(async()=>{var exclude=string.Join(',',queue.TakeLast(150).Select(t=>t.id));var value=await api.Request(WaveRoute+"?"+WaveQuery.TrimStart('&')+"&exclude="+Uri.EscapeDataString(exclude));var ids=queue.Select(t=>t.id).ToHashSet();var fresh=ParseTracks(value).Where(t=>!ids.Contains(t.id)).ToList();queue.AddRange(fresh);if(!audioPlaying&&!nextPreparing&&index+1<queue.Count){index++;PlayCurrent();}});refilling=false;}
  async void Tick(){
-  if(Current==null||sampleBusy)return; sampleBusy=true;
-  try {var sample=await Task.Run(()=>(player.IsPlaying,player.Time,player.Length),lifetime.Token);audioPlaying=sample.IsPlaying;audioTime=sample.Time;audioLength=sample.Length;RefreshPlaybackUI();}catch(OperationCanceledException){}catch{}finally{sampleBusy=false;}
+  if(Current==null||sampleBusy || !await audioGate.WaitAsync(0))return;
+  sampleBusy=true;
+  try {
+   // A playback switch, seek, and timer sample cannot enter native VLC together.
+   var sample=await Task.Run(()=>{
+    var active=player;
+    return (IsPlaying:active.IsPlaying,Time:active.Time,Length:active.Length);
+   },lifetime.Token);
+   audioPlaying=sample.IsPlaying;audioTime=sample.Time;audioLength=sample.Length;
+  }catch(OperationCanceledException){}catch{}
+  finally{audioGate.Release();sampleBusy=false;}
+  if(!lifetime.IsCancellationRequested)RefreshPlaybackUI();
  }
  void RefreshPlaybackUI(){
   if(Environment.TickCount64-savedAt>15000){savedAt=Environment.TickCount64;QueueSavePlayback();}
@@ -300,7 +299,7 @@ player.Volume=(int)Math.Round(userVolume*100);player.EndReached+=(_,_)=>Dispatch
   UpdatePlaybackChrome();
   if(!scrubbing){FullSeek.Maximum=duration;FullSeek.Value=Math.Min(duration,position);}
   FullTime.Text=$"{Time(position)}    /    {Time(duration)}";
-  _=AudioCommand(ApplyVolume);
+  ScheduleVolumeUpdate();
   if(wave&&queue.Count-index<8&&!refilling)_=Refill();
   UpdateListening();
   if(playing&&audioTime>400&&Environment.TickCount64-lastPrefetch>12000){lastPrefetch=Environment.TickCount64;_=Prefetch();}
