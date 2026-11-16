@@ -91,7 +91,7 @@ public partial class MainWindow
             if (bitmap != null && Equals(image.Tag, key))
                 image.Source = bitmap;
             // Once complete, the image belongs to the bounded memory cache.
-            if (task.IsCompleted) artworkPending.TryRemove(new System.Collections.Generic.KeyValuePair<string, Task<BitmapSource?>>(key, task));
+            if (task.IsCompleted) artworkPending.TryRemove(key, out _);
         }
         catch (Exception) { /* A broken cover must never prevent a track from being displayed. */ }
     }
