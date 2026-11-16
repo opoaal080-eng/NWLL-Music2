@@ -13,7 +13,7 @@ public partial class MainWindow {
  public ImageSource? ActiveArtwork{get=>(ImageSource?)GetValue(ActiveArtworkProperty);set=>SetValue(ActiveArtworkProperty,value);}
  bool backgroundOnly;
  void LogoHomeClick(object sender,RoutedEventArgs e){LeaveBackgroundMode();Show("Главная");}
- void LeaveBackgroundMode(){backgroundOnly=false;Status.ClearValue(VisibilityProperty);Header.Visibility=HomeControls.Visibility=HomeHeading.Visibility=PlaybackBadge.Visibility=Visibility.Visible;HeaderRow.Height=new GridLength(58);MouseDoubleClick-=RestoreBackground;}
+ void LeaveBackgroundMode(){if(backgroundOnly)RestoreSidebarAfterBackground();backgroundOnly=false;Status.ClearValue(VisibilityProperty);Header.Visibility=HomeControls.Visibility=HomeHeading.Visibility=PlaybackBadge.Visibility=Visibility.Visible;HeaderRow.Height=new GridLength(58);MouseDoubleClick-=RestoreBackground;}
  void UpdatePlaybackChrome(){
   PlayingTrackId=currentID;Ribbon.Playing=audioPlaying;Ribbon.Intensity=userVolume;Ribbon.Focused=PlayerPage.Visibility==Visibility.Visible;
   FullLike.Content=MiniLike.Content=likes.Contains(currentID)?"♥":"♡";
@@ -26,7 +26,7 @@ public partial class MainWindow {
  void SetMode(Button button,bool active){if(button.Tag is bool previous&&previous==active)return;button.Tag=active;button.Background=active?(Brush)FindResource("SelectionBrush"):Brushes.Transparent;button.Foreground=(Brush)FindResource(active?"AccentBrush":"TextBrush");button.BorderBrush=active?(Brush)FindResource("LineBrush"):Brushes.Transparent;}
  void InterfaceKeyDown(object sender,KeyEventArgs e){
   if(Keyboard.FocusedElement is TextBox or PasswordBox or ComboBox)return;
-  if(e.Key==Key.Escape){if(backgroundOnly){LeaveBackgroundMode();Show("Главная");}else if(LyricsPanel.Visibility==Visibility.Visible)CloseLyricsClick(sender,e);else if(PlayerPage.Visibility==Visibility.Visible)Show(screen);else Show("Главная");e.Handled=true;}
+  if(e.Key==Key.Escape){if(HandleDesktopEscape()){e.Handled=true;return;}if(backgroundOnly){LeaveBackgroundMode();Show("Главная");}else if(LyricsPanel.Visibility==Visibility.Visible)CloseLyricsClick(sender,e);else if(PlayerPage.Visibility==Visibility.Visible)Show(screen);else Show("Главная");e.Handled=true;}
   else if(e.Key==Key.Space&&Keyboard.FocusedElement is not System.Windows.Controls.Primitives.ButtonBase){ToggleClick(sender,e);e.Handled=true;}
  }
  static (Color,Color) ArtworkPalette(BitmapSource source){

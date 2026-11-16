@@ -46,7 +46,12 @@ public partial class MainWindow {
   LogoHome.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));if(Home.Visibility!=Visibility.Visible||PlayerPage.Visibility!=Visibility.Collapsed||currentID!=demo[0].id)throw new InvalidOperationException("Logo navigation changed playback");
   Ribbon.Visibility=Visibility.Collapsed;await Dispatcher.InvokeAsync(()=>{},DispatcherPriority.Render);long frames=Ribbon.RenderedFrames;await Task.Delay(200);if(Ribbon.RenderedFrames!=frames)throw new InvalidOperationException("Hidden background is still rendering");Ribbon.Visibility=Visibility.Visible;
   Login();var login=Application.Current.Windows.OfType<Window>().Last(w=>w!=this);await PreviewWindow(login,"11-login");login.Close();
-  File.WriteAllText("ui-previews/checks.json",JsonSerializer.Serialize(new{theme="monochrome-ambient",states=14,logoNavigation=true,hiddenBackgroundStopped=true,networkRequests=0,compactWidth=800,compactHeight=620,primaryContrast=Contrast(BrushHex("TextBrush"),BrushHex("SurfaceBrush")),secondaryContrast=Contrast(BrushHex("SecondaryBrush"),BrushHex("InputBrush"))}));
+  Show("Главная");OpenSettingsPane();await PreviewWindow(this,"15-settings-workspace");CloseDesktopPanes();
+  account="preview";OpenProfilePane();await PreviewWindow(this,"16-profile-workspace");CloseDesktopPanes();
+  playlists=[new(){id="preview-collection-1",name="Ночная дорога"},new(){id="preview-collection-2",name="Избранные открытия"},new(){id="preview-collection-3",name="После полуночи"}];
+  Show("Плейлисты");await PreviewWindow(this,"17-playlists-workspace");
+  Show("Главная");ToggleDesktopQueue(true);await PreviewWindow(this,"18-queue-workspace");ToggleDesktopQueue(false);
+  File.WriteAllText("ui-previews/checks.json",JsonSerializer.Serialize(new{theme="monochrome-ambient",states=18,logoNavigation=true,hiddenBackgroundStopped=true,networkRequests=0,compactWidth=800,compactHeight=620,primaryContrast=Contrast(BrushHex("TextBrush"),BrushHex("SurfaceBrush")),secondaryContrast=Contrast(BrushHex("SecondaryBrush"),BrushHex("InputBrush"))}));
  }
  string BrushHex(string key){var color=((SolidColorBrush)FindResource(key)).Color;return $"{color.R:X2}{color.G:X2}{color.B:X2}";}
  async Task PreviewWindow(Window window,string name){await Task.Delay(120);window.UpdateLayout();await Dispatcher.InvokeAsync(()=>{},DispatcherPriority.Render);await PreviewElement(window,name);}

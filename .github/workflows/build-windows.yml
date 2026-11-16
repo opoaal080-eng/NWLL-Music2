@@ -1,6 +1,10 @@
 name: Build Nightwell Music Windows (Recovered)
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - 'windows/**'
+      - '.github/workflows/build-windows.yml'
   push:
     branches: [main]
     paths:
@@ -22,6 +26,25 @@ jobs:
           dotnet-version: '8.0.x'
       - name: Publish Windows app
         run: dotnet publish windows/Nightwell.Native.csproj -c Release -r win-x64 --self-contained true -o publish
+      - name: Render UI smoke previews
+        shell: pwsh
+        run: |
+          $exe = Join-Path $PWD 'publish\Nightwell Music.exe'
+          if (!(Test-Path $exe)) { throw 'Published executable not found' }
+          $p = Start-Process -FilePath $exe -ArgumentList '--design-preview' -PassThru -WorkingDirectory $PWD
+          if (!$p.WaitForExit(90000)) { $p.Kill(); throw 'UI preview timed out' }
+          if ($p.ExitCode -ne 0) {
+            if (Test-Path 'ui-preview-error.txt') { Get-Content 'ui-preview-error.txt' }
+            throw "UI preview exited with $($p.ExitCode)"
+          }
+          if (!(Test-Path 'ui-previews/checks.json')) { throw 'UI preview result missing' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Nightwell-Music-Windows-UI-Previews
+          path: |
+            ui-previews/**
+            ui-preview-error.txt
       - name: Build Windows installer (Inno Setup)
         shell: pwsh
         run: |

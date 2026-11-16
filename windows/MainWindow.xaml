@@ -50,7 +50,7 @@
     <Grid x:Name="Library" Visibility="Collapsed" Margin="24">
      <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
      <Grid Margin="0,0,0,16"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-      <StackPanel><TextBlock x:Name="LibraryEyebrow" Text="ТВОЯ МУЗЫКА" Style="{StaticResource Caption}"/><TextBlock x:Name="Heading" Text="Поиск" FontSize="28" FontWeight="SemiBold" Margin="0,6,0,0"/><TextBlock Foreground="{StaticResource MutedBrush}" FontSize="11" Margin="0,6,0,0" Text="{Binding Items.Count,ElementName=Tracks,Converter={StaticResource TrackCount}}"/></StackPanel>
+      <StackPanel><TextBlock x:Name="LibraryEyebrow" Text="ТВОЯ МУЗЫКА" Style="{StaticResource Caption}"/><TextBlock x:Name="Heading" Text="Поиск" FontSize="28" FontWeight="SemiBold" Margin="0,6,0,0"/><TextBlock x:Name="LibraryCount" Foreground="{StaticResource MutedBrush}" FontSize="11" Margin="0,6,0,0" Text="{Binding Items.Count,ElementName=Tracks,Converter={StaticResource TrackCount}}"/></StackPanel>
       <Button x:Name="CollectionActions" Grid.Column="1" Content="&#xE712;" FontFamily="Segoe MDL2 Assets" Style="{StaticResource IconButton}" Click="CollectionClick" VerticalAlignment="Bottom" ToolTip="Действия с коллекцией"/>
      </Grid>
      <StackPanel x:Name="SearchOptions" Grid.Row="1" Margin="0,0,0,16">
@@ -117,7 +117,7 @@
         <Border Width="360" Height="360" CornerRadius="22" Background="#262626" BorderBrush="#454545" BorderThickness="1">
          <Border.Clip><RectangleGeometry Rect="0,0,360,360" RadiusX="22" RadiusY="22"/></Border.Clip>
          <Grid><TextBlock Text="&#xE8D6;" FontFamily="Segoe MDL2 Assets" FontSize="72" Foreground="#5A5A5A" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-          <Image x:Name="Cover" Stretch="UniformToFill" Width="358" Height="358" MouseLeftButtonUp="CoverLyricsClick" Cursor="Hand" ToolTip="Открыть текст песни"/>
+          <Image x:Name="Cover" Stretch="UniformToFill" Width="358" Height="358" ToolTip="Обложка текущего трека"/>
          </Grid>
         </Border>
        </Viewbox>
@@ -146,7 +146,7 @@
         <Slider Grid.Column="1" x:Name="FullVolumeSlider" Minimum="0" Maximum="100" Value="100" ValueChanged="VolumeChanged" AutoToolTipPlacement="TopLeft" AutoToolTipPrecision="0" AutomationProperties.Name="Громкость"/>
         <TextBlock Grid.Column="2" x:Name="FullVolumeValue" Text="100%" Foreground="{StaticResource SecondaryBrush}" FontSize="12" TextAlignment="Right" VerticalAlignment="Center"/>
        </Grid>
-       <Button Content="Очередь воспроизведения" Click="QueueClick" Style="{StaticResource QuietButton}" FontSize="12" Margin="0,7,0,0"/>
+       <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,10,0,0"><Button Content="Текст песни" Click="LyricsButtonClick" Style="{StaticResource QuietButton}" FontSize="12" Margin="0,0,8,0"/><Button Content="Очередь" Click="QueueClick" Style="{StaticResource QuietButton}" FontSize="12"/></StackPanel>
       </StackPanel></Viewbox></Border>
       </Grid>
      </Grid>
