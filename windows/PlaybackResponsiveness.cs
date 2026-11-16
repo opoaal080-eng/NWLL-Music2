@@ -72,7 +72,7 @@ public partial class MainWindow
         catch (Exception ex)
         {
             Volatile.Write(ref appliedVolume, Volatile.Read(ref desiredVolume));
-            AppendResponsivenessLog("Audio volume command: " + ex.GetType().Name);
+            _ = Task.Run(() => AppendResponsivenessLog("Audio volume command: " + ex.GetType().Name));
         }
         finally
         {
