@@ -291,14 +291,21 @@ public partial class MainWindow
         }, true));
     }
 
-    void CreateFamilyInvite() => _ = FamilyOperation(async () =>
+    void CreateFamilyInvite() => _ = CreateFamilyInviteAsync();
+
+    async Task CreateFamilyInviteAsync()
     {
-        var response = await api.Request("api/family/invitations", "POST");
-        string link = SafeText(response, "invite_url");
-        if (link.Length == 0) throw new InvalidOperationException("Сервер не вернул ссылку приглашения");
-        Clipboard.SetText(link);
-        SetFamilyMessage("Ссылка скопирована в буфер обмена. Отправь её участнику.");
-    });
+        try
+        {
+            var response = await api.Request("api/family/invitations", "POST");
+            string link = SafeText(response, "invite_url");
+            if (link.Length == 0) throw new InvalidOperationException("Сервер не вернул ссылку приглашения");
+            Clipboard.SetText(link);
+            await RefreshFamilyPane();
+            SetFamilyMessage("Ссылка скопирована. Отправь её участнику.");
+        }
+        catch (Exception ex) { SetFamilyMessage(ex.Message); }
+    }
 
     bool ConfirmFamily(string question) => MessageBox.Show(this, question, "Nightwell Music",
         MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes;
