@@ -31,7 +31,7 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
     private var fractions: [String: Double] = [:]
     private var completedKeys = Set<String>()
     private var lastProgressNotification: [String: Date] = [:]
-    private var ready = false
+    private var reconciling = false
     private var eventCompletion: (() -> Void)?
     private lazy var session: URLSession = {
         let config = URLSessionConfiguration.background(withIdentifier: Self.identifier)
@@ -70,16 +70,23 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
         lock.lock(); eventCompletion = completion; lock.unlock()
         prepareForSystemEvents()
     }
+    // Reconcile on launch and when the user returns to the app. A one-time
+    // ready flag left orphaned jobs stuck forever if a system task disappeared.
     func reconnect() {
-        lock.lock(); defer { lock.unlock() }
-        guard !ready else { return }; ready = true
-        let recovering = Array(state.jobs.values)
+        lock.lock()
+        guard !reconciling else { lock.unlock(); return }
+        reconciling = true
+        lock.unlock()
         session.getAllTasks { tasks in
             self.lock.lock(); defer { self.lock.unlock() }
             let existing = Set(tasks.compactMap(\.taskDescription))
-            // Tasks canceled by a user force-quit are absent on the next manual launch.
-            for job in recovering where self.state.jobs[job.key] != nil && !existing.contains(job.key) { self.submit(job) }
-            for task in tasks where task.taskDescription.flatMap({ self.state.jobs[$0] }) == nil { task.cancel() }
+            for job in self.state.jobs.values where !existing.contains(job.key) {
+                self.submit(job)
+            }
+            for task in tasks where task.taskDescription.flatMap({ self.state.jobs[$0] }) == nil {
+                task.cancel()
+            }
+            self.reconciling = false
             self.publish()
         }
     }
@@ -103,7 +110,7 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
         }
         persist(); publish()
     }
-    private func submit(_ job: Job) {
+    private func submit(_ job: Job, retryAfter: TimeInterval = 0) {
         // Retries are a new transfer; do not carry over 100% from a preparation response.
         fractions.removeValue(forKey: job.key)
         lastProgressNotification.removeValue(forKey: job.key)
@@ -119,8 +126,10 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
         let task = session.downloadTask(with: request)
         task.taskDescription = job.key
         if job.attempts > 0 {
-            task.earliestBeginDate = Date().addingTimeInterval(
-                Double(min(30, 5 + job.attempts * 4)))
+            // Back off when the server is preparing a file, rate-limiting, or
+            // temporarily unavailable. This is persisted through app restarts.
+            let delay = min(180.0, 3.0 * pow(1.7, Double(min(job.attempts, 14))))
+            task.earliestBeginDate = Date().addingTimeInterval(max(delay, retryAfter))
         }
         task.resume()
     }
@@ -139,17 +148,41 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
         if success { state.added += 1; completedKeys.insert(key) } else { state.failed += 1 }
         persist(); publish()
     }
+    // Retry temporary server errors instead of silently dropping the track.
+    // Permanent errors (401/403/404) still fail promptly.
+    @discardableResult
+    private func scheduleRetry(_ task: URLSessionTask, retryAfter: TimeInterval = 0) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard let key = task.taskDescription, var job = state.jobs[key],
+              job.attempts < 24 else { return false }
+        job.attempts += 1
+        state.jobs[key] = job
+        persist()
+        submit(job, retryAfter: retryAfter)
+        publish()
+        return true
+    }
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
         lock.lock(); let job = downloadTask.taskDescription.flatMap { state.jobs[$0] }; lock.unlock()
-        guard var job, let http = downloadTask.response as? HTTPURLResponse else { finish(downloadTask, success: false); return }
-        let size = (try? location.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-        var waiting = http.statusCode == 503
-        // Compatibility with servers that still return preparation JSON for download=true.
-        if http.statusCode == 200, size < 65536, let bytes = try? Data(contentsOf: location), let status = (try? JSONSerialization.jsonObject(with: bytes) as? [String: Any])?["status"] as? String { waiting = status == "loading" || status == "pending" }
-        if waiting && job.attempts < 8 {
-            lock.lock(); job.attempts += 1; state.jobs[job.key] = job; persist(); submit(job); publish(); lock.unlock(); return
+        guard let job, let http = downloadTask.response as? HTTPURLResponse else {
+            finish(downloadTask, success: false); return
         }
-        guard http.statusCode == 200, !waiting else { finish(downloadTask, success: false); return }
+        let statusCode = http.statusCode
+        let size = (try? location.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        var waiting = statusCode == 202
+        // Some server versions return "loading" or "pending" while they
+        // prepare an offline file. Don't mistake that JSON for an audio error.
+        if statusCode == 200, size < 65536,
+           let bytes = try? Data(contentsOf: location),
+           let status = (try? JSONSerialization.jsonObject(with: bytes) as? [String: Any])?["status"] as? String {
+            waiting = ["loading", "pending", "processing"].contains(status.lowercased())
+        }
+        let retryable = [408, 425, 429, 500, 502, 503, 504].contains(statusCode)
+        if waiting || retryable {
+            let retryAfter = TimeInterval(http.value(forHTTPHeaderField: "Retry-After") ?? "") ?? 0
+            if scheduleRetry(downloadTask, retryAfter: min(max(0, retryAfter), 900)) { return }
+        }
+        guard statusCode == 200, !waiting else { finish(downloadTask, success: false); return }
         do {
             try OfflineStore.saveDownloadedFile(location, track: job.track, origin: job.origin, account: job.account)
             finish(downloadTask, success: true)
@@ -163,15 +196,7 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
               [URLError.Code.timedOut, .networkConnectionLost, .notConnectedToInternet,
                .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed,
                .backgroundSessionWasDisconnected].contains(code) else { return false }
-        lock.lock(); defer { lock.unlock() }
-        guard let key = task.taskDescription, var job = state.jobs[key],
-              job.attempts < 8 else { return false }
-        job.attempts += 1
-        state.jobs[key] = job
-        persist()
-        submit(job)
-        publish()
-        return true
+        return scheduleRetry(task)
     }
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         guard let error else { return }
