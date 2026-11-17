@@ -1,6 +1,9 @@
 
 import SwiftUI
 import WidgetKit
+import AppIntents
+import Security
+import CryptoKit
 
 private struct NWEntry: TimelineEntry {
     let date: Date
@@ -26,6 +29,153 @@ private struct NWProvider: TimelineProvider {
         return NWEntry(date: .now, snapshot: data, cover: NWWidgetStorage.cover(for: data))
     }
 }
+// Unlike App Group storage, widget pairing works even when the installed
+// app and extension cannot share a container. A single-use code is exchanged
+// for a revocable, high-entropy token kept only by the widget extension.
+struct NWPairWidgetIntent: WidgetConfigurationIntent {
+    static var title: LocalizedStringResource = "Nightwell Music"
+    static var description = IntentDescription("Введи код из Профиль → Виджеты.")
+
+    @Parameter(title: "Код привязки")
+    var code: String
+
+    init() { code = "" }
+}
+
+private enum NWPairTokenKeychain {
+    private static let service = "fun.nightwell.music.widget.pairing.v1"
+    private static func account(_ code: String) -> String {
+        SHA256.hash(data: Data(code.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+    private static func query(_ code: String) -> [String: Any] {
+        [kSecClass as String: kSecClassGenericPassword,
+         kSecAttrService as String: service,
+         kSecAttrAccount as String: account(code)]
+    }
+    static func read(_ code: String) -> String? {
+        var query = query(code)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+              let bytes = result as? Data else { return nil }
+        return String(data: bytes, encoding: .utf8)
+    }
+    static func store(_ token: String, for code: String) -> Bool {
+        var item = query(code)
+        SecItemDelete(item as CFDictionary)
+        item[kSecValueData as String] = Data(token.utf8)
+        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        return SecItemAdd(item as CFDictionary, nil) == errSecSuccess
+    }
+    static func remove(_ code: String) { SecItemDelete(query(code) as CFDictionary) }
+}
+
+private struct NWPairResponse: Decodable { let token: String }
+private struct NWRemoteState: Decodable {
+    let track_id: String
+    let title: String
+    let artist: String
+    let playing: Bool
+    let has_cover: Bool
+}
+
+private enum NWWidgetRemote {
+    private static let origin = URL(string: "https://music.nightwell.fun")!
+    private static let session: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 12
+        config.httpShouldSetCookies = false
+        config.urlCache = nil
+        return URLSession(configuration: config)
+    }()
+    static func load(code: String) async -> NWEntry {
+        let normalized = code.uppercased().filter { $0.isHexDigit }
+        guard normalized.count == 16 else {
+            return message("Подключи виджет", "Введи код из профиля Nightwell Music")
+        }
+        var token = NWPairTokenKeychain.read(normalized)
+        do {
+            if token == nil {
+                var request = URLRequest(url: origin.appendingPathComponent("api/widgets/pair"))
+                request.httpMethod = "POST"
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.httpBody = try JSONSerialization.data(withJSONObject: ["code": normalized])
+                let (data, response) = try await session.data(for: request)
+                guard let http = response as? HTTPURLResponse else {
+                    return message("Нет соединения", "Сервер пока недоступен")
+                }
+                if http.statusCode == 404 {
+                    return message("Нужен серверный модуль", "Виджеты ещё не включены на сервере")
+                }
+                guard http.statusCode == 200,
+                      let result = try? JSONDecoder().decode(NWPairResponse.self, from: data),
+                      NWPairTokenKeychain.store(result.token, for: normalized) else {
+                    return message("Недействительный код", "Создай новый код в профиле")
+                }
+                token = result.token
+            }
+
+            guard let token else { return message("Ошибка привязки", "Повтори попытку") }
+            var request = URLRequest(url: origin.appendingPathComponent("api/widgets/state"))
+            request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
+            request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                return message("Нет соединения", "Повтори позже")
+            }
+            if http.statusCode == 401 {
+                NWPairTokenKeychain.remove(normalized)
+                return message("Привязка отозвана", "Создай новый код в профиле")
+            }
+            guard http.statusCode == 200,
+                  let model = try? JSONDecoder().decode(NWRemoteState.self, from: data) else {
+                return message("Сервер недоступен", "Повторная проверка позже")
+            }
+
+            let state = NWWidgetState(trackID: model.track_id,
+                                     title: model.title.isEmpty ? "Твой ритм" : model.title,
+                                     artist: model.artist.isEmpty ? "Nightwell Music" : model.artist,
+                                     playing: model.playing,
+                                     coverID: model.has_cover ? model.track_id : nil,
+                                     updated: .now)
+            var cover: Data?
+            if model.has_cover {
+                var coverRequest = URLRequest(url: origin.appendingPathComponent("api/widgets/cover"))
+                coverRequest.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
+                let (bytes, imageResponse) = try await session.data(for: coverRequest)
+                if (imageResponse as? HTTPURLResponse)?.statusCode == 200, bytes.count < 240_000 {
+                    cover = bytes
+                }
+            }
+            return NWEntry(date: .now, snapshot: state, cover: cover)
+        } catch {
+            return message("Нет соединения", "Последняя музыка появится после обновления")
+        }
+    }
+
+    static func message(_ title: String, _ subtitle: String) -> NWEntry {
+        NWEntry(date: .now, snapshot: NWWidgetState(trackID: "", title: title,
+                artist: subtitle, playing: false, coverID: nil, updated: .now), cover: nil)
+    }
+}
+
+private struct NWRemoteProvider: AppIntentTimelineProvider {
+    func placeholder(in context: Context) -> NWEntry {
+        NWEntry(date: .now, snapshot: NWWidgetState(trackID: "preview",
+              title: "Музыка этой ночи", artist: "Nightwell Music",
+              playing: true, coverID: nil, updated: .now), cover: nil)
+    }
+    func snapshot(for configuration: NWPairWidgetIntent, in context: Context) async -> NWEntry {
+        context.isPreview ? placeholder(in: context) : await NWWidgetRemote.load(code: configuration.code)
+    }
+    func timeline(for configuration: NWPairWidgetIntent, in context: Context) async -> Timeline<NWEntry> {
+        let entry = await NWWidgetRemote.load(code: configuration.code)
+        // WidgetKit decides the actual refresh timing; it is not a live player.
+        return Timeline(entries: [entry], policy: .after(Date().addingTimeInterval(300)))
+    }
+}
+
 private let surface = Color(red: 0.055, green: 0.055, blue: 0.065)
 
 private struct NWArtwork: View {
@@ -159,7 +309,7 @@ private struct NWQuickWidgetView: View {
 }
 private struct NWNowPlaying: Widget {
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: "nightwell.nowplaying", provider: NWProvider()) { entry in
+        AppIntentConfiguration(kind: "nightwell.nowplaying", intent: NWPairWidgetIntent.self, provider: NWRemoteProvider()) { entry in
             NWPlayerWidgetView(entry: entry)
         }
         .configurationDisplayName("Сейчас играет")
