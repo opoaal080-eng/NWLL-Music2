@@ -17,7 +17,9 @@ private struct NWProvider: TimelineProvider {
         completion(context.isPreview ? placeholder(in: context) : current())
     }
     func getTimeline(in context: Context, completion: @escaping (Timeline<NWEntry>) -> Void) {
-        completion(Timeline(entries: [current()], policy: .after(Date().addingTimeInterval(1800))))
+        // WidgetKit may delay refreshes, but request a reasonable fallback
+        // when the app cannot actively notify the extension.
+        completion(Timeline(entries: [current()], policy: .after(Date().addingTimeInterval(300))))
     }
     private func current() -> NWEntry {
         let data = NWWidgetStorage.read()
@@ -73,7 +75,8 @@ private struct NWPlayerWidgetView: View {
                         Text(entry.snapshot.artist).font(.subheadline).lineLimit(1)
                             .foregroundStyle(.white.opacity(0.65))
                         Spacer(minLength: 1)
-                        Image(systemName: entry.snapshot.playing ? "waveform" : "pause.fill")
+                        Image(systemName: entry.snapshot.trackID.isEmpty ? "music.note" :
+                          (entry.snapshot.playing ? "waveform" : "pause.fill"))
                             .foregroundStyle(.white.opacity(0.7))
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }.padding(16)

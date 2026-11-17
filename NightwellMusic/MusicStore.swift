@@ -750,6 +750,10 @@ struct NightwellAccountDevicesResponse: Decodable {
         restoreSessionSnapshot()
         startConnectionWatcher()
         clock.onTick = { [weak self] value in self?.playbackTick(value) }
+        // Seed the shared snapshot immediately, then update it when playback
+        // changes. Do not wait for the first track-end or periodic UI refresh.
+        NightwellWidgetBridge.shared.update(track: clock.current, playing: clock.playing,
+                                            origin: origin, force: true)
         observers.append(NotificationCenter.default.addObserver(forName: BackgroundDownloads.changed, object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
             let progress = BackgroundDownloads.shared.progress
@@ -776,6 +780,11 @@ struct NightwellAccountDevicesResponse: Decodable {
             guard let self else { return }
             self.applicationIsActive = true
             self.checkConnection()
+            self.clock.sync()
+            // WidgetKit may have discarded a reload while the app was asleep.
+            NightwellWidgetBridge.shared.update(track: self.clock.current,
+                                                playing: self.clock.playing,
+                                                origin: self.origin, force: true)
             // Restore orphaned background transfers when returning to the app.
             BackgroundDownloads.shared.reconnect()
             // A transfer may have finished while the UI was suspended.
