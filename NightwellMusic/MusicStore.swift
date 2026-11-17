@@ -984,6 +984,7 @@ struct NightwellAccountDevicesResponse: Decodable {
         }
     }
     private func playbackTick(_ state: [String: Any]) {
+        NightwellWidgetBridge.shared.update(track: clock.current, playing: clock.playing, origin: origin)
         PremiumFeatureState.shared.tick(self)
         let now = ProcessInfo.processInfo.systemUptime, elapsed = min(1, max(0, now - lastTick)); lastTick = now
         if clock.id != listeningID {

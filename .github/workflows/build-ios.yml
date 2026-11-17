@@ -5,6 +5,8 @@ on:
     branches: [main, feature/windows-mobile-parity-20261106, fix/ios-clip-cache-retry-20261111, fix/clip-unlimited-device-cache-20261111 , feature/search-glow-android-suggestions-ios-20261112]
     paths:
       - 'NightwellMusic/**'
+      - 'NightwellWidgets/**'
+      - 'NightwellWidgetShared/**'
       - 'source/NightwellMusic/**'
       - 'NativeTests/**'
       - 'project.yml'
@@ -17,6 +19,8 @@ on:
     branches: [main, feature/windows-mobile-parity-20261106, fix/ios-clip-cache-retry-20261111, fix/clip-unlimited-device-cache-20261111, feature/search-glow-android-suggestions-ios-20261112, fix/ios-search-transfer-regressions-20261112, feature/account-devices-2-free-5-premium-20261114, fix/ios-latest-account-family-20261116]
     paths:
       - 'NightwellMusic/**'
+      - 'NightwellWidgets/**'
+      - 'NightwellWidgetShared/**'
       - 'source/NightwellMusic/**'
       - 'NativeTests/**'
       - 'project.yml'
@@ -65,6 +69,7 @@ jobs:
         run: |
           xcodebuild -project NightwellMusic.xcodeproj -scheme NightwellMusic -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build-device CURRENT_PROJECT_VERSION=$((400 + GITHUB_RUN_NUMBER)) CODE_SIGNING_ALLOWED=NO build
           test -s build-device/Build/Products/Release-iphoneos/NightwellMusic.app/Assets.car
+          test -s build-device/Build/Products/Release-iphoneos/NightwellMusic.app/PlugIns/NightwellWidgets.appex/NightwellWidgets
           # Never restore old compiled assets: they carry the Halloween launcher icon.
           test -s NightwellMusic/Assets.xcassets/AppIcon.appiconset/Icon.png
           mkdir -p output/Payload

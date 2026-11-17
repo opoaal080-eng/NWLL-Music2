@@ -797,7 +797,9 @@ struct NativeRoot: View {
             if newScreen == .search { store.scheduleSearch() }
         }
         .onOpenURL { url in
-            if let code = NightwellTogetherSession.invitationCode(from: url.absoluteString, origin: store.origin) {
+            if openWidgetURL(url) {
+                // Widget navigation handled
+            } else if let code = NightwellTogetherSession.invitationCode(from: url.absoluteString, origin: store.origin) {
                 togetherPresented = true
                 Task { await togetherSession.join(code, store: store) }
             } else {
@@ -842,6 +844,21 @@ struct NativeRoot: View {
             if store.account == nil { store.authPresented = true }
             else { Task { await store.logout() } }
         }
+    }
+    private func openWidgetURL(_ url: URL) -> Bool {
+        guard url.scheme?.lowercased() == "nightwell",
+              url.host?.lowercased() == "open" else { return false }
+        switch url.path.lowercased() {
+        case "/home": navigate(to: .home)
+        case "/likes": navigate(to: .likes)
+        case "/search": navigate(to: .search)
+        case "/offline": navigate(to: .offline)
+        case "/player":
+            if store.clock.current != nil { fullPlayer = true }
+            else { navigate(to: .home) }
+        default: return false
+        }
+        return true
     }
     private func openSharedURL(_ url: URL) {
         guard let id = DeepLink.trackID(from: url) else { return }
