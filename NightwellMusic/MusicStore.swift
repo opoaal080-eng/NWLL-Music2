@@ -221,6 +221,8 @@ struct NightwellAccountDevicesResponse: Decodable {
     @Published var downloadMessage = ""
     @Published var downloading = false
     @Published var downloadFractions: [String: Double] = [:]
+    @Published private(set) var pendingDownloadKeys = Set<String>()
+    @Published private(set) var completedDownloadKeys = Set<String>()
     @Published var authPresented = false
     @Published var emailChallenge: EmailChallenge?
     @Published var likeFlash = 0
@@ -753,12 +755,15 @@ struct NightwellAccountDevicesResponse: Decodable {
             let progress = BackgroundDownloads.shared.progress
             let statusChanged = self.downloadMessage != progress.message
             self.downloading = progress.active; self.downloadMessage = progress.message; self.downloadFractions = progress.fractions
+            if self.pendingDownloadKeys != progress.pendingKeys { self.pendingDownloadKeys = progress.pendingKeys }
+            if self.completedDownloadKeys != progress.completedKeys { self.completedDownloadKeys = progress.completedKeys }
             // Updating a progress bar must not rescan offline storage each percent.
             if statusChanged || !progress.active { Task { await self.refreshOffline() } }
         })
         BackgroundDownloads.shared.reconnect()
         let progress = BackgroundDownloads.shared.progress
         downloading = progress.active; downloadMessage = progress.message; downloadFractions = progress.fractions
+        pendingDownloadKeys = progress.pendingKeys; completedDownloadKeys = progress.completedKeys
 
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
@@ -1920,7 +1925,30 @@ struct NightwellAccountDevicesResponse: Decodable {
     }
     func downloadProgress(_ id: String) -> Double? {
         guard let account else { return nil }
-        return downloadFractions[origin.absoluteString + "|" + account.id + "|" + id]
+        let key = origin.absoluteString + "|" + account.id + "|" + id
+        // Include queued tracks at 0%, and hide the indicator as soon as the
+        // underlying job finishes instead of retaining the last displayed value.
+        guard pendingDownloadKeys.contains(key) else { return nil }
+        return downloadFractions[key] ?? 0
+    }
+    func playlistDownloadProgress(_ tracks: [Track]) -> Double? {
+        guard let account, !tracks.isEmpty else { return nil }
+        let prefix = origin.absoluteString + "|" + account.id + "|"
+        // Only display a bar while this playlist still has unfinished jobs.
+        guard tracks.contains(where: { pendingDownloadKeys.contains(prefix + $0.id) }) else { return nil }
+        let total = tracks.reduce(0.0) { result, track in
+            let key = prefix + track.id
+            if completedDownloadKeys.contains(key) || downloadedTrackIDs.contains(track.id) {
+                return result + 1
+            }
+            // Each queued track contributes zero until bytes have arrived.
+            // This prevents showing 100% while most of the playlist is waiting.
+            if pendingDownloadKeys.contains(key) {
+                return result + min(0.999, max(0, downloadFractions[key] ?? 0))
+            }
+            return result
+        }
+        return min(0.999, total / Double(tracks.count))
     }
     func isDownloaded(_ track: Track) -> Bool {
         if downloadedTrackIDs.contains(track.id) { return true }
