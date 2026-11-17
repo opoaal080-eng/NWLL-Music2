@@ -1,4 +1,5 @@
 import Foundation
+import Security
 
 /// Data shared between Nightwell Music and its isolated WidgetKit extension.
 /// The file contains no login credentials or access tokens.
@@ -26,15 +27,37 @@ struct NWWidgetState: Codable {
 }
 
 enum NWWidgetStorage {
+    // Resolve the group granted by the installed code signature rather than
+    // relying on a group name frozen at compile time.
     static let group = "group.fun.nightwell.music"
     private static let key = "nw-widget-player-v1"
     private static let filename = "nightwell-widget-player.json"
     private static let artworkFilename = "widget-cover.jpg"
 
-    static var sharedRoot: URL? {
-        FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group)
-    }
-    static var isAvailable: Bool { sharedRoot != nil }
+    private static let resolvedContainer: (name: String, url: URL)? = {
+        guard let task = SecTaskCreateFromSelf(nil) else { return nil }
+        let signed = (SecTaskCopyValueForEntitlement(
+            task, "com.apple.security.application-groups" as CFString, nil
+        ) as? [String] ?? []).filter { $0.hasPrefix("group.") }
+        // Both the host app and its extension use this deterministic order.
+        let candidates = signed.sorted {
+            if $0 == group { return true }
+            if $1 == group { return false }
+            return $0.localizedStandardCompare($1) == .orderedAscending
+        }
+        for name in candidates {
+            if let url = FileManager.default.containerURL(
+                forSecurityApplicationGroupIdentifier: name
+            ) {
+                return (name: name, url: url)
+            }
+        }
+        return nil
+    }()
+
+    static var sharedRoot: URL? { resolvedContainer?.url }
+    static var sharedGroup: String? { resolvedContainer?.name }
+    static var isAvailable: Bool { resolvedContainer != nil }
 
     static func read() -> NWWidgetState {
         guard let root = sharedRoot else { return .unavailable }
@@ -45,7 +68,8 @@ enum NWWidgetStorage {
            let value = try? JSONDecoder().decode(NWWidgetState.self, from: data) {
             return value
         }
-        if let data = UserDefaults(suiteName: group)?.data(forKey: key),
+        if let name = sharedGroup,
+           let data = UserDefaults(suiteName: name)?.data(forKey: key),
            let value = try? JSONDecoder().decode(NWWidgetState.self, from: data) {
             return value
         }
@@ -61,7 +85,9 @@ enum NWWidgetStorage {
         do {
             try data.write(to: root.appendingPathComponent(filename),
                            options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
-            UserDefaults(suiteName: group)?.set(data, forKey: key)
+            if let name = sharedGroup {
+                UserDefaults(suiteName: name)?.set(data, forKey: key)
+            }
             return true
         } catch {
             NSLog("Nightwell widgets: shared snapshot write failed: %@", String(describing: error))
