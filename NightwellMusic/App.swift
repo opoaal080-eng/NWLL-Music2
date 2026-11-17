@@ -398,6 +398,9 @@ struct NativeRoot: View {
     @State private var launching = true
     @State private var searchScrollCollapsed = false
     @State private var searchRevealRequest = 0
+    // Direction only belongs to user-initiated screen navigation. Playback,
+    // library refreshes and scroll-position restoration must not animate it.
+    @State private var screenTransitionDirection: CGFloat = 1
     @Environment(\.accessibilityReduceMotion) private var reducedMotion
     @ViewBuilder private var mainScene: some View {
         GeometryReader { viewport in
@@ -870,11 +873,32 @@ struct NativeRoot: View {
         }
     }
 
+    private func navigationDepth(_ screen: MusicStore.Screen) -> Int {
+        switch screen {
+        case .home: return 0
+        case .search: return 1
+        case .library: return 2
+        case .likes, .playlists, .offline: return 3
+        }
+    }
+
+    private var screenChangeTransition: AnyTransition {
+        if reducedMotion { return .opacity }
+        return .asymmetric(
+            insertion: .opacity.combined(with: .offset(x: screenTransitionDirection * 26)),
+            removal: .opacity.combined(with: .offset(x: -screenTransitionDirection * 14))
+        )
+    }
+
     private func navigate(to screen: MusicStore.Screen) {
         guard store.screen != screen else { return }
-        var transaction = Transaction(animation: nil)
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
+        let oldDepth = navigationDepth(store.screen)
+        let newDepth = navigationDepth(screen)
+        // Keep back navigation moving in the opposite direction. Avoid
+        // springing the entire layout and reinitialising large music lists.
+        screenTransitionDirection = newDepth < oldDepth ? -1 : 1
+        let animation: Animation? = reducedMotion ? nil : .easeInOut(duration: 0.23)
+        withTransaction(Transaction(animation: animation)) {
             if libraryScreens.contains(screen) { librarySession.remember(screen) }
             store.screen = screen
         }
@@ -962,6 +986,8 @@ struct NativeRoot: View {
                 }
             }
             .foregroundStyle(.white.opacity(selected ? 1 : 0.46))
+            .scaleEffect(selected && !reducedMotion ? 1.055 : 1)
+            .animation(reducedMotion ? nil : .easeOut(duration: 0.2), value: selected)
             .frame(maxWidth: .infinity, minHeight: 44,
                    alignment: landscape ? .center : .bottom)
             .contentShape(Rectangle())
@@ -1212,12 +1238,17 @@ struct NativeRoot: View {
     }
 
     private func content(bottomContentInset: CGFloat) -> some View {
-        // Inactive lists must release their layout, subscriptions and cover
-        // tasks. Keep only small scroll anchors, never three invisible trees.
-        screenContent(for: store.screen, bottomContentInset: bottomContentInset)
-            .id(store.screen)
-            .ignoresSafeArea(.container, edges: .bottom)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        // Animate the screen content only: the mini-player and tab bar stay
+        // in place, so audio and artwork updates never jolt the whole layout.
+        // Views from the outgoing screen are released after the brief fade.
+        ZStack(alignment: .top) {
+            screenContent(for: store.screen, bottomContentInset: bottomContentInset)
+                .id(store.screen)
+                .transition(screenChangeTransition)
+        }
+        .clipped()
+        .ignoresSafeArea(.container, edges: .bottom)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     @ViewBuilder private func screenContent(for screen: MusicStore.Screen, bottomContentInset: CGFloat) -> some View {
