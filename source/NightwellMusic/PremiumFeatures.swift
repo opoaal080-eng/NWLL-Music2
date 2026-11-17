@@ -32,6 +32,14 @@ struct PremiumPreferences: Codable {
     func shouldOfferPremium(for accountID: String?) -> Bool {
         entitlementVerified && owner == accountID && !allowed
     }
+
+    // Only show account-only Premium destinations after an actual entitlement
+    // check for this account. Never reuse the previous account's paid status.
+    func hasVerifiedPremium(for accountID: String?) -> Bool {
+        guard let accountID, !accountID.isEmpty else { return false }
+        return entitlementVerified && owner == accountID && allowed &&
+               until > Date().timeIntervalSince1970
+    }
     @Published var note = "Проверяем Premium…"
     private var owner: String?, until = 0.0, checked = Date.distantPast, checking = false
     private func cacheKey(_ id: String) -> String { "nw-aura-" + id }
@@ -120,7 +128,7 @@ struct PremiumPreferences: Codable {
 }
 
 @MainActor struct PremiumFeatureView: View {
-    enum Kind: String, Identifiable { case sound = "Эквалайзер", appearance = "Оформление", smart = "Умные плейлисты", statistics = "Моя статистика"; var id: String { rawValue } }
+    enum Kind: String, Identifiable { case sound = "Эквалайзер", appearance = "Оформление", smart = "Умные плейлисты", statistics = "Статистика"; var id: String { rawValue } }
     let kind: Kind
     init(kind: Kind) { self.kind = kind }
     @EnvironmentObject private var store: MusicStore
