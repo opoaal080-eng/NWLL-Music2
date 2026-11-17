@@ -1386,6 +1386,9 @@ struct NativeRoot: View {
                                                 RoundedRectangle(cornerRadius: 13, style: .continuous)
                                                     .strokeBorder(.white.opacity(0.12), lineWidth: 0.75)
                                             }
+                                            .overlay {
+                                                PlaylistDownloadRing(playlistID: playlist.id)
+                                            }
                                             .accessibilityHidden(true)
                                         Text(playlist.name)
                                             .font(.system(size: 15, weight: .semibold))
@@ -2028,6 +2031,36 @@ struct PlayingIndicator: View {
         }.accessibilityLabel(playing ? "Сейчас играет" : "На паузе")
     }
 }
+// A thin, determinate download ring around the playlist artwork. Keep
+// the symbol visible and avoid decoding cached playlists on each byte update.
+private struct PlaylistDownloadRing: View {
+    @EnvironmentObject private var store: MusicStore
+    let playlistID: String
+    @State private var trackIDs: [String] = []
+
+    var body: some View {
+        Group {
+            if let fraction = store.playlistDownloadProgress(trackIDs: trackIDs) {
+                ZStack {
+                    Circle()
+                        .stroke(.white.opacity(0.20), lineWidth: 2)
+                    Circle()
+                        .trim(from: 0, to: fraction)
+                        .stroke(.white, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                }
+                .padding(3)
+                .animation(.easeOut(duration: 0.2), value: fraction)
+            }
+        }
+        .allowsHitTesting(false)
+        // Refresh cache only when jobs start or finish, not on every progress tick.
+        .task(id: store.pendingDownloadKeys) {
+            trackIDs = (store.cachedPlaylistTracks(playlistID) ?? []).map(\.id)
+        }
+    }
+}
+
 struct PlaylistScreen: View {
     @EnvironmentObject var store: MusicStore
     let close: () -> Void
