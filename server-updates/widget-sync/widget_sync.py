@@ -19,7 +19,7 @@ from fastapi import HTTPException, Request
 from fastapi.responses import Response, JSONResponse
 
 CODE_RE = re.compile(r"^[A-F0-9]{16}$")
-TRACK_RE = re.compile(r"^[A-Za-z0-9_-]{0,100}$")
+TRACK_RE = re.compile(r"^[^\x00-\x1f\x7f]{0,100}$")
 TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{36,90}$")
 PAIR_TTL = 600
 NO_STORE = {"Cache-Control": "private, no-store, max-age=0", "Pragma": "no-cache"}
