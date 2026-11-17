@@ -26,6 +26,31 @@ final class NativePlayer {
     private var nextAsset: AVURLAsset?
     private var nextAssetID: String?
     private var nextAssetWarmup: Task<Void, Never>?
+    private var warmupGeneration = UUID()
+    private struct VerifiedNextAudio {
+        let asset: AVURLAsset
+        let requestIdentity: Int
+        let checkedAt: TimeInterval
+    }
+    private var verifiedNextAudio: VerifiedNextAudio?
+
+    private func streamRequestIdentity(track: NativeTrack, url: URL, origin: URL) -> Int {
+        var hash = Hasher()
+        hash.combine(track.id); hash.combine(track.offlineAccount)
+        hash.combine(offlineAccount)
+        hash.combine(url.absoluteString); hash.combine(origin.absoluteString)
+        for cookie in cookies.sorted(by: { $0.name < $1.name }) {
+            hash.combine(cookie.name); hash.combine(cookie.domain)
+            hash.combine(cookie.path); hash.combine(cookie.value)
+        }
+        return hash.finalize()
+    }
+
+    private func invalidateNextAudioWarmup() {
+        warmupGeneration = UUID()
+        nextAssetWarmup?.cancel(); nextAssetWarmup = nil
+        nextAsset = nil; nextAssetID = nil; verifiedNextAudio = nil
+    }
 
     // Only one AVPlayer owns decoding. Preparing the next AVURLAsset
     // asynchronously leaves the current song audible without creating a
@@ -139,15 +164,22 @@ final class NativePlayer {
         let ticket = pendingNextGeneration
         let asset = nextAssetID == track.id && nextAsset?.url == url
             ? nextAsset! : AVURLAsset(url: url, options: [AVURLAssetHTTPCookiesKey: cookies])
+        let identity = streamRequestIdentity(track: track, url: url, origin: origin)
+        let trustWarm = verifiedNextAudio.map {
+            $0.asset === asset && $0.requestIdentity == identity &&
+            AudioStreamPrefetch.isFresh($0.checkedAt)
+        } ?? false
+        let requestCookies = cookies
         error = ""
         beginBackgroundHandoff()
         pendingNextTask = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                // Read a small amount of stream data before handoff, not
-                // just an AVURLAsset metadata flag. Run both checks together.
+                // Real audio bytes for the SAME URL/account, verified recently,
+                // permit skipping the extra HTTP check. Metadata alone does not.
                 async let playable = asset.load(.isPlayable)
-                async let responding = self.hasFirstStreamBytes(url, origin: origin)
+                async let responding = self.hasFirstStreamBytes(
+                    url, origin: origin, cookies: requestCookies, reusable: trustWarm)
                 let (isPlayable, hasBytes) = try await (playable, responding)
                 guard !Task.isCancelled,
                       self.pendingNextGeneration == ticket,
@@ -171,28 +203,11 @@ final class NativePlayer {
         publish()
     }
 
-    // A bounded HTTP read checks that the stream endpoint actually responds
-    // with bytes. HLS manifests are accepted; this is not a second decoder.
-    private func hasFirstStreamBytes(_ url: URL, origin: URL) async -> Bool {
-        if url.isFileURL || !ServerAddress.sameOrigin(origin, url) { return true }
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 8
-        request.allHTTPHeaderFields = HTTPCookie.requestHeaderFields(with: cookies)
-        request.setValue("bytes=0-2047", forHTTPHeaderField: "Range")
-        do {
-            let (stream, response) = try await URLSession.shared.bytes(for: request)
-            guard let http = response as? HTTPURLResponse,
-                  (200..<300).contains(http.statusCode) else { return false }
-            var received = 0
-            for try await _ in stream {
-                if Task.isCancelled { return false }
-                received += 1
-                if received >= 512 { break }
-            }
-            return received > 0
-        } catch {
-            return false
-        }
+    private func hasFirstStreamBytes(_ url: URL, origin: URL,
+                                     cookies: [HTTPCookie], reusable: Bool) async -> Bool {
+        if reusable { return true }
+        // HLS playlist alone is available but never accepted as cached audio.
+        return await AudioStreamPrefetch.check(url, origin: origin, cookies: cookies).available
     }
 
     private func handleNextFailure(ticket: UUID, reason: String) {
@@ -435,6 +450,7 @@ final class NativePlayer {
                         item.preferredForwardBufferDuration = self.streamBufferSeconds
                     }
                     self.endBackgroundHandoff()
+                    self.prewarmNextAsset()
                     if !self.waitingForReady {
                         // A playable next item resets the bounded failure chain.
                         self.unavailableIDs.removeAll()
@@ -535,6 +551,7 @@ final class NativePlayer {
         guard let raw = data["queue"] as? [[String: Any]], let selected = data["id"] as? String else { return }
         let queue = raw.prefix(1000).compactMap { nativeTrack(from: $0) }
         cancelPendingNext()
+        invalidateNextAudioWarmup()
         directForwardTrackID = nil
         unavailableIDs.removeAll()
         attemptedTrackID = ""; attemptedTrackLoads = 0
@@ -622,35 +639,64 @@ final class NativePlayer {
     }
 
     private func prewarmNextAsset() {
-        guard !shuffle, !waveWaiting, index + 1 < tracks.count, let origin else {
-            nextAssetWarmup?.cancel(); nextAssetWarmup = nil
-            nextAsset = nil; nextAssetID = nil; return
+        // Respect the user's explicit "play next" queue; never guess a
+        // shuffle destination or prefetch an unrelated stream.
+        let destination = nextQueuedIndex ?? (!shuffle && index + 1 < tracks.count ? index + 1 : nil)
+        guard let destination, tracks.indices.contains(destination),
+              !waveWaiting, let origin else {
+            invalidateNextAudioWarmup()
+            return
         }
-        let next = tracks[index + 1]
-        guard nextAssetID != next.id else { return }
-        nextAssetWarmup?.cancel(); nextAssetWarmup = nil
+        let next = tracks[destination]
         let saved = OfflineStore.audio(origin: origin,
             account: next.offlineAccount.isEmpty ? offlineAccount : next.offlineAccount, id: next.id)
         guard !next.offline || saved != nil,
-              let url = saved ?? URL(string: streamPath(for: next), relativeTo: origin)?.absoluteURL else { return }
-        let asset = AVURLAsset(url: url, options: [AVURLAssetHTTPCookiesKey: cookies])
-        nextAsset = asset; nextAssetID = next.id
-        // Offline files are already on disk; analyse one upcoming track at low priority.
-        // Streaming tracks stay on the live tap path to avoid duplicate downloads.
+              let url = saved ?? URL(string: streamPath(for: next), relativeTo: origin)?.absoluteURL else {
+            invalidateNextAudioWarmup()
+            return
+        }
+        if nextAssetID != next.id || nextAsset?.url != url {
+            invalidateNextAudioWarmup()
+            nextAsset = AVURLAsset(url: url, options: [AVURLAssetHTTPCookiesKey: cookies])
+            nextAssetID = next.id
+        }
+        guard let asset = nextAsset else { return }
+        let requestIdentity = streamRequestIdentity(track: next, url: url, origin: origin)
+        if let proof = verifiedNextAudio, proof.asset === asset,
+           proof.requestIdentity == requestIdentity,
+           AudioStreamPrefetch.isFresh(proof.checkedAt) { return }
         if let saved {
             let key = origin.absoluteString + "|" + offlineAccount + "|" + next.offlineAccount + "|" + next.id
             independentMeter.prewarm(key: key, local: saved)
         }
-        // Only prefetch remote playlist metadata after playback has settled.
-        // Never download a second audio stream or compete with the current track at startup.
-        if saved != nil {
-            nextAssetWarmup = Task(priority: .utility) { let _ = try? await asset.load(.isPlayable) }
-        } else if wantsPlay {
-            nextAssetWarmup = Task(priority: .utility) {
-                do { try await Task.sleep(nanoseconds: 1_000_000_000) } catch { return }
-                guard !Task.isCancelled else { return }
-                let _ = try? await asset.load(.isPlayable)
+        guard nextAssetWarmup == nil, wantsPlay else { return }
+        let ticket = UUID()
+        warmupGeneration = ticket
+        let sourceID = current?.id
+        let cookieSnapshot = cookies
+        nextAssetWarmup = Task(priority: .utility) { @MainActor [weak self] in
+            do { try await Task.sleep(nanoseconds: saved == nil ? 2_000_000_000 : 250_000_000) }
+            catch { return }
+            guard let self, !Task.isCancelled, self.warmupGeneration == ticket else { return }
+            guard self.wantsPlay, self.audible, self.current?.id == sourceID,
+                  self.nextAsset === asset else {
+                self.nextAssetWarmup = nil
+                return
             }
+            let playable = (try? await asset.load(.isPlayable)) ?? false
+            guard !Task.isCancelled, self.warmupGeneration == ticket else { return }
+            if playable {
+                let result = await AudioStreamPrefetch.check(url, origin: origin, cookies: cookieSnapshot)
+                guard !Task.isCancelled, self.warmupGeneration == ticket else { return }
+                if result.verifiedAudio, self.nextAsset === asset,
+                   self.nextAssetID == next.id,
+                   self.streamRequestIdentity(track: next, url: url, origin: origin) == requestIdentity {
+                    self.verifiedNextAudio = VerifiedNextAudio(
+                        asset: asset, requestIdentity: requestIdentity,
+                        checkedAt: ProcessInfo.processInfo.systemUptime)
+                }
+            }
+            self.nextAssetWarmup = nil
         }
     }
 
@@ -673,6 +719,7 @@ final class NativePlayer {
 
     private func load(position: Double = 0, recovering: Bool = false) {
         startupTimeout?.cancel(); startupTimeout = nil
+        warmupGeneration = UUID()
         nextAssetWarmup?.cancel(); nextAssetWarmup = nil
         startupUptime = ProcessInfo.processInfo.systemUptime
         readyAfterSeconds = nil; audibleAfterSeconds = nil
@@ -712,7 +759,7 @@ final class NativePlayer {
         itemObservation = nil
         let asset = nextAssetID == current.id && nextAsset?.url == url
             ? nextAsset! : AVURLAsset(url: url, options: [AVURLAssetHTTPCookiesKey: cookies])
-        nextAsset = nil; nextAssetID = nil
+        nextAsset = nil; nextAssetID = nil; verifiedNextAudio = nil
         let item = AVPlayerItem(asset: asset)
         // Give remote streams enough audio ahead to absorb network jitter.
         // Locally downloaded tracks do not need forward network buffering.
@@ -864,6 +911,8 @@ final class NativePlayer {
     }
     func pause() {
         cancelPendingNext()
+        warmupGeneration = UUID()
+        nextAssetWarmup?.cancel(); nextAssetWarmup = nil
         startupTimeout?.cancel(); startupTimeout = nil
         endBackgroundHandoff()
         // Snapshot the running clock BEFORE pausing either audio engine.
@@ -899,7 +948,7 @@ final class NativePlayer {
         attemptedTrackID = ""; attemptedTrackLoads = 0
         waveActive = false; waveSeedArtists = []
         waveTask?.cancel(); waveTask = nil; waveGeneration = UUID(); waveSeen = []
-        nextAssetWarmup?.cancel(); nextAssetWarmup = nil; nextAsset = nil; nextAssetID = nil
+        invalidateNextAudioWarmup()
         pause(); stallCheck?.cancel(); stallCheck = nil; itemGeneration = UUID(); itemObservation = nil; artworkLoadTask?.cancel()
         if let endObserver { NotificationCenter.default.removeObserver(endObserver); self.endObserver = nil }
         if let failureObserver { NotificationCenter.default.removeObserver(failureObserver); self.failureObserver = nil }
