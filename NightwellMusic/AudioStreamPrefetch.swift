@@ -58,6 +58,7 @@ enum AudioStreamPrefetch {
     private struct Sample {
         let data: Data
         let mediaType: String
+        let redirected: Bool
     }
 
     private static func readSample(_ url: URL, headers: [String: String]) async -> Sample? {
@@ -70,8 +71,7 @@ enum AudioStreamPrefetch {
         do {
             let (bytes, response) = try await URLSession.shared.bytes(for: request)
             guard let http = response as? HTTPURLResponse,
-                  (200..<300).contains(http.statusCode),
-                  http.url == url else { return nil }
+                  (200..<300).contains(http.statusCode) else { return nil }
             let kind = (http.value(forHTTPHeaderField: "Content-Type") ?? "").lowercased()
             let manifest = kind.contains("mpegurl") || kind.contains("m3u8") ||
                 url.pathExtension.lowercased() == "m3u8"
@@ -83,7 +83,7 @@ enum AudioStreamPrefetch {
                 if result.count >= limit { break }
             }
             guard !result.isEmpty else { return nil }
-            return Sample(data: result, mediaType: kind)
+            return Sample(data: result, mediaType: kind, redirected: http.url != url)
         } catch {
             return nil
         }
@@ -104,6 +104,10 @@ enum AudioStreamPrefetch {
                   let sample = await readSample(candidate, headers: headers) else {
                 return sawManifest ? .manifestOnly : .failed
             }
+            // A redirected signed CDN URL may work, but it is never trusted
+            // as reusable same-origin prebuffered audio. Preserve old handoff
+            // behavior on redirects without caching the result.
+            if sample.redirected { return .manifestOnly }
             let prefix = String(data: sample.data.prefix(64), encoding: .utf8) ?? ""
             let isPlaylist = prefix.hasPrefix("#EXTM3U") ||
                 sample.mediaType.contains("mpegurl") ||
