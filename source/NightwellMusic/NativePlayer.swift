@@ -440,6 +440,9 @@ final class NativePlayer {
                     if let item = player.currentItem {
                         self.scheduleLiveMeterActivation(for: item)
                     }
+                    // Full-file remote EQ export must not compete with the
+                    // first audible samples of a newly selected stream.
+                    self.prepareEqualizerPlayback()
                     self.endBackgroundHandoff()
                     self.prewarmNextAsset()
                     if !self.waitingForReady {
@@ -798,6 +801,8 @@ final class NativePlayer {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 6, execute: check)
             }
         if wantsPlay { monitorStartup(generation: generation) }
+        // Offline EQ can start immediately; remote EQ export is delayed
+        // until the normal stream starts playing.
         prepareEqualizerPlayback(); fetchArtwork(current, generation: generation); publish()
     }
 
@@ -1274,10 +1279,14 @@ final class NativePlayer {
     var premiumSoundAvailable: Bool { enginePlayback.ready }
     private func prepareEqualizerPlayback() {
         guard eqRequested, !eqAttempted, let current, let origin else { return }
+        let local = OfflineStore.audio(origin: origin, account: current.offlineAccount.isEmpty ? offlineAccount : current.offlineAccount, id: current.id)
+        // Downloading a full remote file for EQ in parallel with the first
+        // HLS request can delay startup on both the device and our server.
+        // The player remains the initial audible source.
+        guard local != nil || audible else { return }
         eqAttempted = true
         let requestGeneration = eqGeneration
         let generation = itemGeneration
-        let local = OfflineStore.audio(origin: origin, account: current.offlineAccount.isEmpty ? offlineAccount : current.offlineAccount, id: current.id)
         if let local { activateEqualizerFile(local, temporary: false, generation: generation); return }
         premiumSoundStatus = "Готовим аудиофайл для эквалайзера. Музыка продолжает играть."
         var request = URLRequest(url: origin.appendingPathComponent("api/offline-export/" + current.id))
