@@ -76,11 +76,14 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
         lock.lock()
         guard !reconciling else { lock.unlock(); return }
         reconciling = true
+        // Snapshot first: jobs added while getAllTasks is running have already
+        // been submitted by enqueue() and must not be duplicated.
+        let recovering = Array(state.jobs.values)
         lock.unlock()
         session.getAllTasks { tasks in
             self.lock.lock(); defer { self.lock.unlock() }
             let existing = Set(tasks.compactMap(\.taskDescription))
-            for job in self.state.jobs.values where !existing.contains(job.key) {
+            for job in recovering where self.state.jobs[job.key] != nil && !existing.contains(job.key) {
                 self.submit(job)
             }
             for task in tasks where task.taskDescription.flatMap({ self.state.jobs[$0] }) == nil {
