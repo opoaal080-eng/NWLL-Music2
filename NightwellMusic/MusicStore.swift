@@ -776,6 +776,8 @@ struct NightwellAccountDevicesResponse: Decodable {
             guard let self else { return }
             self.applicationIsActive = true
             self.checkConnection()
+            // Restore orphaned background transfers when returning to the app.
+            BackgroundDownloads.shared.reconnect()
             // A transfer may have finished while the UI was suspended.
             Task { await self.refreshOffline() }
         })
