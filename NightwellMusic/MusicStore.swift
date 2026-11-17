@@ -785,6 +785,9 @@ struct NightwellAccountDevicesResponse: Decodable {
             NightwellWidgetBridge.shared.update(track: self.clock.current,
                                                 playing: self.clock.playing,
                                                 origin: self.origin, force: true)
+            NWWidgetServerPublisher.shared.update(track: self.clock.current,
+                playing: self.clock.playing, account: self.account?.id,
+                api: self.api, origin: self.origin, force: true)
             // Restore orphaned background transfers when returning to the app.
             BackgroundDownloads.shared.reconnect()
             // A transfer may have finished while the UI was suspended.
@@ -994,6 +997,8 @@ struct NightwellAccountDevicesResponse: Decodable {
     }
     private func playbackTick(_ state: [String: Any]) {
         NightwellWidgetBridge.shared.update(track: clock.current, playing: clock.playing, origin: origin)
+        NWWidgetServerPublisher.shared.update(track: clock.current, playing: clock.playing,
+                                              account: account?.id, api: api, origin: origin)
         PremiumFeatureState.shared.tick(self)
         let now = ProcessInfo.processInfo.systemUptime, elapsed = min(1, max(0, now - lastTick)); lastTick = now
         if clock.id != listeningID {
