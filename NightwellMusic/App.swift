@@ -363,6 +363,7 @@ struct NativeRoot: View {
     @State private var navigationMenuPresented = false
     @State private var initialSessionLoaded = false
     @State private var profilePresented = false
+    @State private var widgetSetupPresented = false
     @State private var dailyPlaylistsPresented = false
     @State private var profileSigningOut = false
     @State private var pendingNavigation: StableNavigationAction?
@@ -616,6 +617,25 @@ struct NativeRoot: View {
                             }
                             .buttonStyle(.plain)
                         }
+                        if store.account != nil {
+                            Button {
+                                widgetSetupPresented = true
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "square.grid.2x2")
+                                    Text("Виджеты")
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                }
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 15)
+                                .padding(.vertical, 13)
+                                .frame(maxWidth: .infinity)
+                                .nightwellMonochromeGlass(radius: 19)
+                            }
+                            .buttonStyle(.plain)
+                        }
                         if favoritePremium.hasVerifiedPremium(for: store.account?.id) {
                             Button {
                                 // Validate again at tap time in case Premium has expired
@@ -732,6 +752,9 @@ struct NativeRoot: View {
             }
             .fullScreenCover(isPresented: $profileAccessPresented) {
                 AccountAccessView(api: store.api, accountID: store.account?.id)
+            }
+            .sheet(isPresented: $widgetSetupPresented) {
+                NWWidgetSetupView(api: store.api).environmentObject(store)
             }
         }
         .fullScreenCover(isPresented: $accountAccessPresented) {
