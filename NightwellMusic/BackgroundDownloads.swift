@@ -63,9 +63,12 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
         return Progress(active: false, message: state.total == 0 ? "" : "Скачано: \(state.added) · уже сохранено: \(state.skipped) · ошибок: \(state.failed)", fractions: [:],
                         pendingKeys: [], completedKeys: completedKeys)
     }
+    // Construct the persistent URLSession as soon as iOS relaunches the app
+    // for background download events. The system, not SwiftUI, owns transfers.
+    func prepareForSystemEvents() { _ = session }
     func handleEvents(_ completion: @escaping () -> Void) {
         lock.lock(); eventCompletion = completion; lock.unlock()
-        _ = session
+        prepareForSystemEvents()
     }
     func reconnect() {
         lock.lock(); defer { lock.unlock() }
@@ -152,8 +155,27 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
             finish(downloadTask, success: true)
         } catch { finish(downloadTask, success: false) }
     }
+    // A connection may drop while the iPhone is locked or switches networks.
+    // Recover transient failures without asking a suspended SwiftUI view to
+    // schedule the next attempt. Jobs remain persisted until truly finished.
+    private func retryTransientFailure(_ task: URLSessionTask, error: Error) -> Bool {
+        guard let code = (error as? URLError)?.code,
+              [URLError.Code.timedOut, .networkConnectionLost, .notConnectedToInternet,
+               .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed,
+               .backgroundSessionWasDisconnected].contains(code) else { return false }
+        lock.lock(); defer { lock.unlock() }
+        guard let key = task.taskDescription, var job = state.jobs[key],
+              job.attempts < 8 else { return false }
+        job.attempts += 1
+        state.jobs[key] = job
+        persist()
+        submit(job)
+        publish()
+        return true
+    }
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        if error != nil { finish(task, success: false) }
+        guard let error else { return }
+        if !retryTransientFailure(task, error: error) { finish(task, success: false) }
     }
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
         if totalBytesWritten > OfflineStore.limit || totalBytesExpectedToWrite > OfflineStore.limit { downloadTask.cancel(); return }
@@ -184,7 +206,32 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
     }
 }
 
+// Hold just the brief Premium check and background-session enqueue, not the
+// actual download. File transfer continues in iOS's out-of-process daemon.
+final class OfflineDownloadPreparation {
+    private let lock = NSLock()
+    private var identifier: UIBackgroundTaskIdentifier = .invalid
+
+    init() {
+        identifier = UIApplication.shared.beginBackgroundTask(withName: "Nightwell: prepare offline downloads") { [weak self] in
+            self?.end()
+        }
+    }
+    func end() {
+        lock.lock()
+        let task = identifier
+        identifier = .invalid
+        lock.unlock()
+        guard task != .invalid else { return }
+        DispatchQueue.main.async { UIApplication.shared.endBackgroundTask(task) }
+    }
+}
+
 final class DownloadAppDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        BackgroundDownloads.shared.prepareForSystemEvents()
+        return true
+    }
     func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String, completionHandler: @escaping () -> Void) {
         guard identifier == BackgroundDownloads.identifier else { completionHandler(); return }
         BackgroundDownloads.shared.handleEvents(completionHandler)
