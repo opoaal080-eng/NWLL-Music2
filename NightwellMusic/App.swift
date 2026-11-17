@@ -202,7 +202,7 @@ struct NightwellPopup<Content: View>: View {
 
 private enum StableNavigationAction {
     case screen(MusicStore.Screen)
-    case backgroundOnly, statistics, premium, accountAccess, transfer, settings, waveSettings, support, together, profile, authentication
+    case backgroundOnly, premium, accountAccess, transfer, settings, waveSettings, support, together, profile, authentication
 }
 
 /// An independently presented, stable scroll view. Playback updates cannot
@@ -297,7 +297,6 @@ private struct StableNavigationSheet: View {
                     if showsMainNavigation || opensAdditional {
                         entry("Слушать вместе", icon: "person.2.wave.2", action: .together)
                         if signedIn {
-                            entry("Моя статистика", icon: "chart.bar", action: .statistics)
                             entry("Перенос плейлистов", icon: "square.and.arrow.down", action: .transfer)
                         }
                         entry("Обращения и поддержка", icon: "envelope", action: .support)
@@ -373,6 +372,7 @@ struct NativeRoot: View {
     @State private var accountAccessPresented = false
     @State private var profileAccessPresented = false
     @State private var profilePremiumPresented = false
+    @State private var profileStatisticsPresented = false
     @State private var libraryMenuStartsAdditional = false
     @State private var transferPresented = false
     @State private var togetherPresented = false
@@ -616,6 +616,28 @@ struct NativeRoot: View {
                             }
                             .buttonStyle(.plain)
                         }
+                        if favoritePremium.hasVerifiedPremium(for: store.account?.id) {
+                            Button {
+                                // Validate again at tap time in case Premium has expired
+                                // while the profile remained on screen.
+                                guard favoritePremium.hasVerifiedPremium(for: store.account?.id) else { return }
+                                profileStatisticsPresented = true
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "chart.bar")
+                                    Text("Статистика")
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                }
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 15)
+                                .padding(.vertical, 13)
+                                .frame(maxWidth: .infinity)
+                                .nightwellMonochromeGlass(radius: 19)
+                            }
+                            .buttonStyle(.plain)
+                        }
                         if store.account != nil && favoritePremium.allowed {
                             Button {
                                 profilePremiumPresented = true
@@ -705,6 +727,9 @@ struct NativeRoot: View {
             .sheet(isPresented: $profilePremiumPresented, onDismiss: {
                 Task { await favoritePremium.refresh(store) }
             }) { PremiumView(api: store.api) }
+            .sheet(isPresented: $profileStatisticsPresented) {
+                PremiumFeatureView(kind: .statistics).environmentObject(store)
+            }
             .fullScreenCover(isPresented: $profileAccessPresented) {
                 AccountAccessView(api: store.api, accountID: store.account?.id)
             }
@@ -805,7 +830,6 @@ struct NativeRoot: View {
         switch action {
         case .screen(let screen): navigate(to: screen)
         case .backgroundOnly: backgroundOnly = true
-        case .statistics: feature = .statistics
         case .premium: premiumPresented = true
         case .accountAccess: accountAccessPresented = true
         case .transfer: transferPresented = true
