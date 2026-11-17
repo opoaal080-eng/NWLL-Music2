@@ -1,5 +1,4 @@
 import Foundation
-import Security
 
 /// Data shared between Nightwell Music and its isolated WidgetKit extension.
 /// The file contains no login credentials or access tokens.
@@ -27,23 +26,24 @@ struct NWWidgetState: Codable {
 }
 
 enum NWWidgetStorage {
-    // Resolve the group granted by the installed code signature rather than
-    // relying on a group name frozen at compile time.
+    // Prefer the project App Group. A distribution pipeline may also stamp a
+    // public shared-group identifier into both Info.plists. We test every
+    // candidate through Foundation's supported App Group API, never guessing
+    // that the app has permission to access an unverified container.
     static let group = "group.fun.nightwell.music"
     private static let key = "nw-widget-player-v1"
     private static let filename = "nightwell-widget-player.json"
     private static let artworkFilename = "widget-cover.jpg"
 
     private static let resolvedContainer: (name: String, url: URL)? = {
-        guard let task = SecTaskCreateFromSelf(nil) else { return nil }
-        let signed = (SecTaskCopyValueForEntitlement(
-            task, "com.apple.security.application-groups" as CFString, nil
-        ) as? [String] ?? []).filter { $0.hasPrefix("group.") }
-        // Both the host app and its extension use this deterministic order.
-        let candidates = signed.sorted {
-            if $0 == group { return true }
-            if $1 == group { return false }
-            return $0.localizedStandardCompare($1) == .orderedAscending
+        let info = Bundle.main.infoDictionary ?? [:]
+        let declared = [info["NWSharedAppGroup"] as? String,
+                        info["AppGroupIdentifier"] as? String].compactMap { $0 }
+        let additional = info["AppGroupIdentifiers"] as? [String] ?? []
+        var candidates: [String] = []
+        for name in [group] + declared + additional {
+            guard name.hasPrefix("group."), !candidates.contains(name) else { continue }
+            candidates.append(name)
         }
         for name in candidates {
             if let url = FileManager.default.containerURL(
