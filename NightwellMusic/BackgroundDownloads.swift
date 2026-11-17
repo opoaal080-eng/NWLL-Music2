@@ -19,10 +19,18 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
         var jobs: [String: Job] = [:]
         var total = 0, added = 0, skipped = 0, failed = 0
     }
-    struct Progress { let active: Bool; let message: String; let fractions: [String: Double] }
+    struct Progress {
+        let active: Bool
+        let message: String
+        let fractions: [String: Double]
+        let pendingKeys: Set<String>
+        let completedKeys: Set<String>
+    }
     private let lock = NSRecursiveLock()
     private var state = State()
     private var fractions: [String: Double] = [:]
+    private var completedKeys = Set<String>()
+    private var lastProgressNotification: [String: Date] = [:]
     private var ready = false
     private var eventCompletion: (() -> Void)?
     private lazy var session: URLSession = {
@@ -49,9 +57,11 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
         lock.lock(); defer { lock.unlock() }
         if !state.jobs.isEmpty {
             let done = state.added + state.skipped + state.failed
-            return Progress(active: true, message: "Загрузка \(done) / \(state.total)", fractions: fractions)
+            return Progress(active: true, message: "Загрузка \(done) / \(state.total)", fractions: fractions,
+                            pendingKeys: Set(state.jobs.keys), completedKeys: completedKeys)
         }
-        return Progress(active: false, message: state.total == 0 ? "" : "Скачано: \(state.added) · уже сохранено: \(state.skipped) · ошибок: \(state.failed)", fractions: fractions)
+        return Progress(active: false, message: state.total == 0 ? "" : "Скачано: \(state.added) · уже сохранено: \(state.skipped) · ошибок: \(state.failed)", fractions: [:],
+                        pendingKeys: [], completedKeys: completedKeys)
     }
     func handleEvents(_ completion: @escaping () -> Void) {
         lock.lock(); eventCompletion = completion; lock.unlock()
@@ -73,7 +83,7 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
     func enqueue(_ tracks: [Track], origin: URL, account: String) {
         lock.lock(); defer { lock.unlock() }
         reconnect()
-        if state.jobs.isEmpty { state = State() }
+        if state.jobs.isEmpty { state = State(); completedKeys.removeAll(); fractions.removeAll(); lastProgressNotification.removeAll() }
         for track in tracks {
             // A stale _offline flag must not block repair of a corrupt download.
             // Imported local files have no remote source and cannot be re-downloaded.
@@ -82,7 +92,7 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
             let key = origin.absoluteString + "|" + account + "|" + track.id
             guard state.jobs[key] == nil else { continue }
             state.total += 1
-            if OfflineStore.audio(origin: origin, account: account, id: track.id) != nil { state.skipped += 1; continue }
+            if OfflineStore.audio(origin: origin, account: account, id: track.id) != nil { state.skipped += 1; completedKeys.insert(key); continue }
             let job = Job(key: key, origin: origin, account: account, track: track)
             state.jobs[key] = job
             // Persist before resume: a system wake-up can always recover the metadata.
@@ -91,6 +101,9 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
         persist(); publish()
     }
     private func submit(_ job: Job) {
+        // Retries are a new transfer; do not carry over 100% from a preparation response.
+        fractions.removeValue(forKey: job.key)
+        lastProgressNotification.removeValue(forKey: job.key)
         var request = URLRequest(url: job.origin.appendingPathComponent("api/offline-export/" + job.track.id))
         request.url = URL(string: "api/offline-export/" + job.track.id + "?download=true&wait=true", relativeTo: job.origin)
         request.timeoutInterval = 70
@@ -119,7 +132,8 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
         lock.lock(); defer { lock.unlock() }
         guard let key = task.taskDescription, state.jobs.removeValue(forKey: key) != nil else { return }
         fractions.removeValue(forKey: key)
-        if success { state.added += 1 } else { state.failed += 1 }
+        lastProgressNotification.removeValue(forKey: key)
+        if success { state.added += 1; completedKeys.insert(key) } else { state.failed += 1 }
         persist(); publish()
     }
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
@@ -130,7 +144,7 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
         // Compatibility with servers that still return preparation JSON for download=true.
         if http.statusCode == 200, size < 65536, let bytes = try? Data(contentsOf: location), let status = (try? JSONSerialization.jsonObject(with: bytes) as? [String: Any])?["status"] as? String { waiting = status == "loading" || status == "pending" }
         if waiting && job.attempts < 8 {
-            lock.lock(); job.attempts += 1; state.jobs[job.key] = job; persist(); submit(job); lock.unlock(); return
+            lock.lock(); job.attempts += 1; state.jobs[job.key] = job; persist(); submit(job); publish(); lock.unlock(); return
         }
         guard http.statusCode == 200, !waiting else { finish(downloadTask, success: false); return }
         do {
@@ -145,9 +159,18 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
         if totalBytesWritten > OfflineStore.limit || totalBytesExpectedToWrite > OfflineStore.limit { downloadTask.cancel(); return }
         guard let key = downloadTask.taskDescription, totalBytesExpectedToWrite > 0 else { return }
         lock.lock()
-        let value = min(1, max(0, Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)))
+        // Fraction is derived from actual transfer bytes. Saving the file is still
+        // pending at 100% transferred, so only mark a track complete in finish().
+        let value = min(0.999, max(0, Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)))
         let previous = fractions[key] ?? 0
-        if value - previous >= 0.01 || value >= 1 { fractions[key] = value; publish() }
+        if value - previous >= 0.001 || (value >= 0.999 && previous < 0.999) {
+            fractions[key] = value
+            let now = Date()
+            if value >= 0.999 || now.timeIntervalSince(lastProgressNotification[key] ?? .distantPast) >= 0.2 {
+                lastProgressNotification[key] = now
+                publish()
+            }
+        }
         lock.unlock()
     }
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
