@@ -1943,23 +1943,25 @@ struct NightwellAccountDevicesResponse: Decodable {
         return downloadFractions[key] ?? 0
     }
     func playlistDownloadProgress(_ tracks: [Track]) -> Double? {
-        guard let account, !tracks.isEmpty else { return nil }
+        playlistDownloadProgress(trackIDs: tracks.map(\.id))
+    }
+    func playlistDownloadProgress(trackIDs: [String]) -> Double? {
+        guard let account, !trackIDs.isEmpty else { return nil }
         let prefix = origin.absoluteString + "|" + account.id + "|"
-        // Only display a bar while this playlist still has unfinished jobs.
-        guard tracks.contains(where: { pendingDownloadKeys.contains(prefix + $0.id) }) else { return nil }
-        let total = tracks.reduce(0.0) { result, track in
-            let key = prefix + track.id
-            if completedDownloadKeys.contains(key) || downloadedTrackIDs.contains(track.id) {
+        // No pending job means the circular ring and playlist progress bar hide.
+        guard trackIDs.contains(where: { pendingDownloadKeys.contains(prefix + $0) }) else { return nil }
+        let total = trackIDs.reduce(0.0) { result, id in
+            let key = prefix + id
+            if completedDownloadKeys.contains(key) || downloadedTrackIDs.contains(id) {
                 return result + 1
             }
-            // Each queued track contributes zero until bytes have arrived.
-            // This prevents showing 100% while most of the playlist is waiting.
+            // Queued tracks contribute 0 until data is actually transferred.
             if pendingDownloadKeys.contains(key) {
                 return result + min(0.999, max(0, downloadFractions[key] ?? 0))
             }
             return result
         }
-        return min(0.999, total / Double(tracks.count))
+        return min(0.999, total / Double(trackIDs.count))
     }
     func isDownloaded(_ track: Track) -> Bool {
         if downloadedTrackIDs.contains(track.id) { return true }
