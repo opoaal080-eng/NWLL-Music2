@@ -1,0 +1,52 @@
+name: Export Android and Windows sources
+on:
+  push:
+    branches: [source-export-android-windows-20261117]
+    paths:
+      - '.github/workflows/export-client-sources.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create separate source ZIPs
+        shell: python
+        run: |
+          from pathlib import Path
+          from zipfile import ZipFile, ZIP_DEFLATED
+          common = [
+              'README.md',
+              'README_RU.md',
+              'README_NATIVE_RU.md',
+              'README_RECOVERY_APPS.md',
+          ]
+          for platform in ('android', 'windows'):
+              paths = []
+              paths.extend(p for p in Path(platform).rglob('*') if p.is_file())
+              paths.extend(p for p in Path('scripts').rglob('*') if p.is_file())
+              paths.extend(Path(p) for p in common if Path(p).is_file())
+              paths.append(Path(f'.github/workflows/build-{platform}.yml'))
+              archive = f'Nightwell-Music-{platform.capitalize()}-Sources.zip'
+              with ZipFile(archive, 'w', ZIP_DEFLATED, compresslevel=7) as z:
+                  for p in sorted(set(paths)):
+                      if '.git' in p.parts or '__pycache__' in p.parts:
+                          continue
+                      z.write(p, p.as_posix())
+              print(f'Wrote {archive} ({len(paths)} files)')
+      - name: Upload Android source archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nightwell-Music-Android-Source
+          path: Nightwell-Music-Android-Sources.zip
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload Windows source archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nightwell-Music-Windows-Source
+          path: Nightwell-Music-Windows-Sources.zip
+          if-no-files-found: error
+          retention-days: 30
