@@ -28,8 +28,11 @@ jobs:
           cp server-updates/widget-sync/install_widget_sync.py dist/Nightwell-Widget-Server/
           cp server-updates/widget-sync/README-RU.md dist/Nightwell-Widget-Server/
           cp server-updates/widget-sync/*.bat dist/Nightwell-Widget-Server/
+          # Windows cmd.exe requires CRLF, even if git checked out LF.
+          python -c 'from pathlib import Path; base=Path("dist/Nightwell-Widget-Server"); [p.write_bytes(p.read_bytes().replace(bytes([13,10]),bytes([10])).replace(bytes([10]),bytes([13,10]))) for p in base.glob("*.bat")]'
           cd dist
           zip -qr Nightwell-Widget-Server-Update.zip Nightwell-Widget-Server
+          python -c 'import zipfile; z=zipfile.ZipFile("Nightwell-Widget-Server-Update.zip"); bats=[z.read(n) for n in z.namelist() if n.endswith(".bat")]; assert len(bats)==2 and all(b.count(bytes([13,10]))==b.count(bytes([10])) and b.isascii() for b in bats)'
       - uses: actions/upload-artifact@v4
         with:
           name: Nightwell-Widget-Server-Update
