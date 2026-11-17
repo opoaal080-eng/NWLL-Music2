@@ -773,8 +773,11 @@ struct NightwellAccountDevicesResponse: Decodable {
             self.savePlayback(force: true)
         })
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            self?.applicationIsActive = true
-            self?.checkConnection()
+            guard let self else { return }
+            self.applicationIsActive = true
+            self.checkConnection()
+            // A transfer may have finished while the UI was suspended.
+            Task { await self.refreshOffline() }
         })
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in self?.savePlayback(force: true) })
     }
@@ -1900,7 +1903,13 @@ struct NightwellAccountDevicesResponse: Decodable {
         }
     }
     func download(_ list: [Track]) async {
+        guard !list.isEmpty else { return }
         guard let account else { authPresented = true; return }
+        // The user may lock the phone immediately after pressing Download.
+        // Allow the entitlement check to finish and the entire playlist to
+        // enter URLSession.background before foreground execution is suspended.
+        let preparation = OfflineDownloadPreparation()
+        defer { preparation.end() }
         struct DownloadAccess: Decodable { let premium: Bool }
         let owner = account.id
         do {
