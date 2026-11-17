@@ -366,6 +366,9 @@ final class NativePlayer {
     private var waveWaiting = false
     private var waveTimer: Timer?
     private var itemObservation: NSKeyValueObservation?
+    // Visualizer audio taps are optional work: attaching before the first
+    // samples can delay a fresh AVPlayerItem on slower networks.
+    private var meterActivation: DispatchWorkItem?
     private var playbackStatusObservation: NSKeyValueObservation?
     private var endObserver: NSObjectProtocol?
     private var failureObserver: NSObjectProtocol?
@@ -433,6 +436,9 @@ final class NativePlayer {
                     // full jitter-resistance preference after audio begins.
                     if self.current?.offline != true, let item = player.currentItem {
                         item.preferredForwardBufferDuration = self.streamBufferSeconds
+                    }
+                    if let item = player.currentItem {
+                        self.scheduleLiveMeterActivation(for: item)
                     }
                     self.endBackgroundHandoff()
                     self.prewarmNextAsset()
@@ -681,6 +687,7 @@ final class NativePlayer {
 
     private func load(position: Double = 0, recovering: Bool = false) {
         startupTimeout?.cancel(); startupTimeout = nil
+        meterActivation?.cancel(); meterActivation = nil
         warmupGeneration = UUID()
         nextAssetWarmup?.cancel(); nextAssetWarmup = nil
         startupUptime = ProcessInfo.processInfo.systemUptime
@@ -735,7 +742,7 @@ final class NativePlayer {
         let previousMeter = audioMeter
         audioMeter = LocalAudioMeter()
         liveMeterStartUptime = ProcessInfo.processInfo.systemUptime
-        configureAudioMeter(for: item)
+        // Attach optional audio analysis only after audible playback starts.
         player.replaceCurrentItem(with: item)
         if let previousItem { previousMeter.detach(from: previousItem) }
         itemObservation = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
@@ -854,7 +861,7 @@ final class NativePlayer {
                 try session.setCategory(.playback, mode: .default, policy: .longFormAudio)
             }
             try session.setActive(true)
-            if let item = player.currentItem { configureAudioMeter(for: item) }
+            // The audio tap is attached after playback starts, not here.
         }
         catch { wantsPlay = false; self.error = "Не удалось включить аудиосессию."; publish(); return }
         let rebuild = player.currentItem == nil || player.currentItem?.status == .failed || recovery.pending || !error.isEmpty
@@ -872,6 +879,7 @@ final class NativePlayer {
         refillWave(); publish()
     }
     func pause() {
+        meterActivation?.cancel(); meterActivation = nil
         cancelPendingNext()
         warmupGeneration = UUID()
         nextAssetWarmup?.cancel(); nextAssetWarmup = nil
@@ -1317,6 +1325,22 @@ final class NativePlayer {
         premiumSoundStatus = "Аудиовыход изменился. Музыка играет без EQ."
         seekCurrentItem(to: position)
     }
+    // The source audio must become audible before attaching the optional
+    // visualizer tap. Avoid demanding audio tracks metadata during startup.
+    private func scheduleLiveMeterActivation(for item: AVPlayerItem) {
+        meterActivation?.cancel()
+        let generation = itemGeneration
+        let work = DispatchWorkItem { [weak self, weak item] in
+            guard let self, let item, self.itemGeneration == generation,
+                  self.player.currentItem === item,
+                  self.player.timeControlStatus == .playing,
+                  self.wantsPlay else { return }
+            self.configureAudioMeter(for: item)
+        }
+        meterActivation = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
+    }
+
     private func configureAudioMeter(for item: AVPlayerItem) {
         let outputs = AVAudioSession.sharedInstance().currentRoute.outputs.map(\.portType)
         usesLiveMeter = AudioOutputPolicy.usesAudioTap(outputs)
@@ -1347,7 +1371,10 @@ final class NativePlayer {
         independentMeter.prepare(key: key, local: local, request: request, origin: origin)
     }
     private func routeChanged(_ note: Notification) {
-        if let item = player.currentItem { configureAudioMeter(for: item) }
+        // Changing output route must not force media metadata while buffering.
+        if let item = player.currentItem, player.timeControlStatus == .playing {
+            scheduleLiveMeterActivation(for: item)
+        }
         guard let raw = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
               let reason = AVAudioSession.RouteChangeReason(rawValue: raw) else { publish(); return }
         // Disconnecting headphones still pauses, so audio cannot unexpectedly
