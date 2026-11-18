@@ -512,6 +512,14 @@ struct FullPlayer: View {
     @State private var repeatMode = 0
     @State private var shuffle = false
     @AppStorage("nw-audio-quality") private var audioQuality = "auto"
+    @AppStorage("nw-player-inline-lyrics") private var playerInlineLyrics = true
+
+    private var inlineLyricIsVisible: Bool {
+        guard playerInlineLyrics, clock.playing, store.lyrics.value?.synced == true else { return false }
+        guard let text = store.lyrics.value?.lines?.last(where: { $0.time <= clock.position })?.text else { return false }
+        return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     var body: some View {
         ZStack {
             // Neutral home-style backdrop instead of the seasonal Halloween illustration.
@@ -536,17 +544,29 @@ struct FullPlayer: View {
                             .id(clock.id)
                             .background { GeometryReader { proxy in Color.clear.preference(key: PlayerLyricsFramePreference.self, value: proxy.frame(in: .global)) } }
                     } else {
-                        Cover(track: clock.current, origin: store.origin, pixelWidth: 1024)
-                            .frame(width: min(box.size.width, box.size.height) * 0.9, height: min(box.size.width, box.size.height) * 0.9)
-                            .clipShape(RoundedRectangle(cornerRadius: 26))
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .contentShape(Rectangle())
-                            .gesture(DragGesture(minimumDistance: 18).onEnded { value in
-                                let dx = value.translation.width
-                                if abs(dx) > 52 && abs(dx) > abs(value.translation.height) * 1.15 {
-                                    NativePlayer.shared.step(dx < 0 ? 1 : -1)
-                                }
-                            })
+                        let inlineLyric = inlineLyricIsVisible
+                        let artworkHeight = max(0, box.size.height - (inlineLyric ? 64 : 0))
+                        let artworkSide = min(box.size.width, artworkHeight) * (inlineLyric ? 0.84 : 0.9)
+                        VStack(spacing: inlineLyric ? 6 : 0) {
+                            Cover(track: clock.current, origin: store.origin, pixelWidth: 1024)
+                                .frame(width: artworkSide, height: artworkSide)
+                                .clipShape(RoundedRectangle(cornerRadius: 26))
+                                .contentShape(Rectangle())
+                                .gesture(DragGesture(minimumDistance: 18).onEnded { value in
+                                    let dx = value.translation.width
+                                    if abs(dx) > 52 && abs(dx) > abs(value.translation.height) * 1.15 {
+                                        NativePlayer.shared.step(dx < 0 ? 1 : -1)
+                                    }
+                                })
+                            if inlineLyric {
+                                HomeLyricLine(model: store.lyrics, clock: clock, fontSize: 20, respectsAmbientSetting: false)
+                                    .frame(height: 58)
+                                    .padding(.horizontal, 8)
+                                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                            }
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .animation(.easeInOut(duration: 0.28), value: inlineLyric)
                     }
                 }
                 HStack(spacing: 10) {
@@ -971,6 +991,7 @@ struct NativeSettings: View {
     @AppStorage("nw-stream-buffer-seconds") private var streamBufferSeconds = 4.0
     @AppStorage("nw-equal-volume") private var equalVolume = 0.0
     @AppStorage("nw-ambient-lyrics") private var ambientLyrics = true
+    @AppStorage("nw-player-inline-lyrics") private var playerInlineLyrics = true
     @State private var playbackDiagnostics = "Нет данных о запуске"
     private var buildCaption: String {
         let info = Bundle.main.infoDictionary ?? [:]
@@ -994,12 +1015,18 @@ struct NativeSettings: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Button("Темы и ленты · Premium") { feature = .appearance }
                             .sheet(item: $feature) { PremiumFeatureView(kind: $0).environmentObject(store) }
-                        Label("Оформление", systemImage: "paintbrush").font(.system(size: 18, weight: .semibold)).foregroundStyle(Color.white)
+                        Label("Кастомизация", systemImage: "paintbrush").font(.system(size: 18, weight: .semibold)).foregroundStyle(Color.white)
                         Toggle("Текст вместе с лентами", isOn: $ambientLyrics)
                             .onChange(of: ambientLyrics) { enabled in
                                 if enabled { store.lyrics.select(store.clock.current, api: store.api, origin: store.origin, online: store.account != nil) }
                             }
                         Text("Строки с таймкодами появляются во время песни.").font(.system(size: 13)).foregroundStyle(.white.opacity(0.43))
+                        Toggle("Текст под обложкой в плеере", isOn: $playerInlineLyrics)
+                            .onChange(of: playerInlineLyrics) { enabled in
+                                if enabled { store.lyrics.select(store.clock.current, api: store.api, origin: store.origin, online: store.account != nil) }
+                            }
+                        Text("Показывает синхронизированную строку песни под обложкой и слегка уменьшает её. По умолчанию включено.")
+                            .font(.system(size: 13)).foregroundStyle(.white.opacity(0.43))
                     }.padding(16).frame(maxWidth: .infinity, minHeight: 160, alignment: .leading).background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
                     VStack(alignment: .leading, spacing: 12) {
                         Label("Воспроизведение", systemImage: "waveform").font(.system(size: 18, weight: .semibold)).foregroundStyle(Color.white)
