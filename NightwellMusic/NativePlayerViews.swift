@@ -1584,30 +1584,42 @@ struct NativeSettings: View {
                 Text("Стандартная тема остаётся прежней. Выбранное оформление сохраняется и включается сразу.")
                     .font(.system(size: 12))
                     .foregroundStyle(.white.opacity(0.60))
-                HStack(alignment: .top, spacing: 11) {
+                LazyVGrid(columns: [
+                    GridItem(.flexible(minimum: 0), spacing: 11, alignment: .top),
+                    GridItem(.flexible(minimum: 0), spacing: 11, alignment: .top)
+                ], alignment: .center, spacing: 11) {
                     ForEach(NightwellAppearance.allCases) { option in
                         Button {
                             withAnimation(.easeInOut(duration: 0.3)) {
                                 themeID = option.rawValue
                             }
                         } label: {
-                            VStack(alignment: .leading, spacing: 8) {
+                            VStack(alignment: .leading, spacing: 7) {
                                 NightwellThemePreview(appearance: option)
+                                    .frame(height: 130)
                                 HStack(spacing: 3) {
-                                    Text(option.title).font(.system(size: 12, weight: .semibold))
-                                        .lineLimit(1).minimumScaleFactor(0.75)
+                                    Text(option.title)
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.7)
                                     Spacer(minLength: 1)
                                     if themeID == option.rawValue {
                                         Image(systemName: "checkmark.circle.fill")
                                             .foregroundStyle(option.accent)
                                     }
                                 }
+                                .frame(height: 21)
                                 Text(option.subtitle)
                                     .font(.system(size: 10))
                                     .foregroundStyle(.white.opacity(0.6))
                                     .multilineTextAlignment(.leading)
-                                    .fixedSize(horizontal: false, vertical: true)
+                                    .lineLimit(2)
+                                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                                    .frame(height: 30, alignment: .top)
+                                Spacer(minLength: 0)
                             }
+                            .frame(maxWidth: .infinity, alignment: .topLeading)
+                            .frame(height: 208, alignment: .top)
                             .padding(8)
                             .background(
                                 themeID == option.rawValue
@@ -1621,8 +1633,8 @@ struct NativeSettings: View {
                             }
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("Тема " + option.title)
                         .frame(maxWidth: .infinity, alignment: .top)
+                        .accessibilityLabel("Тема " + option.title)
                     }
                 }
                 Text("Vice Nights вдохновлена атмосферой GTA VI. Графика оригинальная, без официальных материалов игры.")

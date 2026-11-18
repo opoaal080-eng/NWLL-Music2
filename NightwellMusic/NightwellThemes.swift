@@ -36,47 +36,87 @@ extension EnvironmentValues {
 
 struct NightwellViceBackdrop: View {
     var palmTrees = true
+
     var body: some View {
-        GeometryReader { proxy in
-            let w = proxy.size.width, h = proxy.size.height
+        GeometryReader { geometry in
+            let w = geometry.size.width
+            let h = geometry.size.height
             ZStack {
+                // Night-time coastal skyline: dark enough for readable controls,
+                // with subtle pink / indigo neon rather than a flat magenta slab.
                 LinearGradient(stops: [
-                    .init(color: Color(red: 0.065, green: 0.040, blue: 0.15), location: 0),
-                    .init(color: Color(red: 0.18, green: 0.055, blue: 0.28), location: 0.27),
-                    .init(color: Color(red: 0.32, green: 0.062, blue: 0.25), location: 0.49),
-                    .init(color: Color(red: 0.065, green: 0.038, blue: 0.13), location: 0.77),
-                    .init(color: Color(red: 0.012, green: 0.010, blue: 0.035), location: 1)
+                    .init(color: Color(red: 0.035, green: 0.028, blue: 0.085), location: 0),
+                    .init(color: Color(red: 0.082, green: 0.045, blue: 0.16), location: 0.26),
+                    .init(color: Color(red: 0.17, green: 0.055, blue: 0.20), location: 0.51),
+                    .init(color: Color(red: 0.075, green: 0.045, blue: 0.14), location: 0.76),
+                    .init(color: Color(red: 0.015, green: 0.014, blue: 0.035), location: 1)
                 ], startPoint: .top, endPoint: .bottom)
-                RadialGradient(colors: [NightwellAppearance.pink.opacity(0.45), .clear],
-                               center: UnitPoint(x: 0.81, y: 0.43), startRadius: 8,
-                               endRadius: max(w, h) * 0.65)
-                RadialGradient(colors: [NightwellAppearance.cyan.opacity(0.17), .clear],
-                               center: UnitPoint(x: 0.1, y: 0.75), startRadius: 8,
-                               endRadius: max(w, h) * 0.58)
-                Circle()
-                    .fill(LinearGradient(colors: [NightwellAppearance.gold,
-                                                  NightwellAppearance.pink,
-                                                  NightwellAppearance.pink.opacity(0.10)],
-                                         startPoint: .top, endPoint: .bottom))
-                    .frame(width: min(w * 0.63, 260), height: min(w * 0.63, 260))
-                    .opacity(0.33)
-                    .position(x: w * 0.81, y: h * 0.43)
+                RadialGradient(colors: [
+                    NightwellAppearance.pink.opacity(0.27),
+                    Color(red: 0.30, green: 0.10, blue: 0.37).opacity(0.10),
+                    .clear
+                ], center: UnitPoint(x: 0.78, y: 0.54), startRadius: 6,
+                   endRadius: max(w, h) * 0.65)
+                RadialGradient(colors: [
+                    NightwellAppearance.cyan.opacity(0.12), .clear
+                ], center: UnitPoint(x: 0.08, y: 0.70), startRadius: 8,
+                   endRadius: max(w, h) * 0.45)
+                Ellipse()
+                    .fill(NightwellAppearance.gold.opacity(0.21))
+                    .frame(width: w * 0.62, height: max(35, h * 0.08))
+                    .blur(radius: max(24, w * 0.11))
+                    .position(x: w * 0.73, y: h * 0.63)
+                ViceCoastalSkyline()
+                    .fill(Color(red: 0.027, green: 0.022, blue: 0.070).opacity(0.65))
+                Rectangle()
+                    .fill(LinearGradient(colors: [
+                        .clear,
+                        NightwellAppearance.pink.opacity(0.20),
+                        NightwellAppearance.gold.opacity(0.17),
+                        .clear
+                    ], startPoint: .leading, endPoint: .trailing))
+                    .frame(height: 1)
+                    .position(x: w * 0.5, y: h * 0.75)
+                    .blur(radius: 0.6)
                 if palmTrees {
                     VicePalmSilhouette()
-                        .stroke(Color(red: 0.05, green: 0.015, blue: 0.095).opacity(0.66),
-                                style: StrokeStyle(lineWidth: 4.3, lineCap: .round))
-                        .frame(width: w * 0.53, height: h * 0.73)
-                        .position(x: w * 0.12, y: h * 0.80)
-                        .blur(radius: 0.6)
+                        .stroke(Color(red: 0.025, green: 0.020, blue: 0.065).opacity(0.52),
+                                style: StrokeStyle(lineWidth: 3.1, lineCap: .round))
+                        .frame(width: w * 0.43, height: h * 0.60)
+                        .position(x: w * 0.08, y: h * 0.83)
+                        .blur(radius: 1.1)
                 }
-                LinearGradient(colors: [.black.opacity(0.03), .black.opacity(0.09),
-                                        .black.opacity(0.40)], startPoint: .top, endPoint: .bottom)
+                LinearGradient(colors: [
+                    .black.opacity(0.08), .clear, .black.opacity(0.06),
+                    .black.opacity(0.40)
+                ], startPoint: .top, endPoint: .bottom)
             }
             .frame(width: w, height: h)
             .clipped()
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+}
+
+/// Distant, low-contrast silhouette, not a foreground illustration.
+private struct ViceCoastalSkyline: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let buildings: [(CGFloat, CGFloat, CGFloat)] = [
+            (0.02, 0.015, 0.67), (0.05, 0.028, 0.72), (0.12, 0.020, 0.64),
+            (0.16, 0.032, 0.70), (0.22, 0.015, 0.68), (0.27, 0.035, 0.73),
+            (0.35, 0.020, 0.66), (0.40, 0.024, 0.69), (0.47, 0.018, 0.72),
+            (0.54, 0.033, 0.70), (0.61, 0.017, 0.66), (0.67, 0.026, 0.71),
+            (0.74, 0.024, 0.69), (0.80, 0.038, 0.74), (0.89, 0.016, 0.70),
+            (0.94, 0.028, 0.67)
+        ]
+        for (x, width, top) in buildings {
+            path.addRect(CGRect(x: rect.width * x, y: rect.height * top,
+                                width: rect.width * width,
+                                height: rect.height * (0.77 - top)))
+        }
+        return path
     }
 }
 
