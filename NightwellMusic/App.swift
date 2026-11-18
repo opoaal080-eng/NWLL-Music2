@@ -381,6 +381,7 @@ struct NativeRoot: View {
     @State private var profilePresented = false
     @State private var widgetSetupPresented = false
     @State private var widgetLinkSetupPresented = false
+    @State private var widgetIncomingCode: String?
     @State private var dailyPlaylistsPresented = false
     @State private var profileSigningOut = false
     @State private var pendingNavigation: StableNavigationAction?
@@ -843,14 +844,14 @@ struct NativeRoot: View {
                 AccountAccessView(api: store.api, accountID: store.account?.id)
             }
             .sheet(isPresented: $widgetSetupPresented) {
-                NWWidgetSetupView(api: store.api).environmentObject(store)
+                NWWidgetSetupView(api: store.api, initialCode: widgetIncomingCode).environmentObject(store)
             }
         }
         .fullScreenCover(isPresented: $accountAccessPresented) {
             AccountAccessView(api: store.api, accountID: store.account?.id)
         }
         .sheet(isPresented: $widgetLinkSetupPresented) {
-            NWWidgetSetupView(api: store.api).environmentObject(store)
+            NWWidgetSetupView(api: store.api, initialCode: widgetIncomingCode).environmentObject(store)
         }
         .sheet(isPresented: $premiumPresented, onDismiss: {
             Task { await favoritePremium.refresh(store) }
@@ -981,6 +982,21 @@ struct NativeRoot: View {
         case "/search": navigate(to: .search)
         case "/offline": navigate(to: .offline)
         case "/widget-setup":
+            if let supplied = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "code" })?.value {
+                let challenge = supplied.uppercased().filter { $0.isHexDigit }
+                if challenge.count == 16 {
+                    widgetIncomingCode = stride(from: 0, to: 16, by: 4)
+                        .map { start in
+                            let from = challenge.index(challenge.startIndex, offsetBy: start)
+                            let to = challenge.index(from, offsetBy: 4)
+                            return String(challenge[from..<to])
+                        }.joined(separator: "-")
+                    // Copy for convenience, but the connection form is
+                    // already prefilled even if clipboard access is disabled.
+                    UIPasteboard.general.string = widgetIncomingCode
+                }
+            }
             if profilePresented {
                 widgetSetupPresented = true
             } else {

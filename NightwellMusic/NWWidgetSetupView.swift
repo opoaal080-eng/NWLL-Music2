@@ -9,6 +9,7 @@ struct NWWidgetSetupView: View {
     @EnvironmentObject private var store: MusicStore
     @Environment(\.dismiss) private var dismiss
     let api: MusicAPI
+    let initialCode: String?
 
     @State private var code = ""
     @State private var notice = ""
@@ -28,7 +29,7 @@ struct NWWidgetSetupView: View {
                         .font(.system(size: 25, weight: .bold))
                     VStack(alignment: .leading, spacing: 14) {
                         Text("Подключить виджет").font(.headline)
-                        Text("Удали старые виджеты «Сейчас играет» и добавь новый. На нём появится код из четырёх групп символов. Введи этот код сюда. Настройки виджета редактировать не нужно.")
+                        Text("Добавь виджет «Сейчас играет» и нажми на него. Nightwell Music откроет это окно с уже вставленным кодом, а также скопирует его. Вводить символы вручную не нужно.")
                             .font(.subheadline).foregroundStyle(.white.opacity(0.72))
                         TextField("XXXX-XXXX-XXXX-XXXX", text: $code)
                             .font(.system(size: 17, weight: .semibold, design: .monospaced))
@@ -104,7 +105,16 @@ struct NWWidgetSetupView: View {
             }
         }
         .preferredColorScheme(.dark)
-        .task { await inspect() }
+        .task {
+            if let initialCode, !initialCode.isEmpty {
+                code = initialCode
+                notice = "Код автоматически перенесён из виджета. Нажми «Подключить»."
+            }
+            await inspect()
+        }
+        .onChange(of: initialCode) { _, next in
+            if let next, !next.isEmpty { code = next }
+        }
     }
 
     @MainActor private func inspect() async {

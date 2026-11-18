@@ -457,6 +457,20 @@ private struct NWArtwork: View {
 private struct NWPlayerWidgetView: View {
     @Environment(\.widgetFamily) private var family
     let entry: NWEntry
+    private var destination: URL? {
+        // WidgetKit does not share the app's clipboard or memory. Carry only
+        // the short-lived, non-secret enrollment challenge in the deep link.
+        if entry.snapshot.title == "Подключить виджет",
+           entry.snapshot.trackID.isEmpty {
+            let code = entry.snapshot.artist.uppercased().filter { $0.isHexDigit }
+            if code.count == 16 {
+                return URL(string: "nightwell://open/widget-setup?code=" + code)
+            }
+        }
+        return URL(string: entry.snapshot.trackID.isEmpty
+                   ? "nightwell://open/widget-setup"
+                   : "nightwell://open/player")
+    }
 
     @ViewBuilder var body: some View {
         // Public setup / loading text can be shown immediately. Genuine
@@ -533,9 +547,7 @@ private struct NWPlayerWidgetView: View {
         }
         .foregroundStyle(.white)
         .containerBackground(for: .widget) { NightwellWidgetSurface() }
-        .widgetURL(URL(string: entry.snapshot.trackID.isEmpty
-            ? "nightwell://open/widget-setup"
-            : "nightwell://open/player"))
+        .widgetURL(destination)
     }
 }
 
