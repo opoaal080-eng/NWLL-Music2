@@ -161,6 +161,10 @@ struct NWWidgetSetupView: View {
     }
 
     @MainActor private func inspectConfiguration() async {
+        guard #available(iOS 18.0, *) else {
+            configurationStatus = "Проверка сохранённого ключа доступна с iOS 18. На iOS 17 проверь поле ключа в настройках виджета."
+            return
+        }
         do {
             let widgets = try await WidgetCenter.shared.currentConfigurations()
             let latest = widgets.filter { $0.kind == NWWidgetConfiguration.kind }
