@@ -205,7 +205,7 @@ struct NightwellMonochromeGlassBackground: View {
         GeometryReader { proxy in
             ZStack {
                 if appearance == .vice {
-                    NightwellViceBackdrop()
+                    NightwellViceScenicBackdrop()
                 } else {
                 LinearGradient(
                     colors: [Color(white: 0.14), Color(white: 0.045), .black,
