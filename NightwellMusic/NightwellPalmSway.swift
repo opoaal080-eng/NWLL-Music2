@@ -9,9 +9,9 @@ struct NightwellPalmSwayBackdrop: View {
     private let periods: [Double] = [6.4, 7.2, 8.3]
     private let amplitudes: [Double] = [3.0, -3.4, 2.8]
     private let anchors: [UnitPoint] = [
-        UnitPoint(x: 0, y: .42),
-        UnitPoint(x: 1, y: .20),
-        UnitPoint(x: 1, y: .90)
+        UnitPoint(x: 0, y: 0.42),
+        UnitPoint(x: 1, y: 0.20),
+        UnitPoint(x: 1, y: 0.90)
     ]
 
     var body: some View {
