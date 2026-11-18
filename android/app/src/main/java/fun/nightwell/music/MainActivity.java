@@ -490,12 +490,12 @@ public final class MainActivity extends Activity {
         android.widget.FrameLayout scene=new android.widget.FrameLayout(this);
         scene.setBackground(new NativeSceneryDrawable(this));
         sunsetBackground=new android.widget.ImageView(this);
-        sunsetBackground.setImageResource(R.drawable.vice_sunset);
+        sunsetBackground.setImageResource(R.drawable.vice_sky);
         sunsetBackground.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
         sunsetBackground.setAlpha(.96f);
         sunsetBackground.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         scene.addView(sunsetBackground,new android.widget.FrameLayout.LayoutParams(-1,-1));
-        palmFoliage=new PalmSwayOverlay(this,R.drawable.vice_sunset);
+        palmFoliage=new PalmSwayOverlay(this);
         palmFoliage.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         scene.addView(palmFoliage,new android.widget.FrameLayout.LayoutParams(-1,-1));
         ambient=new ArtworkAmbientView(this);
