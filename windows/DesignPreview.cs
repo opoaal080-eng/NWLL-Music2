@@ -12,6 +12,11 @@ public partial class MainWindow {
  bool IsDesignPreview=>Environment.GetCommandLineArgs().Contains("--design-preview");
  async Task CaptureDesignPreviews(){
   Directory.CreateDirectory("ui-previews");Width=1120;Height=800;
+  // Fail CI before packaging if either player's play button becomes small or moves left.
+  if (Grid.GetColumn(FullPlay)!=4 || FullPlay.Width<=FullNext.Width ||
+      MiniPlay.Width<=MiniNext.Width || MiniPlay.Height<=MiniNext.Height ||
+      ((Panel)MiniPlay.Parent).Children.IndexOf(MiniPlay)<=((Panel)MiniNext.Parent).Children.IndexOf(MiniNext))
+    throw new InvalidOperationException("Play must be right-most and larger than skip in both players");
   Status.Text="";Ribbon.PreviewPhase=1.4;await PreviewWindow(this,"01-home");
   Ribbon.Playing=true;Ribbon.Intensity=.8;Ribbon.PreviewPhase=4.2;await PreviewWindow(this,"12-ambient-playing");
   Ribbon.PreviewPhase=9.4;await PreviewWindow(this,"13-ambient-motion");
@@ -31,7 +36,7 @@ public partial class MainWindow {
   Show("Избранное");Tracks.SelectedIndex=1;await PreviewWindow(this,"02-library-selection");
   SearchOptions.Visibility=SearchBox.Visibility=Visibility.Visible;Heading.Text="Поиск";SearchBox.Text="Nightwell";await PreviewWindow(this,"03-search");
   Home.Visibility=Library.Visibility=Dock.Visibility=Visibility.Collapsed;PlayerPage.Visibility=Visibility.Visible;Ribbon.Visibility=Visibility.Visible;Ribbon.Focused=true;
-  FullSeek.Maximum=218;FullSeek.Value=86;FullTime.Text="1:26    /    3:38";FullPlay.Content="\uE769";FullVolumeSlider.Value=VolumeSlider.Value=72;FullVolumeValue.Text=MiniVolumeValue.Text="72%";
+  FullSeek.Maximum=218;FullSeek.Value=86;FullTime.Text="1:26    /    3:38";SetPlayVector(FullPlay,true);FullVolumeSlider.Value=VolumeSlider.Value=72;FullVolumeValue.Text=MiniVolumeValue.Text="72%";
   await PreviewWindow(this,"04-player");Width=800;Height=620;await PreviewWindow(this,"05-player-compact");
   Width=1120;Height=800;
   using var lyrics=JsonDocument.Parse("{\"plain\":\"Город засыпает, огни не спешат.\\nВ каждом окне свой маленький мир.\\nМузыка рядом, и время звучит.\"}");
@@ -51,7 +56,7 @@ public partial class MainWindow {
   playlists=[new(){id="preview-collection-1",name="Ночная дорога"},new(){id="preview-collection-2",name="Избранные открытия"},new(){id="preview-collection-3",name="После полуночи"}];
   Show("Плейлисты");await PreviewWindow(this,"17-playlists-workspace");
   Show("Главная");ToggleDesktopQueue(true);await PreviewWindow(this,"18-queue-workspace");ToggleDesktopQueue(false);
-  File.WriteAllText("ui-previews/checks.json",JsonSerializer.Serialize(new{theme="vice-nights-sunset",states=18,logoNavigation=true,hiddenBackgroundStopped=true,networkRequests=0,compactWidth=800,compactHeight=620,primaryContrast=Contrast(BrushHex("TextBrush"),BrushHex("SurfaceBrush")),secondaryContrast=Contrast(BrushHex("SecondaryBrush"),BrushHex("InputBrush"))}));
+  File.WriteAllText("ui-previews/checks.json",JsonSerializer.Serialize(new{theme="vice-nights-sunset",playRightAndLarge=true,states=18,logoNavigation=true,hiddenBackgroundStopped=true,networkRequests=0,compactWidth=800,compactHeight=620,primaryContrast=Contrast(BrushHex("TextBrush"),BrushHex("SurfaceBrush")),secondaryContrast=Contrast(BrushHex("SecondaryBrush"),BrushHex("InputBrush"))}));
  }
  string BrushHex(string key){var color=((SolidColorBrush)FindResource(key)).Color;return $"{color.R:X2}{color.G:X2}{color.B:X2}";}
  async Task PreviewWindow(Window window,string name){await Task.Delay(120);window.UpdateLayout();await Dispatcher.InvokeAsync(()=>{},DispatcherPriority.Render);await PreviewElement(window,name);}

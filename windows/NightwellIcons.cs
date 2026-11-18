@@ -78,7 +78,7 @@ public partial class MainWindow
     {
         string state = playing ? "pause" : "play";
         if (button.Content is Path && Equals(button.Tag, state)) return;
-        button.Content = NightwellIcons.Draw(state, button == HomePlay ? 31 : button == MiniPlay ? 20 : 26,
+        button.Content = NightwellIcons.Draw(state, button == HomePlay ? 31 : button == MiniPlay ? 25 : 33,
             Brushes.White, state == "play");
         button.Tag = state;
     }

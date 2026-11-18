@@ -146,12 +146,14 @@
        <TextBlock x:Name="FullArtist" MouseLeftButtonUp="FullArtistClick" Cursor="Hand" FontSize="14" Foreground="#D0D0D0" HorizontalAlignment="Center" TextAlignment="Center" Margin="0,6,0,9" ToolTip="Открыть исполнителя"/>
        <Slider x:Name="FullSeek" Minimum="0" Maximum="1" PreviewMouseLeftButtonDown="SeekStart" PreviewMouseLeftButtonUp="SeekEnd" AutomationProperties.Name="Позиция воспроизведения"/>
        <TextBlock x:Name="FullTime" Text="0:00    /    0:00" FontSize="12" Foreground="#D0D0D0" HorizontalAlignment="Center" Margin="0,3,0,8"/>
-       <Grid HorizontalAlignment="Center"><Grid.ColumnDefinitions><ColumnDefinition Width="40"/><ColumnDefinition Width="48"/><ColumnDefinition Width="80"/><ColumnDefinition Width="48"/><ColumnDefinition Width="40"/></Grid.ColumnDefinitions>
+       <!-- Playback is the large, far-right control in the full player. -->
+       <Grid HorizontalAlignment="Center" VerticalAlignment="Center">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="44"/><ColumnDefinition Width="48"/><ColumnDefinition Width="48"/><ColumnDefinition Width="44"/><ColumnDefinition Width="92"/></Grid.ColumnDefinitions>
         <Button x:Name="ShuffleButton" Content="&#xE8B1;" Style="{StaticResource TransportButton}" Click="ShuffleClick" ToolTip="Перемешать" VerticalAlignment="Center"/>
         <Button x:Name="FullPrevious" Grid.Column="1" Style="{StaticResource TransportButton}" Click="PreviousClick" ToolTip="Предыдущий трек" VerticalAlignment="Center"/>
-        <Button Grid.Column="2" x:Name="FullPlay" Content="&#xE768;" Style="{StaticResource PlayButton}" Click="ToggleClick" ToolTip="Воспроизвести или поставить на паузу"/>
-        <Button x:Name="FullNext" Grid.Column="3" Style="{StaticResource TransportButton}" Click="NextClick" ToolTip="Следующий трек" VerticalAlignment="Center"/>
-        <Grid Grid.Column="4" VerticalAlignment="Center"><Button x:Name="RepeatButton" Content="&#xE8EE;" Style="{StaticResource TransportButton}" Click="RepeatClick" ToolTip="Повтор"/><TextBlock x:Name="RepeatOne" Text="1" Foreground="#CACACA" FontSize="9" Margin="0,3,5,0" HorizontalAlignment="Right" VerticalAlignment="Top" IsHitTestVisible="False" Visibility="Collapsed"/></Grid>
+        <Button x:Name="FullNext" Grid.Column="2" Style="{StaticResource TransportButton}" Click="NextClick" ToolTip="Следующий трек" VerticalAlignment="Center"/>
+        <Grid Grid.Column="3" VerticalAlignment="Center"><Button x:Name="RepeatButton" Content="&#xE8EE;" Style="{StaticResource TransportButton}" Click="RepeatClick" ToolTip="Повтор"/><TextBlock x:Name="RepeatOne" Text="1" Foreground="#CACACA" FontSize="9" Margin="0,3,5,0" HorizontalAlignment="Right" VerticalAlignment="Top" IsHitTestVisible="False" Visibility="Collapsed"/></Grid>
+        <Button Grid.Column="4" x:Name="FullPlay" Content="&#xE768;" Width="78" Height="78" FontSize="28" Margin="7,0,0,0" VerticalAlignment="Center" Style="{StaticResource PlayButton}" Click="ToggleClick" ToolTip="Воспроизвести или поставить на паузу"/>
        </Grid>
        <Grid Margin="55,8,55,0"><Grid.ColumnDefinitions><ColumnDefinition Width="24"/><ColumnDefinition Width="*"/><ColumnDefinition Width="48"/></Grid.ColumnDefinitions>
         <Path Data="M 3,9 H 7 L 12,5 V19 L7,15 H3 Z M 16,9 C18,11 18,13 16,15 M19,6 C23,9 23,15 19,18" Stroke="#A0A0A0" StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Width="20" Height="20" Stretch="Uniform" VerticalAlignment="Center"/>
@@ -168,7 +170,7 @@
   <TextBlock x:Name="Status" Grid.Row="2" Foreground="{StaticResource SecondaryBrush}" FontSize="12" TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center" MaxHeight="44" Margin="24,7,24,2">
    <TextBlock.Style><Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}"><Style.Triggers><Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed"/></Trigger></Style.Triggers></Style></TextBlock.Style>
   </TextBlock>
-  <Border x:Name="Dock" Grid.Row="3" Height="76" Margin="24,10,24,18" Background="#E0171720" BorderBrush="#383838" BorderThickness="1" CornerRadius="18" Padding="16,10">
+  <Border x:Name="Dock" Grid.Row="3" Height="88" Margin="24,10,24,18" Background="#E0171720" BorderBrush="#383838" BorderThickness="1" CornerRadius="18" Padding="16,10">
    <Grid>
     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="164"/></Grid.ColumnDefinitions>
     <Grid MouseLeftButtonUp="OpenPlayerClick" Cursor="Hand" VerticalAlignment="Center" Margin="0,0,16,0">
@@ -183,11 +185,12 @@
       <TextBlock x:Name="MiniArtist" Text="И начни слушать" Foreground="{StaticResource SecondaryBrush}" FontSize="12" Margin="0,5,0,0"/>
      </StackPanel>
     </Grid>
+    <!-- Mini-player: large play/pause is always at the far right of transport controls. -->
     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-     <Button x:Name="MiniLike" Content="♡" Style="{StaticResource IconButton}" FontSize="22" Margin="0,0,8,0" Click="LikeClick" ToolTip="В избранное"/>
-     <Button x:Name="MiniPrevious" Click="PreviousClick" Style="{StaticResource TransportButton}" ToolTip="Предыдущий трек"/>
-     <Button x:Name="MiniPlay" Content="&#xE768;" Width="46" Height="46" FontSize="18" Margin="8,0" Style="{StaticResource PlayButton}" Click="ToggleClick" ToolTip="Воспроизвести или поставить на паузу"/>
-     <Button x:Name="MiniNext" Click="NextClick" Style="{StaticResource TransportButton}" ToolTip="Следующий трек"/>
+     <Button x:Name="MiniLike" Content="♡" Style="{StaticResource IconButton}" FontSize="22" Margin="0,0,10,0" Click="LikeClick" ToolTip="В избранное"/>
+     <Button x:Name="MiniPrevious" Click="PreviousClick" Style="{StaticResource TransportButton}" Margin="0,0,4,0" ToolTip="Предыдущий трек"/>
+     <Button x:Name="MiniNext" Click="NextClick" Style="{StaticResource TransportButton}" Margin="0,0,8,0" ToolTip="Следующий трек"/>
+     <Button x:Name="MiniPlay" Content="&#xE768;" Width="60" Height="60" FontSize="24" Margin="3,0,0,0" Style="{StaticResource PlayButton}" Click="ToggleClick" ToolTip="Воспроизвести или поставить на паузу"/>
     </StackPanel>
     <Grid Grid.Column="2" Margin="20,0,0,0" VerticalAlignment="Center">
      <Grid.ColumnDefinitions><ColumnDefinition Width="20"/><ColumnDefinition Width="*"/><ColumnDefinition Width="38"/></Grid.ColumnDefinitions>
