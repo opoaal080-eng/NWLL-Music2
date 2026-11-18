@@ -108,15 +108,20 @@ struct NightwellViceBackdrop: View {
 struct NightwellViceScenicBackdrop: View {
     var body: some View {
         GeometryReader { geometry in
-            Image("ViceSunset")
-                .resizable()
-                .scaledToFill()
-                .frame(width: geometry.size.width, height: geometry.size.height)
-                .clipped()
-                .overlay {
-                    LinearGradient(colors: [.black.opacity(0.05), .clear, .black.opacity(0.12)],
-                                   startPoint: .top, endPoint: .bottom)
-                }
+            ZStack {
+                Image("ViceSunset")
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+                NightwellPalmSwayBackdrop()
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+            .clipped()
+            .overlay {
+                LinearGradient(colors: [.black.opacity(0.05), .clear, .black.opacity(0.12)],
+                               startPoint: .top, endPoint: .bottom)
+            }
         }
         .ignoresSafeArea()
         .allowsHitTesting(false)
