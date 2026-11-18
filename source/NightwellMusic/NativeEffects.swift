@@ -44,6 +44,7 @@ struct HomeLyricLine: View {
     @ObservedObject var model: NativeLyrics
     @ObservedObject var clock: PlaybackClock
     var fontSize: CGFloat = 22
+    var respectsAmbientSetting = true
     @AppStorage("nw-ambient-lyrics") private var enabled = true
     @AppStorage("nw-kinetic-lyrics") private var kineticEnabled = true
     @Environment(\.scenePhase) private var scene
@@ -63,7 +64,7 @@ struct HomeLyricLine: View {
     }
 
     private func activeLine(at position: Double) -> (line: Lyrics.Line, end: Double)? {
-        guard enabled, model.value?.synced == true,
+        guard (!respectsAmbientSetting || enabled), model.value?.synced == true,
               let lines = model.value?.lines, !lines.isEmpty else { return nil }
         // Binary search rather than walking every timestamp six times a second.
         var lower = 0, upper = lines.count
@@ -137,14 +138,16 @@ struct HomeLyricLine: View {
 }
 
 struct BackgroundOnlyScene: View {
+    @Environment(\.nightwellAppearance) private var appearance
     @ObservedObject var clock: PlaybackClock
     @ObservedObject var lyrics: NativeLyrics
     let flash: Int
     var body: some View {
         ZStack {
-            RibbonScene(playing: clock.playing, flash: flash)
-                // Extend only the visual layer under the status bar and home indicator.
-                .ignoresSafeArea(.container, edges: .all)
+            if appearance == .standard {
+                RibbonScene(playing: clock.playing, flash: flash)
+                    .ignoresSafeArea(.container, edges: .all)
+            }
             VStack { Spacer(); HomeLyricLine(model: lyrics, clock: clock, fontSize: 38).frame(height: 190).padding(.horizontal, 24); Spacer() }
         }
     }

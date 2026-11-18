@@ -194,7 +194,7 @@ struct NightwellPopup<Content: View>: View {
                         proxy.size.height * (proxy.size.width > proxy.size.height ? 0.94 : 0.88)
                     ))
                     .background {
-                        if appearance == .vice { NightwellViceBackdrop() }
+                        if appearance == .vice { NightwellViceScenicBackdrop() }
                     }
                     .frostedGlass(32, bordered: !transparentSettings, intensity: transparentSettings ? 0.28 : 1)
                     .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
@@ -433,7 +433,7 @@ struct NativeRoot: View {
             ZStack {
             // Standard stays visually identical to the previous version.
             if appearance == .vice {
-                NightwellViceBackdrop().ignoresSafeArea()
+                NightwellViceScenicBackdrop().ignoresSafeArea()
             } else {
                 LinearGradient(
                     colors: [Color(red: 0.055, green: 0.062, blue: 0.074), Color(white: 0.025), .black],
