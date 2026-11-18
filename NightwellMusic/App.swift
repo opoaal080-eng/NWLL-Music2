@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 @main struct NightwellMusicApp: App {
     @UIApplicationDelegateAdaptor(DownloadAppDelegate.self) private var appDelegate
     @StateObject private var store = MusicStore()
+    @AppStorage(NightwellAppearance.storageKey) private var themeID = NightwellAppearance.standard.rawValue
     @AppStorage("nw-first-run-completed-v1") private var firstRunCompleted = false
     var body: some Scene {
         WindowGroup {
@@ -11,7 +12,9 @@ import UniformTypeIdentifiers
                 if firstRunCompleted { NativeRoot() }
                 else { NightwellFirstLaunch { firstRunCompleted = true } }
             }
-            .environmentObject(store).preferredColorScheme(.dark)
+            .environmentObject(store)
+            .environment(\.nightwellAppearance, NightwellAppearance(rawValue: themeID) ?? .standard)
+            .preferredColorScheme(.dark)
         }
     }
 }
@@ -119,13 +122,18 @@ struct NativeBackdropBlur: UIViewRepresentable {
     }
 }
 struct FrostedSurface: View {
+    @Environment(\.nightwellAppearance) private var appearance
     var radius: CGFloat = 30
     var intensity: CGFloat = 1
     var body: some View {
         NativeBackdropBlur(intensity: intensity)
             .overlay(
                 LinearGradient(
-                    colors: [Color.white.opacity(0.06), nightwellViolet.opacity(0.12), pumpkin.opacity(0.04)],
+                    colors: appearance == .vice
+                        ? [NightwellAppearance.pink.opacity(0.18),
+                           NightwellAppearance.cyan.opacity(0.09),
+                           NightwellAppearance.pink.opacity(0.05)]
+                        : [Color.white.opacity(0.06), nightwellViolet.opacity(0.12), pumpkin.opacity(0.04)],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
@@ -357,6 +365,7 @@ private struct NightwellLibraryScrollTracker: ViewModifier {
 }
 
 struct NativeRoot: View {
+    @Environment(\.nightwellAppearance) private var appearance
     @EnvironmentObject var store: MusicStore
     @State private var feature: PremiumFeatureView.Kind?
     @State private var settings = false
@@ -409,20 +418,26 @@ struct NativeRoot: View {
                 viewport.size.height < 650
             let bottomInset = dockContentInset(landscape: landscape) + viewport.safeAreaInsets.bottom + 12
             ZStack {
-            // Shared monochrome background for Home, Search, Favorites, Playlists and Offline.
-            LinearGradient(
-                colors: [Color(red: 0.055, green: 0.062, blue: 0.074), Color(white: 0.025), .black],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
+            // Standard stays visually identical to the previous version.
+            if appearance == .vice {
+                NightwellViceBackdrop().ignoresSafeArea()
+            } else {
+                LinearGradient(
+                    colors: [Color(red: 0.055, green: 0.062, blue: 0.074), Color(white: 0.025), .black],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .ignoresSafeArea()
+            }
             if !backgroundOnly {
                 // Keep one backdrop alive while the app changes tabs, pauses,
                 // buffers audio, and restores a session after launch.
                 RibbonScene(playing: store.clock.playing, flash: store.likeFlash,
                             active: store.screen == .home)
                     .ignoresSafeArea()
-                    .opacity(store.screen == .home ? 1.0 : 0.18)
+                    .opacity(appearance == .vice
+                             ? (store.screen == .home ? 0.17 : 0.07)
+                             : (store.screen == .home ? 1.0 : 0.18))
                     .allowsHitTesting(false)
             }
             if backgroundOnly { BackgroundOnlyScene(clock: store.clock, lyrics: store.lyrics, flash: store.likeFlash) }
@@ -570,7 +585,7 @@ struct NativeRoot: View {
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.86), value: settings)
         .animation(.spring(response: 0.3, dampingFraction: 0.86), value: store.authPresented)
-        .tint(pumpkin)
+        .tint(appearance.accent)
         .sheet(isPresented: $navigationMenuPresented, onDismiss: {
             guard let destination = pendingNavigation else { return }
             pendingNavigation = nil

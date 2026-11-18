@@ -1507,16 +1507,19 @@ struct NativeSettings: View {
     @AppStorage("nw-cover-style") private var coverStyle = "classic"
     @AppStorage("nw-depth-queue") private var depthQueue = true
     @AppStorage("nw-kinetic-lyrics") private var kineticLyrics = true
+    @AppStorage(NightwellAppearance.storageKey) private var themeID = NightwellAppearance.standard.rawValue
     @AppStorage(NavigationLayout.storageKey) private var navigationLayout = NavigationLayout.belowPlayer
     @State private var playbackDiagnostics = "Нет данных о запуске"
 
     private enum SettingsPage: String, CaseIterable {
+        case themes = "Темы"
         case customization = "Кастомизация"
         case playback = "Воспроизведение"
         case about = "О приложении"
 
         var icon: String {
             switch self {
+            case .themes: return "paintpalette"
             case .customization: return "slider.horizontal.3"
             case .playback: return "waveform"
             case .about: return "info.circle"
@@ -1524,6 +1527,7 @@ struct NativeSettings: View {
         }
         var subtitle: String {
             switch self {
+            case .themes: return "Стандартная и Vice Nights"
             case .customization: return "Вкладки, обложки, очередь, текст и фон"
             case .playback: return "Звук, буфер, громкость и офлайн"
             case .about: return "Версия и сведения о сборке"
@@ -1541,6 +1545,61 @@ struct NativeSettings: View {
     @ViewBuilder
     private func pageContents(for page: SettingsPage) -> some View {
         switch page {
+        case .themes:
+            VStack(alignment: .leading, spacing: 14) {
+                Label("Темы оформления", systemImage: "paintpalette")
+                    .font(.system(size: 18, weight: .semibold))
+                Text("Стандартная тема остаётся прежней. Выбранное оформление сохраняется и включается сразу.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.60))
+                HStack(alignment: .top, spacing: 11) {
+                    ForEach(NightwellAppearance.allCases) { option in
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.3)) {
+                                themeID = option.rawValue
+                            }
+                        } label: {
+                            VStack(alignment: .leading, spacing: 8) {
+                                NightwellThemePreview(appearance: option)
+                                HStack(spacing: 3) {
+                                    Text(option.title).font(.system(size: 12, weight: .semibold))
+                                        .lineLimit(1).minimumScaleFactor(0.75)
+                                    Spacer(minLength: 1)
+                                    if themeID == option.rawValue {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .foregroundStyle(option.accent)
+                                    }
+                                }
+                                Text(option.subtitle)
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.white.opacity(0.6))
+                                    .multilineTextAlignment(.leading)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .padding(8)
+                            .background(
+                                themeID == option.rawValue
+                                    ? option.accent.opacity(0.13) : Color.white.opacity(0.035),
+                                in: RoundedRectangle(cornerRadius: 20))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 20)
+                                    .strokeBorder(themeID == option.rawValue
+                                        ? option.accent.opacity(0.85) : Color.white.opacity(0.1),
+                                        lineWidth: themeID == option.rawValue ? 1.5 : 0.8)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Тема " + option.title)
+                        .frame(maxWidth: .infinity, alignment: .top)
+                    }
+                }
+                Text("Vice Nights вдохновлена атмосферой GTA VI. Графика оригинальная, без официальных материалов игры.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white.opacity(0.55))
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 24))
         case .customization:
                 VStack(alignment: .leading, spacing: 12) {
                     Label("Кастомизация", systemImage: "slider.horizontal.3")
