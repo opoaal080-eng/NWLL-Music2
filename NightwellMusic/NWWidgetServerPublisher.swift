@@ -36,10 +36,11 @@ import MediaPlayer
     }
 
     private func compactJPEG(from image: UIImage) -> Data? {
-        let target = 280.0
-        let ratio = min(1.0, target / max(image.size.width, image.size.height, 1))
-        let canvas = CGSize(width: max(1, image.size.width * ratio),
-                            height: max(1, image.size.height * ratio))
+        let target: CGFloat = 280
+        let longestEdge = max(max(image.size.width, image.size.height), CGFloat(1))
+        let ratio = min(CGFloat(1), target / longestEdge)
+        let canvas = CGSize(width: max(CGFloat(1), image.size.width * ratio),
+                            height: max(CGFloat(1), image.size.height * ratio))
         let rendered = UIGraphicsImageRenderer(size: canvas).image { _ in
             image.draw(in: CGRect(origin: .zero, size: canvas))
         }
