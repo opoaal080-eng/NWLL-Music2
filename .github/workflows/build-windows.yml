@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'windows/**'
+      - 'scripts/prepare-vice-palms.py'
       - '.github/workflows/build-windows.yml'
   push:
     branches: [main]
@@ -11,6 +12,7 @@ on:
       - 'windows/**'
       - 'scripts/validate-app-sources.py'
       - 'scripts/build-provenance.py'
+      - 'scripts/prepare-vice-palms.py'
       - '.github/workflows/build-windows.yml'
 permissions:
   contents: read
