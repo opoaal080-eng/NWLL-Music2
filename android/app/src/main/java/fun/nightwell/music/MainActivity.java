@@ -270,6 +270,7 @@ public final class MainActivity extends Activity {
     }
     private TextView homeLyric,playerInlineLyric;private JSONObject activeLyrics;private String homeLine="",playerInlineLine="";private boolean lastPlaying,mixing,playerInlineVisible;
     private android.widget.ImageView sunsetBackground,fullCoverView;
+    private PalmSwayOverlay palmFoliage;
     private int fullCoverBaseSize;
     private android.animation.ValueAnimator coverResizeAnimator;private final java.util.ArrayDeque<String> mixRecent=new java.util.ArrayDeque<>();
     private NativeAPI api;
@@ -494,6 +495,9 @@ public final class MainActivity extends Activity {
         sunsetBackground.setAlpha(.96f);
         sunsetBackground.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         scene.addView(sunsetBackground,new android.widget.FrameLayout.LayoutParams(-1,-1));
+        palmFoliage=new PalmSwayOverlay(this,R.drawable.vice_sunset);
+        palmFoliage.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        scene.addView(palmFoliage,new android.widget.FrameLayout.LayoutParams(-1,-1));
         ambient=new ArtworkAmbientView(this);
         scene.addView(ambient,new android.widget.FrameLayout.LayoutParams(-1,-1));
         // Old active ribbons and starfield are deliberately removed from the view tree.
@@ -2543,6 +2547,7 @@ public final class MainActivity extends Activity {
         android.content.SharedPreferences appearance=getSharedPreferences("appearance",MODE_PRIVATE);
         // Ordinary screens keep the fixed sunset. Only the full player uses the dynamic palette.
         if(sunsetBackground!=null) sunsetBackground.setVisibility(full?View.GONE:View.VISIBLE);
+        if(palmFoliage!=null) palmFoliage.setVisibility(full?View.GONE:View.VISIBLE);
         boolean enabled=full&&appearance.getBoolean("player-artwork-background",true);
         boolean gradient=appearance.getBoolean("artwork-gradient-enabled",true);
         ambient.setVisibility(enabled&&gradient?View.VISIBLE:View.GONE);
