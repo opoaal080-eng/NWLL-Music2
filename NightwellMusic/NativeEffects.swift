@@ -48,11 +48,12 @@ struct HomeLyricLine: View {
     @ObservedObject var model: NativeLyrics
     @ObservedObject var clock: PlaybackClock
     var fontSize: CGFloat = 22
+    var respectsAmbientSetting = true
     @AppStorage("nw-ambient-lyrics") private var enabled = true
     @State private var fullscreen = false
     @Environment(\.accessibilityReduceMotion) private var reduced
     private var line: String {
-        guard enabled, clock.playing, model.value?.synced == true else { return "" }
+        guard (!respectsAmbientSetting || enabled), clock.playing, model.value?.synced == true else { return "" }
         return model.value?.lines?.last(where: { $0.time <= clock.position })?.text ?? ""
     }
     var body: some View {
