@@ -28,7 +28,7 @@ public sealed class RibbonScene:FrameworkElement {
  static Color Neutral(Color value){byte light=(byte)(.2126*value.R+.7152*value.G+.0722*value.B);return Color.FromRgb(light,light,light);}
  public void ResetPalette()=>SetPalette(Color.FromRgb(123,123,123),Color.FromRgb(106,106,106));
  void OwnerStateChanged(object? sender,EventArgs args)=>Refresh();
- void Refresh(){if(IsVisible&&IsLoaded&&owner?.WindowState!=WindowState.Minimized){if(!hooked){last=clock.Elapsed.TotalSeconds;CompositionTarget.Rendering+=Frame;hooked=true;}}else Detach();}
+ void Refresh(){if(IsVisible&&IsLoaded&&Opacity>0.001&&owner?.WindowState!=WindowState.Minimized){if(!hooked){last=clock.Elapsed.TotalSeconds;CompositionTarget.Rendering+=Frame;hooked=true;}}else Detach();}
  void Detach(){if(hooked)CompositionTarget.Rendering-=Frame;hooked=false;}
  void Frame(object? sender,EventArgs args){
   double now=clock.Elapsed.TotalSeconds;int fps=(RenderCapability.Tier>>16)==0?(Playing?12:3):(Playing?18:4);

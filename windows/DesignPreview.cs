@@ -51,7 +51,7 @@ public partial class MainWindow {
   playlists=[new(){id="preview-collection-1",name="Ночная дорога"},new(){id="preview-collection-2",name="Избранные открытия"},new(){id="preview-collection-3",name="После полуночи"}];
   Show("Плейлисты");await PreviewWindow(this,"17-playlists-workspace");
   Show("Главная");ToggleDesktopQueue(true);await PreviewWindow(this,"18-queue-workspace");ToggleDesktopQueue(false);
-  File.WriteAllText("ui-previews/checks.json",JsonSerializer.Serialize(new{theme="monochrome-ambient",states=18,logoNavigation=true,hiddenBackgroundStopped=true,networkRequests=0,compactWidth=800,compactHeight=620,primaryContrast=Contrast(BrushHex("TextBrush"),BrushHex("SurfaceBrush")),secondaryContrast=Contrast(BrushHex("SecondaryBrush"),BrushHex("InputBrush"))}));
+  File.WriteAllText("ui-previews/checks.json",JsonSerializer.Serialize(new{theme="vice-nights-sunset",states=18,logoNavigation=true,hiddenBackgroundStopped=true,networkRequests=0,compactWidth=800,compactHeight=620,primaryContrast=Contrast(BrushHex("TextBrush"),BrushHex("SurfaceBrush")),secondaryContrast=Contrast(BrushHex("SecondaryBrush"),BrushHex("InputBrush"))}));
  }
  string BrushHex(string key){var color=((SolidColorBrush)FindResource(key)).Color;return $"{color.R:X2}{color.G:X2}{color.B:X2}";}
  async Task PreviewWindow(Window window,string name){await Task.Delay(120);window.UpdateLayout();await Dispatcher.InvokeAsync(()=>{},DispatcherPriority.Render);await PreviewElement(window,name);}

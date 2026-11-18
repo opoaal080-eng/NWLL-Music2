@@ -4,7 +4,20 @@
  <Grid Background="{StaticResource WindowBrush}" ClipToBounds="True">
   <Grid.RowDefinitions><RowDefinition x:Name="HeaderRow" Height="58"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
    <!-- Continuous ambient scene behind the header and the mini player. -->
-   <local:RibbonScene x:Name="Ribbon" Grid.RowSpan="4" IsHitTestVisible="False"/>
+   <local:RibbonScene x:Name="Ribbon" Grid.RowSpan="4" IsHitTestVisible="False" Opacity="0"/>
+   <!-- Android Vice Nights sunset: same asset as the shipped Android APK. -->
+   <Image x:Name="ViceSunsetBackdrop" Grid.RowSpan="4" Source="/vice_sunset.jpg"
+          Stretch="Fill" RenderOptions.BitmapScalingMode="HighQuality"
+          IsHitTestVisible="False"/>
+   <Border Grid.RowSpan="4" IsHitTestVisible="False">
+    <Border.Background>
+     <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+      <GradientStop Color="#4C080B1B" Offset="0"/>
+      <GradientStop Color="#220B0711" Offset=".4"/>
+      <GradientStop Color="#6B090A16" Offset="1"/>
+     </LinearGradientBrush>
+    </Border.Background>
+   </Border>
    <!-- Album-based ambient backdrop fills the full player workspace. -->
    <Grid x:Name="PlayerAmbientLayer" Grid.RowSpan="4" Visibility="Collapsed" Background="#0D0D0F" ClipToBounds="True" IsHitTestVisible="False">
       <Image x:Name="PlayerAmbientA" Opacity="0" Stretch="Fill" RenderOptions.BitmapScalingMode="HighQuality" RenderTransformOrigin=".5,.5">
@@ -155,7 +168,7 @@
   <TextBlock x:Name="Status" Grid.Row="2" Foreground="{StaticResource SecondaryBrush}" FontSize="12" TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center" MaxHeight="44" Margin="24,7,24,2">
    <TextBlock.Style><Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}"><Style.Triggers><Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed"/></Trigger></Style.Triggers></Style></TextBlock.Style>
   </TextBlock>
-  <Border x:Name="Dock" Grid.Row="3" Height="76" Margin="24,10,24,18" Background="#1C1C1C" BorderBrush="#383838" BorderThickness="1" CornerRadius="18" Padding="16,10">
+  <Border x:Name="Dock" Grid.Row="3" Height="76" Margin="24,10,24,18" Background="#E0171720" BorderBrush="#383838" BorderThickness="1" CornerRadius="18" Padding="16,10">
    <Grid>
     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="164"/></Grid.ColumnDefinitions>
     <Grid MouseLeftButtonUp="OpenPlayerClick" Cursor="Hand" VerticalAlignment="Center" Margin="0,0,16,0">
