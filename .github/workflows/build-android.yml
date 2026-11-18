@@ -7,6 +7,7 @@ on:
       - 'android/**'
       - 'scripts/validate-app-sources.py'
       - 'scripts/make-neutral-app-icon.py'
+      - 'scripts/prepare-vice-palms.py'
       - '.github/workflows/build-android.yml'
 permissions:
   contents: read
@@ -119,6 +120,12 @@ jobs:
           fi
       - name: Generate neutral launcher icons
         run: python3 ../scripts/make-neutral-app-icon.py --platform android
+      - name: Prepare animated Vice Nights palm layers
+        run: |
+          python3 -m venv ../.vice-venv
+          ../.vice-venv/bin/python -m pip install --quiet numpy opencv-python-headless
+          cd ..
+          .vice-venv/bin/python scripts/prepare-vice-palms.py --platform android
       - name: Build Google Play release bundle
         env:
           NIGHTWELL_KEYSTORE_PASSWORD: ${{ secrets.NIGHTWELL_KEYSTORE_PASSWORD }}
