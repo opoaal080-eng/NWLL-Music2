@@ -103,6 +103,43 @@ struct NightwellViceBackdrop: View {
     }
 }
 
+/// Preserve each screen's original standard background, share Vice Nights.
+struct NightwellThemedBackground<Standard: View>: View {
+    @Environment(\.nightwellAppearance) private var appearance
+    @ViewBuilder let standard: () -> Standard
+    var body: some View {
+        Group {
+            if appearance == .vice { NightwellViceBackdrop() }
+            else { standard() }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+private struct NightwellThemeChrome: ViewModifier {
+    @Environment(\.nightwellAppearance) private var appearance
+    let radius: CGFloat
+    func body(content: Content) -> some View {
+        content.overlay {
+            if appearance == .vice {
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .strokeBorder(LinearGradient(
+                        colors: [NightwellAppearance.pink.opacity(0.35), .clear,
+                                 NightwellAppearance.cyan.opacity(0.28)],
+                        startPoint: .topLeading, endPoint: .bottomTrailing),
+                        lineWidth: 0.8)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
+    }
+}
+extension View {
+    func nightwellThemeChrome(_ radius: CGFloat) -> some View {
+        modifier(NightwellThemeChrome(radius: radius))
+    }
+}
+
 struct NightwellThemePreview: View {
     let appearance: NightwellAppearance
     var body: some View {

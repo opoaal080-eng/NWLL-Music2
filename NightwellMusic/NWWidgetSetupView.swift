@@ -11,6 +11,7 @@ private struct NWWidgetPairCode: Decodable {
 /// into the widget's own "Edit Widget" configuration on the home screen.
 /// No App Group entitlement, shared cookie, or Apple ID is required.
 struct NWWidgetSetupView: View {
+    @Environment(\.nightwellAppearance) private var appearance
     @EnvironmentObject private var store: MusicStore
     @Environment(\.dismiss) private var dismiss
     let api: MusicAPI
@@ -74,7 +75,7 @@ struct NWWidgetSetupView: View {
                             .padding(.vertical, 10)
                         }
                         .buttonStyle(.borderedProminent)
-                        .tint(.white)
+                        .tint(appearance.accent)
                         .foregroundStyle(.black)
                         .disabled(busy || store.account == nil)
                     }
@@ -105,7 +106,10 @@ struct NWWidgetSetupView: View {
                 }
                 .padding(20)
             }
-            .background(Color(white: 0.045).ignoresSafeArea())
+            .background {
+                NightwellThemedBackground { Color(white: 0.045) }.ignoresSafeArea()
+            }
+            .tint(appearance.accent)
             .navigationTitle("Виджеты")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

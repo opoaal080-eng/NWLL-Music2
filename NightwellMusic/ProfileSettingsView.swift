@@ -206,30 +206,26 @@ struct NightwellMonochromeGlassBackground: View {
             ZStack {
                 if appearance == .vice {
                     NightwellViceBackdrop()
-                }
+                } else {
                 LinearGradient(
                     colors: [Color(white: 0.14), Color(white: 0.045), .black,
                              Color(white: 0.08)],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
-                .opacity(appearance == .vice ? 0.25 : 1)
                 Circle()
-                    .fill(appearance == .vice
-                          ? NightwellAppearance.pink.opacity(0.17)
-                          : Color.white.opacity(0.115))
+                    .fill(Color.white.opacity(0.115))
                     .frame(width: proxy.size.width * 1.12)
                     .blur(radius: 90)
                     .offset(x: -proxy.size.width * 0.34,
                             y: -proxy.size.height * 0.42)
                 Circle()
-                    .fill(appearance == .vice
-                          ? NightwellAppearance.cyan.opacity(0.10)
-                          : Color.white.opacity(0.055))
+                    .fill(Color.white.opacity(0.055))
                     .frame(width: proxy.size.width * 0.85)
                     .blur(radius: 88)
                     .offset(x: proxy.size.width * 0.42,
                             y: proxy.size.height * 0.37)
+                }
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
             .clipped()
@@ -285,6 +281,7 @@ extension View {
 }
 
 struct ProfileSettingsView: View {
+    @Environment(\.nightwellAppearance) private var appearance
     @EnvironmentObject private var store: MusicStore
     @State private var nickname = ""
     @State private var selectedPhoto: PhotosPickerItem?
@@ -342,7 +339,7 @@ struct ProfileSettingsView: View {
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .foregroundStyle(.white)
-                .tint(.white)
+                .tint(appearance.accent)
                 .padding(12)
                 .nightwellMonochromeGlass(radius: 14)
             Button(busy ? "Сохраняем…" : "Сохранить ник") {

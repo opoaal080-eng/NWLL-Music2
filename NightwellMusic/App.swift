@@ -64,6 +64,7 @@ extension View {
                 )
             )
             .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+            .nightwellThemeChrome(radius)
     }
 }
 
@@ -73,6 +74,7 @@ extension View {
         #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             self.glassEffect(.regular, in: .rect(cornerRadius: radius))
+                .nightwellThemeChrome(radius)
         } else {
             self.glass(radius)
         }
@@ -155,10 +157,12 @@ extension View {
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+            .nightwellThemeChrome(radius)
     }
 }
 
 struct NightwellPopup<Content: View>: View {
+    @Environment(\.nightwellAppearance) private var appearance
     let title: String
     var maxHeight: CGFloat = 600
     var dimsBackground = true
@@ -189,6 +193,9 @@ struct NightwellPopup<Content: View>: View {
                         maxHeight,
                         proxy.size.height * (proxy.size.width > proxy.size.height ? 0.94 : 0.88)
                     ))
+                    .background {
+                        if appearance == .vice { NightwellViceBackdrop() }
+                    }
                     .frostedGlass(32, bordered: !transparentSettings, intensity: transparentSettings ? 0.28 : 1)
                     .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
                     .overlay {
@@ -434,15 +441,13 @@ struct NativeRoot: View {
                 )
                 .ignoresSafeArea()
             }
-            if !backgroundOnly {
+            if !backgroundOnly && appearance == .standard {
                 // Keep one backdrop alive while the app changes tabs, pauses,
                 // buffers audio, and restores a session after launch.
                 RibbonScene(playing: store.clock.playing, flash: store.likeFlash,
                             active: store.screen == .home)
                     .ignoresSafeArea()
-                    .opacity(appearance == .vice
-                             ? (store.screen == .home ? 0.17 : 0.07)
-                             : (store.screen == .home ? 1.0 : 0.18))
+                    .opacity(store.screen == .home ? 1.0 : 0.18)
                     .allowsHitTesting(false)
             }
             if backgroundOnly { BackgroundOnlyScene(clock: store.clock, lyrics: store.lyrics, flash: store.likeFlash) }
@@ -1718,6 +1723,7 @@ struct TrackList: View {
     }
 }
 struct NativeTrackRow: View {
+    @Environment(\.nightwellAppearance) private var appearance
     @EnvironmentObject var store: MusicStore
     @EnvironmentObject private var togetherSession: NightwellTogetherSession
     let track: Track
@@ -1749,6 +1755,7 @@ struct NativeTrackRow: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     if status.id == track.id {
                         PlayingIndicator(playing: status.playing)
+                            .foregroundStyle(appearance.progressTint)
                             .frame(width: 20, height: 20)
                     }
                 }
@@ -1903,6 +1910,7 @@ struct ArtistPortrait: View {
 }
 
 struct ArtistProfileView: View {
+    @Environment(\.nightwellAppearance) private var appearance
     @EnvironmentObject private var store: MusicStore
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -2009,14 +2017,15 @@ struct ArtistProfileView: View {
                 .padding(.bottom, 24)
             }
             .background {
-                LinearGradient(colors: [Color(red: 0.075, green: 0.065, blue: 0.105),
-                                        Color(white: 0.025), .black],
-                               startPoint: .topLeading, endPoint: .bottomTrailing)
-                    .ignoresSafeArea()
+                NightwellThemedBackground {
+                    LinearGradient(colors: [Color(red: 0.075, green: 0.065, blue: 0.105),
+                                            Color(white: 0.025), .black],
+                                   startPoint: .topLeading, endPoint: .bottomTrailing)
+                }.ignoresSafeArea()
             }
             .navigationTitle("Исполнитель")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(Color(white: 0.035), for: .navigationBar)
+            .toolbarBackground(appearance == .vice ? Color(red: 0.12, green: 0.055, blue: 0.19) : Color(white: 0.035), for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
@@ -2037,7 +2046,7 @@ struct ArtistProfileView: View {
         .environmentObject(togetherSession)
         .environment(\.nightwellBottomContentInset, 0)
         .preferredColorScheme(.dark)
-        .tint(.white)
+        .tint(appearance.accent)
         .task(id: "\(name)|\(reloadRevision)") {
             #if DEBUG
             if usesPreviewTracks { return }
@@ -2218,6 +2227,7 @@ private struct PlaylistDownloadRing: View {
 }
 
 struct PlaylistScreen: View {
+    @Environment(\.nightwellAppearance) private var appearance
     @EnvironmentObject var store: MusicStore
     let close: () -> Void
     let playlist: Playlist
@@ -2260,7 +2270,7 @@ struct PlaylistScreen: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     ProgressView(value: fraction)
-                        .tint(pumpkin)
+                        .tint(appearance.progressTint)
                 }
             }
             Text("Треки плейлиста · \(tracks.count)")
@@ -2271,7 +2281,7 @@ struct PlaylistScreen: View {
         }
         .padding(.horizontal, 18)
         .padding(.bottom, 16)
-        .tint(pumpkin)
+        .tint(appearance.progressTint)
         .task {
             #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("--native-smoke-playlist") {
@@ -2302,6 +2312,7 @@ struct ShareSheet: UIViewControllerRepresentable {
 
 
 struct NightwellNativeTransfer: View {
+    @Environment(\.nightwellAppearance) private var appearance
     @EnvironmentObject private var store: MusicStore
     @Environment(\.dismiss) private var dismiss
     @State private var showingFile = false
@@ -2489,7 +2500,11 @@ struct NightwellNativeTransfer: View {
 
                 }.padding(20)
             }
-            .background(Color(red: 0.045, green: 0.045, blue: 0.052))
+            .background {
+                NightwellThemedBackground { Color(red: 0.045, green: 0.045, blue: 0.052) }
+                    .ignoresSafeArea()
+            }
+            .tint(appearance.accent)
              .task { await refreshHistory() }
              .onDisappear { transferTask?.cancel() }
             .navigationTitle("Перенос")
@@ -2771,10 +2786,12 @@ private struct NightwellImportFilePicker: UIViewControllerRepresentable {
 
 
 private struct MonochromeNightwellLaunch: View {
+    @Environment(\.nightwellAppearance) private var appearance
     var body: some View {
         ZStack {
-            LinearGradient(colors: [Color(white: 0.085), .black], startPoint: .top, endPoint: .bottom)
-                .ignoresSafeArea()
+            NightwellThemedBackground {
+                LinearGradient(colors: [Color(white: 0.085), .black], startPoint: .top, endPoint: .bottom)
+            }.ignoresSafeArea()
             GeometryReader { geometry in
                 Canvas { context, size in
                     let w = size.width, h = size.height
@@ -2797,6 +2814,7 @@ private struct MonochromeNightwellLaunch: View {
                 .blur(radius: 20)
                 .allowsHitTesting(false)
             }
+            .opacity(appearance == .vice ? 0 : 1)
             VStack(spacing: 14) {
                 Text("N")
                     .font(.system(size: 92, weight: .black, design: .rounded))

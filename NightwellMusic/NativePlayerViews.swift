@@ -6,9 +6,10 @@ import UniformTypeIdentifiers
 
 struct SeasonBackground: View {
     var body: some View {
-        LinearGradient(colors: [Color(white: 0.065), Color(white: 0.015), .black],
-                       startPoint: .topLeading, endPoint: .bottomTrailing)
-            .ignoresSafeArea().allowsHitTesting(false)
+        NightwellThemedBackground {
+            LinearGradient(colors: [Color(white: 0.065), Color(white: 0.015), .black],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+        }.ignoresSafeArea().allowsHitTesting(false)
     }
 }
 // Keep the gradient mounted throughout startup, buffering, pause and resume.
@@ -266,7 +267,7 @@ struct NativeHome: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(.bottom, bottomContentInset)
-            .background { HomeSparkles() }
+            .background { if appearance == .standard { HomeSparkles() } }
         }
     }
 }
@@ -323,7 +324,7 @@ struct MiniPlayer: View {
                             // loaded audio; once audible it shows play position.
                             Circle()
                                 .trim(from: 0, to: clock.preparing ? CGFloat(clock.bufferFraction) : playbackFraction)
-                                .stroke(appearance.progressTint,
+                                .stroke(appearance == .vice ? appearance.progressTint : Color.white.opacity(0.96),
                                         style: StrokeStyle(lineWidth: 2.7, lineCap: .round))
                                 .rotationEffect(.degrees(-90))
                                 .frame(width: 44, height: 44)
@@ -857,7 +858,7 @@ struct FullPlayer: View {
                         .allowsHitTesting(false)
                 }
             }
-            if showLyrics { HomeSparkles().ignoresSafeArea() }
+            if showLyrics && appearance == .standard { HomeSparkles().ignoresSafeArea() }
     }
 
     private var playerControls: some View {
@@ -1478,6 +1479,7 @@ struct LyricsView: View {
 }
 
 struct AuthSheet: View {
+    @Environment(\.nightwellAppearance) private var appearance
     let close: () -> Void
     @EnvironmentObject var store: MusicStore
     @State private var email = ""
@@ -1582,7 +1584,8 @@ struct AuthSheet: View {
                         Text(verifying ? "Подтвердить код" : register ? "Создать аккаунт" : "Войти").font(.headline)
                         Spacer()
                     }.frame(height: 48).foregroundStyle(Color.black)
-                        .background(Color.white, in: RoundedRectangle(cornerRadius: 18))
+                        .background(appearance == .vice ? NightwellAppearance.pink : Color.white,
+                                    in: RoundedRectangle(cornerRadius: 18))
                 }.disabled(cannotSubmit).opacity(cannotSubmit ? 0.5 : 1)
                 Button(verifying ? "Изменить данные" : register ? "Уже есть аккаунт? Войти" : "Нет аккаунта? Создать") {
                     withAnimation(.easeInOut(duration: 0.2)) {
@@ -1593,11 +1596,12 @@ struct AuthSheet: View {
                 }.disabled(busy).font(.subheadline.weight(.semibold)).foregroundStyle(Color.white)
                     .frame(maxWidth: .infinity)
             }.padding(.horizontal, 22).padding(.top, 28).padding(.bottom, 40)
-        }.tint(Color.white).onDisappear { store.emailChallenge = nil; code = ""; password = "" }
+        }.tint(appearance.accent).onDisappear { store.emailChallenge = nil; code = ""; password = "" }
     }
 }
 
 struct NativeSettings: View {
+    @Environment(\.nightwellAppearance) private var appearance
     @ObservedObject private var premium = PremiumFeatureState.shared
     let close: () -> Void
     @EnvironmentObject var store: MusicStore
@@ -1976,7 +1980,7 @@ struct NativeSettings: View {
         }
         .font(.system(size: 17))
         .padding(20)
-        .tint(.white)
+        .tint(appearance.accent)
     }
 }
 
