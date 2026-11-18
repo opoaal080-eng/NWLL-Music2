@@ -3,7 +3,8 @@ import AppIntents
 import WidgetKit
 
 enum NWWidgetConfiguration {
-    static let kind = "nightwell.nowplaying.v2"
+    static let kind = "nightwell.nowplaying.v3"
+    static let previousKind = "nightwell.nowplaying.v2"
     static let legacyKind = "nightwell.nowplaying"
     // Preserve case: the scoped token is base64url, NOT a hexadecimal code.
     static func accessToken(_ input: String?) -> String? {
@@ -18,6 +19,7 @@ enum NWWidgetConfiguration {
     }
     static func reload() {
         WidgetCenter.shared.reloadTimelines(ofKind: kind)
+        WidgetCenter.shared.reloadTimelines(ofKind: previousKind)
         WidgetCenter.shared.reloadTimelines(ofKind: legacyKind)
     }
 }

@@ -105,6 +105,42 @@ class WidgetSyncTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(values)
         self.assertNotIn(token, [v[0] for v in values])
 
+    async def test_reverse_pairing_without_widget_configuration(self):
+        import secrets
+        token = secrets.token_urlsafe(32)
+        bearer = {"Authorization": "Bearer " + token}
+        path = "/api/widgets/device/register"
+        response = await self.client.post(path, headers=bearer)
+        self.assertEqual(response.status_code, 200, response.text)
+        code = response.json()["code"]
+        self.assertFalse(response.json()["paired"])
+        self.assertEqual((await self.client.post(path, headers=bearer)).json()["code"], code)
+        self.assertEqual((await self.client.get("/api/widgets/state", headers=bearer)).status_code, 401)
+        self.assertEqual((await self.client.post("/api/widgets/device/claim", json={"code": code})).status_code, 401)
+        self.assertEqual((await self.client.post("/api/widgets/device/claim", headers={"x-test-owner":"alice"}, json={"code":code})).status_code,403)
+        response = await self.client.post("/api/widgets/device/claim", headers=self.auth, json={"code":code})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertTrue((await self.client.post(path, headers=bearer)).json()["paired"])
+        self.assertEqual((await self.client.post("/api/widgets/device/claim", headers=self.auth, json={"code":code})).status_code,401)
+        self.assertEqual((await self.client.post("/api/widgets/state", headers=self.auth,
+            json={"track_id":"song","title":"Real music","artist":"Artist","playing":True})).status_code,200)
+        self.assertEqual((await self.client.get("/api/widgets/state", headers=bearer)).json()["title"], "Real music")
+        await self.client.post("/api/widgets/revoke-all", headers=self.auth)
+        self.assertEqual((await self.client.get("/api/widgets/state", headers=bearer)).status_code,401)
+        fresh = await self.client.post(path, headers=bearer)
+        self.assertFalse(fresh.json()["paired"])
+        self.assertNotEqual(fresh.json()["code"],code)
+
+    async def test_reverse_pairing_expired_code(self):
+        import secrets
+        bearer = {"Authorization": "Bearer " + secrets.token_urlsafe(32)}
+        response = await self.client.post("/api/widgets/device/register", headers=bearer)
+        code = response.json()["code"]
+        with sqlite3.connect(self.database) as db:
+            db.execute("UPDATE nw_widget_device_pairs SET expires=0")
+        response = await self.client.post("/api/widgets/device/claim", headers=self.auth, json={"code":code})
+        self.assertEqual(response.status_code,401)
+
     async def test_invalid_artwork_rejected(self):
         _, token = await self.paired()
         await self.client.post("/api/widgets/state", headers=self.auth,

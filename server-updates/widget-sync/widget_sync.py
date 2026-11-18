@@ -55,6 +55,11 @@ def install(app, identity, db_path, csrf_verifier):
             owner TEXT PRIMARY KEY, track_id TEXT NOT NULL DEFAULT '',
             title TEXT NOT NULL DEFAULT '', artist TEXT NOT NULL DEFAULT '',
             playing INTEGER NOT NULL DEFAULT 0, cover BLOB, updated REAL NOT NULL)""")
+        # Reverse pairing: the widget owns a private random token. The
+        # displayed short-lived code is only a challenge, never a bearer key.
+        db.execute("""CREATE TABLE IF NOT EXISTS nw_widget_device_pairs (
+            token_digest TEXT PRIMARY KEY, code TEXT UNIQUE NOT NULL,
+            expires REAL NOT NULL)""")
     app.state.nw_widget_sync_installed = True
 
     async def owner_for(request):
@@ -144,6 +149,63 @@ def install(app, identity, db_path, csrf_verifier):
             db.execute("INSERT INTO nw_widget_tokens VALUES (?,?,?)",
                        (digest(token), owner, now))
         return JSONResponse({"token": token}, headers=NO_STORE)
+
+    @app.post("/api/widgets/device/register")
+    async def widget_device_register(request: Request):
+        raw = request.headers.get("authorization", "")
+        token = raw[7:] if raw.startswith("Bearer ") else ""
+        if not re.fullmatch(r"[A-Za-z0-9_-]{43}", token):
+            raise HTTPException(400, "Некорректный ключ устройства")
+        token_digest = digest(token)
+        now = time.time()
+        with connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            if db.execute("SELECT 1 FROM nw_widget_tokens WHERE digest=?",
+                          (token_digest,)).fetchone():
+                return JSONResponse({"paired": True}, headers=NO_STORE)
+            db.execute("DELETE FROM nw_widget_device_pairs WHERE expires<=?", (now,))
+            row = db.execute("SELECT code, expires FROM nw_widget_device_pairs WHERE token_digest=?",
+                             (token_digest,)).fetchone()
+            if row:
+                code = row["code"]
+                expires = row["expires"]
+            else:
+                count = db.execute("SELECT COUNT(*) FROM nw_widget_device_pairs").fetchone()[0]
+                if count >= 4096:
+                    raise HTTPException(429, "Слишком много подключений. Повтори позже.")
+                code = secrets.token_hex(8).upper()
+                expires = now + 900
+                db.execute("INSERT INTO nw_widget_device_pairs VALUES (?,?,?)",
+                           (token_digest, code, expires))
+        return JSONResponse({"paired": False,
+            "code": "-".join(code[n:n+4] for n in range(0,16,4)),
+            "expires_in": int(expires - now)}, headers=NO_STORE)
+
+    @app.post("/api/widgets/device/claim")
+    async def widget_device_claim(request: Request):
+        owner = await owner_for(request)
+        await csrf_for(request)
+        body = await body_for(request)
+        code = str(body.get("code", "")).replace("-", "").strip().upper()
+        if not CODE_RE.fullmatch(code):
+            raise HTTPException(400, "Нужен код из самого виджета")
+        now = time.time()
+        with connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT token_digest FROM nw_widget_device_pairs WHERE code=? AND expires>?",
+                             (code, now)).fetchone()
+            if not row:
+                raise HTTPException(401, "Код истёк или уже использован")
+            token_digest = row["token_digest"]
+            if db.execute("SELECT 1 FROM nw_widget_tokens WHERE digest=?", (token_digest,)).fetchone():
+                raise HTTPException(409, "Виджет уже подключён")
+            old = db.execute("SELECT digest FROM nw_widget_tokens WHERE owner=? ORDER BY created DESC",
+                             (owner,)).fetchall()
+            for item in old[9:]:
+                db.execute("DELETE FROM nw_widget_tokens WHERE digest=?", (item["digest"],))
+            db.execute("INSERT INTO nw_widget_tokens VALUES (?,?,?)", (token_digest, owner, now))
+            db.execute("DELETE FROM nw_widget_device_pairs WHERE token_digest=?", (token_digest,))
+        return JSONResponse({"ok": True}, headers=NO_STORE)
 
     @app.post("/api/widgets/state")
     async def widget_save_state(request: Request):
