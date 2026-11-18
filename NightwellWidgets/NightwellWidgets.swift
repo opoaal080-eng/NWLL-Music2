@@ -13,7 +13,7 @@ private struct NWEntry: TimelineEntry {
 private struct NWProvider: TimelineProvider {
     func placeholder(in context: Context) -> NWEntry {
         NWEntry(date: .now, snapshot: NWWidgetState(trackID: "preview",
-            title: "Музыка этой ночи", artist: "Nightwell Music",
+            title: "Пульс ночи", artist: "Nightwell Music",
             playing: true, coverID: nil, updated: .now), cover: nil)
     }
     func getSnapshot(in context: Context, completion: @escaping (NWEntry) -> Void) {
@@ -36,10 +36,8 @@ struct NWPairWidgetIntent: WidgetConfigurationIntent {
     static var title: LocalizedStringResource = "Nightwell Music"
     static var description = IntentDescription("Введи код из Профиль → Виджеты.")
 
-    @Parameter(title: "Код привязки")
+    @Parameter(title: "Код привязки", default: "")
     var code: String
-
-    init() { code = "" }
 }
 
 private enum NWPairTokenKeychain {
@@ -163,11 +161,17 @@ private enum NWWidgetRemote {
 private struct NWRemoteProvider: AppIntentTimelineProvider {
     func placeholder(in context: Context) -> NWEntry {
         NWEntry(date: .now, snapshot: NWWidgetState(trackID: "preview",
-              title: "Музыка этой ночи", artist: "Nightwell Music",
+              title: "Пульс ночи", artist: "Nightwell Music",
               playing: true, coverID: nil, updated: .now), cover: nil)
     }
     func snapshot(for configuration: NWPairWidgetIntent, in context: Context) async -> NWEntry {
-        context.isPreview ? placeholder(in: context) : await NWWidgetRemote.load(code: configuration.code)
+        // The gallery must render a real preview immediately. An unpaired
+        // widget has no credentials and must not make a server call here.
+        if context.isPreview ||
+           configuration.code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return placeholder(in: context)
+        }
+        return await NWWidgetRemote.load(code: configuration.code)
     }
     func timeline(for configuration: NWPairWidgetIntent, in context: Context) async -> Timeline<NWEntry> {
         let entry = await NWWidgetRemote.load(code: configuration.code)
@@ -176,27 +180,77 @@ private struct NWRemoteProvider: AppIntentTimelineProvider {
     }
 }
 
-private let surface = Color(red: 0.055, green: 0.055, blue: 0.065)
+private struct NightwellWidgetSurface: View {
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                Color(red: 0.065, green: 0.052, blue: 0.095)
+                RadialGradient(
+                    colors: [Color(red: 0.50, green: 0.17, blue: 0.47).opacity(0.40), .clear],
+                    center: .topTrailing, startRadius: 8,
+                    endRadius: max(geometry.size.width, geometry.size.height)
+                )
+                LinearGradient(colors: [.clear, .black.opacity(0.28)],
+                               startPoint: .top, endPoint: .bottom)
+            }
+        }
+    }
+}
 
 private struct NWArtwork: View {
     let data: Data?
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 15).fill(.white.opacity(0.11))
-            if let data, let image = UIImage(data: data) {
-                Image(uiImage: image).resizable().scaledToFill()
-            } else {
-                Text("N").font(.system(size: 45, weight: .black, design: .rounded))
+        GeometryReader { geometry in
+            ZStack {
+                if let data, let image = UIImage(data: data) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .clipped()
+                } else {
+                    LinearGradient(
+                        colors: [
+                            Color(red: 0.25, green: 0.21, blue: 0.52),
+                            Color(red: 0.77, green: 0.26, blue: 0.54),
+                            Color(red: 0.16, green: 0.12, blue: 0.32)
+                        ],
+                        startPoint: .topLeading, endPoint: .bottomTrailing
+                    )
+                    Circle()
+                        .fill(Color(red: 1.0, green: 0.67, blue: 0.59).opacity(0.40))
+                        .frame(width: geometry.size.width * 0.5)
+                        .blur(radius: geometry.size.width * 0.08)
+                        .offset(x: geometry.size.width * 0.16,
+                                y: -geometry.size.height * 0.16)
+                    Text("N")
+                        .font(.system(size: min(geometry.size.width * 0.52, 56),
+                                      weight: .black, design: .rounded))
+                        .shadow(color: .black.opacity(0.3), radius: 9)
+                }
             }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+            .clipped()
         }
-        .clipShape(RoundedRectangle(cornerRadius: 15))
+        .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
     }
 }
 
 private struct NWPlayerWidgetView: View {
     @Environment(\.widgetFamily) private var family
     let entry: NWEntry
-    var body: some View {
+
+    @ViewBuilder var body: some View {
+        // Only the fictional gallery sample is unredacted. Real music retains
+        // iOS privacy protection, including on the lock screen.
+        if entry.snapshot.trackID == "preview" {
+            playerContent.unredacted()
+        } else {
+            playerContent
+        }
+    }
+
+    private var playerContent: some View {
         Group {
             switch family {
             case .accessoryCircular:
@@ -253,8 +307,10 @@ private struct NWPlayerWidgetView: View {
             }
         }
         .foregroundStyle(.white)
-        .containerBackground(for: .widget) { surface }
-        .widgetURL(URL(string: "nightwell://open/player"))
+        .containerBackground(for: .widget) { NightwellWidgetSurface() }
+        .widgetURL(URL(string: entry.snapshot.trackID.isEmpty
+            ? "nightwell://open/widget-setup"
+            : "nightwell://open/player"))
     }
 }
 
@@ -304,7 +360,8 @@ private struct NWQuickWidgetView: View {
             }
         }
         .foregroundStyle(.white)
-        .containerBackground(for: .widget) { surface }
+        .containerBackground(for: .widget) { NightwellWidgetSurface() }
+        .unredacted()
     }
 }
 private struct NWNowPlaying: Widget {

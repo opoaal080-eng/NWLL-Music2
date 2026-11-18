@@ -971,6 +971,8 @@ struct NativeRoot: View {
         case "/likes": navigate(to: .likes)
         case "/search": navigate(to: .search)
         case "/offline": navigate(to: .offline)
+        case "/widget-setup":
+            widgetSetupPresented = true
         case "/player":
             if store.clock.current != nil { fullPlayer = true }
             else { navigate(to: .home) }
