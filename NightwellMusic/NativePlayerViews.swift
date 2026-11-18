@@ -675,6 +675,18 @@ struct FullPlayer: View {
     @State private var repeatMode = 0
     @State private var shuffleMode = 0
     @AppStorage("nw-cover-style") private var coverStyle = "classic"
+    @AppStorage("nw-player-inline-lyrics") private var playerInlineLyrics = true
+
+    private var inlineLyricVisible: Bool {
+        guard playerInlineLyrics, !showLyrics, clock.playing,
+              store.lyrics.value?.synced == true,
+              let lines = store.lyrics.value?.lines, !lines.isEmpty else { return false }
+        let currentPosition = clock.displayPosition.isFinite
+            ? clock.displayPosition : clock.position
+        guard let current = lines.last(where: { $0.time <= currentPosition }) else { return false }
+        return !current.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     var body: some View {
         playerFinal
     }
@@ -829,6 +841,7 @@ struct FullPlayer: View {
                 if coverStyle != "classic" {
                 GeometryReader { screen in
                     let coverSide = max(screen.size.width, screen.size.height + 76)
+                        * (inlineLyricVisible ? 0.96 : 1.0)
                     NightwellAnimatedCover(
                         track: clock.displayCurrent,
                         origin: store.origin,
@@ -929,28 +942,41 @@ struct FullPlayer: View {
                             .background { GeometryReader { proxy in Color.clear.preference(key: PlayerLyricsFramePreference.self, value: proxy.frame(in: .global)) } }
 
                     } else {
-                        Group {
-                            if coverStyle == "classic" ||
-                                (box.size.width > box.size.height && box.size.height < 500) {
-                                let side = min(box.size.width, box.size.height) * 0.96
-                                Cover(track: clock.displayCurrent, origin: store.origin, pixelWidth: 1024)
-                                    .frame(width: side, height: side)
-                                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                                    .shadow(color: .black.opacity(0.38), radius: 22, y: 12)
-                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            } else {
-                                // Immersive artwork is already behind controls.
-                                Color.clear
-                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        let inlineVisible = inlineLyricVisible
+                        VStack(spacing: inlineVisible ? 6 : 0) {
+                            Group {
+                                if coverStyle == "classic" ||
+                                    (box.size.width > box.size.height && box.size.height < 500) {
+                                    let availableHeight = max(0, box.size.height - (inlineVisible ? 62 : 0))
+                                    let side = min(box.size.width, availableHeight)
+                                        * (inlineVisible ? 0.90 : 0.96)
+                                    Cover(track: clock.displayCurrent, origin: store.origin, pixelWidth: 1024)
+                                        .frame(width: side, height: side)
+                                        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                                        .shadow(color: .black.opacity(0.38), radius: 22, y: 12)
+                                } else {
+                                    // Immersive artwork is already behind controls.
+                                    Color.clear
+                                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                }
+                            }
+                            .contentShape(Rectangle())
+                            .gesture(DragGesture(minimumDistance: 18).onEnded { value in
+                                let dx = value.translation.width
+                                if abs(dx) > 52 && abs(dx) > abs(value.translation.height) * 1.15 {
+                                    NativePlayer.shared.step(dx < 0 ? 1 : -1)
+                                }
+                            })
+                            if inlineVisible {
+                                HomeLyricLine(model: store.lyrics, clock: clock,
+                                              fontSize: 19, respectsAmbientSetting: false)
+                                    .frame(height: 54)
+                                    .padding(.horizontal, 8)
+                                    .transition(.opacity.combined(with: .offset(y: 6)))
                             }
                         }
-                        .contentShape(Rectangle())
-                        .gesture(DragGesture(minimumDistance: 18).onEnded { value in
-                            let dx = value.translation.width
-                            if abs(dx) > 52 && abs(dx) > abs(value.translation.height) * 1.15 {
-                                NativePlayer.shared.step(dx < 0 ? 1 : -1)
-                            }
-                        })
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .animation(.easeInOut(duration: 0.28), value: inlineVisible)
                     }
                 }
     }
@@ -1192,7 +1218,7 @@ struct PlaybackQueue: View {
             let compact = viewport.size.height < 570
             ZStack {
             if appearance == .vice {
-                NightwellViceBackdrop().ignoresSafeArea()
+                NightwellViceScenicBackdrop().ignoresSafeArea()
             } else {
                 LinearGradient(
                     stops: [
@@ -1611,6 +1637,7 @@ struct NativeSettings: View {
     @AppStorage("nw-equal-volume") private var equalVolume = 100.0
     @AppStorage("nw-keep-current-until-ready") private var keepCurrentUntilNextReady = true
     @AppStorage("nw-ambient-lyrics") private var ambientLyrics = true
+    @AppStorage("nw-player-inline-lyrics") private var playerInlineLyrics = true
     @AppStorage("nw-ambient-animate-when-paused") private var animatePausedAmbient = true
     @AppStorage("nw-ambient-audio-sensitivity") private var ambientSensitivity = 4.0
     @AppStorage("nw-cover-style") private var coverStyle = "classic"
@@ -1772,6 +1799,15 @@ struct NativeSettings: View {
                             }
                         }
                     Text("Показывать строки песни на главной. По умолчанию включено.")
+                        .font(.system(size: 12)).foregroundStyle(.white.opacity(0.5))
+                    Toggle("Текст под обложкой в плеере", isOn: $playerInlineLyrics)
+                        .onChange(of: playerInlineLyrics) { enabled in
+                            if enabled {
+                                store.lyrics.select(store.clock.current, api: store.api,
+                                                    origin: store.origin, online: store.account != nil)
+                            }
+                        }
+                    Text("Синхронизированная строка под обложкой с плавным уменьшением обложки. По умолчанию включено.")
                         .font(.system(size: 12)).foregroundStyle(.white.opacity(0.5))
                     Toggle("Переливание фона на паузе", isOn: $animatePausedAmbient)
                     Text("Плавный цветной градиент продолжает двигаться, даже если музыка остановлена.")
