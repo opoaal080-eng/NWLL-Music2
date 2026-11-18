@@ -92,6 +92,11 @@ def install(app, identity, db_path, csrf_verifier):
             owner TEXT PRIMARY KEY, track_id TEXT NOT NULL DEFAULT '',
             title TEXT NOT NULL DEFAULT '', artist TEXT NOT NULL DEFAULT '',
             playing INTEGER NOT NULL DEFAULT 0, cover BLOB, updated REAL NOT NULL)""")
+        # Theme is stored separately so existing widget-state databases
+        # upgrade without destructive ALTER TABLE or artwork loss.
+        db.execute("""CREATE TABLE IF NOT EXISTS nw_widget_theme (
+            owner TEXT PRIMARY KEY, theme TEXT NOT NULL DEFAULT 'standard',
+            updated REAL NOT NULL)""")
         # Reverse pairing: the widget owns a private random token. The
         # displayed short-lived code is only a challenge, never a bearer key.
         db.execute("""CREATE TABLE IF NOT EXISTS nw_widget_device_pairs (
@@ -271,6 +276,9 @@ def install(app, identity, db_path, csrf_verifier):
         title = checked_text(body, "title", 180) if track_id else ""
         artist = checked_text(body, "artist", 180) if track_id else ""
         playing = bool(body.get("playing") is True and track_id)
+        appearance = body.get("theme", "standard")
+        if appearance not in ("standard", "vice"):
+            raise HTTPException(400, "Недопустимая тема")
         now = time.time()
         with connect() as db:
             # Preserve only artwork belonging to the SAME track.
@@ -283,6 +291,10 @@ def install(app, identity, db_path, csrf_verifier):
                 track_id=excluded.track_id, title=excluded.title,
                 artist=excluded.artist, playing=excluded.playing, updated=excluded.updated""",
                 (owner, track_id, title, artist, int(playing), now))
+            db.execute("""INSERT INTO nw_widget_theme (owner, theme, updated)
+                VALUES (?,?,?) ON CONFLICT(owner) DO UPDATE SET
+                theme=excluded.theme, updated=excluded.updated""",
+                (owner, appearance, now))
         return {"ok": True}
 
     @app.post("/api/widgets/cover")
@@ -311,14 +323,17 @@ def install(app, identity, db_path, csrf_verifier):
         owner = bearer_owner(request)
         with connect() as db:
             row = db.execute("SELECT * FROM nw_widget_state WHERE owner=?", (owner,)).fetchone()
+            selected = db.execute("SELECT theme FROM nw_widget_theme WHERE owner=?", (owner,)).fetchone()
+            appearance = selected["theme"] if selected else "standard"
         if not row:
             data = {"track_id": "", "title": "Твой ритм",
                     "artist": "Nightwell Music", "playing": False,
-                    "has_cover": False, "updated_at": 0}
+                    "has_cover": False, "updated_at": 0, "theme": appearance}
         else:
             data = {"track_id": row["track_id"], "title": row["title"] or "Твой ритм",
                     "artist": row["artist"] or "Nightwell Music", "playing": bool(row["playing"]),
-                    "has_cover": row["cover"] is not None, "updated_at": row["updated"]}
+                    "has_cover": row["cover"] is not None, "updated_at": row["updated"],
+                    "theme": appearance}
         return JSONResponse(data, headers=NO_STORE)
 
     @app.get("/api/widgets/cover")
@@ -337,6 +352,7 @@ def install(app, identity, db_path, csrf_verifier):
         with connect() as db:
             db.execute("DELETE FROM nw_widget_pairs WHERE owner=?", (owner,))
             db.execute("DELETE FROM nw_widget_tokens WHERE owner=?", (owner,))
+            db.execute("DELETE FROM nw_widget_theme WHERE owner=?", (owner,))
         return {"ok": True}
 
     # The host can have global @app.middleware("http") authentication that

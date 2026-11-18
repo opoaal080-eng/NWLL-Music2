@@ -9,6 +9,13 @@ private struct NWEntry: TimelineEntry {
     let date: Date
     let snapshot: NWWidgetState
     let cover: Data?
+    let theme: String
+    init(date: Date, snapshot: NWWidgetState, cover: Data?, theme: String = "standard") {
+        self.date = date
+        self.snapshot = snapshot
+        self.cover = cover
+        self.theme = theme
+    }
 }
 private struct NWProvider: TimelineProvider {
     func placeholder(in context: Context) -> NWEntry {
@@ -109,6 +116,7 @@ private struct NWRemoteState: Decodable {
     let artist: String
     let playing: Bool
     let has_cover: Bool
+    let theme: String?
 }
 
 private enum NWWidgetRemote {
@@ -201,7 +209,8 @@ private enum NWWidgetRemote {
                     cover = bytes
                 }
             }
-            return NWEntry(date: .now, snapshot: state, cover: cover)
+            return NWEntry(date: .now, snapshot: state, cover: cover,
+                           theme: model.theme == "vice" ? "vice" : "standard")
         } catch {
             return message("Нет соединения", "Последняя музыка появится после обновления")
         }
@@ -399,24 +408,39 @@ private struct NWReverseProvider: TimelineProvider {
 }
 
 private struct NightwellWidgetSurface: View {
+    var theme = "standard"
     var body: some View {
         GeometryReader { geometry in
+            let extent = max(geometry.size.width, geometry.size.height)
             ZStack {
-                Color(red: 0.065, green: 0.052, blue: 0.095)
-                RadialGradient(
-                    colors: [Color(red: 0.50, green: 0.17, blue: 0.47).opacity(0.40), .clear],
-                    center: .topTrailing, startRadius: 8,
-                    endRadius: max(geometry.size.width, geometry.size.height)
-                )
-                LinearGradient(colors: [.clear, .black.opacity(0.28)],
-                               startPoint: .top, endPoint: .bottom)
+                if theme == "vice" {
+                    LinearGradient(colors: [
+                        Color(red: 0.055, green: 0.035, blue: 0.135),
+                        Color(red: 0.18, green: 0.068, blue: 0.24),
+                        Color(red: 0.025, green: 0.03, blue: 0.075)
+                    ], startPoint: .topLeading, endPoint: .bottomTrailing)
+                    RadialGradient(colors: [
+                        Color(red: 0.96, green: 0.28, blue: 0.58).opacity(0.37), .clear
+                    ], center: .topTrailing, startRadius: 0, endRadius: extent * 1.15)
+                    RadialGradient(colors: [
+                        Color(red: 0.25, green: 0.68, blue: 0.84).opacity(0.16), .clear
+                    ], center: .bottomLeading, startRadius: 0, endRadius: extent * 0.85)
+                } else {
+                    LinearGradient(
+                        colors: [Color(white: 0.16), Color(white: 0.065),
+                                 Color(white: 0.025)],
+                        startPoint: .topLeading, endPoint: .bottomTrailing
+                    )
+                }
             }
+            .frame(width: geometry.size.width, height: geometry.size.height)
         }
     }
 }
 
 private struct NWArtwork: View {
     let data: Data?
+    var theme = "standard"
     var body: some View {
         GeometryReader { geometry in
             ZStack {
@@ -428,11 +452,12 @@ private struct NWArtwork: View {
                         .clipped()
                 } else {
                     LinearGradient(
-                        colors: [
-                            Color(red: 0.25, green: 0.21, blue: 0.52),
-                            Color(red: 0.77, green: 0.26, blue: 0.54),
-                            Color(red: 0.16, green: 0.12, blue: 0.32)
-                        ],
+                        colors: theme == "vice"
+                            ? [Color(red: 0.25, green: 0.21, blue: 0.52),
+                               Color(red: 0.77, green: 0.26, blue: 0.54),
+                               Color(red: 0.16, green: 0.12, blue: 0.32)]
+                            : [Color(white: 0.25), Color(white: 0.14),
+                               Color(white: 0.07)],
                         startPoint: .topLeading, endPoint: .bottomTrailing
                     )
                     Circle()
@@ -501,7 +526,7 @@ private struct NWPlayerWidgetView: View {
                 }
             case .systemMedium:
                 HStack(spacing: 14) {
-                    NWArtwork(data: entry.cover).frame(width: 115, height: 115)
+                    NWArtwork(data: entry.cover, theme: entry.theme).frame(width: 115, height: 115)
                     VStack(alignment: .leading, spacing: 6) {
                         Text("NIGHTWELL MUSIC")
                             .font(.system(size: 10, weight: .bold)).tracking(1.1)
@@ -524,7 +549,7 @@ private struct NWPlayerWidgetView: View {
                 VStack(alignment: .leading, spacing: 11) {
                     Text("NIGHTWELL").font(.system(size: 15, weight: .black)).tracking(2)
                     GeometryReader { proxy in
-                        NWArtwork(data: entry.cover)
+                        NWArtwork(data: entry.cover, theme: entry.theme)
                             .frame(width: proxy.size.width, height: proxy.size.height)
                     }
                     Text(entry.snapshot.title).font(.title3.bold()).lineLimit(1)
@@ -536,7 +561,7 @@ private struct NWPlayerWidgetView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("N").font(.system(size: 18, weight: .black, design: .rounded))
                     Spacer(minLength: 0)
-                    NWArtwork(data: entry.cover).frame(width: 58, height: 58)
+                    NWArtwork(data: entry.cover, theme: entry.theme).frame(width: 58, height: 58)
                     Text(entry.snapshot.title).font(.system(size: 14, weight: .bold)).lineLimit(2)
                     Text(entry.snapshot.artist).font(.system(size: 11))
                         .lineLimit(entry.snapshot.title == "Подключить виджет" ? 3 : 1)
@@ -546,7 +571,7 @@ private struct NWPlayerWidgetView: View {
             }
         }
         .foregroundStyle(.white)
-        .containerBackground(for: .widget) { NightwellWidgetSurface() }
+        .containerBackground(for: .widget) { NightwellWidgetSurface(theme: entry.theme) }
         .widgetURL(destination)
     }
 }
@@ -570,6 +595,7 @@ private struct NWShortcut: View {
 }
 private struct NWQuickWidgetView: View {
     @Environment(\.widgetFamily) private var family
+    let entry: NWEntry
     var body: some View {
         Group {
             if family == .systemSmall {
@@ -597,7 +623,7 @@ private struct NWQuickWidgetView: View {
             }
         }
         .foregroundStyle(.white)
-        .containerBackground(for: .widget) { NightwellWidgetSurface() }
+        .containerBackground(for: .widget) { NightwellWidgetSurface(theme: entry.theme) }
         .unredacted()
     }
 }
@@ -614,8 +640,8 @@ private struct NWNowPlaying: Widget {
 }
 private struct NWQuickAccess: Widget {
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: "nightwell.quickaccess", provider: NWProvider()) { _ in
-            NWQuickWidgetView()
+        StaticConfiguration(kind: "nightwell.quickaccess", provider: NWReverseProvider()) { entry in
+            NWQuickWidgetView(entry: entry)
         }
         .configurationDisplayName("Быстрый доступ")
         .description("Поиск, избранное, офлайн и главный экран.")

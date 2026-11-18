@@ -235,6 +235,48 @@ class WidgetSyncTests(unittest.IsolatedAsyncioTestCase):
             json={"track_id": "test", "title": "Test", "artist": "Singer", "playing": True})
         self.assertEqual((await self.client.get("/api/widgets/state", headers=h)).json()["title"], "Test")
 
+
+    async def test_theme_sync_preserves_artwork_and_is_account_scoped(self):
+        import secrets
+        token = secrets.token_urlsafe(32)
+        bearer = {"X-Nightwell-Widget-Token": token}
+        registered = await self.client.post("/api/widgets/device/register", headers=bearer)
+        code = registered.json()["code"]
+        claimed = await self.client.post("/api/widgets/device/claim",
+                                         headers=self.auth, json={"code":code})
+        self.assertEqual(claimed.status_code, 200)
+        first = await self.client.post("/api/widgets/state", headers=self.auth, json={
+            "track_id": "track1", "title":"Night", "artist":"Performer", "playing": True,
+            "theme": "standard"
+        })
+        self.assertEqual(first.status_code, 200, first.text)
+        jpeg = base64.b64encode(b"\xff\xd8\xff" + b"x" * 120).decode()
+        uploaded = await self.client.post("/api/widgets/cover", headers=self.auth,
+                                          json={"track_id":"track1","jpeg":jpeg})
+        self.assertEqual(uploaded.status_code, 200, uploaded.text)
+        before = await self.client.get("/api/widgets/state", headers=bearer)
+        self.assertTrue(before.json()["has_cover"])
+        self.assertEqual(before.json()["theme"], "standard")
+        updated = await self.client.post("/api/widgets/state", headers=self.auth, json={
+            "track_id": "track1", "title":"Night", "artist":"Performer", "playing": True,
+            "theme": "vice"
+        })
+        self.assertEqual(updated.status_code, 200, updated.text)
+        after = await self.client.get("/api/widgets/state", headers=bearer)
+        self.assertEqual(after.json()["theme"], "vice")
+        self.assertTrue(after.json()["has_cover"])
+        cover = await self.client.get("/api/widgets/cover", headers=bearer)
+        self.assertEqual(cover.status_code, 200)
+        self.assertEqual(cover.content[:3], b"\xff\xd8\xff")
+        bob = {"x-test-owner": "bob", "x-test-csrf": "valid"}
+        await self.client.post("/api/widgets/state", headers=bob, json={
+            "track_id":"bobtrack","title":"B","artist":"Bob","theme":"standard"})
+        self.assertEqual((await self.client.get("/api/widgets/state",headers=bearer)).json()["theme"], "vice")
+        invalid = await self.client.post("/api/widgets/state", headers=self.auth, json={
+            "track_id":"track1","title":"Night","artist":"Performer","theme":"malicious"})
+        self.assertEqual(invalid.status_code, 400)
+        self.assertEqual((await self.client.get("/api/widgets/state",headers=bearer)).json()["theme"], "vice")
+
     async def test_reverse_pairing_expired_code(self):
         import secrets
         bearer = {"Authorization": "Bearer " + secrets.token_urlsafe(32)}
