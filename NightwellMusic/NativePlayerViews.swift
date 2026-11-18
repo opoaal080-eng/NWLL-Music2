@@ -323,7 +323,7 @@ struct MiniPlayer: View {
                             // loaded audio; once audible it shows play position.
                             Circle()
                                 .trim(from: 0, to: clock.preparing ? CGFloat(clock.bufferFraction) : playbackFraction)
-                                .stroke(appearance == .vice ? NightwellAppearance.cyan : Color.white.opacity(0.96),
+                                .stroke(appearance.progressTint,
                                         style: StrokeStyle(lineWidth: 2.7, lineCap: .round))
                                 .rotationEffect(.degrees(-90))
                                 .frame(width: 44, height: 44)
@@ -333,7 +333,9 @@ struct MiniPlayer: View {
                                         .truncatingRemainder(dividingBy: 1.4) / 1.4
                                     Circle()
                                         .trim(from: 0, to: 0.22)
-                                        .stroke(.white.opacity(0.92),
+                                        .stroke(appearance == .vice
+                                                ? appearance.progressTint.opacity(0.92)
+                                                : Color.white.opacity(0.92),
                                                 style: StrokeStyle(lineWidth: 2.7, lineCap: .round))
                                         .rotationEffect(.degrees(phase * 360 - 90))
                                         .frame(width: 44, height: 44)
@@ -404,6 +406,7 @@ struct GlassSlider: View {
     var onEditingChanged: (Bool) -> Void = { _ in }
     @State private var dragging = false
     @Environment(\.accessibilityReduceMotion) private var reducedMotion
+    @Environment(\.nightwellAppearance) private var appearance
 
     private var fraction: CGFloat {
         guard range.upperBound > range.lowerBound, value.isFinite else { return 0 }
@@ -419,12 +422,16 @@ struct GlassSlider: View {
         GeometryReader { proxy in
             let width = max(0, proxy.size.width - 22)
             ZStack(alignment: .leading) {
-                Capsule().fill(.white.opacity(0.13)).frame(height: dragging ? 6 : 4)
+                Capsule()
+                    .fill(appearance == .vice
+                          ? NightwellAppearance.pink.opacity(0.17) : Color.white.opacity(0.13))
+                    .frame(height: dragging ? 6 : 4)
                 // Actual AVPlayer cached audio, drawn BEHIND the white
                 // playback progress on exactly the same horizontal track.
                 if bufferedFraction > 0 {
                     Capsule()
-                        .fill(.white.opacity(0.36))
+                        .fill(appearance == .vice
+                              ? NightwellAppearance.cyan.opacity(0.20) : Color.white.opacity(0.36))
                         .frame(width: width * min(1, max(0, bufferedFraction)),
                                height: dragging ? 6 : 4)
                 } else if preparing {
@@ -435,7 +442,9 @@ struct GlassSlider: View {
                             .truncatingRemainder(dividingBy: 1.45) / 1.45
                         Capsule()
                             .fill(LinearGradient(
-                                colors: [.clear, .white.opacity(0.48), .clear],
+                                colors: appearance == .vice
+                                    ? [.clear, NightwellAppearance.cyan.opacity(0.55), .clear]
+                                    : [.clear, .white.opacity(0.48), .clear],
                                 startPoint: .leading, endPoint: .trailing
                             ))
                             .frame(width: min(94, width * 0.38), height: 4)
@@ -445,13 +454,31 @@ struct GlassSlider: View {
                     }
                     .allowsHitTesting(false)
                 }
-                Capsule().fill(LinearGradient(colors: [Color.white.opacity(0.65), Color.white], startPoint: .leading, endPoint: .trailing))
+                Capsule()
+                    .fill(LinearGradient(
+                        colors: appearance == .vice
+                            ? [appearance.progressTint.opacity(0.83), appearance.progressTint]
+                            : [Color.white.opacity(0.65), Color.white],
+                        startPoint: .leading, endPoint: .trailing))
                     .frame(width: width * fraction, height: dragging ? 6 : 4)
+                    .shadow(color: appearance == .vice
+                            ? appearance.progressTint.opacity(0.40) : .clear,
+                            radius: appearance == .vice ? 4 : 0)
                 Circle()
-                    .fill(LinearGradient(colors: [.white.opacity(0.95), Color.white], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .fill(LinearGradient(
+                        colors: appearance == .vice
+                            ? [appearance.progressTint.opacity(0.84), appearance.progressTint]
+                            : [.white.opacity(0.95), Color.white],
+                        startPoint: .topLeading, endPoint: .bottomTrailing))
                     .frame(width: knobDiameter, height: knobDiameter)
-                    .overlay(Circle().stroke(.white.opacity(0.45), lineWidth: 0.5))
-                    .shadow(color: Color.white.opacity(dragging ? 0.35 : 0.12), radius: dragging ? 5 : 2)
+                    .overlay(Circle().stroke(
+                        appearance == .vice
+                            ? NightwellAppearance.pink.opacity(0.65) : Color.white.opacity(0.45),
+                        lineWidth: 0.5))
+                    .shadow(color: appearance == .vice
+                            ? appearance.progressTint.opacity(dragging ? 0.48 : 0.28)
+                            : Color.white.opacity(dragging ? 0.35 : 0.12),
+                            radius: dragging ? 5 : 2)
                     .scaleEffect(dragging ? 1.15 : 1)
                     .offset(x: width * fraction - knobDiameter / 2)
             }
@@ -930,7 +957,11 @@ struct FullPlayer: View {
     @ViewBuilder private func playerTrackDetails(compact: Bool) -> some View {
                 HStack(spacing: 10) {
                     VStack(alignment: .leading, spacing: compact ? 5 : 8) {
-                        Text(clock.displayCurrent?.title ?? "Выбери трек").font(.system(size: compact ? 17 : 20, weight: .bold)).lineLimit(2)
+                        Text(clock.displayCurrent?.title ?? "Выбери трек")
+                            .font(.system(size: compact ? 17 : 20, weight: .bold))
+                            .foregroundStyle(appearance == .vice
+                                             ? NightwellAppearance.gold : .white)
+                            .lineLimit(2)
                         Button {
                             let artists = ArtistNames.split(clock.displayCurrent?.artist ?? "")
                             if artists.count > 1 { showArtistChoices = true }
@@ -941,9 +972,13 @@ struct FullPlayer: View {
                                 Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold))
                             }
                             .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.76))
+                            .foregroundStyle(appearance == .vice
+                                             ? NightwellAppearance.cyan.opacity(0.88)
+                                             : Color.white.opacity(0.76))
                             .padding(.horizontal, 10).padding(.vertical, 5)
-                            .background(.white.opacity(0.08), in: Capsule())
+                            .background(appearance == .vice
+                                        ? NightwellAppearance.pink.opacity(0.09)
+                                        : Color.white.opacity(0.08), in: Capsule())
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Открыть исполнителя")
@@ -966,8 +1001,11 @@ struct FullPlayer: View {
                         .accessibilityLabel(store.isRecommendationHidden(track) ? "Вернуть в рекомендации" : "Не рекомендовать")
                         Button { Task { await store.like(track) } } label: {
                             Image(systemName: store.likes.contains(track.id) ? "heart.fill" : "heart")
-                                .font(.system(size: compact ? 17 : 20)).foregroundStyle(Color.white)
-                                .frame(width: compact ? 38 : 44, height: compact ? 38 : 44).nightwellLiquidGlass(compact ? 19 : 22)
+                                .font(.system(size: compact ? 17 : 20))
+                                .foregroundStyle(appearance == .vice
+                                    ? NightwellAppearance.pink : .white)
+                                .frame(width: compact ? 38 : 44, height: compact ? 38 : 44)
+                                .nightwellLiquidGlass(compact ? 19 : 22)
                         }
                         .accessibilityLabel(store.likes.contains(track.id) ? "Убрать из избранного" : "В избранное")
                     }
@@ -989,13 +1027,48 @@ struct FullPlayer: View {
                             NativePlayer.shared.setShuffleMode(shuffleMode)
                         } label: {
                             Image(systemName: shuffleMode == 2 ? "shuffle.circle.fill" : "shuffle")
-                                .foregroundStyle(shuffleMode == 0 ? Color.secondary : Color.white)
+                                .foregroundStyle(shuffleMode == 0 ? Color.secondary
+                                    : (appearance == .vice ? NightwellAppearance.cyan : .white))
                         }
                         .accessibilityLabel(["Перемешивание выключено", "Обычное перемешивание", "Умное перемешивание"][shuffleMode]); Spacer()
-                        Button { NativePlayer.shared.step(-1) } label: { Image(systemName: "backward.end") }; Spacer()
-                        Button { clock.toggle() } label: { Image(systemName: clock.playing ? "pause" : "play.fill") .font(.system(size: compact ? 21 : 25)).frame(width: compact ? 54 : 68, height: compact ? 54 : 68).frostedGlass(compact ? 27 : 34, bordered: false, intensity: 0.20) }; Spacer()
-                        Button { NativePlayer.shared.step(1) } label: { Image(systemName: "forward.end") }; Spacer()
-                        Button { repeatMode = (repeatMode + 1) % 3; NativePlayer.shared.modes(repeatMode: repeatMode, shuffle: shuffleMode != 0) } label: { Image(systemName: repeatMode == 2 ? "repeat.1" : "repeat").foregroundStyle(repeatMode > 0 ? Color.white : .secondary) }
+                        Button { NativePlayer.shared.step(-1) } label: {
+                            Image(systemName: "backward.end")
+                                .foregroundStyle(appearance == .vice
+                                                 ? NightwellAppearance.cyan.opacity(0.92) : .white)
+                        }; Spacer()
+                        Button { clock.toggle() } label: {
+                            Image(systemName: clock.playing ? "pause" : "play.fill")
+                                .font(.system(size: compact ? 21 : 25))
+                                .foregroundStyle(appearance == .vice
+                                                 ? NightwellAppearance.cyan : .white)
+                                .frame(width: compact ? 54 : 68, height: compact ? 54 : 68)
+                                .frostedGlass(compact ? 27 : 34, bordered: false, intensity: 0.20)
+                                .overlay {
+                                    if appearance == .vice {
+                                        Circle()
+                                            .strokeBorder(
+                                                LinearGradient(
+                                                    colors: [NightwellAppearance.pink.opacity(0.85),
+                                                             NightwellAppearance.cyan.opacity(0.60)],
+                                                    startPoint: .topLeading, endPoint: .bottomTrailing),
+                                                lineWidth: 1.2)
+                                    }
+                                }
+                        }; Spacer()
+                        Button { NativePlayer.shared.step(1) } label: {
+                            Image(systemName: "forward.end")
+                                .foregroundStyle(appearance == .vice
+                                                 ? NightwellAppearance.cyan.opacity(0.92) : .white)
+                        }; Spacer()
+                        Button {
+                            repeatMode = (repeatMode + 1) % 3
+                            NativePlayer.shared.modes(repeatMode: repeatMode, shuffle: shuffleMode != 0)
+                        } label: {
+                            Image(systemName: repeatMode == 2 ? "repeat.1" : "repeat")
+                                .foregroundStyle(repeatMode > 0
+                                    ? (appearance == .vice ? NightwellAppearance.cyan : .white)
+                                    : .secondary)
+                        }
                     }.font(.system(size: compact ? 17 : 20))
                 }
     }
@@ -1005,7 +1078,11 @@ struct FullPlayer: View {
                     Button { withAnimation { showLyrics.toggle() } } label: { Image(systemName: "text.bubble").frame(maxWidth: .infinity, minHeight: compact ? 38 : 50) }.accessibilityLabel("Текст песни")
                     Button { showQueue = true } label: { Image(systemName: "list.bullet").frame(maxWidth: .infinity, minHeight: compact ? 38 : 50) }.accessibilityLabel("Очередь")
                     Button { feature = .sound } label: { Image(systemName: "slider.vertical.3").frame(maxWidth: .infinity, minHeight: compact ? 38 : 50) }.accessibilityLabel("Эквалайзер")
-                }.font(.system(size: compact ? 17 : 20)).nightwellLiquidGlass(compact ? 25 : 32)
+                }
+                .font(.system(size: compact ? 17 : 20))
+                .foregroundStyle(appearance == .vice
+                                 ? NightwellAppearance.pink.opacity(0.96) : .white)
+                .nightwellLiquidGlass(compact ? 25 : 32)
     }
 
     @ViewBuilder private var playerError: some View {

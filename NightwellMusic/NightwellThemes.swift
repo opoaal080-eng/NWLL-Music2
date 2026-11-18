@@ -19,6 +19,8 @@ enum NightwellAppearance: String, CaseIterable, Identifiable {
         }
     }
     var accent: Color { self == .vice ? Self.pink : .white }
+    // Same tint across the full-player timeline and mini-player progress ring.
+    var progressTint: Color { self == .vice ? Self.cyan : .white }
     static let pink = Color(red: 1.0, green: 0.34, blue: 0.67)
     static let cyan = Color(red: 0.35, green: 0.89, blue: 0.96)
     static let gold = Color(red: 1.0, green: 0.70, blue: 0.44)
