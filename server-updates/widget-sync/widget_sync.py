@@ -102,12 +102,19 @@ def install(app, identity, db_path, csrf_verifier):
         return value
 
     def bearer_owner(request):
-        raw = request.headers.get("authorization", "")
-        if not raw.startswith("Bearer ") or not TOKEN_RE.fullmatch(raw[7:]):
+        # A widget credential is NOT an account JWT. The host's global auth
+        # middleware may reject arbitrary Authorization: Bearer values before
+        # FastAPI gets to this route. Use a dedicated header for widget calls,
+        # preserving support for existing clients that send Bearer.
+        token = request.headers.get("x-nightwell-widget-token", "")
+        if not token:
+            raw = request.headers.get("authorization", "")
+            token = raw[7:] if raw.startswith("Bearer ") else ""
+        if not TOKEN_RE.fullmatch(token):
             raise HTTPException(401, "Подключи виджет заново")
         with connect() as db:
             row = db.execute("SELECT owner FROM nw_widget_tokens WHERE digest=?",
-                             (digest(raw[7:]),)).fetchone()
+                             (digest(token),)).fetchone()
         if not row:
             raise HTTPException(401, "Привязка виджета недействительна")
         return row["owner"]
@@ -150,10 +157,19 @@ def install(app, identity, db_path, csrf_verifier):
                        (digest(token), owner, now))
         return JSONResponse({"token": token}, headers=NO_STORE)
 
+    @app.get("/api/widgets/device/health")
+    async def widget_device_health(request: Request):
+        # Deliberately public and metadata-only. A 401 here means an outer
+        # auth middleware or proxy is intercepting the widget endpoints.
+        return JSONResponse({"widget_sync": "v3.1", "ready": True}, headers=NO_STORE)
+
     @app.post("/api/widgets/device/register")
     async def widget_device_register(request: Request):
-        raw = request.headers.get("authorization", "")
-        token = raw[7:] if raw.startswith("Bearer ") else ""
+        token = request.headers.get("x-nightwell-widget-token", "")
+        if not token:
+            # Keep V3 backward compatibility for already installed widgets.
+            raw = request.headers.get("authorization", "")
+            token = raw[7:] if raw.startswith("Bearer ") else ""
         if not re.fullmatch(r"[A-Za-z0-9_-]{43}", token):
             raise HTTPException(400, "Некорректный ключ устройства")
         token_digest = digest(token)

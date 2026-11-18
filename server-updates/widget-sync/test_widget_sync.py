@@ -105,6 +105,41 @@ class WidgetSyncTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(values)
         self.assertNotIn(token, [v[0] for v in values])
 
+    async def test_widget_token_header_bypasses_host_jwt_rejection(self):
+        # This reproduces a host that treats any Authorization Bearer value
+        # as an account JWT and rejects unrecognized widget credentials.
+        from starlette.middleware.base import BaseHTTPMiddleware
+
+        class RejectForeignBearer(BaseHTTPMiddleware):
+            async def dispatch(self, request, call_next):
+                bearer = request.headers.get("authorization", "")
+                if bearer.startswith("Bearer ") and bearer != "Bearer official-user-jwt":
+                    return __import__("fastapi").responses.JSONResponse({"detail": "Invalid JWT"}, status_code=401)
+                return await call_next(request)
+
+        self.app.add_middleware(RejectForeignBearer)
+        import secrets
+        token = secrets.token_urlsafe(32)
+        old = await self.client.post("/api/widgets/device/register",
+                                     headers={"Authorization": "Bearer " + token})
+        self.assertEqual(old.status_code, 401)
+        headers = {"X-Nightwell-Widget-Token": token}
+        health = await self.client.get("/api/widgets/device/health")
+        self.assertEqual(health.status_code, 200)
+        self.assertEqual(health.json()["widget_sync"], "v3.1")
+        registered = await self.client.post("/api/widgets/device/register", headers=headers)
+        self.assertEqual(registered.status_code, 200, registered.text)
+        code = registered.json()["code"]
+        claimed = await self.client.post("/api/widgets/device/claim", headers=self.auth, json={"code": code})
+        self.assertEqual(claimed.status_code, 200, claimed.text)
+        await self.client.post("/api/widgets/state", headers=self.auth,
+                               json={"track_id": "demo", "title": "Falling", "artist": "Trevor Daniel", "playing": True})
+        state = await self.client.get("/api/widgets/state", headers=headers)
+        self.assertEqual(state.status_code, 200, state.text)
+        self.assertEqual(state.json()["title"], "Falling")
+        self.assertEqual((await self.client.get("/api/widgets/state",
+            headers={"Authorization": "Bearer " + token})).status_code, 401)
+
     async def test_reverse_pairing_without_widget_configuration(self):
         import secrets
         token = secrets.token_urlsafe(32)
@@ -130,6 +165,19 @@ class WidgetSyncTests(unittest.IsolatedAsyncioTestCase):
         fresh = await self.client.post(path, headers=bearer)
         self.assertFalse(fresh.json()["paired"])
         self.assertNotEqual(fresh.json()["code"],code)
+
+    async def test_reverse_pairing_dedicated_header(self):
+        import secrets
+        token = secrets.token_urlsafe(32)
+        h = {"X-Nightwell-Widget-Token": token}
+        response = await self.client.post("/api/widgets/device/register", headers=h)
+        self.assertEqual(response.status_code, 200, response.text)
+        code = response.json()["code"]
+        self.assertEqual((await self.client.post("/api/widgets/device/claim",
+                         headers=self.auth, json={"code": code})).status_code, 200)
+        await self.client.post("/api/widgets/state", headers=self.auth,
+            json={"track_id": "test", "title": "Test", "artist": "Singer", "playing": True})
+        self.assertEqual((await self.client.get("/api/widgets/state", headers=h)).json()["title"], "Test")
 
     async def test_reverse_pairing_expired_code(self):
         import secrets

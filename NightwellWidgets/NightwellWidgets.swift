@@ -155,7 +155,13 @@ private enum NWWidgetRemote {
 
             guard let token else { return message("Ошибка привязки", "Повтори попытку") }
             var request = URLRequest(url: origin.appendingPathComponent("api/widgets/state"))
-            request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
+            if direct != nil {
+                // Never send a widget-only key as an account bearer token.
+                // The host server might reject it as an invalid JWT.
+                request.setValue(token, forHTTPHeaderField: "X-Nightwell-Widget-Token")
+            } else {
+                request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
+            }
             request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
             let (data, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse else {
@@ -184,7 +190,11 @@ private enum NWWidgetRemote {
             var cover: Data?
             if model.has_cover {
                 var coverRequest = URLRequest(url: origin.appendingPathComponent("api/widgets/cover"))
-                coverRequest.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
+                if direct != nil {
+                    coverRequest.setValue(token, forHTTPHeaderField: "X-Nightwell-Widget-Token")
+                } else {
+                    coverRequest.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
+                }
                 if let (bytes, imageResponse) = try? await session.data(for: coverRequest),
                    (imageResponse as? HTTPURLResponse)?.statusCode == 200,
                    bytes.count < 240_000, UIImage(data: bytes) != nil {
@@ -328,7 +338,9 @@ private actor NWReversePairing {
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.timeoutInterval = 10
-        request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
+        // Registration is anonymous by design. A regular Authorization
+        // header gets rejected by the host JWT middleware before FastAPI.
+        request.setValue(token, forHTTPHeaderField: "X-Nightwell-Widget-Token")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = Data("{}".utf8)
         let config = URLSessionConfiguration.ephemeral
@@ -342,7 +354,10 @@ private actor NWReversePairing {
                 return NWWidgetRemote.message("Нет ответа", "Проверь соединение")
             }
             if http.statusCode == 404 {
-                return NWWidgetRemote.message("Обнови сервер", "Нужен модуль виджетов V3")
+                return NWWidgetRemote.message("Обнови сервер", "Нужен модуль виджетов V3.1")
+            }
+            if http.statusCode == 401 || http.statusCode == 403 {
+                return NWWidgetRemote.message("Блокировка API", "HTTP \(http.statusCode). Проверь входной прокси")
             }
             guard http.statusCode == 200 else {
                 return NWWidgetRemote.message("Ошибка сервера", "HTTP \(http.statusCode)")
