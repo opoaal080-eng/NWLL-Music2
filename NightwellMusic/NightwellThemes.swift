@@ -109,7 +109,7 @@ struct NightwellViceScenicBackdrop: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack {
-                Image("ViceSunset")
+                Image("ViceSky")
                     .resizable()
                     .scaledToFill()
                     .frame(width: geometry.size.width, height: geometry.size.height)

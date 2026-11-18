@@ -61,6 +61,11 @@ jobs:
           PYCODE
       - name: Generate neutral app icon
         run: python3 scripts/make-neutral-app-icon.py --platform ios
+      - name: Prepare animated Vice Nights palm layers
+        run: |
+          python3 -m venv .vice-venv
+          .vice-venv/bin/python -m pip install --quiet numpy opencv-python-headless
+          .vice-venv/bin/python scripts/prepare-vice-palms.py --platform ios
       - name: Generate project
         run: |
           sed -i '' "s/SOURCE_COMMIT/$GITHUB_SHA/" project.yml
