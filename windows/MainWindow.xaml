@@ -6,7 +6,7 @@
    <!-- Continuous ambient scene behind the header and the mini player. -->
    <local:RibbonScene x:Name="Ribbon" Grid.RowSpan="4" IsHitTestVisible="False" Opacity="0"/>
    <!-- Android Vice Nights sunset: same asset as the shipped Android APK. -->
-   <Image x:Name="ViceSunsetBackdrop" Grid.RowSpan="4" Source="/vice_sunset.jpg"
+   <Image x:Name="ViceSunsetBackdrop" Grid.RowSpan="4" Source="/vice_sky.jpg"
           Stretch="Fill" RenderOptions.BitmapScalingMode="HighQuality"
           IsHitTestVisible="False"/>
    <!-- Transparent silhouettes of the original fronds, animated independently. -->
