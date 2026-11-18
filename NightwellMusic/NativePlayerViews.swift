@@ -809,7 +809,7 @@ struct FullPlayer: View {
     @ViewBuilder private var playerBackdrop: some View {
             // Keep cover-based ambience, with a dusk layer in Vice Nights.
             if appearance == .vice {
-                NightwellViceBackdrop(palmTrees: false).ignoresSafeArea()
+                NightwellViceBackdrop().ignoresSafeArea()
             } else {
                 Color.black.ignoresSafeArea()
             }
@@ -1191,7 +1191,7 @@ struct PlaybackQueue: View {
             let compact = viewport.size.height < 570
             ZStack {
             if appearance == .vice {
-                NightwellViceBackdrop(palmTrees: false).ignoresSafeArea()
+                NightwellViceBackdrop().ignoresSafeArea()
             } else {
                 LinearGradient(
                     stops: [
@@ -1714,7 +1714,7 @@ struct NativeSettings: View {
                         .accessibilityLabel("Тема " + option.title)
                     }
                 }
-                Text("Vice Nights вдохновлена атмосферой GTA VI. Графика оригинальная, без официальных материалов игры.")
+                Text("Vice Nights вдохновлена цветовой палитрой официальных материалов GTA VI.")
                     .font(.system(size: 11))
                     .foregroundStyle(.white.opacity(0.55))
             }
