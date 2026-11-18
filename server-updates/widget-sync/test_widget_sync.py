@@ -126,7 +126,7 @@ class WidgetSyncTests(unittest.IsolatedAsyncioTestCase):
         headers = {"X-Nightwell-Widget-Token": token}
         health = await self.client.get("/api/widgets/device/health")
         self.assertEqual(health.status_code, 200)
-        self.assertEqual(health.json()["widget_sync"], "v3.1")
+        self.assertEqual(health.json()["widget_sync"], "v3.2")
         registered = await self.client.post("/api/widgets/device/register", headers=headers)
         self.assertEqual(registered.status_code, 200, registered.text)
         code = registered.json()["code"]
