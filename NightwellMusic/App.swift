@@ -927,7 +927,9 @@ struct NativeRoot: View {
                 playing: store.clock.playing,
                 account: store.account?.id, api: store.api,
                 origin: store.origin, force: true)
-            NWWidgetConfiguration.reload()
+            // Reload happens only after the server confirms the new theme.
+            // An earlier reload could render the previous palette and cause
+            // WidgetKit to coalesce the subsequent correct refresh.
         }
         .onChange(of: store.screen) { oldScreen, newScreen in
             if isLibraryScreen && librarySession.lastVisited != newScreen { librarySession.remember(newScreen) }
@@ -948,10 +950,28 @@ struct NativeRoot: View {
             if let url = activity.webpageURL { openSharedURL(url) }
         }
         .onChange(of: store.clock.id) { id in
+            // Fire immediately when the player changes tracks, rather than
+            // relying on the next periodic playback tick. If the app is still
+            // executing in the background, WidgetKit can receive a reload
+            // as soon as the server acknowledges this song.
+            NWWidgetServerPublisher.shared.update(
+                track: store.clock.current,
+                playing: store.clock.playing,
+                account: store.account?.id,
+                api: store.api,
+                origin: store.origin)
             if let expected = sharedLinkID, id.lowercased() == expected.lowercased() {
                 sharedLinkID = nil
                 fullPlayer = true
             }
+        }
+        .onChange(of: store.clock.playing) { _, _ in
+            NWWidgetServerPublisher.shared.update(
+                track: store.clock.current,
+                playing: store.clock.playing,
+                account: store.account?.id,
+                api: store.api,
+                origin: store.origin)
         }
         .fullScreenCover(isPresented: $fullPlayer) { FullPlayer(clock: store.clock).environmentObject(togetherSession) }
         .sheet(item: $selectedArtist) { artist in

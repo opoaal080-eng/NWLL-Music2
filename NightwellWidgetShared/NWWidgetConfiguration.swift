@@ -17,6 +17,13 @@ enum NWWidgetConfiguration {
             (48...57).contains(b) || b == 45 || b == 95
         } ? token : nil
     }
+    // Track changes affect the now-playing widget only. Avoid spending
+    // unnecessary reloads on quick access and abandoned widget generations.
+    static func reloadNowPlaying() {
+        WidgetCenter.shared.reloadTimelines(ofKind: kind)
+    }
+
+    // A theme change or new pairing affects both widget families.
     static func reload() {
         WidgetCenter.shared.reloadTimelines(ofKind: kind)
         WidgetCenter.shared.reloadTimelines(ofKind: previousKind)

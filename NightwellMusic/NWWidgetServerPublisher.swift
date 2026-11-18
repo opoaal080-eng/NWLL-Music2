@@ -17,6 +17,8 @@ import MediaPlayer
     private var coverSendingKey: String?
     private var coverRetryAt = Date.distantPast
     private var coverTask: Task<Void, Never>?
+    private var lastPublishedTheme: String?
+    private var emptySince: Date?
 
     private var selectedTheme: String {
         UserDefaults.standard.string(forKey: NightwellAppearance.storageKey) == NightwellAppearance.vice.rawValue
@@ -75,7 +77,20 @@ import MediaPlayer
             coverConfirmedKey = ""
             coverRetryAt = .distantPast
             retryAt = .distantPast
+            lastPublishedTheme = nil
+            emptySince = nil
             return
+        }
+        // On an audio-source switch the queue can briefly expose no current
+        // track. Publishing the empty gap causes a useless WidgetKit refresh
+        // that may be coalesced with the real next-track refresh.
+        if track == nil {
+            if emptySince == nil { emptySince = .now }
+            if !force, Date().timeIntervalSince(emptySince!) < 2.0 {
+                return
+            }
+        } else {
+            emptySince = nil
         }
         let id = track?.id ?? ""
         let title = track?.title ?? ""
@@ -103,9 +118,16 @@ import MediaPlayer
                             "theme": theme
                         ], timeout: 9)
                     guard !Task.isCancelled else { return }
-                    self?.confirmedKey = signature
-                    self?.retryAt = .distantPast
-                    NWWidgetConfiguration.reload()
+                    guard let self else { return }
+                    let themeChanged = self.lastPublishedTheme != theme
+                    self.confirmedKey = signature
+                    self.lastPublishedTheme = theme
+                    self.retryAt = .distantPast
+                    if themeChanged {
+                        NWWidgetConfiguration.reload()
+                    } else {
+                        NWWidgetConfiguration.reloadNowPlaying()
+                    }
                 } catch {
                     if !Task.isCancelled {
                         // Missing server module: retry infrequently, while new
@@ -160,7 +182,7 @@ import MediaPlayer
                     guard !Task.isCancelled else { return }
                     self?.coverConfirmedKey = coverKey
                     self?.coverRetryAt = .distantPast
-                    NWWidgetConfiguration.reload()
+                    NWWidgetConfiguration.reloadNowPlaying()
                 } catch {
                     if !Task.isCancelled {
                         self?.coverRetryAt = Date().addingTimeInterval(40)

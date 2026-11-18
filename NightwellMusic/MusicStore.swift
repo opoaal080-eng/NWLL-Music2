@@ -775,6 +775,11 @@ struct NightwellAccountDevicesResponse: Decodable {
             self.connectionCheck?.cancel(); self.connectionCheck = nil
             self.connectionCheckGeneration = UUID()
             self.savePlayback(force: true)
+            // Final sync before the home screen becomes visible. The
+            // publisher will reload the WidgetKit timeline after POST succeeds.
+            NWWidgetServerPublisher.shared.update(
+                track: self.clock.current, playing: self.clock.playing,
+                account: self.account?.id, api: self.api, origin: self.origin)
         })
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }

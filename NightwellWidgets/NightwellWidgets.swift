@@ -401,7 +401,10 @@ private struct NWReverseProvider: TimelineProvider {
     func getTimeline(in context: Context, completion: @escaping (Timeline<NWEntry>) -> Void) {
         Task {
             let entry = await NWReversePairing.shared.current()
-            let interval: TimeInterval = entry.snapshot.title == "Подключить виджет" ? 60 : 300
+            // WidgetKit may defer scheduled refreshes, but ask for a shorter
+            // fallback while music plays. App-initiated reloads are primary.
+            let interval: TimeInterval = entry.snapshot.playing ? 60 :
+                (entry.snapshot.title == "Подключить виджет" ? 120 : 300)
             completion(Timeline(entries: [entry], policy: .after(Date().addingTimeInterval(interval))))
         }
     }
