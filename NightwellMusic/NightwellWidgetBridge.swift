@@ -43,7 +43,7 @@ import WidgetKit
             return
         }
         lastWrittenKey = key // Only mark success after a real shared-file write.
-        WidgetCenter.shared.reloadTimelines(ofKind: "nightwell.nowplaying")
+        NWWidgetConfiguration.reload()
 
         coverTask?.cancel()
         guard !sameCover, let track,
@@ -63,7 +63,7 @@ import WidgetKit
                 coverID: track.id, updated: .now
             )
             if NWWidgetStorage.write(result) {
-                WidgetCenter.shared.reloadTimelines(ofKind: "nightwell.nowplaying")
+                NWWidgetConfiguration.reload()
             }
         }
     }

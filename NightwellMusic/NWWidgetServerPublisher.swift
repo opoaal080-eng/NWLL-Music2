@@ -69,7 +69,7 @@ import WidgetKit
                     guard !Task.isCancelled else { return }
                     self?.confirmedKey = signature
                     self?.retryAt = .distantPast
-                    WidgetCenter.shared.reloadTimelines(ofKind: "nightwell.nowplaying")
+                    NWWidgetConfiguration.reload()
                 } catch {
                     if !Task.isCancelled {
                         // Missing server module: retry infrequently, while new
@@ -111,7 +111,7 @@ import WidgetKit
                     guard !Task.isCancelled else { return }
                     self?.coverConfirmedKey = coverKey
                     self?.coverRetryAt = .distantPast
-                    WidgetCenter.shared.reloadTimelines(ofKind: "nightwell.nowplaying")
+                    NWWidgetConfiguration.reload()
                 } catch {
                     if !Task.isCancelled {
                         self?.coverRetryAt = Date().addingTimeInterval(40)

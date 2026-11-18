@@ -1,10 +1,18 @@
 import SwiftUI
 import UIKit
 import WidgetKit
+import AppIntents
 
 private struct NWWidgetPairCode: Decodable {
     let code: String
     let expires_in: Int
+}
+private struct NWWidgetAccessResponse: Decodable { let token: String }
+private struct NWWidgetReadback: Decodable {
+    let track_id: String
+    let title: String
+    let artist: String
+    let has_cover: Bool
 }
 
 /// A one-time pairing flow. The user copies the code from their account
@@ -21,6 +29,7 @@ struct NWWidgetSetupView: View {
     @State private var busy = false
     @State private var copied = false
     @State private var revokeConfirmation = false
+    @State private var configurationStatus = "Проверка ещё не выполнена"
 
     var body: some View {
         NavigationStack {
@@ -40,11 +49,11 @@ struct NWWidgetSetupView: View {
 
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Привязка к аккаунту").font(.headline)
-                        Text("Создай одноразовый код, затем зажми виджет «Сейчас играет», нажми «Изменить виджет» и вставь код в поле «Код привязки».")
+                        Text("Создай ключ NW2, удали старый виджет и добавь новый «Сейчас играет». Зажми его и вставь ключ в поле «Ключ доступа».")
                             .font(.subheadline).foregroundStyle(.white.opacity(0.72))
                         if !code.isEmpty {
                             Text(code)
-                                .font(.system(size: 20, weight: .semibold, design: .monospaced))
+                                .font(.system(size: 13, weight: .semibold, design: .monospaced))
                                 .tracking(0.5)
                                 .textSelection(.enabled)
                                 .frame(maxWidth: .infinity)
@@ -55,12 +64,12 @@ struct NWWidgetSetupView: View {
                                 UIPasteboard.general.string = code
                                 copied = true
                             } label: {
-                                Label(copied ? "Скопировано" : "Скопировать код",
+                                Label(copied ? "Скопировано" : "Скопировать ключ",
                                       systemImage: copied ? "checkmark" : "doc.on.doc")
                                     .frame(maxWidth: .infinity)
                             }
                             .buttonStyle(.bordered)
-                            Text("Код действует 10 минут и используется один раз. После подключения виджету не потребуется повторный ввод.")
+                            Text("Ключ действует до отзыва доступа и разрешает только чтение текущего трека. Не передавай его другим.")
                                 .font(.caption).foregroundStyle(.white.opacity(0.61))
                         }
                         Button {
@@ -68,7 +77,7 @@ struct NWWidgetSetupView: View {
                         } label: {
                             HStack {
                                 if busy { ProgressView().tint(.black) }
-                                Text(busy ? "Получаем код…" : code.isEmpty ? "Создать код привязки" : "Создать новый код")
+                                Text(busy ? "Получаем ключ…" : code.isEmpty ? "Создать ключ доступа" : "Создать новый ключ")
                             }
                             .font(.system(size: 15, weight: .semibold))
                             .frame(maxWidth: .infinity)
@@ -78,6 +87,29 @@ struct NWWidgetSetupView: View {
                         .tint(appearance.accent)
                         .foregroundStyle(.black)
                         .disabled(busy || store.account == nil)
+                    }
+                    .padding(17)
+                    .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 21))
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Диагностика").font(.headline)
+                        Text(configurationStatus).font(.subheadline)
+                        Button {
+                            Task { await inspectConfiguration() }
+                        } label: {
+                            Label("Проверить настройки виджета", systemImage: "stethoscope")
+                        }.buttonStyle(.bordered)
+                        Button {
+                            Task {
+                                await NWWidgetServerPublisher.shared.publishForPairing(
+                                    track: store.clock.current, playing: store.clock.playing,
+                                    account: store.account?.id, api: api, origin: store.origin)
+                                NWWidgetConfiguration.reload()
+                                await inspectConfiguration()
+                            }
+                        } label: {
+                            Label("Обновить данные виджета", systemImage: "arrow.clockwise")
+                        }.buttonStyle(.bordered)
                     }
                     .padding(17)
                     .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 21))
@@ -125,6 +157,22 @@ struct NWWidgetSetupView: View {
             }
         }
         .preferredColorScheme(.dark)
+        .task { await inspectConfiguration() }
+    }
+
+    @MainActor private func inspectConfiguration() async {
+        do {
+            let widgets = try await WidgetCenter.shared.currentConfigurations()
+            let latest = widgets.filter { $0.kind == NWWidgetConfiguration.kind }
+            let legacy = widgets.filter { $0.kind == NWWidgetConfiguration.legacyKind }
+            let valid = latest.filter {
+                let intent = $0.widgetConfigurationIntent(of: NWNowPlayingConfigurationV2.self)
+                return NWWidgetConfiguration.accessToken(intent?.accessKey) != nil
+            }.count
+            configurationStatus = "Новых виджетов: \(latest.count). Сохранён ключ: \(valid). Старых виджетов: \(legacy.count)."
+        } catch {
+            configurationStatus = "Ошибка чтения конфигураций iOS: " + error.localizedDescription
+        }
     }
 
     @MainActor private func createCode() async {
@@ -134,22 +182,43 @@ struct NWWidgetSetupView: View {
         do {
             let result: NWWidgetPairCode = try await api.request(
                 "/api/widgets/pair-code", method: "POST", body: [:], timeout: 12)
-            code = result.code
+            let access: NWWidgetAccessResponse = try await api.request(
+                "/api/widgets/pair", method: "POST", body: ["code": result.code], timeout: 12)
+            let key = "NW2." + access.token
+            guard NWWidgetConfiguration.accessToken(key) != nil else {
+                throw URLError(.cannotParseResponse)
+            }
             copied = false
-            notice = "Код готов. Добавь виджет, зажми его и выбери «Изменить виджет». Вставь код в поле привязки."
+            notice = "Ключ создан. Проверяем получение трека через сервер."
             await NWWidgetServerPublisher.shared.publishForPairing(
                 track: store.clock.current, playing: store.clock.playing,
                 account: store.account?.id, api: api, origin: store.origin
             )
-            if let track = store.clock.current {
-                let status = NWWidgetServerPublisher.shared.hasPublished(track: track, account: store.account?.id, origin: store.origin)
-                notice += status ? "\nТекущий трек передан серверу." : "\nНе удалось подтвердить передачу трека. Проверь соединение с сервером."
+            var request = URLRequest(url: store.origin.appendingPathComponent("api/widgets/state"))
+            request.setValue("Bearer " + access.token, forHTTPHeaderField: "Authorization")
+            request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+            request.timeoutInterval = 12
+            let config = URLSessionConfiguration.ephemeral
+            config.httpShouldSetCookies = false
+            let session = URLSession(configuration: config)
+            defer { session.finishTasksAndInvalidate() }
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                notice = "Сервер не принял ключ: HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)."
+                return
             }
+            let remote = try JSONDecoder().decode(NWWidgetReadback.self, from: data)
+            code = key
+            notice = remote.track_id.isEmpty
+                ? "Ключ проверен, но текущий трек отсутствует на сервере."
+                : "Сервер подтвердил ключ и вернул трек: " + remote.title + " — " + remote.artist
+            NWWidgetConfiguration.reload()
+            await inspectConfiguration()
         } catch {
             if let failure = error as? RequestRetry.HTTPFailure, failure.status == 404 {
                 notice = "Серверный модуль виджетов пока не установлен."
             } else {
-                notice = "Не удалось создать код: " + error.localizedDescription
+                notice = "Не удалось создать или проверить ключ: " + error.localizedDescription
             }
         }
     }
@@ -163,7 +232,7 @@ struct NWWidgetSetupView: View {
                                              method: "POST", body: [:], timeout: 12)
             code = ""
             notice = "Доступ всех виджетов отозван."
-            WidgetCenter.shared.reloadTimelines(ofKind: "nightwell.nowplaying")
+            NWWidgetConfiguration.reload()
         } catch {
             notice = "Не удалось отключить виджеты: " + error.localizedDescription
         }

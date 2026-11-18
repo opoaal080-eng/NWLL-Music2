@@ -121,11 +121,12 @@ private enum NWWidgetRemote {
         return URLSession(configuration: config)
     }()
     static func load(code: String) async -> NWEntry {
+        let direct = NWWidgetConfiguration.accessToken(code)
         let normalized = code.uppercased().filter { $0.isHexDigit }
-        guard normalized.count == 16 else {
-            return message("Подключи виджет", "Введи код из профиля Nightwell Music")
+        guard direct != nil || normalized.count == 16 else {
+            return message("Нет ключа", "Открой настройки виджета")
         }
-        var token = NWPairTokenKeychain.read(normalized)
+        var token = direct ?? NWPairTokenKeychain.read(normalized)
         do {
             if token == nil {
                 var request = URLRequest(url: origin.appendingPathComponent("api/widgets/pair"))
@@ -161,12 +162,14 @@ private enum NWWidgetRemote {
                 return message("Нет соединения", "Повтори позже")
             }
             if http.statusCode == 401 {
-                NWPairTokenKeychain.remove(normalized)
-                return message("Привязка отозвана", "Создай новый код в профиле")
+                if direct == nil { NWPairTokenKeychain.remove(normalized) }
+                return message("Ключ отозван", "Создай новый ключ в профиле")
             }
-            guard http.statusCode == 200,
-                  let model = try? JSONDecoder().decode(NWRemoteState.self, from: data) else {
-                return message("Сервер недоступен", "Повторная проверка позже")
+            guard http.statusCode == 200 else {
+                return message("Ошибка сервера", "HTTP \(http.statusCode)")
+            }
+            guard let model = try? JSONDecoder().decode(NWRemoteState.self, from: data) else {
+                return message("Ошибка ответа", "Неверный формат данных")
             }
 
             guard !model.track_id.isEmpty else {
@@ -253,6 +256,29 @@ private struct NWRemoteProvider: AppIntentTimelineProvider {
         } else {
             entry = await NWWidgetLoadCoordinator.shared.load(code)
         }
+        return Timeline(entries: [entry], policy: .after(Date().addingTimeInterval(300)))
+    }
+}
+
+private struct NWDirectProvider: AppIntentTimelineProvider {
+    func placeholder(in context: Context) -> NWEntry {
+        NWWidgetRemote.message("Nightwell Music", "Настрой виджет")
+    }
+    private func current(_ config: NWNowPlayingConfigurationV2) async -> NWEntry {
+        guard let key = config.accessKey, !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return NWWidgetRemote.message("Нет ключа", "Зажми виджет → Изменить")
+        }
+        guard NWWidgetConfiguration.accessToken(key) != nil else {
+            return NWWidgetRemote.message("Неверный ключ", "Вставь полный ключ NW2")
+        }
+        return await NWWidgetLoadCoordinator.shared.load(key)
+    }
+    func snapshot(for configuration: NWNowPlayingConfigurationV2, in context: Context) async -> NWEntry {
+        if context.isPreview { return placeholder(in: context) }
+        return await current(configuration)
+    }
+    func timeline(for configuration: NWNowPlayingConfigurationV2, in context: Context) async -> Timeline<NWEntry> {
+        let entry = await current(configuration)
         return Timeline(entries: [entry], policy: .after(Date().addingTimeInterval(300)))
     }
 }
@@ -352,7 +378,7 @@ private struct NWPlayerWidgetView: View {
                             .font(.system(size: 10, weight: .bold)).tracking(1.1)
                             .foregroundStyle(.white.opacity(0.55))
                         Spacer(minLength: 1)
-                        Text(entry.snapshot.title).font(.system(size: 19, weight: .bold)).lineLimit(2)
+                        Text(entry.snapshot.title).font(.system(size: entry.snapshot.trackID.isEmpty ? 16 : 19, weight: .bold)).lineLimit(2).minimumScaleFactor(0.75)
                         Text(entry.snapshot.artist).font(.subheadline)
                             .lineLimit(entry.snapshot.trackID.isEmpty ? 2 : 1)
                             .minimumScaleFactor(0.8)
@@ -445,11 +471,11 @@ private struct NWQuickWidgetView: View {
 }
 private struct NWNowPlaying: Widget {
     var body: some WidgetConfiguration {
-        AppIntentConfiguration(kind: "nightwell.nowplaying", intent: NWPairWidgetIntent.self, provider: NWRemoteProvider()) { entry in
+        AppIntentConfiguration(kind: NWWidgetConfiguration.kind, intent: NWNowPlayingConfigurationV2.self, provider: NWDirectProvider()) { entry in
             NWPlayerWidgetView(entry: entry)
         }
         .configurationDisplayName("Сейчас играет")
-        .description("Текущий трек и обложка. Для синхронизации введи код из профиля Nightwell Music в настройках виджета.")
+        .description("Текущий трек и обложка. Вставь ключ NW2 из профиля Nightwell Music в настройках виджета.")
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge,
                             .accessoryCircular, .accessoryRectangular])
     }
