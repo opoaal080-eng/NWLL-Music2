@@ -32,10 +32,15 @@ def make_assets(source: Path, output: Path, platform: str):
     mask = np.where((fy < .13) & (fx < .50), 0, mask).astype(np.uint8)
     components, labels, stats, _ = cv2.connectedComponentsWithStats(mask, 8)
     cleaned_mask = np.zeros_like(mask)
+    group_masks = [np.zeros_like(mask) for _ in range(3)]
     for component in range(1, components):
         x, y, w, h, area = stats[component]
         if area > 300 and (x < 25 or x + w > width - 25 or y < 10 or y + h > height - 10):
-            cleaned_mask[labels == component] = 255
+            region = labels == component
+            cleaned_mask[region] = 255
+            # Keep whole connected fronds together instead of clipping at x=55%.
+            group = 0 if x < 25 else (1 if y < height * .56 else 2)
+            group_masks[group][region] = 255
     mask = cleaned_mask
     coverage = np.mean(mask > 0)
     if not (.18 < coverage < .46):
@@ -66,16 +71,7 @@ def make_assets(source: Path, output: Path, platform: str):
 
     save("ViceSky" if platform == "ios" else "vice_sky.jpg", sky)
     for index in range(3):
-        if index == 0:
-            region = fx < .55
-        elif index == 1:
-            region = (fx >= .55) & (fy < .57)
-        else:
-            region = (fx >= .55) & (fy >= .57)
-        alpha = cv2.GaussianBlur(
-            mask * np.broadcast_to(region, mask.shape).astype(np.uint8),
-            (3, 3), .5
-        )
+        alpha = cv2.GaussianBlur(group_masks[index], (3, 3), .5)
         rgba = cv2.cvtColor(image, cv2.COLOR_BGR2BGRA)
         rgba[:, :, 3] = alpha
         rgba[alpha == 0, :3] = 0
