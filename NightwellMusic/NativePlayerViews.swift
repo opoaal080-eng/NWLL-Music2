@@ -589,6 +589,7 @@ private extension EnvironmentValues {
 }
 
 private struct ArtworkColorBackground: View {
+    @Environment(\.nightwellAppearance) private var appearance
     let url: URL?
     @State private var palette: UIImage?
     @State private var textColors: [Color] = []
@@ -603,7 +604,9 @@ private struct ArtworkColorBackground: View {
                     .frame(width: geometry.size.width, height: geometry.size.height)
                     .clipped()
                     .blur(radius: 30, opaque: true)
-                    .overlay(Color.black.opacity(0.35))
+                    .saturation(appearance == .vice ? 1.5 : 1.0)
+                    .brightness(appearance == .vice ? 0.04 : 0)
+                    .overlay(Color.black.opacity(appearance == .vice ? 0.10 : 0.35))
                     .clipped()
             } else {
                 Color.clear
@@ -834,7 +837,7 @@ struct FullPlayer: View {
                 )
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
-                .opacity(appearance == .vice ? 0.23 : 1)
+                .opacity(appearance == .vice ? 0.91 : 1)
 
                 // Immersive style keeps the full-height artwork behind the
                 // controls. Classic style draws a rounded square in its slot.
@@ -1218,7 +1221,7 @@ struct PlaybackQueue: View {
             let compact = viewport.size.height < 570
             ZStack {
             if appearance == .vice {
-                NightwellViceScenicBackdrop().ignoresSafeArea()
+                NightwellViceBackdrop().ignoresSafeArea()
             } else {
                 LinearGradient(
                     stops: [
