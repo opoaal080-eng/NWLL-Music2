@@ -103,13 +103,34 @@ struct NightwellViceBackdrop: View {
     }
 }
 
+/// Fixed sunset image for ordinary Vice Nights screens. The full player
+/// keeps the existing color-only reactive artwork background.
+struct NightwellViceScenicBackdrop: View {
+    var body: some View {
+        GeometryReader { geometry in
+            Image("ViceSunset")
+                .resizable()
+                .scaledToFill()
+                .frame(width: geometry.size.width, height: geometry.size.height)
+                .clipped()
+                .overlay {
+                    LinearGradient(colors: [.black.opacity(0.12), .clear, .black.opacity(0.18)],
+                                   startPoint: .top, endPoint: .bottom)
+                }
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
 /// Preserve each screen's original standard background, share Vice Nights.
 struct NightwellThemedBackground<Standard: View>: View {
     @Environment(\.nightwellAppearance) private var appearance
     @ViewBuilder let standard: () -> Standard
     var body: some View {
         Group {
-            if appearance == .vice { NightwellViceBackdrop() }
+            if appearance == .vice { NightwellViceScenicBackdrop() }
             else { standard() }
         }
         .allowsHitTesting(false)
@@ -145,7 +166,7 @@ struct NightwellThemePreview: View {
     var body: some View {
         ZStack {
             if appearance == .vice {
-                NightwellViceBackdrop()
+                NightwellViceScenicBackdrop()
             } else {
                 LinearGradient(colors: [Color(white: 0.18), Color(white: 0.04), .black],
                                startPoint: .topLeading, endPoint: .bottomTrailing)
