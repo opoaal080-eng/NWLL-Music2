@@ -373,6 +373,7 @@ struct NativeRoot: View {
     @State private var initialSessionLoaded = false
     @State private var profilePresented = false
     @State private var widgetSetupPresented = false
+    @State private var widgetLinkSetupPresented = false
     @State private var dailyPlaylistsPresented = false
     @State private var profileSigningOut = false
     @State private var pendingNavigation: StableNavigationAction?
@@ -843,6 +844,9 @@ struct NativeRoot: View {
         .fullScreenCover(isPresented: $accountAccessPresented) {
             AccountAccessView(api: store.api, accountID: store.account?.id)
         }
+        .sheet(isPresented: $widgetLinkSetupPresented) {
+            NWWidgetSetupView(api: store.api).environmentObject(store)
+        }
         .sheet(isPresented: $premiumPresented, onDismiss: {
             Task { await favoritePremium.refresh(store) }
         }) { PremiumView(api: store.api) }
@@ -972,7 +976,11 @@ struct NativeRoot: View {
         case "/search": navigate(to: .search)
         case "/offline": navigate(to: .offline)
         case "/widget-setup":
-            widgetSetupPresented = true
+            if profilePresented {
+                widgetSetupPresented = true
+            } else {
+                widgetLinkSetupPresented = true
+            }
         case "/player":
             if store.clock.current != nil { fullPlayer = true }
             else { navigate(to: .home) }

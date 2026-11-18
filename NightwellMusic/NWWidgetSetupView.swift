@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import WidgetKit
 
 private struct NWWidgetPairCode: Decodable {
     let code: String
@@ -131,6 +132,7 @@ struct NWWidgetSetupView: View {
                 "/api/widgets/pair-code", method: "POST", body: [:], timeout: 12)
             code = result.code
             copied = false
+            notice = "Код готов. Добавь виджет, зажми его и выбери «Изменить виджет». Вставь код в поле привязки."
             NWWidgetServerPublisher.shared.update(track: store.clock.current,
                 playing: store.clock.playing, account: store.account?.id,
                 api: api, origin: store.origin, force: true)
@@ -152,6 +154,7 @@ struct NWWidgetSetupView: View {
                                              method: "POST", body: [:], timeout: 12)
             code = ""
             notice = "Доступ всех виджетов отозван."
+            WidgetCenter.shared.reloadTimelines(ofKind: "nightwell.nowplaying")
         } catch {
             notice = "Не удалось отключить виджеты: " + error.localizedDescription
         }

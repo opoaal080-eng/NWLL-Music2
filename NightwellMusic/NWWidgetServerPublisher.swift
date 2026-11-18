@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import WidgetKit
 
 /// Mirror only non-sensitive playback metadata to the authenticated Nightwell
 /// server. Updates occur when track/play state changes, not every audio tick.
@@ -24,6 +25,10 @@ import UIKit
             sendingKey = nil
             coverSendingKey = nil
             confirmedKey = ""
+            attemptedKey = ""
+            coverConfirmedKey = ""
+            coverRetryAt = .distantPast
+            retryAt = .distantPast
             return
         }
         let id = track?.id ?? ""
@@ -52,6 +57,7 @@ import UIKit
                     guard !Task.isCancelled else { return }
                     self?.confirmedKey = signature
                     self?.retryAt = .distantPast
+                    WidgetCenter.shared.reloadTimelines(ofKind: "nightwell.nowplaying")
                 } catch {
                     if !Task.isCancelled {
                         // Missing server module: retry infrequently, while new
@@ -93,6 +99,7 @@ import UIKit
                     guard !Task.isCancelled else { return }
                     self?.coverConfirmedKey = coverKey
                     self?.coverRetryAt = .distantPast
+                    WidgetCenter.shared.reloadTimelines(ofKind: "nightwell.nowplaying")
                 } catch {
                     if !Task.isCancelled {
                         self?.coverRetryAt = Date().addingTimeInterval(40)

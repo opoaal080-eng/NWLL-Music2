@@ -107,9 +107,14 @@ private enum NWWidgetRemote {
                     return message("Нужен серверный модуль", "Виджеты ещё не включены на сервере")
                 }
                 guard http.statusCode == 200,
-                      let result = try? JSONDecoder().decode(NWPairResponse.self, from: data),
-                      NWPairTokenKeychain.store(result.token, for: normalized) else {
-                    return message("Недействительный код", "Создай новый код в профиле")
+                      let result = try? JSONDecoder().decode(NWPairResponse.self, from: data) else {
+                    if http.statusCode == 401 || http.statusCode == 400 {
+                        return message("Код истёк", "Создай новый код в профиле")
+                    }
+                    return message("Ошибка подключения", "Проверь сервер и повтори попытку")
+                }
+                guard NWPairTokenKeychain.store(result.token, for: normalized) else {
+                    return message("Ошибка сохранения", "Не удалось сохранить ключ виджета")
                 }
                 token = result.token
             }
@@ -141,8 +146,9 @@ private enum NWWidgetRemote {
             if model.has_cover {
                 var coverRequest = URLRequest(url: origin.appendingPathComponent("api/widgets/cover"))
                 coverRequest.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
-                let (bytes, imageResponse) = try await session.data(for: coverRequest)
-                if (imageResponse as? HTTPURLResponse)?.statusCode == 200, bytes.count < 240_000 {
+                if let (bytes, imageResponse) = try? await session.data(for: coverRequest),
+                   (imageResponse as? HTTPURLResponse)?.statusCode == 200,
+                   bytes.count < 240_000, UIImage(data: bytes) != nil {
                     cover = bytes
                 }
             }
@@ -158,24 +164,59 @@ private enum NWWidgetRemote {
     }
 }
 
+// Only a timeline may consume a single-use pairing code. Concurrent
+// timeline requests for the same code share one network operation.
+private actor NWWidgetLoadCoordinator {
+    static let shared = NWWidgetLoadCoordinator()
+    private var pending: [String: Task<NWEntry, Never>] = [:]
+
+    func load(_ code: String) async -> NWEntry {
+        if let task = pending[code] { return await task.value }
+        let task = Task { await NWWidgetRemote.load(code: code) }
+        pending[code] = task
+        let entry = await task.value
+        pending[code] = nil
+        return entry
+    }
+}
+
 private struct NWRemoteProvider: AppIntentTimelineProvider {
+    private func setupEntry() -> NWEntry {
+        // If the signed installation does support App Groups, the widget
+        // can show a genuine local track even without a server pairing code.
+        if NWWidgetStorage.isAvailable {
+            let state = NWWidgetStorage.read()
+            if !state.trackID.isEmpty {
+                return NWEntry(date: .now, snapshot: state,
+                               cover: NWWidgetStorage.cover(for: state))
+            }
+        }
+        return NWWidgetRemote.message("Подключи виджет", "Код в профиле → Виджеты")
+    }
+
     func placeholder(in context: Context) -> NWEntry {
-        NWEntry(date: .now, snapshot: NWWidgetState(trackID: "preview",
-              title: "Пульс ночи", artist: "Nightwell Music",
-              playing: true, coverID: nil, updated: .now), cover: nil)
+        // Placeholders may appear outside the gallery. Never suggest that a
+        // fictional track is playing on the user's device.
+        NWWidgetRemote.message("Сейчас играет", "Nightwell Music")
     }
     func snapshot(for configuration: NWPairWidgetIntent, in context: Context) async -> NWEntry {
-        // The gallery must render a real preview immediately. An unpaired
-        // widget has no credentials and must not make a server call here.
-        if context.isPreview ||
-           configuration.code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return placeholder(in: context)
-        }
-        return await NWWidgetRemote.load(code: configuration.code)
+        if context.isPreview { return placeholder(in: context) }
+        let code = configuration.code.uppercased().filter { $0.isHexDigit }
+        guard code.count == 16 else { return setupEntry() }
+        // Do not exchange a one-time code while the configuration UI asks
+        // for a snapshot. The first live timeline will do the pairing.
+        return NWWidgetRemote.message("Подключаем виджет", "Синхронизация с аккаунтом")
     }
     func timeline(for configuration: NWPairWidgetIntent, in context: Context) async -> Timeline<NWEntry> {
-        let entry = await NWWidgetRemote.load(code: configuration.code)
-        // WidgetKit decides the actual refresh timing; it is not a live player.
+        let code = configuration.code.uppercased().filter { $0.isHexDigit }
+        let entry: NWEntry
+        if context.isPreview {
+            entry = placeholder(in: context)
+        } else if code.count != 16 {
+            entry = setupEntry()
+        } else {
+            entry = await NWWidgetLoadCoordinator.shared.load(code)
+        }
         return Timeline(entries: [entry], policy: .after(Date().addingTimeInterval(300)))
     }
 }
@@ -241,9 +282,9 @@ private struct NWPlayerWidgetView: View {
     let entry: NWEntry
 
     @ViewBuilder var body: some View {
-        // Only the fictional gallery sample is unredacted. Real music retains
-        // iOS privacy protection, including on the lock screen.
-        if entry.snapshot.trackID == "preview" {
+        // Public setup / loading text can be shown immediately. Genuine
+        // listening history retains the system's privacy redaction.
+        if entry.snapshot.trackID.isEmpty {
             playerContent.unredacted()
         } else {
             playerContent
@@ -262,7 +303,7 @@ private struct NWPlayerWidgetView: View {
                 HStack(spacing: 7) {
                     Image(systemName: entry.snapshot.playing ? "waveform" : "music.note")
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(entry.snapshot.trackID.isEmpty ? "Nightwell Music" : entry.snapshot.title)
+                        Text(entry.snapshot.title)
                             .font(.caption.weight(.bold)).lineLimit(1)
                         Text(entry.snapshot.artist).font(.caption2).lineLimit(1)
                     }
@@ -276,7 +317,9 @@ private struct NWPlayerWidgetView: View {
                             .foregroundStyle(.white.opacity(0.55))
                         Spacer(minLength: 1)
                         Text(entry.snapshot.title).font(.system(size: 19, weight: .bold)).lineLimit(2)
-                        Text(entry.snapshot.artist).font(.subheadline).lineLimit(1)
+                        Text(entry.snapshot.artist).font(.subheadline)
+                            .lineLimit(entry.snapshot.trackID.isEmpty ? 2 : 1)
+                            .minimumScaleFactor(0.8)
                             .foregroundStyle(.white.opacity(0.65))
                         Spacer(minLength: 1)
                         Image(systemName: entry.snapshot.trackID.isEmpty ? "music.note" :
@@ -370,7 +413,7 @@ private struct NWNowPlaying: Widget {
             NWPlayerWidgetView(entry: entry)
         }
         .configurationDisplayName("Сейчас играет")
-        .description("Название, исполнитель и обложка текущего трека.")
+        .description("Текущий трек и обложка. Для синхронизации введи код из профиля Nightwell Music в настройках виджета.")
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge,
                             .accessoryCircular, .accessoryRectangular])
     }
