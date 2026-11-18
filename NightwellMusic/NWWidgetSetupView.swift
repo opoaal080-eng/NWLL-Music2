@@ -137,9 +137,14 @@ struct NWWidgetSetupView: View {
             code = result.code
             copied = false
             notice = "Код готов. Добавь виджет, зажми его и выбери «Изменить виджет». Вставь код в поле привязки."
-            NWWidgetServerPublisher.shared.update(track: store.clock.current,
-                playing: store.clock.playing, account: store.account?.id,
-                api: api, origin: store.origin, force: true)
+            await NWWidgetServerPublisher.shared.publishForPairing(
+                track: store.clock.current, playing: store.clock.playing,
+                account: store.account?.id, api: api, origin: store.origin
+            )
+            if let track = store.clock.current {
+                let status = NWWidgetServerPublisher.shared.hasPublished(track: track, account: store.account?.id, origin: store.origin)
+                notice += status ? "\nТекущий трек передан серверу." : "\nНе удалось подтвердить передачу трека. Проверь соединение с сервером."
+            }
         } catch {
             if let failure = error as? RequestRetry.HTTPFailure, failure.status == 404 {
                 notice = "Серверный модуль виджетов пока не установлен."

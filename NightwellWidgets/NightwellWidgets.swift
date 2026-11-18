@@ -50,23 +50,56 @@ private enum NWPairTokenKeychain {
          kSecAttrService as String: service,
          kSecAttrAccount as String: account(code)]
     }
+    // The extension has its own sandbox even without an App Group. Use a
+    // protected, backup-excluded file ONLY if private Keychain storage fails.
+    private static func privateFile(_ code: String) throws -> URL {
+        var directory = try FileManager.default.url(
+            for: .applicationSupportDirectory, in: .userDomainMask,
+            appropriateFor: nil, create: true
+        ).appendingPathComponent("NightwellWidgetPairing", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
+            attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication])
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try directory.setResourceValues(values)
+        return directory.appendingPathComponent(account(code), isDirectory: false)
+    }
+
     static func read(_ code: String) -> String? {
         var query = query(code)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
-              let bytes = result as? Data else { return nil }
+        if SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+           let bytes = result as? Data, let token = String(data: bytes, encoding: .utf8) {
+            return token
+        }
+        guard let file = try? privateFile(code),
+              let bytes = try? Data(contentsOf: file) else { return nil }
         return String(data: bytes, encoding: .utf8)
     }
     static func store(_ token: String, for code: String) -> Bool {
         var item = query(code)
         SecItemDelete(item as CFDictionary)
-        item[kSecValueData as String] = Data(token.utf8)
+        let bytes = Data(token.utf8)
+        item[kSecValueData as String] = bytes
         item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        return SecItemAdd(item as CFDictionary, nil) == errSecSuccess
+        if SecItemAdd(item as CFDictionary, nil) == errSecSuccess {
+            if let file = try? privateFile(code) { try? FileManager.default.removeItem(at: file) }
+            return true
+        }
+        do {
+            let file = try privateFile(code)
+            try bytes.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            return true
+        } catch {
+            return false
+        }
     }
-    static func remove(_ code: String) { SecItemDelete(query(code) as CFDictionary) }
+    static func remove(_ code: String) {
+        SecItemDelete(query(code) as CFDictionary)
+        if let file = try? privateFile(code) { try? FileManager.default.removeItem(at: file) }
+    }
 }
 
 private struct NWPairResponse: Decodable { let token: String }
@@ -136,6 +169,9 @@ private enum NWWidgetRemote {
                 return message("Сервер недоступен", "Повторная проверка позже")
             }
 
+            guard !model.track_id.isEmpty else {
+                return message("Нет текущего трека", "Открой Nightwell и включи музыку")
+            }
             let state = NWWidgetState(trackID: model.track_id,
                                      title: model.title.isEmpty ? "Твой ритм" : model.title,
                                      artist: model.artist.isEmpty ? "Nightwell Music" : model.artist,
@@ -164,8 +200,8 @@ private enum NWWidgetRemote {
     }
 }
 
-// Only a timeline may consume a single-use pairing code. Concurrent
-// timeline requests for the same code share one network operation.
+// A configured live snapshot and a timeline share one network operation.
+// Gallery previews never exchange a pairing code.
 private actor NWWidgetLoadCoordinator {
     static let shared = NWWidgetLoadCoordinator()
     private var pending: [String: Task<NWEntry, Never>] = [:]
@@ -191,21 +227,21 @@ private struct NWRemoteProvider: AppIntentTimelineProvider {
                                cover: NWWidgetStorage.cover(for: state))
             }
         }
-        return NWWidgetRemote.message("Подключи виджет", "Код в профиле → Виджеты")
+        return NWWidgetRemote.message("Подключить виджет", "Нажми для получения кода")
     }
 
     func placeholder(in context: Context) -> NWEntry {
-        // Placeholders may appear outside the gallery. Never suggest that a
-        // fictional track is playing on the user's device.
-        NWWidgetRemote.message("Сейчас играет", "Nightwell Music")
+        // iOS can keep placeholders on a real home screen. Make the
+        // placeholder actionable as well; never show an apparent song.
+        setupEntry()
     }
     func snapshot(for configuration: NWPairWidgetIntent, in context: Context) async -> NWEntry {
-        if context.isPreview { return placeholder(in: context) }
+        if context.isPreview { return setupEntry() }
         let code = configuration.code.uppercased().filter { $0.isHexDigit }
         guard code.count == 16 else { return setupEntry() }
-        // Do not exchange a one-time code while the configuration UI asks
-        // for a snapshot. The first live timeline will do the pairing.
-        return NWWidgetRemote.message("Подключаем виджет", "Синхронизация с аккаунтом")
+        // A live snapshot must contain the actual server response. The
+        // coordinator serializes pairing with simultaneous timeline loads.
+        return await NWWidgetLoadCoordinator.shared.load(code)
     }
     func timeline(for configuration: NWPairWidgetIntent, in context: Context) async -> Timeline<NWEntry> {
         let code = configuration.code.uppercased().filter { $0.isHexDigit }

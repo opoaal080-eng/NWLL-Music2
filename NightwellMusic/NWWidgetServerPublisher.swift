@@ -17,6 +17,18 @@ import WidgetKit
     private var coverRetryAt = Date.distantPast
     private var coverTask: Task<Void, Never>?
 
+    func publishForPairing(track: Track?, playing: Bool, account: String?, api: MusicAPI, origin: URL) async {
+        retryAt = .distantPast
+        coverRetryAt = .distantPast
+        update(track: track, playing: playing, account: account, api: api, origin: origin, force: true)
+        if let stateTask { await stateTask.value }
+    }
+
+    func hasPublished(track: Track, account: String?, origin: URL) -> Bool {
+        guard let account else { return false }
+        return confirmedKey.hasPrefix([origin.absoluteString, account, track.id, track.title, track.artist].joined(separator: "|") + "|")
+    }
+
     func update(track: Track?, playing: Bool, account: String?, api: MusicAPI, origin: URL,
                 force: Bool = false) {
         guard let account, !account.isEmpty else {
