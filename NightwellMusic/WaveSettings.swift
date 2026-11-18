@@ -27,6 +27,7 @@ struct WaveSettings: Codable, Equatable {
 
 struct WaveOptionsResponse: Decodable { let version: Int }
 struct NativeWaveSettingsView: View {
+    @Environment(\.nightwellAppearance) private var appearance
     @EnvironmentObject var store: MusicStore
     let close: () -> Void
     @State private var draft = WaveSettings()
@@ -38,7 +39,7 @@ struct NativeWaveSettingsView: View {
             HStack(spacing: 8) {
                 Button("Сбросить") { draft = WaveSettings() }
                     .font(.system(size: 17, weight: .regular))
-                    .foregroundStyle(pumpkin)
+                    .foregroundStyle(appearance.accent)
                     .frame(width: 109, height: 42)
                     .nightwellLiquidGlass(20)
                     .disabled(applying)
@@ -51,7 +52,7 @@ struct NativeWaveSettingsView: View {
                 Button(action: close) {
                     Image(systemName: "xmark")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(pumpkin)
+                        .foregroundStyle(appearance.accent)
                         .frame(width: 40, height: 40)
                         .nightwellLiquidGlass(20)
                 }
@@ -97,7 +98,7 @@ struct NativeWaveSettingsView: View {
                     if !message.isEmpty {
                         Text(message)
                             .font(.footnote)
-                            .foregroundStyle(pumpkin)
+                            .foregroundStyle(appearance.accent)
                     }
                     Button {
                 applying = true
@@ -108,11 +109,11 @@ struct NativeWaveSettingsView: View {
                 }
             } label: {
                 HStack(spacing: 10) {
-                    if applying { ProgressView().tint(pumpkin) }
+                    if applying { ProgressView().tint(appearance.accent) }
                     Text("Готово")
                         .font(.system(size: 16, weight: .semibold))
                 }
-                .foregroundStyle(pumpkin)
+                .foregroundStyle(appearance.accent)
                 .frame(maxWidth: .infinity, minHeight: 48)
             }
             .buttonStyle(.plain)

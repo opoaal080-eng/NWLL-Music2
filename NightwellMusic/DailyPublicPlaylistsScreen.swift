@@ -2,6 +2,7 @@ import SwiftUI
 
 /// Daily selections load here, without changing the personal playlist list.
 struct DailyPublicPlaylistsScreen: View {
+    @Environment(\.nightwellAppearance) private var appearance
     @ObservedObject var store: MusicStore
     @Environment(\.dismiss) private var dismiss
 
@@ -21,7 +22,7 @@ struct DailyPublicPlaylistsScreen: View {
             }
         }
         .preferredColorScheme(.dark)
-        .tint(.white)
+        .tint(appearance.accent)
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
     }

@@ -176,7 +176,9 @@ struct PremiumPreferences: Codable {
                     }.disabled(!premium.allowed || busy)
                 }.padding(18)
             }
-                .sheet(isPresented: $showPresetOptions) { NavigationStack { ScrollView { VStack { presetOptions }.padding(20) }.navigationTitle("Настройки эквалайзера").toolbar { Button("Готово") { showPresetOptions = false } } }.presentationDetents([.medium, .large]) }
+                .sheet(isPresented: $showPresetOptions) { NavigationStack { ScrollView { VStack { presetOptions }.padding(20) }.background {
+                        NightwellThemedBackground { Color.clear }.ignoresSafeArea()
+                    }.navigationTitle("Настройки эквалайзера").toolbar { Button("Готово") { showPresetOptions = false } } }.presentationDetents([.medium, .large]) }
                 .task(id: store.account?.id) {
                     #if DEBUG
                     if ProcessInfo.processInfo.arguments.contains("--native-smoke-statistics") {
@@ -278,6 +280,7 @@ private struct PremiumStatistics: Decodable {
 }
 
 private struct PremiumGlassSection<Content: View>: View {
+    @Environment(\.nightwellAppearance) private var appearance
     let title: String
     @ViewBuilder let content: Content
     init(_ title: String, @ViewBuilder content: () -> Content) {
@@ -285,7 +288,7 @@ private struct PremiumGlassSection<Content: View>: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(title).font(.system(size: 17, weight: .semibold)).foregroundStyle(pumpkin)
+            Text(title).font(.system(size: 17, weight: .semibold)).foregroundStyle(appearance.accent)
             content
         }.font(.system(size: 17)).padding(17).frame(maxWidth: .infinity, alignment: .leading)
             .nightwellLiquidGlass(26)

@@ -14,6 +14,7 @@ private struct PremiumStatus: Decodable {
 
 // External website checkout for direct IPA distribution, not an App Store build.
 struct PremiumView: View {
+    @Environment(\.nightwellAppearance) private var appearance
     let api: MusicAPI
     @Environment(\.scenePhase) private var scenePhase
     @State private var message = "Проверяем подписку…"
@@ -49,6 +50,7 @@ struct PremiumView: View {
         .modifier(NightwellSheetSurface(gradient: LinearGradient(colors: [nightwellViolet, Color.black], startPoint: .topLeading, endPoint: .bottomTrailing)))
         .ignoresSafeArea(.container, edges: .bottom)
         .preferredColorScheme(.dark)
+        .tint(appearance.accent)
         
         .presentationDetents([.height(362), .large], selection: $selectedDetent)
         .presentationDragIndicator(.hidden)
@@ -91,12 +93,13 @@ struct PremiumView: View {
             } else {
                 Text(message).foregroundStyle(.white.opacity(0.65)).multilineTextAlignment(.center)
                 Button(checking ? "Проверяем…" : "Повторить проверку") { Task { await refresh() } }
-                    .buttonStyle(.borderedProminent).tint(Color(white: 0.24)).disabled(checking)
+                    .buttonStyle(.borderedProminent).tint(appearance == .vice ? appearance.accent : Color(white: 0.24)).disabled(checking)
             }
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(24).background(Color(white: 0.07))
+        .padding(24)
+        .background { NightwellThemedBackground { Color(white: 0.07) } }
     }
 
     @ViewBuilder private func activeSheet(expiry: Double?) -> some View {
@@ -202,9 +205,12 @@ struct PremiumView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(
-            LinearGradient(colors: [Color(white: 0.10).opacity(0.92), Color.black.opacity(0.95)], startPoint: .topLeading, endPoint: .bottomTrailing)
-        )
+        .background {
+            NightwellThemedBackground {
+                LinearGradient(colors: [Color(white: 0.10).opacity(0.92), Color.black.opacity(0.95)],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+            }
+        }
     }
 
     private var inactiveSheet: some View {
@@ -240,7 +246,7 @@ struct PremiumView: View {
                     Task { await checkout() }
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(pumpkin)
+                .tint(appearance.accent)
                 .disabled(!consent || !externalPayments || paying || checking)
                 Button(checking ? "Проверяем…" : "Проверить оплату") { Task { await refresh() } }
                     .buttonStyle(.plain)

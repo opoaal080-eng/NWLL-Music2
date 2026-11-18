@@ -107,6 +107,7 @@ struct AccessJoined: Decodable {
 }
 
 struct AccountAccessView: View {
+    @Environment(\.nightwellAppearance) private var appearance
     let api: MusicAPI
     let accountID: String?
 
@@ -237,7 +238,7 @@ struct AccountAccessView: View {
                 Button("Отмена", role: .cancel) {}
             }
         }
-        .tint(.white)
+        .tint(appearance.accent)
         .preferredColorScheme(.dark)
     }
 
@@ -298,7 +299,7 @@ struct AccountAccessView: View {
                 }
             } else if loading {
                 ProgressView("Загружаем устройства")
-                    .tint(.white)
+                    .tint(appearance.accent)
                     .foregroundStyle(.white.opacity(0.75))
             } else {
                 Text("Список устройств пока недоступен.")
@@ -389,7 +390,7 @@ struct AccountAccessView: View {
                 }
             } else if loading {
                 ProgressView("Загружаем семейный Premium")
-                    .tint(.white)
+                    .tint(appearance.accent)
                     .foregroundStyle(.white.opacity(0.75))
             } else {
                 Text("Данные семейной подписки пока недоступны.")
@@ -497,7 +498,7 @@ struct AccountAccessView: View {
             TextField("Ссылка или код приглашения", text: $inviteInput)
                 .font(.system(size: 15))
                 .foregroundStyle(.white)
-                .tint(.white)
+                .tint(appearance.accent)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .textFieldStyle(.plain)

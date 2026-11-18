@@ -3,6 +3,7 @@ import SwiftUI
 /// The library's entry screen uses the already prepared favorites snapshot.
 /// A preview changes only what is displayed, never the playback queue.
 struct LibraryOverview: View {
+    @Environment(\.nightwellAppearance) private var appearance
     @EnvironmentObject private var store: MusicStore
     @ObservedObject private var premium = PremiumFeatureState.shared
     @Environment(\.nightwellBottomContentInset) private var bottomContentInset
@@ -86,9 +87,12 @@ struct LibraryOverview: View {
                     .resizable()
                     .scaledToFit()
                     .foregroundStyle(LinearGradient(
-                        colors: [Color(red: 0.92, green: 0.79, blue: 1),
-                                 Color(red: 0.73, green: 0.48, blue: 0.96),
-                                 Color(red: 0.42, green: 0.27, blue: 0.75)],
+                        colors: appearance == .vice
+                            ? [NightwellAppearance.gold, NightwellAppearance.pink,
+                               Color(red: 0.42, green: 0.24, blue: 0.72)]
+                            : [Color(red: 0.92, green: 0.79, blue: 1),
+                               Color(red: 0.73, green: 0.48, blue: 0.96),
+                               Color(red: 0.42, green: 0.27, blue: 0.75)],
                         startPoint: .topLeading, endPoint: .bottomTrailing))
                     .frame(width: compact ? 70 : 80, height: compact ? 72 : 84)
                     .rotationEffect(.degrees(-8))
