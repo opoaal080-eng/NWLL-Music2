@@ -394,6 +394,10 @@ struct NativeRoot: View {
     @State private var libraryScrollCollapsed: [String: Bool] = [:]
     @StateObject private var artworkPalette = NightwellArtworkPalette()
     @State private var remoteHomeCollapsed = false
+    @AppStorage("nw-vice-nights-intro-viewed-v1") private var viceIntroViewed = false
+    @AppStorage("nw-vice-nights-intro-acknowledged-v1") private var viceIntroAcknowledged = false
+    @State private var viceIntroCollapsed = false
+    @State private var openThemesDirectly = false
     @ObservedObject private var favoritePremium = PremiumFeatureState.shared
     @State private var fullPlayer = false
     @State private var selectedArtist: ArtistSelection?
@@ -453,6 +457,13 @@ struct NativeRoot: View {
                     } else {
                         header(landscape: landscape)
                     }
+                    if !landscape && !isLibraryScreen &&
+                        !(store.screen == .search && searchScrollCollapsed) &&
+                        !viceIntroAcknowledged && !viceIntroViewed && !viceIntroCollapsed {
+                        viceIntroBanner
+                            .padding(.horizontal, 20)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                    }
                     if !landscape && !isLibraryScreen && !(store.screen == .search && searchScrollCollapsed) && store.hasRemotePlayback && !remoteHomeCollapsed {
                         Button {
                             Task { await store.continuePlaybackHere() }
@@ -482,6 +493,60 @@ struct NativeRoot: View {
             }
         }
         }
+    }
+
+    private var viceIntroBanner: some View {
+        Button(action: openViceThemes) {
+            HStack(spacing: 11) {
+                Image(systemName: "paintpalette.fill")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(NightwellAppearance.pink)
+                    .frame(width: 36, height: 36)
+                    .background(NightwellAppearance.pink.opacity(0.15), in: RoundedRectangle(cornerRadius: 11))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Новая тема: Vice Nights")
+                        .font(.system(size: 14, weight: .semibold))
+                    Text("Неоновый стиль GTA VI · Настроить")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.67))
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold))
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 13)
+            .padding(.vertical, 11)
+            .background(.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 18))
+            .overlay(RoundedRectangle(cornerRadius: 18)
+                .strokeBorder(NightwellAppearance.pink.opacity(0.28), lineWidth: 0.9))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Новая тема Vice Nights. Открыть темы")
+    }
+
+    private func openViceThemes() {
+        // Both the banner and its compact button permanently acknowledge it.
+        viceIntroAcknowledged = true
+        viceIntroViewed = true
+        withAnimation(reducedMotion ? nil : .easeInOut(duration: 0.22)) {
+            viceIntroCollapsed = true
+            openThemesDirectly = true
+            settings = true
+        }
+    }
+
+    private var viceIntroCompactButton: some View {
+        Button(action: openViceThemes) {
+            Image(systemName: "paintpalette.fill")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(NightwellAppearance.pink)
+                .frame(width: 42, height: 44)
+                .frostedGlass(22, bordered: false, intensity: 0.20)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Новая тема Vice Nights. Открыть настройки темы")
+        .transition(.scale(scale: 0.7).combined(with: .opacity))
     }
 
     private func dockContentInset(landscape: Bool) -> CGFloat {
@@ -550,7 +615,10 @@ struct NativeRoot: View {
                 }
             } else if settings {
                 NightwellPopup(title: "", maxHeight: 554, dimsBackground: false, centered: true, transparentSettings: true, close: { settings = false }) {
-                    NativeSettings(close: { settings = false })
+                    NativeSettings(close: {
+                        settings = false
+                        openThemesDirectly = false
+                    }, startOnThemes: openThemesDirectly)
                 }
             } else if let playlist = selectedPlaylist {
                 NightwellPopup(title: "", maxHeight: 618, dimsBackground: false, centered: true, transparentSettings: true, close: { selectedPlaylist = nil }) {
@@ -787,6 +855,18 @@ struct NativeRoot: View {
         navigationSheetsScene
         .overlay { if launching { MonochromeNightwellLaunch().transition(.opacity) } }
         .task { try? await Task.sleep(nanoseconds: reducedMotion ? 150_000_000 : 1_200_000_000); withAnimation(.easeOut(duration: 0.3)) { launching = false } }
+        // Show the new theme only once in expanded form per installation.
+        // The compact paintpalette remains until the user visits Themes.
+        .task {
+            guard !viceIntroAcknowledged, !viceIntroViewed else { return }
+            do { try await Task.sleep(nanoseconds: 8_000_000_000) }
+            catch { return }
+            guard !viceIntroAcknowledged else { return }
+            viceIntroViewed = true
+            withAnimation(reducedMotion ? nil : .spring(response: 0.45, dampingFraction: 0.82)) {
+                viceIntroCollapsed = true
+            }
+        }
         // Collapse the remote-playback banner once per remote session, not
         // once per Home visit. Switching tabs must never expand it again.
         // Only losing remote playback resets the banner for the next session.
@@ -1002,6 +1082,9 @@ struct NativeRoot: View {
             }
             .accessibilityLabel("Настройки")
             Spacer()
+            if !viceIntroAcknowledged && (viceIntroViewed || viceIntroCollapsed || landscape) {
+                viceIntroCompactButton
+            }
             Button {
                 libraryMenuStartsAdditional = navigationLayout.showsTabs
                 navigationMenuPresented = true
@@ -1142,6 +1225,9 @@ struct NativeRoot: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Открыть меню навигации")
             }
+            if !viceIntroAcknowledged && (viceIntroViewed || viceIntroCollapsed || landscape) {
+                viceIntroCompactButton
+            }
             Button {
                 if store.account == nil { store.authPresented = true }
                 else { profilePresented = true }
@@ -1216,6 +1302,11 @@ struct NativeRoot: View {
                         .frostedGlass(22, bordered: false, intensity: 0.20)
                 }
                 .accessibilityLabel("Открыть меню навигации")
+            }
+            if !viceIntroAcknowledged &&
+                (viceIntroViewed || viceIntroCollapsed || landscape) &&
+                compactCollectionTitle == nil {
+                viceIntroCompactButton
             }
             // Hide the compact handoff button while a collection is scrolled.
             if store.hasRemotePlayback && (remoteHomeCollapsed || landscape) && compactCollectionTitle == nil {

@@ -154,6 +154,7 @@ private struct HomeSparkles: View {
 }
 
 struct NativeHome: View {
+    @Environment(\.nightwellAppearance) private var appearance
     let configureWave: () -> Void
     @State private var suppressMixTapUntil = Date.distantPast
     @EnvironmentObject var store: MusicStore
@@ -174,7 +175,9 @@ struct NativeHome: View {
             .tracking(-1.2)
             .lineLimit(1)
             .minimumScaleFactor(0.75)
-            .foregroundStyle(.white)
+            .foregroundStyle(appearance == .vice ? NightwellAppearance.gold : .white)
+            .shadow(color: appearance == .vice ? NightwellAppearance.pink.opacity(0.35) : .clear,
+                    radius: appearance == .vice ? 17 : 0)
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity)
             .accessibilityAddTraits(.isHeader)
@@ -190,6 +193,14 @@ struct NativeHome: View {
                 .foregroundStyle(.white)
                 .frame(width: compact ? 68 : 88, height: compact ? 68 : 88)
                 .frostedGlass(compact ? 34 : 44, bordered: false, intensity: 0.20)
+                .overlay {
+                    if appearance == .vice {
+                        Circle().strokeBorder(
+                            LinearGradient(colors: [NightwellAppearance.pink, NightwellAppearance.cyan],
+                                           startPoint: .topLeading, endPoint: .bottomTrailing),
+                            lineWidth: 1.6)
+                    }
+                }
                 .contentShape(Circle())
         }
         .accessibilityLabel(status.playing ? "Пауза" : "Воспроизвести")
@@ -261,6 +272,7 @@ struct NativeHome: View {
 }
 
 struct MiniPlayer: View {
+    @Environment(\.nightwellAppearance) private var appearance
     @EnvironmentObject var store: MusicStore
     @ObservedObject var clock: PlaybackClock
     let open: () -> Void
@@ -311,7 +323,7 @@ struct MiniPlayer: View {
                             // loaded audio; once audible it shows play position.
                             Circle()
                                 .trim(from: 0, to: clock.preparing ? CGFloat(clock.bufferFraction) : playbackFraction)
-                                .stroke(Color.white.opacity(0.96),
+                                .stroke(appearance == .vice ? NightwellAppearance.cyan : Color.white.opacity(0.96),
                                         style: StrokeStyle(lineWidth: 2.7, lineCap: .round))
                                 .rotationEffect(.degrees(-90))
                                 .frame(width: 44, height: 44)
@@ -348,7 +360,12 @@ struct MiniPlayer: View {
                     .fill(.ultraThinMaterial)
                     .opacity(0.23)
             }
-            .overlay(RoundedRectangle(cornerRadius: 34, style: .continuous).stroke(LinearGradient(colors: [.white.opacity(0.34), Color.white.opacity(0.34), .white.opacity(0.14)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.1))
+            .overlay(RoundedRectangle(cornerRadius: 34, style: .continuous).stroke(
+                LinearGradient(colors: appearance == .vice
+                    ? [NightwellAppearance.pink.opacity(0.75), NightwellAppearance.cyan.opacity(0.42),
+                       NightwellAppearance.pink.opacity(0.16)]
+                    : [.white.opacity(0.34), Color.white.opacity(0.34), .white.opacity(0.14)],
+                    startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.1))
             .clipShape(RoundedRectangle(cornerRadius: 34, style: .continuous))
             .shadow(color: Color.white.opacity(glow ? 0.4 : 0), radius: 18)
         }.frame(height: compactHeight ? 54 : 68)
@@ -608,6 +625,7 @@ private struct NightwellPresentedClip: Identifiable {
 }
 
 struct FullPlayer: View {
+    @Environment(\.nightwellAppearance) private var appearance
     @EnvironmentObject private var togetherSession: NightwellTogetherSession
     @State private var artworkTextColors: [Color] = [.white, .white]
     @EnvironmentObject var store: MusicStore
@@ -753,7 +771,7 @@ struct FullPlayer: View {
         ZStack {
             playerBackdrop
             playerControls
-        }.tint(Color.white)
+        }.tint(appearance.accent)
         .environment(\.lyricsPalette, artworkTextColors)
         .onPreferenceChange(ArtworkPaletteKey.self) { colors in
             artworkTextColors = colors.isEmpty ? [.white, .white] : colors
@@ -762,8 +780,12 @@ struct FullPlayer: View {
     }
 
     @ViewBuilder private var playerBackdrop: some View {
-            // Neutral home-style backdrop instead of the seasonal Halloween illustration.
-            Color.black.ignoresSafeArea()
+            // Keep cover-based ambience, with a dusk layer in Vice Nights.
+            if appearance == .vice {
+                NightwellViceBackdrop(palmTrees: false).ignoresSafeArea()
+            } else {
+                Color.black.ignoresSafeArea()
+            }
             if !showLyrics {
                 ArtworkColorBackground(
                     url: clock.displayCurrent?.cover_url.flatMap {
@@ -772,6 +794,7 @@ struct FullPlayer: View {
                 )
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
+                .opacity(appearance == .vice ? 0.23 : 1)
 
                 // Immersive style keeps the full-height artwork behind the
                 // controls. Classic style draws a rounded square in its slot.
@@ -800,10 +823,12 @@ struct FullPlayer: View {
                 .allowsHitTesting(false)
                 }
             } else {
-                LinearGradient(colors: [Color(white: 0.085), Color(white: 0.025), .black],
-                               startPoint: .topLeading, endPoint: .bottomTrailing)
-                    .ignoresSafeArea()
-                    .allowsHitTesting(false)
+                if appearance == .standard {
+                    LinearGradient(colors: [Color(white: 0.085), Color(white: 0.025), .black],
+                                   startPoint: .topLeading, endPoint: .bottomTrailing)
+                        .ignoresSafeArea()
+                        .allowsHitTesting(false)
+                }
             }
             if showLyrics { HomeSparkles().ignoresSafeArea() }
     }
@@ -1076,6 +1101,7 @@ struct FullPlayer: View {
 func formatTime(_ seconds: Double) -> String { let value = seconds.isFinite ? max(0, Int(seconds)) : 0; return String(format: "%d:%02d", value / 60, value % 60) }
 
 struct PlaybackQueue: View {
+    @Environment(\.nightwellAppearance) private var appearance
     @EnvironmentObject var store: MusicStore
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var clock: PlaybackClock
@@ -1087,18 +1113,20 @@ struct PlaybackQueue: View {
         GeometryReader { viewport in
             let compact = viewport.size.height < 570
             ZStack {
-            // Unified black-and-white gradient across the queue sheet.
-            // No separate gray slab behind the album deck.
-            LinearGradient(
-                stops: [
-                    .init(color: Color(white: 0.16), location: 0),
-                    .init(color: Color(white: 0.085), location: 0.36),
-                    .init(color: Color(white: 0.025), location: 0.76),
-                    .init(color: .black, location: 1)
-                ],
-                startPoint: .topTrailing, endPoint: .bottomLeading
-            )
-            .ignoresSafeArea()
+            if appearance == .vice {
+                NightwellViceBackdrop(palmTrees: false).ignoresSafeArea()
+            } else {
+                LinearGradient(
+                    stops: [
+                        .init(color: Color(white: 0.16), location: 0),
+                        .init(color: Color(white: 0.085), location: 0.36),
+                        .init(color: Color(white: 0.025), location: 0.76),
+                        .init(color: .black, location: 1)
+                    ],
+                    startPoint: .topTrailing, endPoint: .bottomLeading
+                )
+                .ignoresSafeArea()
+            }
 
             VStack(spacing: compact ? 10 : 22) {
                 HStack(alignment: .center, spacing: compact ? 8 : 12) {
@@ -1535,6 +1563,10 @@ struct NativeSettings: View {
         }
     }
     @State private var activePage: SettingsPage?
+    init(close: @escaping () -> Void, startOnThemes: Bool = false) {
+        self.close = close
+        _activePage = State(initialValue: startOnThemes ? .themes : nil)
+    }
     private var buildCaption: String {
         let info = Bundle.main.infoDictionary ?? [:]
         let version = info["CFBundleShortVersionString"] as? String ?? ""

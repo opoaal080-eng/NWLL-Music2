@@ -200,23 +200,32 @@ private extension UIImage {
 
 /// A neutral, softly lit backdrop used only by the menu and profile sheets.
 struct NightwellMonochromeGlassBackground: View {
+    @Environment(\.nightwellAppearance) private var appearance
     var body: some View {
         GeometryReader { proxy in
             ZStack {
+                if appearance == .vice {
+                    NightwellViceBackdrop(palmTrees: false)
+                }
                 LinearGradient(
                     colors: [Color(white: 0.14), Color(white: 0.045), .black,
                              Color(white: 0.08)],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
+                .opacity(appearance == .vice ? 0.25 : 1)
                 Circle()
-                    .fill(Color.white.opacity(0.115))
+                    .fill(appearance == .vice
+                          ? NightwellAppearance.pink.opacity(0.17)
+                          : Color.white.opacity(0.115))
                     .frame(width: proxy.size.width * 1.12)
                     .blur(radius: 90)
                     .offset(x: -proxy.size.width * 0.34,
                             y: -proxy.size.height * 0.42)
                 Circle()
-                    .fill(Color.white.opacity(0.055))
+                    .fill(appearance == .vice
+                          ? NightwellAppearance.cyan.opacity(0.10)
+                          : Color.white.opacity(0.055))
                     .frame(width: proxy.size.width * 0.85)
                     .blur(radius: 88)
                     .offset(x: proxy.size.width * 0.42,
@@ -233,6 +242,7 @@ struct NightwellMonochromeGlassBackground: View {
 /// Subtle liquid-glass surface with white edge lighting and a dark base.
 /// Keeping it scoped to two sheets avoids changing the rest of the player.
 private struct NightwellMonochromeGlassModifier: ViewModifier {
+    @Environment(\.nightwellAppearance) private var appearance
     let radius: CGFloat
 
     func body(content: Content) -> some View {
@@ -242,17 +252,25 @@ private struct NightwellMonochromeGlassModifier: ViewModifier {
                 shape.fill(.ultraThinMaterial)
                     .overlay {
                         shape.fill(LinearGradient(
-                            colors: [Color.white.opacity(0.09),
-                                     Color.white.opacity(0.025),
-                                     Color.white.opacity(0.055)],
+                            colors: appearance == .vice
+                                ? [NightwellAppearance.pink.opacity(0.15),
+                                   Color.white.opacity(0.025),
+                                   NightwellAppearance.cyan.opacity(0.09)]
+                                : [Color.white.opacity(0.09),
+                                   Color.white.opacity(0.025),
+                                   Color.white.opacity(0.055)],
                             startPoint: .topLeading, endPoint: .bottomTrailing
                         ))
                     }
             }
             .overlay {
                 shape.strokeBorder(LinearGradient(
-                    colors: [Color.white.opacity(0.30), Color.white.opacity(0.08),
-                             Color.white.opacity(0.17)],
+                    colors: appearance == .vice
+                        ? [NightwellAppearance.pink.opacity(0.55),
+                           NightwellAppearance.cyan.opacity(0.20),
+                           NightwellAppearance.pink.opacity(0.27)]
+                        : [Color.white.opacity(0.30), Color.white.opacity(0.08),
+                           Color.white.opacity(0.17)],
                     startPoint: .topLeading, endPoint: .bottomTrailing
                 ), lineWidth: 0.85)
             }
