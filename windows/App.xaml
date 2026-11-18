@@ -68,17 +68,49 @@
     </ControlTemplate.Triggers>
    </ControlTemplate></Setter.Value></Setter>
   </Style>
+  <!-- High-contrast primary action: stays readable above the bright Vice Nights artwork. -->
   <Style x:Key="PrimaryButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-   <Setter Property="Background" Value="{StaticResource AccentSurfaceBrush}"/>
-   <Setter Property="BorderBrush" Value="#5B5B5B"/>
+   <Setter Property="Foreground" Value="#151521"/>
+   <Setter Property="Background" Value="#F3F1F5"/>
+   <Setter Property="BorderBrush" Value="#E6FFFFFF"/>
+   <Setter Property="FontWeight" Value="SemiBold"/>
+   <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+    <Border x:Name="Surface" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="12">
+     <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="{TemplateBinding Padding}" RecognizesAccessKey="True" TextElement.Foreground="{TemplateBinding Foreground}"/>
+    </Border>
+    <ControlTemplate.Triggers>
+     <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Surface" Property="Background" Value="#FFFFFF"/></Trigger>
+     <Trigger Property="IsPressed" Value="True"><Setter TargetName="Surface" Property="Background" Value="#D9D5E3"/></Trigger>
+     <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Surface" Property="Opacity" Value=".40"/></Trigger>
+    </ControlTemplate.Triggers>
+   </ControlTemplate></Setter.Value></Setter>
+  </Style>
+  <!-- Quiet actions no longer flash opaque grey on hover; a clear focus ring is retained. -->
+  <Style x:Key="QuietButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+   <Setter Property="Background" Value="Transparent"/>
+   <Setter Property="BorderBrush" Value="Transparent"/>
+   <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+   <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+    <Border x:Name="Surface" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="11">
+     <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="{TemplateBinding Padding}" RecognizesAccessKey="True" TextElement.Foreground="{TemplateBinding Foreground}"/>
+    </Border>
+    <ControlTemplate.Triggers>
+     <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Surface" Property="Background" Value="#2BFFFFFF"/><Setter TargetName="Surface" Property="BorderBrush" Value="#4DFFFFFF"/></Trigger>
+     <Trigger Property="IsPressed" Value="True"><Setter TargetName="Surface" Property="Background" Value="#51FFFFFF"/></Trigger>
+     <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Surface" Property="Opacity" Value=".36"/></Trigger>
+    </ControlTemplate.Triggers>
+   </ControlTemplate></Setter.Value></Setter>
+  </Style>
+  <Style x:Key="ChipButton" TargetType="Button" BasedOn="{StaticResource QuietButton}">
+   <Setter Property="Background" Value="#B8181724"/>
+   <Setter Property="BorderBrush" Value="#66FFFFFF"/>
+   <Setter Property="BorderThickness" Value="1"/>
+   <Setter Property="Padding" Value="16,8"/>
+   <Setter Property="MinHeight" Value="38"/>
    <Setter Property="FontWeight" Value="SemiBold"/>
   </Style>
-  <Style x:Key="QuietButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-   <Setter Property="Background" Value="Transparent"/><Setter Property="BorderBrush" Value="Transparent"/>
-   <Setter Property="Foreground" Value="{StaticResource SecondaryBrush}"/>
-  </Style>
   <Style x:Key="IconButton" TargetType="Button" BasedOn="{StaticResource QuietButton}">
-   <Setter Property="Width" Value="40"/><Setter Property="Height" Value="40"/><Setter Property="MinHeight" Value="0"/>
+   <Setter Property="Width" Value="44"/><Setter Property="Height" Value="44"/><Setter Property="MinHeight" Value="0"/>
    <Setter Property="Padding" Value="0"/><Setter Property="Margin" Value="0"/><Setter Property="FontSize" Value="18"/>
   </Style>
   <Style x:Key="TransportButton" TargetType="Button" BasedOn="{StaticResource IconButton}">
@@ -87,15 +119,15 @@
   </Style>
   <Style x:Key="PlayButton" TargetType="Button" BasedOn="{StaticResource TransportButton}">
    <Setter Property="Width" Value="64"/><Setter Property="Height" Value="64"/>
-   <Setter Property="Background" Value="#353535"/><Setter Property="BorderBrush" Value="#595959"/>
+   <Setter Property="Background" Value="#DC191929"/><Setter Property="BorderBrush" Value="#87FFFFFF"/>
    <Setter Property="FontSize" Value="24"/>
    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
     <Border x:Name="Circle" CornerRadius="100" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1">
      <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
     </Border>
     <ControlTemplate.Triggers>
-     <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Circle" Property="Background" Value="#494949"/></Trigger>
-     <Trigger Property="IsPressed" Value="True"><Setter TargetName="Circle" Property="Background" Value="#2B2B2B"/></Trigger>
+     <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Circle" Property="Background" Value="#F032304B"/><Setter TargetName="Circle" Property="BorderBrush" Value="#C7FFFFFF"/></Trigger>
+     <Trigger Property="IsPressed" Value="True"><Setter TargetName="Circle" Property="Background" Value="#F0544263"/></Trigger>
      <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Circle" Property="Opacity" Value="0.4"/></Trigger>
     </ControlTemplate.Triggers>
    </ControlTemplate></Setter.Value></Setter>

@@ -28,6 +28,7 @@ internal static class NightwellIcons
             "settings" => "M12,2 V5 M12,19 V22 M2,12 H5 M19,12 H22 M5,5 L7,7 M17,17 L19,19 M19,5 L17,7 M7,17 L5,19 M12,8 A4,4 0 1 0 12,16 A4,4 0 1 0 12,8",
             "user" => "M12,3 A4,4 0 1 0 12,11 A4,4 0 1 0 12,3 M4,21 V18 C4,13 20,13 20,18 V21",
             "devices" => "M2,5 H17 V16 H2 Z M6,20 H13 M9.5,16 V20 M19,9 H23 V21 H17 V9 Z",
+            "sidebar" => "M4,4 H20 V20 H4 Z M10,4 V20",
             "family" => "M7,10 A3,3 0 1 0 7,4 A3,3 0 1 0 7,10 M17,10 A3,3 0 1 0 17,4 A3,3 0 1 0 17,10 M2,20 V17 C2,13 12,13 12,17 V20 M12,20 V17 C12,13 22,13 22,17 V20",
             "logout" => "M9,3 H4 V21 H9 M13,8 L18,12 L13,16 M7,12 H18",
             "play" => "M8,4 L20,12 L8,20 Z",
@@ -100,7 +101,7 @@ public partial class MainWindow
         SetHeartVector(false);
         ShuffleButton.Content = NightwellIcons.Draw("shuffle", 21);
         RepeatButton.Content = NightwellIcons.Draw("repeat", 21);
-        NavigationMenu.Content = NightwellIcons.Draw("playlist", 21);
+        NavigationMenu.Content = NightwellIcons.Draw("sidebar", 21);
         CollectionActions.Content = NightwellIcons.Draw("more", 20);
         FullPrevious.Content = NightwellIcons.Draw("previous", 23);
         FullNext.Content = NightwellIcons.Draw("next", 23);
