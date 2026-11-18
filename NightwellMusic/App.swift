@@ -919,6 +919,16 @@ struct NativeRoot: View {
                 navigate(to: .home)
             }
         })
+        .onChange(of: appearance) { _, _ in
+            // Theme changes are published even when music is paused.
+            // All WidgetKit families get a refresh after server confirmation.
+            NWWidgetServerPublisher.shared.update(
+                track: store.clock.current,
+                playing: store.clock.playing,
+                account: store.account?.id, api: store.api,
+                origin: store.origin, force: true)
+            NWWidgetConfiguration.reload()
+        }
         .onChange(of: store.screen) { oldScreen, newScreen in
             if isLibraryScreen && librarySession.lastVisited != newScreen { librarySession.remember(newScreen) }
             if oldScreen == .search { store.leaveSearch(); searchScrollCollapsed = false }

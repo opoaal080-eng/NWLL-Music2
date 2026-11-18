@@ -21,6 +21,7 @@ enum NWWidgetConfiguration {
         WidgetCenter.shared.reloadTimelines(ofKind: kind)
         WidgetCenter.shared.reloadTimelines(ofKind: previousKind)
         WidgetCenter.shared.reloadTimelines(ofKind: legacyKind)
+        WidgetCenter.shared.reloadTimelines(ofKind: "nightwell.quickaccess")
     }
 }
 
