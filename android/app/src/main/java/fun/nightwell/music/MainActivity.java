@@ -268,7 +268,10 @@ public final class MainActivity extends Activity {
             });}
         });
     }
-    private TextView homeLyric;private JSONObject activeLyrics;private String homeLine="";private boolean lastPlaying,mixing;private final java.util.ArrayDeque<String> mixRecent=new java.util.ArrayDeque<>();
+    private TextView homeLyric,playerInlineLyric;private JSONObject activeLyrics;private String homeLine="",playerInlineLine="";private boolean lastPlaying,mixing,playerInlineVisible;
+    private android.widget.ImageView sunsetBackground,fullCoverView;
+    private int fullCoverBaseSize;
+    private android.animation.ValueAnimator coverResizeAnimator;private final java.util.ArrayDeque<String> mixRecent=new java.util.ArrayDeque<>();
     private NativeAPI api;
     private String supportUploadTicket="";private boolean supportUploadAdmin;
     private PlaybackService playback;
@@ -480,10 +483,19 @@ public final class MainActivity extends Activity {
     }
     void build(){
         if(ribbon!=null)ribbon.running(false);full=false;lyricsOpen=false;seek=null;fullTime=null;fullPlay=null;fullLike=null;fullDislike=null;fullAudioOutput=null;fullShuffle=null;fullElapsed=null;fullNetworkNote=null;
+        if(coverResizeAnimator!=null){coverResizeAnimator.cancel();coverResizeAnimator=null;}
+        playerInlineLyric=null;fullCoverView=null;fullCoverBaseSize=0;playerInlineVisible=false;playerInlineLine="";
         // Render scenery and aura across the window, outside the padded controls.
         android.widget.FrameLayout scene=new android.widget.FrameLayout(this);
         scene.setBackground(new NativeSceneryDrawable(this));
-        ambient=new ArtworkAmbientView(this);scene.addView(ambient,new android.widget.FrameLayout.LayoutParams(-1,-1));
+        sunsetBackground=new android.widget.ImageView(this);
+        sunsetBackground.setImageResource(R.drawable.vice_sunset);
+        sunsetBackground.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+        sunsetBackground.setAlpha(.96f);
+        sunsetBackground.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        scene.addView(sunsetBackground,new android.widget.FrameLayout.LayoutParams(-1,-1));
+        ambient=new ArtworkAmbientView(this);
+        scene.addView(ambient,new android.widget.FrameLayout.LayoutParams(-1,-1));
         // Old active ribbons and starfield are deliberately removed from the view tree.
         atmosphere=null;ribbon=null;ui.post(this::applyPremium);
         root=column();root.setPadding(dp(16),dp(10),dp(16),0);
@@ -931,7 +943,7 @@ public final class MainActivity extends Activity {
             subtitle.setPadding(0,dp(8),0,0);
             intro.addView(subtitle);
             stage.addView(intro,new android.widget.FrameLayout.LayoutParams(-1,-2,Gravity.TOP));
-            homePlay=action("▶",()->{if(currentID.isEmpty())wave();else toggle();});homePlay.setTextColor(NightwellDesign.BACKGROUND);homePlay.setTextSize(31);homePlay.setBackground(NightwellDesign.ripple(this,0xeef5f6f7,44,false));homePlay.setElevation(dp(9));android.widget.FrameLayout.LayoutParams playParams=new android.widget.FrameLayout.LayoutParams(dp(88),dp(88),Gravity.CENTER);if(compact){playParams.gravity=Gravity.CENTER_VERTICAL|Gravity.RIGHT;playParams.rightMargin=dp(50);}else playParams.topMargin=dp(30);stage.addView(homePlay,playParams);
+            homePlay=action("▶",()->{if(currentID.isEmpty())wave();else toggle();});homePlay.setTextColor(NightwellDesign.PRIMARY);homePlay.setTextSize(31);homePlay.setBackground(NightwellDesign.ripple(this,0x55ffffff,44,false));homePlay.setElevation(dp(9));android.widget.FrameLayout.LayoutParams playParams=new android.widget.FrameLayout.LayoutParams(dp(88),dp(88),Gravity.CENTER);if(compact){playParams.gravity=Gravity.CENTER_VERTICAL|Gravity.RIGHT;playParams.rightMargin=dp(50);}else playParams.topMargin=dp(30);stage.addView(homePlay,playParams);
             TextView mix=action("Новая подборка",this::wave);mix.setOnLongClickListener(v->{waveSettings();return true;});mix.setContentDescription("Новая подборка. Удерживай, чтобы настроить");mix.setTextSize(14);mix.setBackground(NightwellDesign.ripple(this,NightwellDesign.RAISED,17,true));mix.setTextColor(NightwellDesign.PRIMARY);mix.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));android.widget.FrameLayout.LayoutParams mixParams=new android.widget.FrameLayout.LayoutParams(dp(184),dp(44),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL);mixParams.bottomMargin=dp(compact?18:106);stage.addView(mix,mixParams);
             homeLyric=text("",16);homeLyric.setGravity(Gravity.CENTER);homeLyric.setTextColor(0xffe1e1e1);homeLyric.setMaxLines(2);homeLyric.setOnClickListener(v->{JSONObject t=current();if(t!=null)showLyrics(t);});android.widget.FrameLayout.LayoutParams lyricParams=new android.widget.FrameLayout.LayoutParams(-1,dp(50),Gravity.BOTTOM);stage.addView(homeLyric,lyricParams);if(compact)homeLyric.setVisibility(View.GONE);
             if(backgroundOnly){
@@ -1828,7 +1840,7 @@ public final class MainActivity extends Activity {
             setLabel(fullNetworkNote,streamNote);
             fullNetworkNote.setVisibility(streamNote.isEmpty()?View.GONE:View.VISIBLE);
         }
-        if(!state.optString("error").isEmpty()&&status!=null)status.setText(state.optString("error"));syncLyrics(state.optDouble("position"));syncHomeLyrics(state.optDouble("position"));if(lastPlaying!=state.optBoolean("playing")){lastPlaying=state.optBoolean("playing");updateList();}}catch(Exception ignored){}}
+        if(!state.optString("error").isEmpty()&&status!=null)status.setText(state.optString("error"));syncLyrics(state.optDouble("position"));syncHomeLyrics(state.optDouble("position"));syncPlayerInlineLyrics(state.optDouble("position"));if(lastPlaying!=state.optBoolean("playing")){lastPlaying=state.optBoolean("playing");updateList();}}catch(Exception ignored){}}
     void animateTrackTransition(){
         if(dock==null||!dock.isShown())return;
         final float slide=dp(24)*trackTransitionDirection;
@@ -1848,6 +1860,8 @@ public final class MainActivity extends Activity {
         JSONObject track=current();
         if(track==null)return;
         full=true;
+        if(coverResizeAnimator!=null){coverResizeAnimator.cancel();coverResizeAnimator=null;}
+        playerInlineLyric=null;fullCoverView=null;fullCoverBaseSize=0;playerInlineVisible=false;playerInlineLine="";
         updateArtworkAppearance();
         refreshLiveHandoff();
         if(status!=null){status.setText("");status.setVisibility(View.GONE);}
@@ -1905,6 +1919,20 @@ public final class MainActivity extends Activity {
         content.addView(fullAudioOutput,routeParams);
 
         addCover(track,content);
+        playerInlineLyric=text("",20);
+        playerInlineLyric.setGravity(Gravity.CENTER);
+        playerInlineLyric.setTextColor(0xfff3f3f3);
+        playerInlineLyric.setTypeface(android.graphics.Typeface.create("sans-serif",android.graphics.Typeface.BOLD));
+        playerInlineLyric.setMaxLines(2);
+        playerInlineLyric.setLineSpacing(dp(2),1.06f);
+        playerInlineLyric.setAlpha(0f);
+        playerInlineLyric.setVisibility(View.GONE);
+        playerInlineLyric.setContentDescription("Текст песни под обложкой");
+        playerInlineLyric.setOnClickListener(v->{JSONObject playing=current();if(playing!=null)showLyrics(playing);});
+        LinearLayout.LayoutParams inlineParams=new LinearLayout.LayoutParams(-1,dp(58));
+        inlineParams.topMargin=dp(6);
+        inlineParams.bottomMargin=dp(2);
+        content.addView(playerInlineLyric,inlineParams);
 
         TextView title=text(track.optString("title"),26);
         NightwellDesign.headline(title);
@@ -1957,7 +1985,8 @@ public final class MainActivity extends Activity {
 
         LinearLayout transport=column();
         transport.setPadding(dp(15),dp(12),dp(15),dp(12));
-        transport.setBackground(NightwellDesign.surface(this,0xa51a1d21,23,true));
+        // Keep controls floating on the cover-derived colors, without an oversized backing card.
+        transport.setBackgroundColor(Color.TRANSPARENT);
         content.addView(transport);
 
         seek=new SeekBar(this);styleSeekBar(seek);
@@ -2002,8 +2031,8 @@ public final class MainActivity extends Activity {
             button.setTextColor(NightwellDesign.PRIMARY);
         }
         fullPlay.setTextSize(30);
-        fullPlay.setTextColor(NightwellDesign.BACKGROUND);
-        fullPlay.setBackground(NightwellDesign.ripple(this,NightwellDesign.PRIMARY,38,false));
+        fullPlay.setTextColor(NightwellDesign.PRIMARY);
+        fullPlay.setBackground(NightwellDesign.ripple(this,0x44ffffff,38,false));
         fullPlay.setPadding(0,0,0,0);
         controls.addView(shuffleButton,new LinearLayout.LayoutParams(0,dp(52),1));
         controls.addView(previousButton,new LinearLayout.LayoutParams(0,dp(54),1));
@@ -2058,6 +2087,8 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams coverLayout=new LinearLayout.LayoutParams(dp(edge),dp(edge));
         coverLayout.gravity=Gravity.CENTER_HORIZONTAL;
         parent.addView(cover,coverLayout);
+        fullCoverView=cover;
+        fullCoverBaseSize=dp(edge);
         if(artworkCache!=null)artworkCache.load(cover,origin,track.optString("cover_url"));
     }
     String[] trackNames(JSONArray items){String[] names=new String[items.length()];for(int i=0;i<names.length;i++)names[i]=items.optJSONObject(i).optString("title");return names;}
@@ -2100,6 +2131,7 @@ public final class MainActivity extends Activity {
     private String lyricsPollID="";private int lyricsRound;
     void acceptLyrics(String id,JSONObject value){
         if(!currentID.equals(id)||isDestroyed())return;activeLyrics=value;
+        if(full&&playback!=null)syncPlayerInlineLyrics(playback.player.getCurrentPosition()/1000d);
         if(lyricsText!=null&&lyricsTrack.equals(id)){lyricLines=value.optBoolean("synced")?value.optJSONArray("lines"):null;activeLyric=-2;if(lyricLines==null)lyricsText.setText(value.optString("plain",value.optString("message",lyricsPending(value)?"Ищем подходящий текст…":"Текст пока не найден")));syncLyrics(playback==null?0:playback.player.getCurrentPosition()/1000.0);}
         if(!lyricsPollID.equals(id)){lyricsPollID=id;lyricsRound=0;}
         if(lyricsPending(value)&&lyricsRound++<20){int round=lyricsRound;ui.postDelayed(()->{if(!currentID.equals(id)||round!=lyricsRound)return;task(()->cachedLyrics(id),next->acceptLyrics(id,next));},Math.max(2000,Math.min(60000,value.optLong("retry_after",3)*1000)));}
@@ -2130,6 +2162,70 @@ public final class MainActivity extends Activity {
             }
         }
     }
+    /** Independent of the main-screen lyric switch, with a gentle album-cover size transition. */
+    void syncPlayerInlineLyrics(double position){
+        if(!full||playerInlineLyric==null)return;
+        boolean enabled=getSharedPreferences("appearance",MODE_PRIVATE)
+            .getBoolean("player-inline-lyrics",true);
+        String line="";
+        if(enabled&&playback!=null&&playback.player.isPlaying()
+                &&activeLyrics!=null&&activeLyrics.optBoolean("synced")){
+            JSONArray lines=activeLyrics.optJSONArray("lines");
+            if(lines!=null)for(int i=0;i<lines.length();i++){
+                JSONObject entry=lines.optJSONObject(i);
+                if(entry==null)continue;
+                if(entry.optDouble("time")<=position)line=entry.optString("text");
+                else break;
+            }
+        }
+        line=line.trim();
+        boolean visible=!line.isEmpty();
+        if(visible==playerInlineVisible && line.equals(playerInlineLine))return;
+        playerInlineLine=line;
+        final TextView label=playerInlineLyric;
+        label.animate().cancel();
+        if(visible){
+            label.setText(line);
+            label.setVisibility(View.VISIBLE);
+            if(!playerInlineVisible){
+                label.setAlpha(0f);
+                label.setTranslationY(dp(8));
+                label.animate().alpha(1f).translationY(0f).setDuration(300).start();
+            }else{
+                label.setAlpha(.65f);
+                label.animate().alpha(1f).setDuration(220).start();
+            }
+        }else{
+            label.animate().alpha(0f).translationY(-dp(6)).setDuration(250).withEndAction(()->{
+                if(playerInlineLyric==label&&!playerInlineVisible)label.setVisibility(View.GONE);
+            }).start();
+        }
+        if(visible!=playerInlineVisible){
+            playerInlineVisible=visible;
+            resizeFullCoverForInlineLyrics(visible);
+        }
+    }
+
+    void resizeFullCoverForInlineLyrics(boolean visible){
+        android.widget.ImageView cover=fullCoverView;
+        if(cover==null||fullCoverBaseSize<=0)return;
+        if(coverResizeAnimator!=null)coverResizeAnimator.cancel();
+        int target=Math.round(fullCoverBaseSize*(visible?.90f:1f));
+        int initial=cover.getLayoutParams().width;
+        if(initial==target)return;
+        coverResizeAnimator=android.animation.ValueAnimator.ofInt(initial,target);
+        coverResizeAnimator.setDuration(290);
+        coverResizeAnimator.setInterpolator(new android.view.animation.DecelerateInterpolator());
+        coverResizeAnimator.addUpdateListener(animation->{
+            if(fullCoverView!=cover)return;
+            int side=(Integer)animation.getAnimatedValue();
+            android.view.ViewGroup.LayoutParams params=cover.getLayoutParams();
+            params.width=side;params.height=side;
+            cover.setLayoutParams(params);
+        });
+        coverResizeAnimator.start();
+    }
+
     void showLyrics(JSONObject track){String id=track.optString("id");status.setText("Ищем текст…");task(()->cachedLyrics(id),v->{
         if(!currentID.equals(id))return;acceptLyrics(id,v);lyricLines=v.optBoolean("synced")?v.optJSONArray("lines"):null;lyricsTrack=id;activeLyric=-2;
         lyricsScroll=new android.widget.ScrollView(this);lyricsText=text("",26);lyricsText.setGravity(Gravity.CENTER);lyricsText.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);lyricsText.setPadding(dp(22),dp(28),dp(22),dp(28));lyricsText.setLineSpacing(dp(16),1);lyricsScroll.addView(lyricsText);
@@ -2445,10 +2541,9 @@ public final class MainActivity extends Activity {
     private void updateArtworkAppearance() {
         if(ambient==null)return;
         android.content.SharedPreferences appearance=getSharedPreferences("appearance",MODE_PRIVATE);
-        boolean home=!full&&"Главная".equals(screen);
-        boolean enabled=full
-            ?appearance.getBoolean("player-artwork-background",true)
-            :home&&appearance.getBoolean("home-artwork-background",true);
+        // Ordinary screens keep the fixed sunset. Only the full player uses the dynamic palette.
+        if(sunsetBackground!=null) sunsetBackground.setVisibility(full?View.GONE:View.VISIBLE);
+        boolean enabled=full&&appearance.getBoolean("player-artwork-background",true);
         boolean gradient=appearance.getBoolean("artwork-gradient-enabled",true);
         ambient.setVisibility(enabled&&gradient?View.VISIBLE:View.GONE);
         int strengthIndex=appearance.getInt("artwork-reactive-strength",1);
@@ -2501,6 +2596,8 @@ public final class MainActivity extends Activity {
             }else if("ambient-lyrics".equals(key)){
                 if(!value&&homeLyric!=null)homeLyric.setText("");
                 else if(playback!=null)syncHomeLyrics(playback.player.getCurrentPosition()/1000d);
+            }else if("player-inline-lyrics".equals(key)){
+                if(playback!=null)syncPlayerInlineLyrics(playback.player.getCurrentPosition()/1000d);
             }else updateArtworkAppearance();
         });
         panel.addView(toggle);
@@ -2609,18 +2706,21 @@ public final class MainActivity extends Activity {
         TextView subtitle=text("Оформи приложение под себя и настрой поведение плеера.",14);
         subtitle.setTextColor(NightwellDesign.MUTED);
         subtitle.setPadding(0,0,0,dp(12));panel.addView(subtitle);
-        panel.addView(sectionLabel("Оформление"));
+        panel.addView(sectionLabel("Кастомизация"));
         LinearLayout appearanceGroup=column();
         appearanceGroup.setBackground(NightwellDesign.surface(this,NightwellDesign.SURFACE,20,true));
         appearanceGroup.setPadding(dp(14),dp(11),dp(14),dp(13));
         panel.addView(appearanceGroup);
         appearanceGroup.addView(sheetAction("Темы и движение фона · Premium",()->feature("appearance")));
         appearanceGroup.addView(sheetAction("Эквалайзер · Premium",()->feature("sound")));
-        addArtworkToggle(appearanceGroup,"Цветной фон на главной","home-artwork-background",true);
+        TextView sunsetHint=text("Фон обычных экранов: Vice Nights, закат с пальмами",13);
+        sunsetHint.setTextColor(NightwellDesign.MUTED);
+        appearanceGroup.addView(sunsetHint);
         addArtworkToggle(appearanceGroup,"Фон плеера под цвета обложки","player-artwork-background",true);
         addArtworkToggle(appearanceGroup,"Фоновый градиент","artwork-gradient-enabled",true);
         addArtworkToggle(appearanceGroup,"Лёгкая реакция фона на музыку","artwork-reactive",true);
         addArtworkToggle(appearanceGroup,"Текст песни на главной","ambient-lyrics",true);
+        addArtworkToggle(appearanceGroup,"Текст под обложкой в плеере","player-inline-lyrics",true);
         addArtworkChoice(appearanceGroup,"Сила реакции фона",new String[]{"Очень слабая","Мягкая","Заметная"},"artwork-reactive-strength",1);
         addArtworkChoice(appearanceGroup,"Скорость движения цвета",new String[]{"Медленно","Обычно","Побыстрее"},"artwork-motion-speed",0);
         addArtworkChoice(appearanceGroup,"Стиль обложек",new String[]{"На всю ширину","Классический, с округлением"},"cover-style",0);
