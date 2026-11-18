@@ -84,11 +84,13 @@ struct BackgroundOnlyScene: View {
     @ObservedObject var lyrics: NativeLyrics
     let flash: Int
     var body: some View {
-        ZStack {
-            RibbonScene(playing: clock.playing, flash: flash)
-                // Extend only the visual layer under the status bar and home indicator.
-                .ignoresSafeArea(.container, edges: .all)
-            VStack { Spacer(); HomeLyricLine(model: lyrics, clock: clock, fontSize: 38).frame(height: 190).padding(.horizontal, 24); Spacer() }
+        VStack {
+            Spacer()
+            HomeLyricLine(model: lyrics, clock: clock, fontSize: 38)
+                .frame(height: 190)
+                .padding(.horizontal, 24)
+            Spacer()
         }
+        // Uses the shared sunset background supplied by NativeRoot.
     }
 }
