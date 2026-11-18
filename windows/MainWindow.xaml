@@ -9,6 +9,8 @@
    <Image x:Name="ViceSunsetBackdrop" Grid.RowSpan="4" Source="/vice_sunset.jpg"
           Stretch="Fill" RenderOptions.BitmapScalingMode="HighQuality"
           IsHitTestVisible="False"/>
+   <!-- Transparent silhouettes of the original fronds, animated independently. -->
+   <Grid x:Name="VicePalmFoliage" Grid.RowSpan="4" ClipToBounds="True" IsHitTestVisible="False"/>
    <Border Grid.RowSpan="4" IsHitTestVisible="False">
     <Border.Background>
      <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">

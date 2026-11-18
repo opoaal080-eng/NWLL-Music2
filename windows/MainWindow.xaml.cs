@@ -62,7 +62,7 @@ public partial class MainWindow:Window {
 }
  Track? Current=>queue.Count>0&&index>=0&&index<queue.Count?queue[index]:null;
  string origin="https://music.nightwell.fun/";
- public MainWindow(){InitializeComponent();SetupDesktopLayout();IsEnabled=false;try{
+ public MainWindow(){InitializeComponent();SetupPalmFoliage();SetupDesktopLayout();IsEnabled=false;try{
  var prefs=JsonDocument.Parse(File.ReadAllText(Path.Combine(NativeAPI.Storage,"settings.json"))).RootElement;
  if(prefs.TryGetProperty("transition",out var tr))transition=tr.GetDouble();
  if(prefs.TryGetProperty("normalization",out var nl))normalization=Math.Clamp(nl.GetInt32(),0,100);
