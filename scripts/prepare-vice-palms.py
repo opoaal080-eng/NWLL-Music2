@@ -29,7 +29,13 @@ def make_assets(source: Path, output: Path, platform: str):
     green_dark = (sky_green[:, None] * .73 - green) / np.maximum(10, sky_green[:, None] * .16)
     red_dark = (sky_red[:, None] * .53 - red) / np.maximum(18, sky_red[:, None] * .13)
     remove_strength = np.maximum(green_dark, red_dark)
-    leaf_strength = np.minimum(green_dark, red_dark)
+    # Use a slightly wider dark-purple range inside real leaf bodies.
+    # A too-strict red cutoff made large holes in the right-hand palm,
+    # but requiring BOTH channels still excludes pink/orange sky.
+    leaf_strength = np.minimum(
+        (sky_green[:, None] * .85 - green) / np.maximum(10, sky_green[:, None] * .18),
+        (sky_red[:, None] * .70 - red) / np.maximum(18, sky_red[:, None] * .15),
+    )
     limit = (35 - green) / 15
     remove_strength = np.where(fy < .22, np.minimum(remove_strength, limit), remove_strength)
     leaf_strength = np.where(fy < .22, np.minimum(leaf_strength, limit), leaf_strength)
