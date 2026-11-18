@@ -289,18 +289,24 @@ struct NativeRoot: View {
     @Environment(\.accessibilityReduceMotion) private var reducedMotion
     @ViewBuilder private var mainScene: some View {
         ZStack {
-            // Shared monochrome background for Home, Search, Favorites, Playlists and Offline.
-            LinearGradient(
-                colors: [Color(red: 0.055, green: 0.062, blue: 0.074), Color(white: 0.025), .black],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
-            if !backgroundOnly && store.screen == .home {
-                RibbonScene(playing: store.clock.playing, flash: store.likeFlash)
-                    .ignoresSafeArea()
-                    .allowsHitTesting(false)
+            // Shared Vice City sunset artwork across regular screens.
+            // FullPlayer supplies its own artwork-derived color backdrop.
+            GeometryReader { geometry in
+                Image("ViceSunset")
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+                    .clipped()
+                    .overlay {
+                        LinearGradient(
+                            colors: [Color.black.opacity(0.12), .clear, Color.black.opacity(0.20)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    }
             }
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
             if backgroundOnly { BackgroundOnlyScene(clock: store.clock, lyrics: store.lyrics, flash: store.likeFlash) }
             if backgroundOnly {
                 VStack { HStack { Button { backgroundOnly = false } label: { Image(systemName: "xmark").padding().glass() }; Spacer() }; Spacer() }.padding()
