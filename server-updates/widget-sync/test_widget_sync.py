@@ -140,6 +140,62 @@ class WidgetSyncTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.client.get("/api/widgets/state",
             headers={"Authorization": "Bearer " + token})).status_code, 401)
 
+
+    async def test_isolated_public_gateway_bypasses_host_account_login_only(self):
+        """Reproduces HTTP 401 even with the dedicated widget header."""
+        from starlette.middleware.base import BaseHTTPMiddleware
+        from fastapi.responses import JSONResponse
+        import secrets
+
+        class HostRequiresLogin(BaseHTTPMiddleware):
+            async def dispatch(self, request, call_next):
+                if request.url.path.startswith("/api/") and not request.headers.get("x-test-owner"):
+                    return JSONResponse({"detail": "Login required"}, status_code=401)
+                return await call_next(request)
+
+        app = FastAPI()
+        app.add_middleware(HostRequiresLogin)
+        install(app, identity=lambda req: req.headers.get("x-test-owner"),
+                db_path=Path(self.temp.name) / "outer_middleware.sqlite3",
+                csrf_verifier=lambda req: req.headers.get("x-test-csrf") == "valid")
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
+                                    base_url="https://example.test") as client:
+            health = await client.get("/api/widgets/device/health")
+            self.assertEqual(health.status_code, 200, health.text)
+            self.assertEqual(health.json()["widget_sync"], "v3.2")
+            self.assertEqual(health.headers["x-nightwell-widget-gateway"], "v3.2")
+            widget_token = secrets.token_urlsafe(32)
+            widget_headers = {"X-Nightwell-Widget-Token": widget_token}
+            registered = await client.post("/api/widgets/device/register", headers=widget_headers)
+            self.assertEqual(registered.status_code, 200, registered.text)
+            self.assertEqual(registered.headers["x-nightwell-widget-gateway"], "v3.2")
+            code = registered.json()["code"]
+            self.assertEqual((await client.get("/api/widgets/state")).status_code, 401)
+            self.assertEqual((await client.get("/api/widgets/state",
+                headers=widget_headers)).status_code, 401)
+            # Anonymous users still cannot claim codes or mutate data.
+            self.assertEqual((await client.post("/api/widgets/device/claim",
+                json={"code": code})).status_code, 401)
+            self.assertEqual((await client.post("/api/widgets/state",
+                json={"track_id": "song"})).status_code, 401)
+            self.assertEqual((await client.post("/api/widgets/revoke-all")).status_code, 401)
+            claimed = await client.post("/api/widgets/device/claim",
+                                        headers=self.auth, json={"code": code})
+            self.assertEqual(claimed.status_code, 200, claimed.text)
+            saved = await client.post("/api/widgets/state", headers=self.auth, json={
+                "track_id": "demo", "title": "Falling", "artist": "Trevor Daniel",
+                "playing": True
+            })
+            self.assertEqual(saved.status_code, 200, saved.text)
+            current = await client.get("/api/widgets/state", headers=widget_headers)
+            self.assertEqual(current.status_code, 200, current.text)
+            self.assertEqual(current.json()["title"], "Falling")
+            self.assertEqual((await client.get("/api/widgets/cover",
+                headers=widget_headers)).status_code, 404)
+            await client.post("/api/widgets/revoke-all", headers=self.auth)
+            self.assertEqual((await client.get("/api/widgets/state",
+                headers=widget_headers)).status_code, 401)
+
     async def test_reverse_pairing_without_widget_configuration(self):
         import secrets
         token = secrets.token_urlsafe(32)

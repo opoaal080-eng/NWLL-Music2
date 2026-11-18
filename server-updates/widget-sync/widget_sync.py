@@ -25,6 +25,43 @@ PAIR_TTL = 600
 NO_STORE = {"Cache-Control": "private, no-store, max-age=0", "Pragma": "no-cache"}
 
 
+
+# Only these operations can bypass the host's account-login middleware.
+# Sensitive write operations (pair/claim/revoke/state upload) always go
+# through the original authentication and CSRF validation stack.
+_WIDGET_PUBLIC_ROUTES = frozenset({
+    ("GET", "/api/widgets/device/health"),
+    ("POST", "/api/widgets/device/register"),
+    ("GET", "/api/widgets/state"),
+    ("GET", "/api/widgets/cover"),
+})
+
+
+class _PublicWidgetGateway:
+    """Last-added ASGI middleware, ahead of the host's account auth checks.
+
+    The dedicated FastAPI router still validates every widget key on its
+    protected read endpoints; it never grants access to account APIs.
+    This cannot override auth enforced by a separate reverse proxy.
+    """
+
+    def __init__(self, app, public_app):
+        self.app = app
+        self.public_app = public_app
+
+    async def __call__(self, scope, receive, send):
+        if (scope.get("type") == "http" and
+                (scope.get("method"), scope.get("path")) in _WIDGET_PUBLIC_ROUTES):
+            async def send_with_diagnostic(message):
+                if message["type"] == "http.response.start":
+                    headers = list(message.get("headers", []))
+                    headers.append((b"x-nightwell-widget-gateway", b"v3.2"))
+                    message = {**message, "headers": headers}
+                await send(message)
+            await self.public_app(scope, receive, send_with_diagnostic)
+            return
+        await self.app(scope, receive, send)
+
 def digest(value):
     return hashlib.sha256(value.encode("ascii")).hexdigest()
 
@@ -161,7 +198,7 @@ def install(app, identity, db_path, csrf_verifier):
     async def widget_device_health(request: Request):
         # Deliberately public and metadata-only. A 401 here means an outer
         # auth middleware or proxy is intercepting the widget endpoints.
-        return JSONResponse({"widget_sync": "v3.1", "ready": True}, headers=NO_STORE)
+        return JSONResponse({"widget_sync": "v3.2", "ready": True}, headers=NO_STORE)
 
     @app.post("/api/widgets/device/register")
     async def widget_device_register(request: Request):
@@ -301,3 +338,20 @@ def install(app, identity, db_path, csrf_verifier):
             db.execute("DELETE FROM nw_widget_pairs WHERE owner=?", (owner,))
             db.execute("DELETE FROM nw_widget_tokens WHERE owner=?", (owner,))
         return {"ok": True}
+
+    # The host can have global @app.middleware("http") authentication that
+    # returns 401 before any of our route functions run. Register the four
+    # narrowly scoped public/widget-authenticated endpoints on an isolated
+    # FastAPI router and route them before the host auth middleware.
+    # Host account data and all writes continue through its auth stack.
+    from fastapi import FastAPI
+    public_app = FastAPI(openapi_url=None, docs_url=None, redoc_url=None)
+    public_app.add_api_route("/api/widgets/device/health", widget_device_health,
+                             methods=["GET"], include_in_schema=False)
+    public_app.add_api_route("/api/widgets/device/register", widget_device_register,
+                             methods=["POST"], include_in_schema=False)
+    public_app.add_api_route("/api/widgets/state", widget_public_state,
+                             methods=["GET"], include_in_schema=False)
+    public_app.add_api_route("/api/widgets/cover", widget_public_cover,
+                             methods=["GET"], include_in_schema=False)
+    app.add_middleware(_PublicWidgetGateway, public_app=public_app)
