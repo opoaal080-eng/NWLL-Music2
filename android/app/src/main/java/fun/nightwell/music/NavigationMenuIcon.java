@@ -16,6 +16,7 @@ final class NavigationMenuIcon extends View {
             case "home":p.moveTo(3,11);p.lineTo(12,3);p.lineTo(21,11);p.moveTo(5,10);p.lineTo(5,21);p.lineTo(10,21);p.lineTo(10,15);p.lineTo(14,15);p.lineTo(14,21);p.lineTo(19,21);p.lineTo(19,10);break;
             case "search":c.drawCircle(10,10,6,paint);c.drawLine(15,15,21,21,paint);break;
             case "heart":p.moveTo(12,21);p.cubicTo(-5,10,5,-3,12,6);p.cubicTo(19,-3,29,10,12,21);break;
+            case "library":c.drawRoundRect(3,4,10,12,1.5f,1.5f,paint);c.drawRoundRect(14,4,21,12,1.5f,1.5f,paint);c.drawRoundRect(3,15,10,22,1.5f,1.5f,paint);c.drawRoundRect(14,15,21,22,1.5f,1.5f,paint);break;
             case "list":for(int y=6;y<=18;y+=6){c.drawCircle(4,y,.7f,paint);c.drawLine(9,y,21,y,paint);}break;
             case "download":p.moveTo(12,3);p.lineTo(12,15);p.moveTo(8,11);p.lineTo(12,15);p.lineTo(16,11);p.moveTo(4,15);p.lineTo(4,21);p.lineTo(20,21);p.lineTo(20,15);break;
             case "sparkles":p.moveTo(10,3);p.lineTo(12,9);p.lineTo(18,11);p.lineTo(12,13);p.lineTo(10,19);p.lineTo(8,13);p.lineTo(2,11);p.lineTo(8,9);p.close();c.drawLine(19,3,19,7,paint);c.drawLine(17,5,21,5,paint);break;

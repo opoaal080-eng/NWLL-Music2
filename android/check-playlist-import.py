@@ -43,11 +43,23 @@ try:
         scroll=next(n for n in values if n.get('scrollable')=='true')
         l,t,r,b=map(int,re.findall(r'\d+',scroll.get('bounds')))
         for _ in range(4):
-            if find('Выйти') is not None:break
+            if find('Профиль') is not None:break
             adb('shell','input','swipe',str((l+r)//2),str(b-25),str((l+r)//2),str(t+25),'300');time.sleep(.3)
-        assert find('Выйти') is not None,'Last menu entry is inaccessible'
+        assert find('Профиль') is not None,'Last menu entry is inaccessible'
         capture('menu-bottom-'+str(width))
     adb('shell','wm','size','reset');adb('shell','wm','density','reset')
+    launch('Главная')
+    home=capture('home-bottom-nav')
+    assert find('Медиатека',home) is not None,'Bottom navigation is missing'
+    assert find('Открыть профиль',home) is not None,'Profile avatar button is missing'
+    click('Медиатека')
+    overview=capture('library-bottom-nav')
+    assert find('Избранное',overview) is not None,'Library has no favorites entry'
+    assert find('Плейлисты',overview) is not None,'Library has no playlists entry'
+    assert find('Офлайн',overview) is not None,'Library has no offline entry'
+    click('Поиск')
+    search=capture('search-bottom-nav')
+    assert find('Медиатека',search) is not None,'Navigation was removed after screen change'
     fixture=out/'nightwell-playlist.csv';fixture.write_text('artist,title\nNightwell,Import Test',encoding='utf-8')
     adb('push',str(fixture),'/sdcard/Download/nightwell-playlist.csv')
     launch('transfer');capture('transfer-empty');click('Выбрать файл')
@@ -65,7 +77,7 @@ try:
     assert any('Nightwell,Import Test' in n.get('text','') for n in values),'Document text was not imported'
     click('Выбрать файл');adb('shell','input','keyevent','4');time.sleep(1)
     assert any('Nightwell,Import Test' in n.get('text','') for n in nodes()),'Cancelling picker lost the imported text'
-    print('Menu on two phone sizes, system document selection, CSV import and cancellation passed')
+    print('iOS-style bottom navigation, library and profile header, menu, SAF import and cancellation passed')
 finally:
     adb('shell','wm','size','reset');adb('shell','wm','density','reset')
     (out/'errors.txt').write_text(adb('logcat','-d','-s','AndroidRuntime:E'))
