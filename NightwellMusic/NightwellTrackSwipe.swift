@@ -158,3 +158,15 @@ struct NightwellTrackSwipeCarousel<Content: View>: View {
         }
     }
 }
+
+
+/// Commit the exact artwork that was under the finger. Queue stepping with
+/// shuffle enabled could otherwise play a different track than the preview.
+enum NightwellSwipePlayback {
+    @MainActor static func playAdjacent(_ direction: Int, clock: PlaybackClock) {
+        let index = clock.queue.firstIndex(where: { $0.id == clock.displayID })
+            ?? clock.queue.firstIndex(where: { $0.id == clock.id })
+        guard let index, clock.queue.indices.contains(index + direction) else { return }
+        _ = NativePlayer.shared.playQueueTrackNow(trackID: clock.queue[index + direction].id)
+    }
+}
