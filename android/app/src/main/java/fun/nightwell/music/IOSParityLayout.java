@@ -51,13 +51,13 @@ final class IOSParityLayout {
       headerIcon(head,"settings",settings);
       TextView center=heading("Медиатека",19);center.setGravity(Gravity.CENTER);
       head.addView(center,new LinearLayout.LayoutParams(0,-1,1));
-      headerIcon(head,"list",menu);
+      headerIcon(head,"menu",menu);
     } else if(screen.equals("Плейлисты")||screen.equals("Избранное")||screen.equals("Офлайн")){
       headerIcon(head,"back",()->a.navigate("Медиатека"));
       headerIcon(head,"settings",settings);
       TextView center=heading(screen.equals("Плейлисты")?"":screen,18);center.setGravity(Gravity.CENTER);
       head.addView(center,new LinearLayout.LayoutParams(0,-1,1));
-      headerIcon(head,"list",menu);
+      headerIcon(head,"menu",menu);
     } else {
       TextView mark=heading("N",25);mark.setGravity(Gravity.CENTER);
       mark.setBackground(NightwellDesign.ripple(a,0xff08080a,11,false));
@@ -157,7 +157,7 @@ final class IOSParityLayout {
     TextView more=heading("Ещё в медиатеке",19);
     LinearLayout.LayoutParams morep=new LinearLayout.LayoutParams(-1,-2);
     morep.topMargin=d(21);morep.bottomMargin=d(15);content.addView(more,morep);
-    twoItems(content,"list","Плейлисты",playlists.length()+" плейлиста","download","Офлайн","Скачанные треки",
+    twoItems(content,"music","Плейлисты",playlists.length()+" плейлиста","download","Офлайн","Скачанные треки",
       ()->a.navigate("Плейлисты"),()->a.navigate("Офлайн"));
     twoItems(content,"sparkles","Подборки дня","Для тебя","stats","Умные плейлисты","Для тебя",
       a::dailyPublicPlaylists,()->a.feature("smart"));
@@ -209,7 +209,7 @@ final class IOSParityLayout {
       LinearLayout card=row();card.setPadding(d(12),d(10),d(9),d(10));
       card.setBackground(NightwellDesign.ripple(a,0x66a96f9b,22,true));
       FrameLayout icon=new FrameLayout(a);icon.setBackground(glassColor(0x6053476c,13));
-      icon.addView(new NavigationMenuIcon(a,"list",0xffffffff),
+      icon.addView(new NavigationMenuIcon(a,"music",0xffffffff),
           new FrameLayout.LayoutParams(d(25),d(25),Gravity.CENTER));
       card.addView(icon,new LinearLayout.LayoutParams(d(46),d(46)));
       TextView name=heading(item.optString("name"),16);name.setPadding(d(15),0,0,0);
