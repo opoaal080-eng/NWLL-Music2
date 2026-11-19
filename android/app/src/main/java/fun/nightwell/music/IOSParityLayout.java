@@ -25,7 +25,7 @@ final class IOSParityLayout {
   Drawable glass(int radius){return glassColor(0x704a2b55,radius);}
   Drawable glassColor(int color,int radius){
     GradientDrawable bg=new GradientDrawable(GradientDrawable.Orientation.TL_BR,
-       new int[]{color,0x8a57375f,0x83313859});
+       vice()?new int[]{color,0x8a57375f,0x83313859}:new int[]{0xd327272b,0xe038383b,0xd3222227});
     bg.setCornerRadius(d(radius));bg.setStroke(Math.max(1,d(1)),vice()?0x50ffb8e7:0x50ffffff);
     return bg;
   }
@@ -114,7 +114,9 @@ final class IOSParityLayout {
     scroll.addView(content);body.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
     LinearLayout hero=row();hero.setGravity(Gravity.CENTER_VERTICAL);
     TextView heart=heading("♥",65);heart.setGravity(Gravity.CENTER);heart.setTextColor(0xffff6ea4);
-    heart.setShadowLayer(d(5),0,d(2),0x668a3fff);
+    heart.setShadowLayer(d(3),0,d(1),0x668a3fff);
+    heart.getPaint().setShader(new LinearGradient(0,0,d(85),d(85),
+        new int[]{0xffffbc62,0xfffb4ca6,0xffba3cb7},null,Shader.TileMode.CLAMP));
     hero.addView(heart,new LinearLayout.LayoutParams(d(88),d(88)));
     LinearLayout name=column();name.setPadding(d(8),0,0,0);
     TextView label=heading("Избранное",24);name.addView(label);

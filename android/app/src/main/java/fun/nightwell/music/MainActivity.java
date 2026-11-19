@@ -1050,7 +1050,7 @@ public final class MainActivity extends Activity {
         ios().renderHeader(head,screen,this::openProfile,this::settings,this::menu,
                            ()->navigate("Главная"),accountUI());
         body.removeAllViews();list=null;search=null;artistStrip=null;
-        if(!screen.equals("Главная")&&!screen.equals("Медиатека")){
+        if(!screen.equals("Главная")&&!screen.equals("Медиатека")&&!screen.equals("Плейлисты")){
             TextView pageTitle=text(screen,screen.equals("Поиск")?31:28);NightwellDesign.headline(pageTitle);
             pageTitle.setSingleLine(true);pageTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
             LinearLayout.LayoutParams titleLayout=new LinearLayout.LayoutParams(-1,-2);
@@ -1481,7 +1481,7 @@ public final class MainActivity extends Activity {
                     likes.clear();likeOrder.clear();for(int i=0;i<ids.length();i++){String id=ids.optString(i);if(likes.add(id))likeOrder.add(id);}
                     rememberFavorites(value.optJSONArray("tracks"));rememberFavorites(value.optJSONArray("items"));
                     rememberFavorites(catalog);saveLibrarySnapshot();checkAutoFavoriteDownloads();
-                    if(!full&&screen.equals("Избранное"))showScreen();
+                    if(!full&&(screen.equals("Избранное")||screen.equals("Медиатека")))showScreen();
                 }});
             }catch(Exception ignored){}
         });
@@ -1490,12 +1490,12 @@ public final class MainActivity extends Activity {
                 JSONObject value=client.request("api/playlists");
                 JSONArray items=value.optJSONArray("playlists");
                 ui.post(()->{if(!isDestroyed()&&client==api&&revision==libraryGeneration&&account.equals(user)&&items!=null){
-                    playlists=items;saveLibrarySnapshot();if(!full&&screen.equals("Плейлисты"))showScreen();
+                    playlists=items;saveLibrarySnapshot();if(!full&&(screen.equals("Плейлисты")||screen.equals("Медиатека")))showScreen();
                 }});
             }catch(Exception ignored){}
         });
     }
-    void smokeFixture(String page){try{user="smoke";updateProfileHeader();catalog=new JSONArray();for(int i=0;i<24;i++)catalog.put(new JSONObject().put("id",String.format(java.util.Locale.ROOT,"%032x",i+1)).put("title",i==0?"Очень длинное название трека, которое должно аккуратно поместиться":"Трек "+(i+1)).put("artist","Nightwell Music · Исполнитель"));queue=catalog;playlists=new JSONArray();for(int i=0;i<16;i++)playlists.put(new JSONObject().put("id","fixture"+i).put("name","Мой плейлист "+(i+1)));for(int i=0;i<catalog.length();i++)likes.add(catalog.getJSONObject(i).getString("id"));currentID=catalog.getJSONObject(0).getString("id");miniTitle.setText(catalog.getJSONObject(0).getString("title"));miniArtist.setText("Nightwell Music");if("transfer".equals(page)){nativeTransfer();}else if("menu".equals(page)){head.post(this::menu);}else if("player".equals(page))openPlayer();else if("settings".equals(page))settings();else if("premium-sound".equals(page)||"premium-appearance".equals(page)){premiumOwner=user;premiumUntil=System.currentTimeMillis()+3600000;premiumChecked=System.currentTimeMillis();premiumPrefs=new JSONObject().put("bands",new JSONArray("[0,0,0,0,0]")).put("presets",new JSONObject()).put("theme","nightwell").put("ribbon_speed",1).put("ribbon_intensity",1);if("premium-sound".equals(page))equalizerPanel();else appearancePanel();}else if("wave-settings".equals(page))waveSettings();else if("auth".equals(page))auth();else if("queue".equals(page))showQueue();else if(page!=null)navigate(page);}catch(JSONException e){throw new IllegalStateException(e);}}
+    void smokeFixture(String page){try{user="smoke";updateProfileHeader();catalog=new JSONArray();for(int i=0;i<24;i++)catalog.put(new JSONObject().put("id",String.format(java.util.Locale.ROOT,"%032x",i+1)).put("title",i==0?"Очень длинное название трека, которое должно аккуратно поместиться":"Трек "+(i+1)).put("artist","Nightwell Music · Исполнитель"));queue=catalog;playlists=new JSONArray();for(int i=0;i<16;i++)playlists.put(new JSONObject().put("id","fixture"+i).put("name","Мой плейлист "+(i+1)));for(int i=0;i<catalog.length();i++)likes.add(catalog.getJSONObject(i).getString("id"));currentID=catalog.getJSONObject(0).getString("id");miniTitle.setText(catalog.getJSONObject(0).getString("title"));miniArtist.setText("Nightwell Music");if("transfer".equals(page)){nativeTransfer();}else if("menu".equals(page)){head.post(this::menu);}else if("profile".equals(page)){accountUI().showProfile();}else if("player".equals(page))openPlayer();else if("settings".equals(page))settings();else if("premium-sound".equals(page)||"premium-appearance".equals(page)){premiumOwner=user;premiumUntil=System.currentTimeMillis()+3600000;premiumChecked=System.currentTimeMillis();premiumPrefs=new JSONObject().put("bands",new JSONArray("[0,0,0,0,0]")).put("presets",new JSONObject()).put("theme","nightwell").put("ribbon_speed",1).put("ribbon_intensity",1);if("premium-sound".equals(page))equalizerPanel();else appearancePanel();}else if("wave-settings".equals(page))waveSettings();else if("auth".equals(page))auth();else if("queue".equals(page))showQueue();else if(page!=null)navigate(page);}catch(JSONException e){throw new IllegalStateException(e);}}
     String friendly(Exception error){if(error instanceof java.net.UnknownHostException||error instanceof java.net.ConnectException||error instanceof java.net.SocketTimeoutException)return "Нет соединения. Офлайн-файлы доступны в меню.";String message=error.getMessage();return message!=null&&!message.startsWith("Unable")&&message.length()<180?message:"Не удалось выполнить действие. Повтори попытку.";}
     interface Work{JSONObject run()throws Exception;} interface Done{void run(JSONObject value);}
     void task(Work work,Done done){io.execute(()->{try{JSONObject value=work.run();ui.post(()->{if(!isDestroyed())done.run(value);});}catch(Exception ex){ui.post(()->{if(!isDestroyed())status.setText(friendly(ex));});}});}
