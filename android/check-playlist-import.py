@@ -62,7 +62,7 @@ try:
     assert find('Кастомизация',settings) is not None,'Settings hub missing customization'
     click('Темы')
     themes=capture('themes-picker')
-    assert find('Vice Nights',themes) is not None,'Vice Nights theme picker is missing'
+    assert any('Vice Nights' in (n.get('text') or '') for n in themes),'Vice Nights theme picker is missing'
     launch('profile')
     profile=capture('profile')
     assert find('Устройства и семья',profile) is not None,'Device and family screen is missing'
