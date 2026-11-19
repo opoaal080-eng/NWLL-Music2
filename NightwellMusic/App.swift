@@ -641,7 +641,7 @@ struct NativeRoot: View {
                     }, startOnThemes: openThemesDirectly)
                 }
             } else if let playlist = selectedPlaylist {
-                NightwellPopup(title: "", maxHeight: 618, dimsBackground: false, centered: true, transparentSettings: true, close: { selectedPlaylist = nil }) {
+                NightwellPopup(title: "", maxHeight: 900, dimsBackground: false, centered: true, transparentSettings: true, close: { selectedPlaylist = nil }) {
                     PlaylistScreen(close: { selectedPlaylist = nil }, playlist: playlist)
                         .id(playlist.id)
                 }
@@ -2378,79 +2378,257 @@ private struct PlaylistDownloadRing: View {
 
 struct PlaylistScreen: View {
     @Environment(\.nightwellAppearance) private var appearance
-    @EnvironmentObject var store: MusicStore
+    @EnvironmentObject private var store: MusicStore
     let close: () -> Void
     let playlist: Playlist
     @State private var tracks: [Track] = []
-    @Environment(\.dismiss) private var dismiss
+    @State private var isLoading = false
+    @State private var loadFailed = false
+
+    private var allDownloaded: Bool {
+        !tracks.isEmpty && tracks.allSatisfy { store.isDownloaded($0) }
+    }
+
+    private var trackCountLabel: String {
+        let count = tracks.count
+        let word: String
+        if (11...14).contains(count % 100) { word = "треков" }
+        else if count % 10 == 1 { word = "трек" }
+        else if (2...4).contains(count % 10) { word = "трека" }
+        else { word = "треков" }
+        return "\(count) \(word)"
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text(playlist.name)
-                    .font(.title2.bold())
-                    .lineLimit(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Button { Task {
-                    if tracks.allSatisfy({ store.isDownloaded($0) }) {
-                        for track in tracks { await store.removeDownload(track) }
-                    } else { await store.download(tracks.filter { !store.isDownloaded($0) }) }
-                } } label: {
-                    Image(systemName: (!tracks.isEmpty && tracks.allSatisfy({ store.isDownloaded($0) })) ? "trash" : "arrow.down.to.line").frame(width: 42, height: 42).frostedGlass(20, bordered: false, intensity: 0.55)
-                }.accessibilityLabel(tracks.allSatisfy { store.isDownloaded($0) } ? "Удалить загрузку плейлиста" : "Скачать плейлист")
-                Menu {
-                    Button("Твой ритм по плейлисту", systemImage: "waveform.path") {
-                        let currentPlaylist = playlist
-                        close()
-                        Task { await store.rhythm(around: currentPlaylist) }
-                    }
-                } label: {
-                    Image(systemName: "ellipsis")
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Text("ПЛЕЙЛИСТ")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .tracking(2)
+                    .foregroundStyle(.white.opacity(0.55))
+                Spacer()
+                Button { Task { await toggleDownloads() } } label: {
+                    Image(systemName: allDownloaded ? "checkmark.circle.fill" : "arrow.down.to.line")
+                        .font(.system(size: 17, weight: .medium))
                         .frame(width: 42, height: 42)
-                        .frostedGlass(20, bordered: false, intensity: 0.55)
+                        .background(.white.opacity(0.10), in: Circle())
                 }
-                .accessibilityLabel("Действия с плейлистом")
+                .buttonStyle(.plain)
+                .disabled(tracks.isEmpty)
+                .accessibilityLabel(allDownloaded ? "Удалить загрузки плейлиста" : "Скачать плейлист")
                 Button(action: close) {
-                    Image(systemName: "xmark").frame(width: 42, height: 42).frostedGlass(20, bordered: false, intensity: 0.55)
-                }.accessibilityLabel("Закрыть плейлист")
+                    Image(systemName: "xmark")
+                        .font(.system(size: 15, weight: .semibold))
+                        .frame(width: 42, height: 42)
+                        .background(.white.opacity(0.10), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Закрыть плейлист")
             }
-            .padding(.top, 18)
-            if let fraction = store.playlistDownloadProgress(tracks) {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("Скачивание · \(fraction * 100, specifier: "%.1f")%")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    ProgressView(value: fraction)
-                        .tint(appearance.progressTint)
+            .padding(.horizontal, 21)
+            .padding(.top, 14)
+            .padding(.bottom, 13)
+
+            Rectangle()
+                .fill(.white.opacity(0.08))
+                .frame(height: 1)
+
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 18) {
+                    HStack(alignment: .center, spacing: 17) {
+                        playlistArtwork
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(playlist.name)
+                                .font(.system(size: 24, weight: .bold, design: .rounded))
+                                .lineLimit(3)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Text(trackCountLabel)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(.white.opacity(0.58))
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .padding(.top, 8)
+
+                    HStack(spacing: 10) {
+                        Button {
+                            guard let first = tracks.first else { return }
+                            store.play(first, in: tracks)
+                        } label: {
+                            Label("Слушать", systemImage: "play.fill")
+                                .font(.system(size: 15, weight: .semibold))
+                                .frame(maxWidth: .infinity, minHeight: 50)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Color.black)
+                        .background(
+                            appearance == .vice ? NightwellAppearance.gold : Color.white,
+                            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        )
+                        .disabled(tracks.isEmpty)
+                        .opacity(tracks.isEmpty ? 0.55 : 1)
+
+                        Button {
+                            let selected = playlist
+                            close()
+                            Task { await store.rhythm(around: selected) }
+                        } label: {
+                            Label("Твой ритм", systemImage: "waveform.path")
+                                .font(.system(size: 14, weight: .semibold))
+                                .frame(maxWidth: .infinity, minHeight: 50)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.white)
+                        .background(
+                            .white.opacity(0.10),
+                            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        )
+                    }
+
+                    if let fraction = store.playlistDownloadProgress(tracks) {
+                        VStack(alignment: .leading, spacing: 7) {
+                            HStack {
+                                Text("Скачивание плейлиста")
+                                    .font(.system(size: 12, weight: .medium))
+                                Spacer()
+                                Text("\(Int(fraction * 100))%")
+                                    .monospacedDigit()
+                            }
+                            .foregroundStyle(.white.opacity(0.65))
+                            ProgressView(value: fraction)
+                                .tint(appearance.progressTint)
+                        }
+                        .padding(.horizontal, 4)
+                    }
+
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("ТРЕКИ")
+                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                            .tracking(1.5)
+                            .foregroundStyle(.white.opacity(0.74))
+                        Spacer()
+                        Text("\(tracks.count)")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.46))
+                            .monospacedDigit()
+                    }
+                    .padding(.horizontal, 4)
+                    .padding(.top, 3)
+
+                    if tracks.isEmpty {
+                        VStack(spacing: 12) {
+                            if isLoading {
+                                ProgressView()
+                                    .tint(.white)
+                                Text("Загружаем треки")
+                            } else {
+                                Image(systemName: loadFailed ? "wifi.exclamationmark" : "music.note.list")
+                                    .font(.system(size: 26))
+                                Text(loadFailed ? "Не удалось загрузить треки" : "В плейлисте пока нет треков")
+                                if loadFailed {
+                                    Button("Попробовать ещё") {
+                                        Task { await refreshPlaylist() }
+                                    }
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                }
+                            }
+                        }
+                        .font(.system(size: 13))
+                        .foregroundStyle(.white.opacity(0.60))
+                        .frame(maxWidth: .infinity, minHeight: 130)
+                    } else {
+                        TrackList(tracks: tracks, playlist: playlist, embedded: true)
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .padding(.horizontal, 18)
+                .padding(.bottom, 30)
+            }
+            .scrollDismissesKeyboard(.interactively)
+        }
+        .foregroundStyle(.white)
+        .tint(appearance.progressTint)
+        .task(id: playlist.id) { await refreshPlaylist() }
+    }
+
+    private var playlistArtwork: some View {
+        Group {
+            if tracks.count >= 2 {
+                LazyVGrid(
+                    columns: [GridItem(.flexible(), spacing: 2), GridItem(.flexible(), spacing: 2)],
+                    spacing: 2
+                ) {
+                    ForEach(0..<4, id: \.self) { index in
+                        Group {
+                            if tracks.indices.contains(index) {
+                                Cover(track: tracks[index], origin: store.origin, pixelWidth: 224)
+                            } else {
+                                Rectangle().fill(.white.opacity(0.08))
+                            }
+                        }
+                        .frame(width: 57, height: 57)
+                        .clipped()
+                    }
+                }
+            } else if let first = tracks.first {
+                Cover(track: first, origin: store.origin, pixelWidth: 300)
+            } else {
+                ZStack {
+                    LinearGradient(
+                        colors: [Color(white: 0.24), Color(white: 0.08)],
+                        startPoint: .topLeading, endPoint: .bottomTrailing
+                    )
+                    Image(systemName: "music.note.list")
+                        .font(.system(size: 38, weight: .light))
+                        .foregroundStyle(.white.opacity(0.8))
                 }
             }
-            Text("Треки плейлиста · \(tracks.count)")
-                .font(.caption).foregroundStyle(.secondary)
-            TrackList(tracks: tracks, playlist: playlist)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .clipped()
         }
-        .padding(.horizontal, 18)
-        .padding(.bottom, 16)
-        .tint(appearance.progressTint)
-        .task {
-            #if DEBUG
-            if ProcessInfo.processInfo.arguments.contains("--native-smoke-playlist") {
-                tracks = [Track(id: "preview-one", title: "Музыка этой ночи", artist: "Nightwell Music"), Track(id: "preview-two", title: "Твой тёмный ритм", artist: "Nightwell Music")]
-                return
-            }
-            #endif
-            // Render the device copy first, then refresh asynchronously.
-            // A slow network must never leave an already-visited playlist empty.
-            let cached = store.cachedPlaylistTracks(playlist.id)
-            if let cached { tracks = cached }
-            do {
-                let fresh = try await store.playlistTracks(playlist.id)
-                guard !Task.isCancelled else { return }
-                tracks = fresh
-            } catch {
-                if cached == nil { store.error = error.localizedDescription }
-            }
+        .frame(width: 116, height: 116)
+        .clipShape(RoundedRectangle(cornerRadius: 23, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 23, style: .continuous)
+                .strokeBorder(.white.opacity(0.18), lineWidth: 0.7)
         }
+        .shadow(color: .black.opacity(0.28), radius: 16, y: 8)
+        .accessibilityHidden(true)
+    }
+
+    private func toggleDownloads() async {
+        guard !tracks.isEmpty else { return }
+        if allDownloaded {
+            for track in tracks { await store.removeDownload(track) }
+        } else {
+            await store.download(tracks.filter { !store.isDownloaded($0) })
+        }
+    }
+
+    private func refreshPlaylist() async {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--native-smoke-playlist") {
+            tracks = [
+                Track(id: "preview-one", title: "Музыка этой ночи", artist: "Nightwell Music"),
+                Track(id: "preview-two", title: "Твой тёмный ритм", artist: "Nightwell Music")
+            ]
+            return
+        }
+        #endif
+        // Show the device snapshot immediately; networking must not blank it.
+        let cached = store.cachedPlaylistTracks(playlist.id)
+        if let cached { tracks = cached }
+        isLoading = cached == nil
+        loadFailed = false
+        do {
+            let fresh = try await store.playlistTracks(playlist.id)
+            guard !Task.isCancelled else { return }
+            tracks = fresh
+        } catch {
+            guard !Task.isCancelled else { return }
+            loadFailed = cached == nil
+            if cached == nil { store.error = error.localizedDescription }
+        }
+        isLoading = false
     }
 }
 struct ShareSheet: UIViewControllerRepresentable {
