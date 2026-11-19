@@ -83,21 +83,11 @@ struct LibraryOverview: View {
     private func favoritesEntry(compact: Bool) -> some View {
         Button(action: openFavorites) {
             favoritesLayout {
-                Image(systemName: "heart.fill")
-                    .resizable()
-                    .scaledToFit()
-                    .foregroundStyle(LinearGradient(
-                        colors: appearance == .vice
-                            ? [NightwellAppearance.gold, NightwellAppearance.pink,
-                               Color(red: 0.42, green: 0.24, blue: 0.72)]
-                            : [Color(red: 0.92, green: 0.79, blue: 1),
-                               Color(red: 0.73, green: 0.48, blue: 0.96),
-                               Color(red: 0.42, green: 0.27, blue: 0.75)],
-                        startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .frame(width: compact ? 70 : 80, height: compact ? 72 : 84)
-                    .rotationEffect(.degrees(-8))
-                    .shadow(color: .purple.opacity(0.18), radius: 16, y: 8)
-                    .accessibilityHidden(true)
+                NightwellFavoriteHeartArtwork(
+                    width: compact ? 70 : 80,
+                    height: compact ? 72 : 84
+                )
+                .accessibilityHidden(true)
 
                 VStack(alignment: .leading, spacing: 7) {
                     Text("Избранное")
@@ -165,5 +155,31 @@ struct LibraryOverview: View {
         let word = (11...14).contains(ending) ? many
             : count % 10 == 1 ? one : (2...4).contains(count % 10) ? few : many
         return "\(count) \(word)"
+    }
+}
+
+
+/// The same gradient heart is used on the library tile and Favorites screen.
+struct NightwellFavoriteHeartArtwork: View {
+    @Environment(\.nightwellAppearance) private var appearance
+    let width: CGFloat
+    let height: CGFloat
+
+    var body: some View {
+        Image(systemName: "heart.fill")
+            .resizable()
+            .scaledToFit()
+            .foregroundStyle(LinearGradient(
+                colors: appearance == .vice
+                    ? [NightwellAppearance.gold, NightwellAppearance.pink,
+                       Color(red: 0.42, green: 0.24, blue: 0.72)]
+                    : [Color(red: 0.92, green: 0.79, blue: 1),
+                       Color(red: 0.73, green: 0.48, blue: 0.96),
+                       Color(red: 0.42, green: 0.27, blue: 0.75)],
+                startPoint: .topLeading, endPoint: .bottomTrailing
+            ))
+            .frame(width: width, height: height)
+            .rotationEffect(.degrees(-8))
+            .shadow(color: .purple.opacity(0.18), radius: 16, y: 8)
     }
 }
