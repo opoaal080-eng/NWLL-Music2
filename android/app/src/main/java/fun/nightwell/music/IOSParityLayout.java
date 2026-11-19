@@ -233,7 +233,7 @@ final class IOSParityLayout {
   }
   void moreSheet(){
     Dialog dialog=sheet("Дополнительно",true);
-    LinearLayout content=(LinearLayout)dialog.findViewWithTag("nw-content");
+    LinearLayout content=(LinearLayout)dialog.getWindow().getDecorView().findViewWithTag("nw-content");
     TextView connection=text("●  API доступен · "+a.connectionLabel(),13);
     connection.setTextColor(0xff9ff4ba);
     LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,-2);cp.bottomMargin=d(20);content.addView(connection,cp);
@@ -290,7 +290,7 @@ final class IOSParityLayout {
   }
   void settingsHub(){
     Dialog dialog=sheet("Настройки",false);
-    LinearLayout content=(LinearLayout)dialog.findViewWithTag("nw-content");
+    LinearLayout content=(LinearLayout)dialog.getWindow().getDecorView().findViewWithTag("nw-content");
     addSettingsRow(content,"sparkles","Темы","Стандартная и Vice Nights",()->{dialog.dismiss();themes();});
     addSettingsRow(content,"sliders","Кастомизация","Вкладки, обложки, очередь, текст и фон",()->{dialog.dismiss();customization();});
     addSettingsRow(content,"stats","Воспроизведение","Звук, буфер, громкость и офлайн",()->{dialog.dismiss();a.legacySettings();});
@@ -321,7 +321,7 @@ final class IOSParityLayout {
   }
   void themes(){
     Dialog dialog=sheet("Темы",false);
-    LinearLayout content=(LinearLayout)dialog.findViewWithTag("nw-content");
+    LinearLayout content=(LinearLayout)dialog.getWindow().getDecorView().findViewWithTag("nw-content");
     content.addView(heading("Темы оформления",18));
     TextView hint=text("Выбранное оформление включается сразу и сохраняется.",13);
     hint.setTextColor(0xbbf4d6e9);
@@ -359,7 +359,7 @@ final class IOSParityLayout {
   }
   void customization(){
     Dialog dialog=sheet("Кастомизация",false);
-    LinearLayout content=(LinearLayout)dialog.findViewWithTag("nw-content");
+    LinearLayout content=(LinearLayout)dialog.getWindow().getDecorView().findViewWithTag("nw-content");
     content.addView(heading("Кастомизация",19));
     a.addIOSCustomizationControls(content);
     dialog.show();
