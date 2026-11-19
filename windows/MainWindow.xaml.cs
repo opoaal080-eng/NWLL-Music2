@@ -62,7 +62,7 @@ public partial class MainWindow:Window {
 }
  Track? Current=>queue.Count>0&&index>=0&&index<queue.Count?queue[index]:null;
  string origin="https://music.nightwell.fun/";
- public MainWindow(){InitializeComponent();SetupDesktopLayout();IsEnabled=false;try{
+ public MainWindow(){InitializeComponent();SetupPalmFoliage();SetupDesktopLayout();InitializeVisualTheme();IsEnabled=false;try{
  var prefs=JsonDocument.Parse(File.ReadAllText(Path.Combine(NativeAPI.Storage,"settings.json"))).RootElement;
  if(prefs.TryGetProperty("transition",out var tr))transition=tr.GetDouble();
  if(prefs.TryGetProperty("normalization",out var nl))normalization=Math.Clamp(nl.GetInt32(),0,100);
@@ -414,6 +414,8 @@ Status.Text=result.TryGetProperty("search_message",out var message)?message.GetS
   loud.ValueChanged+=(_,_)=>{normalization=(int)loud.Value;loudLabel.Text=$"Одинаковая громкость · {normalization}%";SaveSettings();};playback.Children.Add(loudLabel);playback.Children.Add(loud);
   playback.Children.Add(new TextBlock{Text="Выравнивает тихие и громкие записи. Для применения перезапусти приложение.",TextWrapping=TextWrapping.Wrap,Foreground=(Brush)FindResource("SecondaryBrush"),FontSize=12,LineHeight=19,Margin=new Thickness(0,4,0,4)});
   panel.Children.Add(SettingsCard(playback));
+  panel.Children.Add(Label("ОФОРМЛЕНИЕ"));
+  panel.Children.Add(SettingsCard(CreateVisualThemeSelector()));
   var library=new StackPanel();
   var downloadToggle=new CheckBox{Content="Автозагрузка избранного",IsChecked=autoDownload};downloadToggle.Click+=(_,_)=>{autoDownload=downloadToggle.IsChecked==true;SaveMobileSettings();};library.Children.Add(downloadToggle);
   var lyricsToggle=new CheckBox{Content="Текст в такт",IsChecked=syncLyrics};lyricsToggle.Click+=(_,_)=>{syncLyrics=lyricsToggle.IsChecked==true;renderedLyric=int.MinValue;SaveMobileSettings();};library.Children.Add(lyricsToggle);panel.Children.Add(SettingsCard(library));

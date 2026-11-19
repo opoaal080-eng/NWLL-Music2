@@ -28,6 +28,7 @@ internal static class NightwellIcons
             "settings" => "M12,2 V5 M12,19 V22 M2,12 H5 M19,12 H22 M5,5 L7,7 M17,17 L19,19 M19,5 L17,7 M7,17 L5,19 M12,8 A4,4 0 1 0 12,16 A4,4 0 1 0 12,8",
             "user" => "M12,3 A4,4 0 1 0 12,11 A4,4 0 1 0 12,3 M4,21 V18 C4,13 20,13 20,18 V21",
             "devices" => "M2,5 H17 V16 H2 Z M6,20 H13 M9.5,16 V20 M19,9 H23 V21 H17 V9 Z",
+            "sidebar" => "M4,4 H20 V20 H4 Z M10,4 V20",
             "family" => "M7,10 A3,3 0 1 0 7,4 A3,3 0 1 0 7,10 M17,10 A3,3 0 1 0 17,4 A3,3 0 1 0 17,10 M2,20 V17 C2,13 12,13 12,17 V20 M12,20 V17 C12,13 22,13 22,17 V20",
             "logout" => "M9,3 H4 V21 H9 M13,8 L18,12 L13,16 M7,12 H18",
             "play" => "M8,4 L20,12 L8,20 Z",
@@ -37,6 +38,8 @@ internal static class NightwellIcons
             "shuffle" => "M3,6 H6 C13,6 10,18 18,18 H21 M17,14 L21,18 L17,22 M3,18 H6 C9,18 10,14 12,12 M17,2 L21,6 L17,10 M13,6 H21",
             "repeat" => "M17,3 L21,7 L17,11 M3,11 V7 C3,5 4,4 7,4 H21 M7,21 L3,17 L7,13 M21,13 V17 C21,19 20,20 17,20 H3",
             "volume" => "M3,9 H7 L12,5 V19 L7,15 H3 Z M16,9 C18,11 18,13 16,15 M19,6 C23,9 23,15 19,18",
+            "lyrics" => "M5,4 H19 M5,9 H18 M5,14 H13 M5,19 H11 M17,12 V20 M17,20 C14,18 12,20 14,22 C16,24 19,21 17,20",
+            "queue" => "M4,5 H20 M4,10 H20 M4,15 H12 M15,14 L21,18 L15,22 Z",
             "back" => "M15,4 L7,12 L15,20",
             "down" => "M5,9 L12,16 L19,9",
             "more" => "M12,4 A1,1 0 1 0 12,6 A1,1 0 1 0 12,4 M12,11 A1,1 0 1 0 12,13 A1,1 0 1 0 12,11 M12,18 A1,1 0 1 0 12,20 A1,1 0 1 0 12,18",
@@ -77,7 +80,7 @@ public partial class MainWindow
     {
         string state = playing ? "pause" : "play";
         if (button.Content is Path && Equals(button.Tag, state)) return;
-        button.Content = NightwellIcons.Draw(state, button == HomePlay ? 31 : button == MiniPlay ? 20 : 26,
+        button.Content = NightwellIcons.Draw(state, button == HomePlay ? 31 : button == MiniPlay ? 25 : 33,
             Brushes.White, state == "play");
         button.Tag = state;
     }
@@ -100,7 +103,7 @@ public partial class MainWindow
         SetHeartVector(false);
         ShuffleButton.Content = NightwellIcons.Draw("shuffle", 21);
         RepeatButton.Content = NightwellIcons.Draw("repeat", 21);
-        NavigationMenu.Content = NightwellIcons.Draw("playlist", 21);
+        NavigationMenu.Content = NightwellIcons.Draw("sidebar", 21);
         CollectionActions.Content = NightwellIcons.Draw("more", 20);
         FullPrevious.Content = NightwellIcons.Draw("previous", 23);
         FullNext.Content = NightwellIcons.Draw("next", 23);
@@ -109,5 +112,7 @@ public partial class MainWindow
         PlayerCloseButton.Content = NightwellIcons.Draw("down", 21);
         PlayerMoreButton.Content = NightwellIcons.Draw("more", 21);
         LyricsCloseButton.Content = NightwellIcons.Draw("close", 20);
+        FullLyricsButton.Content = NightwellIcons.Draw("lyrics", 23);
+        FullQueueButton.Content = NightwellIcons.Draw("queue", 23);
     }
 }

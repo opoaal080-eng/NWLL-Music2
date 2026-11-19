@@ -23,7 +23,16 @@ public partial class MainWindow {
   SetMode(ShuffleButton,shuffle);SetMode(RepeatButton,repeat>0);RepeatOne.Visibility=repeat==2?Visibility.Visible:Visibility.Collapsed;
   RepeatButton.ToolTip=new[]{"Повтор выключен","Повтор очереди","Повтор трека"}[repeat];
  }
- void SetMode(Button button,bool active){if(button.Tag is bool previous&&previous==active)return;button.Tag=active;button.Background=active?(Brush)FindResource("SelectionBrush"):Brushes.Transparent;button.Foreground=(Brush)FindResource(active?"AccentBrush":"TextBrush");button.BorderBrush=active?(Brush)FindResource("LineBrush"):Brushes.Transparent;}
+ void SetMode(Button button,bool active){
+  if(button.Tag is bool previous && previous==active)return;
+  button.Tag=active;
+  // Neutral transport buttons: no purple state chip on the artwork-based player.
+  button.Background=(Brush)FindResource(active ? "PlayerActiveBrush" : "PlayerButtonBrush");
+  button.Foreground=Brushes.White;
+  button.BorderBrush=(Brush)FindResource(active ? "PlayerHoverOutlineBrush" : "PlayerOutlineBrush");
+  button.BorderThickness=new Thickness(1);
+  button.ToolTip=button==ShuffleButton?(active?"Перемешивание включено":"Перемешивание выключено"):button.ToolTip;
+ }
  void InterfaceKeyDown(object sender,KeyEventArgs e){
   if(Keyboard.FocusedElement is TextBox or PasswordBox or ComboBox)return;
   if(e.Key==Key.Escape){if(HandleDesktopEscape()){e.Handled=true;return;}if(backgroundOnly){LeaveBackgroundMode();Show("Главная");}else if(LyricsPanel.Visibility==Visibility.Visible)CloseLyricsClick(sender,e);else if(PlayerPage.Visibility==Visibility.Visible)Show(screen);else Show("Главная");e.Handled=true;}

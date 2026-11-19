@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'windows/**'
+      - 'scripts/prepare-vice-palms.py'
       - '.github/workflows/build-windows.yml'
   push:
     branches: [main]
@@ -11,6 +12,7 @@ on:
       - 'windows/**'
       - 'scripts/validate-app-sources.py'
       - 'scripts/build-provenance.py'
+      - 'scripts/prepare-vice-palms.py'
       - '.github/workflows/build-windows.yml'
 permissions:
   contents: read
@@ -19,6 +21,10 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Prepare independently animated Vice Nights palms
+        run: |
+          python -m pip install --quiet numpy opencv-python-headless
+          python scripts/prepare-vice-palms.py --platform windows
       - name: Validate Windows XAML
         run: python scripts/validate-app-sources.py --windows
       - uses: actions/setup-dotnet@v4

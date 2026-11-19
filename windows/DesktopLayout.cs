@@ -29,10 +29,10 @@ public partial class MainWindow
     bool settingsReady;
     bool sidebarBeforeBackground = true;
 
-    static readonly Brush RailBackground = new SolidColorBrush(Color.FromRgb(19, 19, 21));
-    static readonly Brush PaneBackground = new SolidColorBrush(Color.FromRgb(18, 18, 20));
-    static readonly Brush SelectedBackground = new SolidColorBrush(Color.FromRgb(56, 56, 59));
-    static readonly Brush SecondaryText = new SolidColorBrush(Color.FromRgb(178, 178, 182));
+    Brush RailBackground => (Brush)FindResource("RailBrush");
+    Brush PaneBackground => (Brush)FindResource("PaneBrush");
+    Brush SelectedBackground => (Brush)FindResource("SidebarSelectionBrush");
+    Brush SecondaryText => (Brush)FindResource("SideSecondaryBrush");
 
     void SetupDesktopLayout()
     {
@@ -92,6 +92,9 @@ public partial class MainWindow
         {
             PlayerAmbientLayer.Visibility = PlayerPage.Visibility == Visibility.Visible
                 ? Visibility.Visible : Visibility.Collapsed;
+            VicePalmFoliage.Visibility = visualTheme == "vice" &&
+                                         PlayerPage.Visibility != Visibility.Visible
+                ? Visibility.Visible : Visibility.Collapsed;
         };
         PlayerAmbientLayer.Visibility = PlayerPage.Visibility == Visibility.Visible
             ? Visibility.Visible : Visibility.Collapsed;
@@ -149,12 +152,15 @@ public partial class MainWindow
         AddAction(list, "⇩", "Перенести музыку", NativeTransfer);
         AddAction(list, "◇", "Nightwell Premium", OpenPremiumPane);
 
-        dock.Children.Add(new ScrollViewer
+        var scrolling = new ScrollViewer
         {
             Content = list,
+            // Keep mouse-wheel and touch scrolling without the bright scrollbar
+            // strip that covered the sidebar on desktop.
             VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
-        });
+        };
+        dock.Children.Add(scrolling);
         return rail;
     }
 
@@ -175,16 +181,23 @@ public partial class MainWindow
 
     Button RailButton(string symbol, string label)
     {
-        var contents = new StackPanel { Orientation = Orientation.Horizontal, Width = 184 };
+        // A fixed 184px content width clipped menu labels when a scrollbar appeared.
+        // The star-sized label shrinks safely while preserving the icon and all actions.
+        var contents = new Grid { HorizontalAlignment = HorizontalAlignment.Stretch };
+        contents.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(34) });
+        contents.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         var icon = NightwellIcons.Draw(NightwellIcons.Symbol(symbol), 21);
-        icon.Margin = new Thickness(2, 0, 11, 0);
+        icon.Margin = new Thickness(2, 0, 8, 0);
         icon.VerticalAlignment = VerticalAlignment.Center;
+        Grid.SetColumn(icon, 0);
         contents.Children.Add(icon);
-        contents.Children.Add(new TextBlock
+        var text = new TextBlock
         {
             Text = label, FontSize = 14, VerticalAlignment = VerticalAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis
-        });
+        };
+        Grid.SetColumn(text, 1);
+        contents.Children.Add(text);
         return new Button
         {
             Content = contents, Height = 44, MinHeight = 44, Padding = new Thickness(7, 5, 4, 5),
@@ -523,6 +536,21 @@ public partial class MainWindow
     void CreateSettingsPane()
     {
         settingsPane = MakeWorkspacePane("Настройки", out var content);
+        content.Children.Add(SectionLabel("ОФОРМЛЕНИЕ"));
+        var visualThemeCard = new StackPanel();
+        visualThemeCard.Children.Add(new TextBlock
+        {
+            Text = "Тема оформления", FontSize = 15, FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 0, 0, 9)
+        });
+        visualThemeCard.Children.Add(CreateVisualThemeSelector());
+        visualThemeCard.Children.Add(new TextBlock
+        {
+            Text = "Стандартная: чёрно-белая. Vice Nights: закат, пальмы и тёплые акценты.",
+            TextWrapping = TextWrapping.Wrap, Foreground = SecondaryText,
+            FontSize = 12, Margin = new Thickness(0, 10, 0, 4)
+        });
+        content.Children.Add(SettingsCard(visualThemeCard));
         content.Children.Add(SectionLabel("ВОСПРОИЗВЕДЕНИЕ"));
         var playback = new StackPanel();
         transitionText = new TextBlock();

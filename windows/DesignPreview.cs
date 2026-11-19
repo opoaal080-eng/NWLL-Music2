@@ -12,6 +12,26 @@ public partial class MainWindow {
  bool IsDesignPreview=>Environment.GetCommandLineArgs().Contains("--design-preview");
  async Task CaptureDesignPreviews(){
   Directory.CreateDirectory("ui-previews");Width=1120;Height=800;
+  ApplyVisualTheme("vice",false);
+  // Guard desktop foliage proportions: full-size portrait silhouettes must
+  // never be stretched across a landscape desktop window again.
+  if (VicePalmFoliage.Children.Count != 3)
+    throw new InvalidOperationException("Vice theme must render three independently moving palm groups");
+  foreach (var child in VicePalmFoliage.Children.OfType<Image>())
+  {
+    if (child.RenderTransform is not TransformGroup group ||
+        group.Children.OfType<ScaleTransform>().FirstOrDefault() is not ScaleTransform scale ||
+        scale.ScaleX > .67 || scale.ScaleY > .67 || child.Opacity > .85)
+      throw new InvalidOperationException("Desktop palm fronds are larger than the intended decorative size");
+  }
+  // Fail CI before packaging if either player's play button becomes small or moves left.
+  if (Grid.GetColumn(FullPlay)!=4 || FullPlay.Width<=FullNext.Width ||
+      MiniPlay.Width<=MiniNext.Width || MiniPlay.Height<=MiniNext.Height ||
+      ((Panel)MiniPlay.Parent).Children.IndexOf(MiniPlay)<=((Panel)MiniNext.Parent).Children.IndexOf(MiniNext))
+    throw new InvalidOperationException("Play must be right-most and larger than skip in both players");
+  if (FullLyricsButton.Content is not System.Windows.Shapes.Path ||
+      FullQueueButton.Content is not System.Windows.Shapes.Path)
+    throw new InvalidOperationException("Player action buttons must use vector icons");
   Status.Text="";Ribbon.PreviewPhase=1.4;await PreviewWindow(this,"01-home");
   Ribbon.Playing=true;Ribbon.Intensity=.8;Ribbon.PreviewPhase=4.2;await PreviewWindow(this,"12-ambient-playing");
   Ribbon.PreviewPhase=9.4;await PreviewWindow(this,"13-ambient-motion");
@@ -31,8 +51,14 @@ public partial class MainWindow {
   Show("Избранное");Tracks.SelectedIndex=1;await PreviewWindow(this,"02-library-selection");
   SearchOptions.Visibility=SearchBox.Visibility=Visibility.Visible;Heading.Text="Поиск";SearchBox.Text="Nightwell";await PreviewWindow(this,"03-search");
   Home.Visibility=Library.Visibility=Dock.Visibility=Visibility.Collapsed;PlayerPage.Visibility=Visibility.Visible;Ribbon.Visibility=Visibility.Visible;Ribbon.Focused=true;
-  FullSeek.Maximum=218;FullSeek.Value=86;FullTime.Text="1:26    /    3:38";FullPlay.Content="\uE769";FullVolumeSlider.Value=VolumeSlider.Value=72;FullVolumeValue.Text=MiniVolumeValue.Text="72%";
+  FullSeek.Maximum=218;FullSeek.Value=86;FullTime.Text="1:26    /    3:38";SetPlayVector(FullPlay,true);FullVolumeSlider.Value=VolumeSlider.Value=72;FullVolumeValue.Text=MiniVolumeValue.Text="72%";
   await PreviewWindow(this,"04-player");Width=800;Height=620;await PreviewWindow(this,"05-player-compact");
+   // At the minimum usable window size, nothing in the transport area may be
+   // cut off by the player's clipping bounds.
+   var playerBottom = FullQueueButton.TranslatePoint(
+       new Point(0, FullQueueButton.ActualHeight), PlayerPage).Y;
+   if (playerBottom > PlayerPage.ActualHeight + 1)
+       throw new InvalidOperationException("Compact player clips queue/lyrics controls");
   Width=1120;Height=800;
   using var lyrics=JsonDocument.Parse("{\"plain\":\"Город засыпает, огни не спешат.\\nВ каждом окне свой маленький мир.\\nМузыка рядом, и время звучит.\"}");
   LyricsText.Text=lyrics.RootElement.GetProperty("plain").GetString();LyricsPanel.Visibility=Visibility.Visible;await PreviewWindow(this,"06-lyrics");LyricsPanel.Visibility=Visibility.Collapsed;
@@ -51,7 +77,31 @@ public partial class MainWindow {
   playlists=[new(){id="preview-collection-1",name="Ночная дорога"},new(){id="preview-collection-2",name="Избранные открытия"},new(){id="preview-collection-3",name="После полуночи"}];
   Show("Плейлисты");await PreviewWindow(this,"17-playlists-workspace");
   Show("Главная");ToggleDesktopQueue(true);await PreviewWindow(this,"18-queue-workspace");ToggleDesktopQueue(false);
-  File.WriteAllText("ui-previews/checks.json",JsonSerializer.Serialize(new{theme="monochrome-ambient",states=18,logoNavigation=true,hiddenBackgroundStopped=true,networkRequests=0,compactWidth=800,compactHeight=620,primaryContrast=Contrast(BrushHex("TextBrush"),BrushHex("SurfaceBrush")),secondaryContrast=Contrast(BrushHex("SecondaryBrush"),BrushHex("InputBrush"))}));
+  // Exercise both palettes with real runtime switches, including compact
+  // layout and settings. A theme is only shipped if both render successfully.
+  ApplyVisualTheme("standard",false);
+  if (ViceSunsetBackdrop.Visibility != Visibility.Collapsed ||
+      VicePalmFoliage.Visibility != Visibility.Collapsed)
+    throw new InvalidOperationException("Standard theme still exposes Vice artwork");
+  Show("Главная");await PreviewWindow(this,"19-standard-home");
+  OpenSettingsPane();await PreviewWindow(this,"20-standard-settings");CloseDesktopPanes();
+  Home.Visibility=Library.Visibility=Dock.Visibility=Visibility.Collapsed;
+  PlayerPage.Visibility=Visibility.Visible;
+  await PreviewWindow(this,"21-standard-player");
+  Width=800;Height=620;await PreviewWindow(this,"22-standard-player-compact");
+  Width=1120;Height=800;
+  ApplyVisualTheme("vice",false);
+  Show("Главная");await PreviewWindow(this,"23-vice-home");
+  OpenSettingsPane();await PreviewWindow(this,"24-vice-settings");CloseDesktopPanes();
+  Home.Visibility=Library.Visibility=Dock.Visibility=Visibility.Collapsed;
+  PlayerPage.Visibility=Visibility.Visible;await PreviewWindow(this,"25-vice-player");
+  ApplyVisualTheme("standard",false);
+  var monoAccent=BrushHex("AccentBrush");
+  ApplyVisualTheme("vice",false);
+  if (monoAccent == BrushHex("AccentBrush"))
+    throw new InvalidOperationException("Theme palettes did not switch");
+  Show("Главная");
+  File.WriteAllText("ui-previews/checks.json",JsonSerializer.Serialize(new{theme="vice-and-standard",bothThemes=true,themeSwitch=true,playRightAndLarge=true,states=25,logoNavigation=true,hiddenBackgroundStopped=true,networkRequests=0,compactWidth=800,compactHeight=620,primaryContrast=Contrast(BrushHex("TextBrush"),BrushHex("SurfaceBrush")),secondaryContrast=Contrast(BrushHex("SecondaryBrush"),BrushHex("InputBrush"))}));
  }
  string BrushHex(string key){var color=((SolidColorBrush)FindResource(key)).Color;return $"{color.R:X2}{color.G:X2}{color.B:X2}";}
  async Task PreviewWindow(Window window,string name){await Task.Delay(120);window.UpdateLayout();await Dispatcher.InvokeAsync(()=>{},DispatcherPriority.Render);await PreviewElement(window,name);}
