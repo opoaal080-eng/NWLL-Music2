@@ -2,6 +2,7 @@ package fun.nightwell.music;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.Dialog;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -75,45 +76,120 @@ final class NightwellAccountUI {
         headerImage.setImageBitmap(same?bitmap:null);
         if(!owner().isEmpty()&&!same)refreshMetadata(false);
     }
+    private TextView profileMonogram;
     void showProfile(){
         if(owner().isEmpty()){host.auth();return;}
         profileNotice=null;
-        LinearLayout panel=column();panel.setPadding(dp(16),dp(7),dp(16),dp(12));
-        ScrollView scroll=new ScrollView(host);scroll.setVerticalScrollBarEnabled(false);
+        Dialog full=new Dialog(host,android.R.style.Theme_DeviceDefault_NoActionBar_Fullscreen);
+        LinearLayout shell=column();
+        shell.setPadding(dp(18),dp(15),dp(18),dp(15));
+        shell.setBackground(new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{
+            0xff4e174d,0xff822263,0xff42346f,0xff112b53}));
+        LinearLayout nav=row();nav.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title=text("Профиль",21);title.setTypeface(null,android.graphics.Typeface.BOLD);
+        title.setGravity(Gravity.CENTER);
+        View spacer=new View(host);nav.addView(spacer,new LinearLayout.LayoutParams(dp(72),dp(55)));
+        nav.addView(title,new LinearLayout.LayoutParams(0,dp(55),1));
+        TextView done=text("Готово",15);done.setTypeface(null,android.graphics.Typeface.BOLD);
+        done.setGravity(Gravity.CENTER);
+        done.setBackground(profileGlass(20));
+        done.setOnClickListener(v->full.dismiss());
+        nav.addView(done,new LinearLayout.LayoutParams(dp(77),dp(50)));
+        shell.addView(nav,new LinearLayout.LayoutParams(-1,dp(90)));
+
+        ScrollView scroll=new ScrollView(host);scroll.setFillViewport(false);
+        scroll.setVerticalScrollBarEnabled(false);
+        LinearLayout panel=column();panel.setPadding(dp(2),dp(8),dp(2),dp(25));
         scroll.addView(panel);
-        LinearLayout identity=row();identity.setPadding(0,dp(6),0,dp(14));
-        profileImage=new ImageView(host);
-        profileImage.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        GradientDrawable circle=new GradientDrawable();circle.setColor(0xff343038);circle.setCornerRadius(dp(40));
-        profileImage.setBackground(circle);profileImage.setClipToOutline(true);
+        shell.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+
+        LinearLayout card=column();card.setPadding(dp(18),dp(15),dp(18),dp(16));
+        card.setBackground(profileGlass(26));
+        LinearLayout caption=row();caption.setGravity(Gravity.CENTER_VERTICAL);
+        caption.addView(new NavigationMenuIcon(host,"person",0xfff8f3fb),
+            new LinearLayout.LayoutParams(dp(22),dp(22)));
+        TextView cardTitle=text("Профиль",19);cardTitle.setTypeface(null,android.graphics.Typeface.BOLD);
+        cardTitle.setPadding(dp(12),0,0,0);caption.addView(cardTitle);
+        card.addView(caption);
+        LinearLayout identity=row();identity.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams idParams=new LinearLayout.LayoutParams(-1,dp(82));
+        idParams.topMargin=dp(12);
+        android.widget.FrameLayout avatar=new android.widget.FrameLayout(host);
+        avatar.setBackground(profileGlass(38));
+        avatar.setClipToOutline(true);
+        profileMonogram=text("N",30);profileMonogram.setGravity(Gravity.CENTER);
+        profileMonogram.setTypeface(null,android.graphics.Typeface.BOLD);
+        avatar.addView(profileMonogram,new android.widget.FrameLayout.LayoutParams(-1,-1));
+        profileImage=new ImageView(host);profileImage.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        profileImage.setVisibility(bitmap!=null&&bitmapUser.equals(owner())?View.VISIBLE:View.GONE);
         if(bitmap!=null&&bitmapUser.equals(owner()))profileImage.setImageBitmap(bitmap);
-        identity.addView(profileImage,new LinearLayout.LayoutParams(dp(64),dp(64)));
-        TextView photo=host.sheetAction("Изменить аватар",this::selectAvatar);
-        LinearLayout.LayoutParams photoParams=new LinearLayout.LayoutParams(0,dp(52),1);
-        photoParams.leftMargin=dp(13);identity.addView(photo,photoParams);panel.addView(identity);
+        avatar.addView(profileImage,new android.widget.FrameLayout.LayoutParams(-1,-1));
+        identity.addView(avatar,new LinearLayout.LayoutParams(dp(72),dp(72)));
+        TextView photo=host.sheetAction("◈  Изменить аватар",this::selectAvatar);
+        photo.setBackground(profileGlass(17));
+        LinearLayout.LayoutParams photoParams=new LinearLayout.LayoutParams(0,dp(48),1);
+        photoParams.leftMargin=dp(15);identity.addView(photo,photoParams);
+        card.addView(identity,idParams);
         nicknameInput=new EditText(host);nicknameInput.setHint("Ник, от 2 до 32 символов");
         nicknameInput.setSingleLine(true);host.styleField(nicknameInput);
-        nicknameInput.setText(nickname);panel.addView(nicknameInput);
+        nicknameInput.setText(nickname);
+        LinearLayout.LayoutParams nickParams=new LinearLayout.LayoutParams(-1,dp(54));
+        nickParams.topMargin=dp(8);card.addView(nicknameInput,nickParams);
         TextView save=host.sheetAction("Сохранить ник",()->saveNickname());
-        LinearLayout.LayoutParams saveParams=new LinearLayout.LayoutParams(-1,dp(50));
-        saveParams.topMargin=dp(10);panel.addView(save,saveParams);
-        profileNotice=text("",12);profileNotice.setTextColor(NightwellDesign.MUTED);
-        profileNotice.setPadding(dp(4),dp(8),dp(4),dp(8));panel.addView(profileNotice);
-        panel.addView(host.sectionLabel("Аккаунт"));
-        addAction(panel,"Устройства и семья",this::showDevicesFamily);
-        addAction(panel,"Nightwell Premium",host::premium);
-        addAction(panel,"Моя статистика",()->host.feature("stats"));
-        addAction(panel,"Настройки",host::settings);
-        addAction(panel,"Выйти из аккаунта",()->new AlertDialog.Builder(host)
+        save.setBackground(profileGlass(18));
+        LinearLayout.LayoutParams saveParams=new LinearLayout.LayoutParams(-2,dp(50));
+        saveParams.topMargin=dp(10);card.addView(save,saveParams);
+        profileNotice=text("",12);profileNotice.setTextColor(0xfff8cbda);
+        profileNotice.setPadding(dp(4),dp(7),dp(4),dp(1));card.addView(profileNotice);
+        LinearLayout.LayoutParams cardParams=new LinearLayout.LayoutParams(-1,-2);
+        cardParams.bottomMargin=dp(12);panel.addView(card,cardParams);
+
+        addProfileRow(panel,"person","Устройства и семья",this::showDevicesFamily);
+        addProfileRow(panel,"library","Виджеты",()->
+            Toast.makeText(host,"Виджеты Android ещё не реализованы",Toast.LENGTH_SHORT).show());
+        addProfileRow(panel,"stats","Статистика",()->host.feature("stats"));
+        addProfileRow(panel,"star",host.premiumAllowed()?
+            "Nightwell Premium · Подписка активна":"Nightwell Premium",host::premium);
+        addProfileRow(panel,"download","Выйти из аккаунта",()->new AlertDialog.Builder(host)
             .setTitle("Выйти из аккаунта?")
             .setMessage("Музыка и загруженные треки не будут удалены.")
             .setNegativeButton("Отмена",null)
-            .setPositiveButton("Выйти",(d,n)->{clearIdentity();host.selectMenu("Выйти");})
-            .show());
-        AlertDialog dialog=new AlertDialog.Builder(host).setTitle("Профиль")
-            .setView(scroll).setPositiveButton("Готово",null).create();
-        host.styleSheet(dialog);dialog.show();
+            .setPositiveButton("Выйти",(d,n)->{
+                full.dismiss();clearIdentity();host.selectMenu("Выйти");
+            }).show());
+        full.setContentView(shell);
+        android.view.Window w=full.getWindow();
+        if(w!=null){
+            w.setBackgroundDrawableResource(android.R.color.transparent);
+            w.addFlags(android.view.WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+            w.setStatusBarColor(0xff451747);
+            w.setNavigationBarColor(0xff112b53);
+            w.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+        }
+        full.show();
+        if(full.getWindow()!=null)
+            full.getWindow().setLayout(android.view.WindowManager.LayoutParams.MATCH_PARENT,
+                android.view.WindowManager.LayoutParams.MATCH_PARENT);
         refreshMetadata(true);
+    }
+    private android.graphics.drawable.Drawable profileGlass(int radius){
+        GradientDrawable bg=new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+            new int[]{0x99613a67,0x88543a64,0x88413762});
+        bg.setCornerRadius(dp(radius));bg.setStroke(dp(1),0x55e0a2d7);return bg;
+    }
+    private void addProfileRow(LinearLayout parent,String icon,String label,Runnable click){
+        LinearLayout row=row();row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(15),dp(9),dp(13),dp(9));row.setBackground(profileGlass(21));
+        row.addView(new NavigationMenuIcon(host,icon,0xfffaf2ff),
+            new LinearLayout.LayoutParams(dp(25),dp(25)));
+        TextView title=text(label,16);title.setTypeface(null,android.graphics.Typeface.BOLD);
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1);
+        lp.leftMargin=dp(14);row.addView(title,lp);
+        TextView chevron=text("›",27);chevron.setTextColor(0xfff8d5ef);
+        row.addView(chevron,new LinearLayout.LayoutParams(dp(25),-2));
+        row.setOnClickListener(v->click.run());
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(64));
+        p.bottomMargin=dp(11);parent.addView(row,p);
     }
     private void addAction(LinearLayout panel,String title,Runnable onClick){
         TextView action=host.sheetAction(title,onClick);
@@ -141,7 +217,7 @@ final class NightwellAccountUI {
             }else if(next.isEmpty()){
                 avatarURL="";bitmap=null;bitmapUser=scope;
                 if(headerImage!=null){headerImage.setImageBitmap(null);headerImage.setVisibility(View.GONE);}
-                if(profileImage!=null)profileImage.setImageBitmap(null);
+                if(profileImage!=null){profileImage.setImageBitmap(null);profileImage.setVisibility(View.GONE);}
             }
         });
     }
@@ -160,7 +236,7 @@ final class NightwellAccountUI {
                     if(host.isDestroyed()||!account.equals(owner())||!source.equals(avatarURL))return;
                     bitmap=result;bitmapUser=account;
                     if(headerImage!=null){headerImage.setImageBitmap(result);headerImage.setVisibility(View.VISIBLE);}
-                    if(profileImage!=null)profileImage.setImageBitmap(result);
+                    if(profileImage!=null){profileImage.setImageBitmap(result);profileImage.setVisibility(View.VISIBLE);}
                 });
             }catch(Exception ignored){
                 // Cached metadata is still useful if the optional avatar fails.
@@ -212,7 +288,7 @@ final class NightwellAccountUI {
                     if(host.isDestroyed()||!account.equals(owner()))return;
                     bitmap=scaled;bitmapUser=account;
                     if(headerImage!=null){headerImage.setImageBitmap(scaled);headerImage.setVisibility(View.VISIBLE);}
-                    if(profileImage!=null)profileImage.setImageBitmap(scaled);
+                    if(profileImage!=null){profileImage.setImageBitmap(scaled);profileImage.setVisibility(View.VISIBLE);}
                     avatarURL=response.optString("avatar_url","");
                     notice("Аватар обновлён");
                 });
