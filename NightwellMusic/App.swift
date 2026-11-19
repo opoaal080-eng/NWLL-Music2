@@ -1590,7 +1590,7 @@ struct NativeRoot: View {
                             .frame(width: 126, height: 130)
                             .accessibilityHidden(true)
                         VStack(alignment: .leading, spacing: 10) {
-                            Text("Мне нравится")
+                            Text("Избранное")
                                 .font(.system(size: 28, weight: .bold, design: .rounded))
                                 .foregroundStyle(.white)
                                 .lineLimit(2)
@@ -1680,7 +1680,7 @@ struct NativeRoot: View {
                             }
                             Button("Поделиться", systemImage: "square.and.arrow.up") {
                                 Task {
-                                    shareText = await store.share(kind: "likes", title: "Мне нравится", tracks: tracks)
+                                    shareText = await store.share(kind: "likes", title: "Избранное", tracks: tracks)
                                     showShare = shareText != nil
                                 }
                             }
