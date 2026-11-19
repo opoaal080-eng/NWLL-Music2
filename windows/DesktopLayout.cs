@@ -159,9 +159,12 @@ public partial class MainWindow
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
         };
         // Slim, subtle scrollbar that avoids stealing width from menu labels.
-        var railScrollbar = new Style(typeof(System.Windows.Controls.Primitives.ScrollBar));
-        railScrollbar.Setters.Add(new Setter(FrameworkElement.WidthProperty, 6.0));
-        railScrollbar.Setters.Add(new Setter(UIElement.OpacityProperty, .48));
+        var railScrollbar = new Style(typeof(System.Windows.Controls.Primitives.ScrollBar))
+        {
+            BasedOn = (Style)FindResource(typeof(System.Windows.Controls.Primitives.ScrollBar))
+        };
+        railScrollbar.Setters.Add(new Setter(FrameworkElement.WidthProperty, 9.0));
+        railScrollbar.Setters.Add(new Setter(UIElement.OpacityProperty, .60));
         scrolling.Resources[typeof(System.Windows.Controls.Primitives.ScrollBar)] = railScrollbar;
         dock.Children.Add(scrolling);
         return rail;

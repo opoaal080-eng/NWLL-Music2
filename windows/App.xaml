@@ -87,8 +87,8 @@
      <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="{TemplateBinding Padding}" RecognizesAccessKey="True" TextElement.Foreground="{TemplateBinding Foreground}"/>
     </Border>
     <ControlTemplate.Triggers>
-     <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Surface" Property="Background" Value="{DynamicResource HoverBrush}"/><Setter TargetName="Surface" Property="BorderBrush" Value="#5B5B5B"/></Trigger>
-     <Trigger Property="IsPressed" Value="True"><Setter TargetName="Surface" Property="Background" Value="#3C3C3C"/></Trigger>
+     <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Surface" Property="Background" Value="{DynamicResource HoverBrush}"/><Setter TargetName="Surface" Property="BorderBrush" Value="{DynamicResource LineBrush}"/></Trigger>
+     <Trigger Property="IsPressed" Value="True"><Setter TargetName="Surface" Property="Background" Value="{DynamicResource HoverBrush}"/></Trigger>
      <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Surface" Property="Opacity" Value="0.4"/></Trigger>
     </ControlTemplate.Triggers>
    </ControlTemplate></Setter.Value></Setter>
@@ -178,7 +178,7 @@
    <Setter Property="Background" Value="{DynamicResource InputBrush}"/>
    <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}"/>
    <Setter Property="CaretBrush" Value="{DynamicResource AccentBrush}"/>
-   <Setter Property="SelectionBrush" Value="#5C5C5C"/>
+   <Setter Property="SelectionBrush" Value="{DynamicResource AccentSurfaceBrush}"/>
    <Setter Property="SelectionOpacity" Value="0.6"/>
    <Setter Property="Padding" Value="14,10"/><Setter Property="MinHeight" Value="44"/>
    <Setter Property="FontSize" Value="14"/><Setter Property="VerticalContentAlignment" Value="Center"/>
@@ -190,7 +190,7 @@
     </Border>
     <ControlTemplate.Triggers>
      <Trigger Property="Text" Value=""><Setter TargetName="Placeholder" Property="Visibility" Value="Visible"/></Trigger>
-     <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Field" Property="BorderBrush" Value="#575757"/></Trigger>
+     <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Field" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/></Trigger>
      <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="Field" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/></Trigger>
      <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Field" Property="Opacity" Value="0.45"/></Trigger>
     </ControlTemplate.Triggers>
@@ -201,7 +201,7 @@
    <Setter Property="Background" Value="{DynamicResource InputBrush}"/>
    <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}"/>
    <Setter Property="CaretBrush" Value="{DynamicResource AccentBrush}"/>
-   <Setter Property="SelectionBrush" Value="#5C5C5C"/>
+   <Setter Property="SelectionBrush" Value="{DynamicResource AccentSurfaceBrush}"/>
    <Setter Property="Padding" Value="14,10"/><Setter Property="MinHeight" Value="44"/>
    <Setter Property="FontSize" Value="14"/>
    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="PasswordBox">
@@ -227,13 +227,13 @@
      <ContentPresenter Content="{TemplateBinding SelectionBoxItem}" ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}" ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}" IsHitTestVisible="False" Margin="14,8,42,8" VerticalAlignment="Center" TextElement.Foreground="{TemplateBinding Foreground}"/>
      <Path Data="M 0,0 L 5,5 L 10,0" Stroke="{DynamicResource SecondaryBrush}" StrokeThickness="1.5" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,16,0" IsHitTestVisible="False"/>
      <Popup x:Name="PART_Popup" IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom" AllowsTransparency="True" Focusable="False" PopupAnimation="Fade">
-      <Border MinWidth="{TemplateBinding ActualWidth}" MaxHeight="{TemplateBinding MaxDropDownHeight}" Background="#1D1D1D" BorderBrush="#4B4B4B" BorderThickness="1" CornerRadius="10" Margin="0,5,0,0" Padding="5">
+      <Border MinWidth="{TemplateBinding ActualWidth}" MaxHeight="{TemplateBinding MaxDropDownHeight}" Background="{DynamicResource PaneBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="10" Margin="0,5,0,0" Padding="5">
        <ScrollViewer CanContentScroll="True" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><ItemsPresenter/></ScrollViewer>
       </Border>
      </Popup>
     </Grid>
     <ControlTemplate.Triggers>
-     <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Field" Property="BorderBrush" Value="#575757"/></Trigger>
+     <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Field" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/></Trigger>
      <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="Field" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/></Trigger>
      <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.45"/></Trigger>
     </ControlTemplate.Triggers>
@@ -282,7 +282,7 @@
    <Setter Property="FontSize" Value="14"/><Setter Property="Margin" Value="0,6"/><Setter Property="FocusVisualStyle" Value="{StaticResource ControlFocus}"/>
    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="CheckBox">
     <Grid Background="Transparent"><Grid.ColumnDefinitions><ColumnDefinition Width="24"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-     <Border x:Name="Box" Width="22" Height="22" Background="{DynamicResource InputBrush}" BorderBrush="#5B5B5B" BorderThickness="1" CornerRadius="6" VerticalAlignment="Center">
+     <Border x:Name="Box" Width="22" Height="22" Background="{DynamicResource InputBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="6" VerticalAlignment="Center">
       <Path x:Name="Check" Data="M 0,5 L 4,9 L 12,0" Stroke="{DynamicResource AccentBrush}" StrokeThickness="2" Width="12" Height="9" Stretch="Uniform" Visibility="Collapsed"/>
      </Border>
      <ContentPresenter Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center" TextElement.Foreground="{TemplateBinding Foreground}"/>
@@ -315,7 +315,7 @@
       </Grid>
      </Border>
      <Popup x:Name="PART_Popup" Placement="Right" HorizontalOffset="4" AllowsTransparency="True" IsOpen="{Binding IsSubmenuOpen,RelativeSource={RelativeSource TemplatedParent}}" PopupAnimation="Fade">
-      <Border Background="#1D1D1D" BorderBrush="#424242" BorderThickness="1" CornerRadius="12" Padding="6"><ScrollViewer MaxHeight="530"><ItemsPresenter/></ScrollViewer></Border>
+      <Border Background="{DynamicResource PaneBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="12" Padding="6"><ScrollViewer MaxHeight="530"><ItemsPresenter/></ScrollViewer></Border>
      </Popup>
     </Grid>
     <ControlTemplate.Triggers>
@@ -335,9 +335,9 @@
    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Slider">
     <Grid MinWidth="60">
      <Track x:Name="PART_Track" Height="24" VerticalAlignment="Center" Minimum="{TemplateBinding Minimum}" Maximum="{TemplateBinding Maximum}" Value="{Binding Value,RelativeSource={RelativeSource TemplatedParent},Mode=TwoWay}" IsDirectionReversed="{TemplateBinding IsDirectionReversed}">
-      <Track.DecreaseRepeatButton><RepeatButton Command="Slider.DecreaseLarge" Height="4" VerticalAlignment="Center"><RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Background="#959595" CornerRadius="2"/></ControlTemplate></RepeatButton.Template></RepeatButton></Track.DecreaseRepeatButton>
-      <Track.Thumb><Thumb Width="12" Height="12"><Thumb.Template><ControlTemplate TargetType="Thumb"><Border Background="#B7B7B7" BorderBrush="#656565" BorderThickness="1" CornerRadius="6"/></ControlTemplate></Thumb.Template></Thumb></Track.Thumb>
-      <Track.IncreaseRepeatButton><RepeatButton Command="Slider.IncreaseLarge" Height="4" VerticalAlignment="Center"><RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Background="#363636" CornerRadius="2"/></ControlTemplate></RepeatButton.Template></RepeatButton></Track.IncreaseRepeatButton>
+      <Track.DecreaseRepeatButton><RepeatButton Command="Slider.DecreaseLarge" Height="4" VerticalAlignment="Center"><RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Background="{DynamicResource SliderActiveBrush}" CornerRadius="2"/></ControlTemplate></RepeatButton.Template></RepeatButton></Track.DecreaseRepeatButton>
+      <Track.Thumb><Thumb Width="12" Height="12"><Thumb.Template><ControlTemplate TargetType="Thumb"><Border Background="{DynamicResource SliderThumbBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="6"/></ControlTemplate></Thumb.Template></Thumb></Track.Thumb>
+      <Track.IncreaseRepeatButton><RepeatButton Command="Slider.IncreaseLarge" Height="4" VerticalAlignment="Center"><RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Background="{DynamicResource SliderInactiveBrush}" CornerRadius="2"/></ControlTemplate></RepeatButton.Template></RepeatButton></Track.IncreaseRepeatButton>
      </Track>
     </Grid>
    </ControlTemplate></Setter.Value></Setter>
@@ -347,7 +347,7 @@
    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ScrollBar">
     <Track x:Name="PART_Track" Orientation="{TemplateBinding Orientation}" IsDirectionReversed="True" Minimum="{TemplateBinding Minimum}" Maximum="{TemplateBinding Maximum}" Value="{TemplateBinding Value}" ViewportSize="{TemplateBinding ViewportSize}">
      <Track.DecreaseRepeatButton><RepeatButton x:Name="Before" Command="ScrollBar.PageUpCommand"><RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Background="Transparent"/></ControlTemplate></RepeatButton.Template></RepeatButton></Track.DecreaseRepeatButton>
-     <Track.Thumb><Thumb MinHeight="24"><Thumb.Template><ControlTemplate TargetType="Thumb"><Border Background="#4B4B4B" CornerRadius="3" Margin="3,1"/></ControlTemplate></Thumb.Template></Thumb></Track.Thumb>
+     <Track.Thumb><Thumb MinHeight="24"><Thumb.Template><ControlTemplate TargetType="Thumb"><Border Background="{DynamicResource AccentSurfaceBrush}" CornerRadius="3" Margin="3,1"/></ControlTemplate></Thumb.Template></Thumb></Track.Thumb>
      <Track.IncreaseRepeatButton><RepeatButton x:Name="After" Command="ScrollBar.PageDownCommand"><RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Background="Transparent"/></ControlTemplate></RepeatButton.Template></RepeatButton></Track.IncreaseRepeatButton>
     </Track>
     <ControlTemplate.Triggers><Trigger Property="Orientation" Value="Horizontal"><Setter TargetName="PART_Track" Property="IsDirectionReversed" Value="False"/><Setter TargetName="Before" Property="Command" Value="ScrollBar.PageLeftCommand"/><Setter TargetName="After" Property="Command" Value="ScrollBar.PageRightCommand"/></Trigger></ControlTemplate.Triggers>
