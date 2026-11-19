@@ -92,8 +92,9 @@ public partial class MainWindow
         {
             PlayerAmbientLayer.Visibility = PlayerPage.Visibility == Visibility.Visible
                 ? Visibility.Visible : Visibility.Collapsed;
-            VicePalmFoliage.Visibility = PlayerPage.Visibility == Visibility.Visible
-                ? Visibility.Collapsed : Visibility.Visible;
+            VicePalmFoliage.Visibility = visualTheme == "vice" &&
+                                         PlayerPage.Visibility != Visibility.Visible
+                ? Visibility.Visible : Visibility.Collapsed;
         };
         PlayerAmbientLayer.Visibility = PlayerPage.Visibility == Visibility.Visible
             ? Visibility.Visible : Visibility.Collapsed;
