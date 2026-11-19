@@ -322,6 +322,7 @@ public final class MainActivity extends Activity {
     private TextView fullTime,fullElapsed,fullNetworkNote,homePlay,fullPlay,fullLike,fullDislike,fullAudioOutput,fullShuffle;
     private SeekBar seek;
     private EditText search;
+    private TextView searchEmptyHint;
     private LinearLayout artistStrip;
     private TextView lyricsText;private android.widget.ScrollView lyricsScroll;private JSONArray lyricLines;private int activeLyric=-2;private String lyricsTrack="";
     private ListView list;
@@ -1131,8 +1132,12 @@ public final class MainActivity extends Activity {
                 }
                 public void afterTextChanged(Editable e){}
             });
-            shown=new JSONArray();artistStrip=column();body.addView(artistStrip);
-            ios().searchHeader(body);
+            shown=new JSONArray();ios().searchHeader(body);
+            artistStrip=column();body.addView(artistStrip);
+            searchEmptyHint=text("Здесь пока нет треков",17);
+            searchEmptyHint.setGravity(Gravity.CENTER);
+            searchEmptyHint.setTextColor(0xb4eee3ee);
+            body.addView(searchEmptyHint,new LinearLayout.LayoutParams(-1,dp(126)));
         }
         else if(screen.equals("Избранное")){shown=sortedFavorites(buildFavorites());recoverMissingFavorites();LinearLayout actionsRow=row();actionsRow.setGravity(Gravity.CENTER_VERTICAL);
             TextView info=text(shown.length()+" треков",13);
@@ -1242,6 +1247,8 @@ public final class MainActivity extends Activity {
             for(int i=0;i<shown.length();i++)NativeAPI.normalizeTrack(shown.optJSONObject(i));
         }
         rememberFavorites(shown);if(adapter!=null)adapter.notifyDataSetChanged();
+        if(searchEmptyHint!=null)
+            searchEmptyHint.setVisibility("Поиск".equals(screen)&&shown.length()==0?View.VISIBLE:View.GONE);
     }
     // The /api/likes endpoint provides IDs, while /api/tracks may be a partial catalog.
     // Keep the last known metadata so favorites never disappear on catalog refresh.
