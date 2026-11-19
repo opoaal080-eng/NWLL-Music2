@@ -127,11 +127,11 @@
      <Grid Grid.Row="1" Margin="24,1,24,12">
        <Grid.RowDefinitions><RowDefinition Height="*" MinHeight="92"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
        <Grid>
-       <Viewbox MaxWidth="360" MaxHeight="340" Stretch="Uniform" StretchDirection="DownOnly" HorizontalAlignment="Center" VerticalAlignment="Center">
+       <Viewbox MaxWidth="340" MaxHeight="320" Stretch="Uniform" StretchDirection="DownOnly" HorizontalAlignment="Center" VerticalAlignment="Center">
         <Border Width="360" Height="360" CornerRadius="22" Background="#262626" BorderBrush="#454545" BorderThickness="1">
          <Border.Clip><RectangleGeometry Rect="0,0,360,360" RadiusX="22" RadiusY="22"/></Border.Clip>
          <Grid><Path Data="M 8,18 V5 L20,3 V16 M8,9 L20,7 M8,18 C4,16 2,19 4,21 C7,23 10,21 10,19 M20,16 C16,14 13,17 15,20 C18,22 21,20 21,18" Stroke="#727272" StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="90" Height="90" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-          <Image x:Name="Cover" Stretch="UniformToFill" Width="358" Height="358" ToolTip="Обложка текущего трека"/>
+          <Image x:Name="Cover" Stretch="Uniform" Width="358" Height="358" ToolTip="Обложка текущего трека без обрезки"/>
          </Grid>
         </Border>
        </Viewbox>
@@ -155,14 +155,17 @@
         <Button x:Name="FullPrevious" Grid.Column="1" Style="{StaticResource TransportButton}" Click="PreviousClick" ToolTip="Предыдущий трек" VerticalAlignment="Center"/>
         <Button x:Name="FullNext" Grid.Column="2" Style="{StaticResource TransportButton}" Click="NextClick" ToolTip="Следующий трек" VerticalAlignment="Center"/>
         <Grid Grid.Column="3" VerticalAlignment="Center"><Button x:Name="RepeatButton" Content="&#xE8EE;" Style="{StaticResource TransportButton}" Click="RepeatClick" ToolTip="Повтор"/><TextBlock x:Name="RepeatOne" Text="1" Foreground="#CACACA" FontSize="9" Margin="0,3,5,0" HorizontalAlignment="Right" VerticalAlignment="Top" IsHitTestVisible="False" Visibility="Collapsed"/></Grid>
-        <Button Grid.Column="4" x:Name="FullPlay" Content="&#xE768;" Width="78" Height="78" FontSize="28" Margin="7,0,0,0" VerticalAlignment="Center" Style="{StaticResource PlayButton}" Click="ToggleClick" ToolTip="Воспроизвести или поставить на паузу"/>
+        <Button Grid.Column="4" x:Name="FullPlay" Content="&#xE768;" Width="76" Height="76" FontSize="28" Margin="7,0,0,0" VerticalAlignment="Center" Style="{StaticResource PlayButton}" Click="ToggleClick" ToolTip="Воспроизвести или поставить на паузу" AutomationProperties.Name="Воспроизведение или пауза"/>
        </Grid>
        <Grid Margin="55,8,55,0"><Grid.ColumnDefinitions><ColumnDefinition Width="24"/><ColumnDefinition Width="*"/><ColumnDefinition Width="48"/></Grid.ColumnDefinitions>
         <Path Data="M 3,9 H 7 L 12,5 V19 L7,15 H3 Z M 16,9 C18,11 18,13 16,15 M19,6 C23,9 23,15 19,18" Stroke="#A0A0A0" StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Width="20" Height="20" Stretch="Uniform" VerticalAlignment="Center"/>
         <Slider Grid.Column="1" x:Name="FullVolumeSlider" Minimum="0" Maximum="100" Value="100" ValueChanged="VolumeChanged" AutoToolTipPlacement="TopLeft" AutoToolTipPrecision="0" AutomationProperties.Name="Громкость"/>
         <TextBlock Grid.Column="2" x:Name="FullVolumeValue" Text="100%" Foreground="{StaticResource SecondaryBrush}" FontSize="12" TextAlignment="Right" VerticalAlignment="Center"/>
        </Grid>
-       <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,10,0,0"><Button Content="Текст песни" Click="LyricsButtonClick" Style="{StaticResource ChipButton}" FontSize="12" Margin="0,0,8,0"/><Button Content="Очередь" Click="QueueClick" Style="{StaticResource ChipButton}" FontSize="12"/></StackPanel>
+       <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,8,0,0">
+         <Button x:Name="FullLyricsButton" Click="LyricsButtonClick" Style="{StaticResource PlayerActionButton}" Margin="0,0,10,0" ToolTip="Текст песни" AutomationProperties.Name="Открыть текст песни"/>
+         <Button x:Name="FullQueueButton" Click="QueueClick" Style="{StaticResource PlayerActionButton}" ToolTip="Очередь воспроизведения" AutomationProperties.Name="Открыть очередь воспроизведения"/>
+        </StackPanel>
       </StackPanel></Viewbox></Border>
       </Grid>
      </Grid>

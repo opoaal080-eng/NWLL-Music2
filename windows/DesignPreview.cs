@@ -17,6 +17,9 @@ public partial class MainWindow {
       MiniPlay.Width<=MiniNext.Width || MiniPlay.Height<=MiniNext.Height ||
       ((Panel)MiniPlay.Parent).Children.IndexOf(MiniPlay)<=((Panel)MiniNext.Parent).Children.IndexOf(MiniNext))
     throw new InvalidOperationException("Play must be right-most and larger than skip in both players");
+  if (FullLyricsButton.Content is not System.Windows.Shapes.Path ||
+      FullQueueButton.Content is not System.Windows.Shapes.Path)
+    throw new InvalidOperationException("Player action buttons must use vector icons");
   Status.Text="";Ribbon.PreviewPhase=1.4;await PreviewWindow(this,"01-home");
   Ribbon.Playing=true;Ribbon.Intensity=.8;Ribbon.PreviewPhase=4.2;await PreviewWindow(this,"12-ambient-playing");
   Ribbon.PreviewPhase=9.4;await PreviewWindow(this,"13-ambient-motion");
@@ -38,6 +41,12 @@ public partial class MainWindow {
   Home.Visibility=Library.Visibility=Dock.Visibility=Visibility.Collapsed;PlayerPage.Visibility=Visibility.Visible;Ribbon.Visibility=Visibility.Visible;Ribbon.Focused=true;
   FullSeek.Maximum=218;FullSeek.Value=86;FullTime.Text="1:26    /    3:38";SetPlayVector(FullPlay,true);FullVolumeSlider.Value=VolumeSlider.Value=72;FullVolumeValue.Text=MiniVolumeValue.Text="72%";
   await PreviewWindow(this,"04-player");Width=800;Height=620;await PreviewWindow(this,"05-player-compact");
+   // At the minimum usable window size, nothing in the transport area may be
+   // cut off by the player's clipping bounds.
+   var playerBottom = FullQueueButton.TranslatePoint(
+       new Point(0, FullQueueButton.ActualHeight), PlayerPage).Y;
+   if (playerBottom > PlayerPage.ActualHeight + 1)
+       throw new InvalidOperationException("Compact player clips queue/lyrics controls");
   Width=1120;Height=800;
   using var lyrics=JsonDocument.Parse("{\"plain\":\"Город засыпает, огни не спешат.\\nВ каждом окне свой маленький мир.\\nМузыка рядом, и время звучит.\"}");
   LyricsText.Text=lyrics.RootElement.GetProperty("plain").GetString();LyricsPanel.Visibility=Visibility.Visible;await PreviewWindow(this,"06-lyrics");LyricsPanel.Visibility=Visibility.Collapsed;

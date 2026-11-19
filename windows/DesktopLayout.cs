@@ -154,7 +154,7 @@ public partial class MainWindow
         dock.Children.Add(new ScrollViewer
         {
             Content = list,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
         });
         return rail;
@@ -177,16 +177,23 @@ public partial class MainWindow
 
     Button RailButton(string symbol, string label)
     {
-        var contents = new StackPanel { Orientation = Orientation.Horizontal, Width = 184 };
+        // A fixed 184px content width clipped menu labels when a scrollbar appeared.
+        // The star-sized label shrinks safely while preserving the icon and all actions.
+        var contents = new Grid { HorizontalAlignment = HorizontalAlignment.Stretch };
+        contents.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(34) });
+        contents.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         var icon = NightwellIcons.Draw(NightwellIcons.Symbol(symbol), 21);
-        icon.Margin = new Thickness(2, 0, 11, 0);
+        icon.Margin = new Thickness(2, 0, 8, 0);
         icon.VerticalAlignment = VerticalAlignment.Center;
+        Grid.SetColumn(icon, 0);
         contents.Children.Add(icon);
-        contents.Children.Add(new TextBlock
+        var text = new TextBlock
         {
             Text = label, FontSize = 14, VerticalAlignment = VerticalAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis
-        });
+        };
+        Grid.SetColumn(text, 1);
+        contents.Children.Add(text);
         return new Button
         {
             Content = contents, Height = 44, MinHeight = 44, Padding = new Thickness(7, 5, 4, 5),

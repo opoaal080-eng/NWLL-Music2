@@ -117,17 +117,33 @@
    <Setter Property="FontFamily" Value="Segoe MDL2 Assets"/>
    <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
   </Style>
+  <Style x:Key="PlayerActionButton" TargetType="Button" BasedOn="{StaticResource IconButton}">
+   <Setter Property="Width" Value="46"/><Setter Property="Height" Value="46"/>
+   <Setter Property="Background" Value="#B51A1A1D"/>
+   <Setter Property="BorderBrush" Value="#8EFFFFFF"/>
+   <Setter Property="BorderThickness" Value="1"/>
+   <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+    <Border x:Name="Surface" CornerRadius="23" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1">
+     <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+    </Border>
+    <ControlTemplate.Triggers>
+     <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Surface" Property="Background" Value="#DD39393D"/><Setter TargetName="Surface" Property="BorderBrush" Value="#EDFFFFFF"/></Trigger>
+     <Trigger Property="IsPressed" Value="True"><Setter TargetName="Surface" Property="Background" Value="#DD57575C"/></Trigger>
+     <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Surface" Property="Opacity" Value=".40"/></Trigger>
+    </ControlTemplate.Triggers>
+   </ControlTemplate></Setter.Value></Setter>
+  </Style>
   <Style x:Key="PlayButton" TargetType="Button" BasedOn="{StaticResource TransportButton}">
    <Setter Property="Width" Value="64"/><Setter Property="Height" Value="64"/>
-   <Setter Property="Background" Value="#DC191929"/><Setter Property="BorderBrush" Value="#87FFFFFF"/>
+   <Setter Property="Background" Value="#CF1B1B1D"/><Setter Property="BorderBrush" Value="#B3FFFFFF"/>
    <Setter Property="FontSize" Value="24"/>
    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
     <Border x:Name="Circle" CornerRadius="100" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1">
      <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
     </Border>
     <ControlTemplate.Triggers>
-     <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Circle" Property="Background" Value="#F032304B"/><Setter TargetName="Circle" Property="BorderBrush" Value="#C7FFFFFF"/></Trigger>
-     <Trigger Property="IsPressed" Value="True"><Setter TargetName="Circle" Property="Background" Value="#F0544263"/></Trigger>
+     <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Circle" Property="Background" Value="#E939393B"/><Setter TargetName="Circle" Property="BorderBrush" Value="#F2FFFFFF"/></Trigger>
+     <Trigger Property="IsPressed" Value="True"><Setter TargetName="Circle" Property="Background" Value="#E65E5E60"/></Trigger>
      <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Circle" Property="Opacity" Value="0.4"/></Trigger>
     </ControlTemplate.Triggers>
    </ControlTemplate></Setter.Value></Setter>

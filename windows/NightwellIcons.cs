@@ -38,6 +38,8 @@ internal static class NightwellIcons
             "shuffle" => "M3,6 H6 C13,6 10,18 18,18 H21 M17,14 L21,18 L17,22 M3,18 H6 C9,18 10,14 12,12 M17,2 L21,6 L17,10 M13,6 H21",
             "repeat" => "M17,3 L21,7 L17,11 M3,11 V7 C3,5 4,4 7,4 H21 M7,21 L3,17 L7,13 M21,13 V17 C21,19 20,20 17,20 H3",
             "volume" => "M3,9 H7 L12,5 V19 L7,15 H3 Z M16,9 C18,11 18,13 16,15 M19,6 C23,9 23,15 19,18",
+            "lyrics" => "M5,4 H19 M5,9 H18 M5,14 H13 M5,19 H11 M17,12 V20 M17,20 C14,18 12,20 14,22 C16,24 19,21 17,20",
+            "queue" => "M4,5 H20 M4,10 H20 M4,15 H12 M15,14 L21,18 L15,22 Z",
             "back" => "M15,4 L7,12 L15,20",
             "down" => "M5,9 L12,16 L19,9",
             "more" => "M12,4 A1,1 0 1 0 12,6 A1,1 0 1 0 12,4 M12,11 A1,1 0 1 0 12,13 A1,1 0 1 0 12,11 M12,18 A1,1 0 1 0 12,20 A1,1 0 1 0 12,18",
@@ -110,5 +112,7 @@ public partial class MainWindow
         PlayerCloseButton.Content = NightwellIcons.Draw("down", 21);
         PlayerMoreButton.Content = NightwellIcons.Draw("more", 21);
         LyricsCloseButton.Content = NightwellIcons.Draw("close", 20);
+        FullLyricsButton.Content = NightwellIcons.Draw("lyrics", 23);
+        FullQueueButton.Content = NightwellIcons.Draw("queue", 23);
     }
 }
