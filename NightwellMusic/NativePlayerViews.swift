@@ -286,7 +286,7 @@ struct MiniPlayer: View {
             HStack(spacing: compact ? 8 : 12) {
                 Button(action: open) {
                     NightwellTrackSwipeCarousel(clock: clock, gap: 8, onStep: { step in
-                        NativePlayer.shared.step(step, restartCurrent: false)
+                        NightwellSwipePlayback.playAdjacent(step, clock: clock)
                     }) { candidate in
                         HStack(spacing: 7) {
                             Cover(track: candidate, origin: store.origin)
@@ -955,7 +955,7 @@ struct FullPlayer: View {
                                     let side = min(box.size.width, availableHeight)
                                         * (inlineVisible ? 0.90 : 0.96)
                                     NightwellTrackSwipeCarousel(clock: clock, gap: 16, onStep: { step in
-                                        NativePlayer.shared.step(step, restartCurrent: false)
+                                        NightwellSwipePlayback.playAdjacent(step, clock: clock)
                                     }) { candidate in
                                         Cover(track: candidate, origin: store.origin, pixelWidth: 1024)
                                             .frame(width: side, height: side)
@@ -969,7 +969,7 @@ struct FullPlayer: View {
                                     // ambient colors remain behind the controls.
                                     let side = min(box.size.width, box.size.height) * 0.96
                                     NightwellTrackSwipeCarousel(clock: clock, gap: 16, onStep: { step in
-                                        NativePlayer.shared.step(step, restartCurrent: false)
+                                        NightwellSwipePlayback.playAdjacent(step, clock: clock)
                                     }) { candidate in
                                         Cover(track: candidate, origin: store.origin, pixelWidth: 1024)
                                             .frame(width: side, height: side)
