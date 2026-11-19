@@ -1962,7 +1962,9 @@ struct NativeTrackRow: View {
             }
         }
         .sheet(item: $selectedArtist) { artist in
-            ArtistProfileView(name: artist.name, togetherSession: togetherSession).environmentObject(store)
+            ArtistProfileView(name: artist.name, togetherSession: togetherSession)
+                .environmentObject(store)
+                .nightwellEdgeBack { selectedArtist = nil }
         }
         .sheet(isPresented: $showPlaylistTrackActions) {
             if let playlist {

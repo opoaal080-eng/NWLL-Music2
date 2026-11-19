@@ -170,6 +170,7 @@ struct NightwellPlaylistTrackSheet: View {
         .presentationDragIndicator(.hidden)
         .presentationCornerRadius(30)
         .presentationBackground(.clear)
+        .nightwellEdgeBack { dismiss() }
     }
 
     private func actionGroup<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
