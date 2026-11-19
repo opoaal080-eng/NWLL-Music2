@@ -295,6 +295,7 @@ public final class MainActivity extends Activity {
         };
     private LinearLayout root,body,dock,head,bottomNavigation;
     private NightwellAccountUI accountUI;
+    private android.widget.FrameLayout profileHeader;
     private TextView status,miniTitle,miniArtist,miniPlay,miniPrev,miniNext,miniLike;
     private android.widget.ImageView miniCover;private CircularProgressRing miniProgressRing;
     private ArtworkCache artworkCache;
@@ -519,6 +520,7 @@ public final class MainActivity extends Activity {
         profileAvatar.setContentDescription(user.isEmpty()?"Войти в аккаунт":"Открыть профиль");
         LinearLayout.LayoutParams profileParams=new LinearLayout.LayoutParams(dp(44),dp(44));
         profileParams.leftMargin=dp(4);head.addView(profileAvatar,profileParams);
+        profileHeader=profileAvatar;
         accountUI().bindHeaderAvatar(profileAvatar);
         LinearLayout.LayoutParams headerParams=new LinearLayout.LayoutParams(-1,dp(58));headerParams.bottomMargin=dp(8);root.addView(head,headerParams);if(backgroundOnly)head.setVisibility(View.GONE);
         nightwellBadge = text("", 11);
@@ -667,6 +669,11 @@ public final class MainActivity extends Activity {
     private NightwellAccountUI accountUI(){
         if(accountUI==null)accountUI=new NightwellAccountUI(this,api,()->user);
         return accountUI;
+    }
+    private void updateProfileHeader(){
+        if(profileHeader==null)return;
+        profileHeader.setContentDescription(user.isEmpty()?"Войти в аккаунт":"Открыть профиль");
+        if(!smokeMode)accountUI().bindHeaderAvatar(profileHeader);
     }
     private void openProfile(){
         if(user.isEmpty()){auth();return;}
@@ -1405,6 +1412,7 @@ public final class MainActivity extends Activity {
                     }
                     boolean accountChanged=!nextAccount.equals(user);
                     user=nextAccount;
+                    if(accountChanged)updateProfileHeader();
                     if(!nextAccount.equals(getSharedPreferences("native-api",MODE_PRIVATE).getString("account","")))searchCache.clear();
                     if(accountChanged){restoreRecent();restoreFavoriteDetails();}
                     getSharedPreferences("native-api",MODE_PRIVATE).edit().putString("account",user).apply();
@@ -1425,6 +1433,7 @@ public final class MainActivity extends Activity {
                         api.updateCSRF("");
                         libraryGeneration++;
                         user="";
+                        updateProfileHeader();
                         catalog=new JSONArray();
                         shown=new JSONArray();
                         playlists=new JSONArray();
@@ -1481,7 +1490,7 @@ public final class MainActivity extends Activity {
             }catch(Exception ignored){}
         });
     }
-    void smokeFixture(String page){try{user="smoke";catalog=new JSONArray();for(int i=0;i<24;i++)catalog.put(new JSONObject().put("id",String.format(java.util.Locale.ROOT,"%032x",i+1)).put("title",i==0?"Очень длинное название трека, которое должно аккуратно поместиться":"Трек "+(i+1)).put("artist","Nightwell Music · Исполнитель"));queue=catalog;playlists=new JSONArray();for(int i=0;i<16;i++)playlists.put(new JSONObject().put("id","fixture"+i).put("name","Мой плейлист "+(i+1)));for(int i=0;i<catalog.length();i++)likes.add(catalog.getJSONObject(i).getString("id"));currentID=catalog.getJSONObject(0).getString("id");miniTitle.setText(catalog.getJSONObject(0).getString("title"));miniArtist.setText("Nightwell Music");if("transfer".equals(page)){nativeTransfer();}else if("menu".equals(page)){head.post(this::menu);}else if("player".equals(page))openPlayer();else if("settings".equals(page))settings();else if("premium-sound".equals(page)||"premium-appearance".equals(page)){premiumOwner=user;premiumUntil=System.currentTimeMillis()+3600000;premiumChecked=System.currentTimeMillis();premiumPrefs=new JSONObject().put("bands",new JSONArray("[0,0,0,0,0]")).put("presets",new JSONObject()).put("theme","nightwell").put("ribbon_speed",1).put("ribbon_intensity",1);if("premium-sound".equals(page))equalizerPanel();else appearancePanel();}else if("wave-settings".equals(page))waveSettings();else if("auth".equals(page))auth();else if("queue".equals(page))showQueue();else if(page!=null)navigate(page);}catch(JSONException e){throw new IllegalStateException(e);}}
+    void smokeFixture(String page){try{user="smoke";updateProfileHeader();catalog=new JSONArray();for(int i=0;i<24;i++)catalog.put(new JSONObject().put("id",String.format(java.util.Locale.ROOT,"%032x",i+1)).put("title",i==0?"Очень длинное название трека, которое должно аккуратно поместиться":"Трек "+(i+1)).put("artist","Nightwell Music · Исполнитель"));queue=catalog;playlists=new JSONArray();for(int i=0;i<16;i++)playlists.put(new JSONObject().put("id","fixture"+i).put("name","Мой плейлист "+(i+1)));for(int i=0;i<catalog.length();i++)likes.add(catalog.getJSONObject(i).getString("id"));currentID=catalog.getJSONObject(0).getString("id");miniTitle.setText(catalog.getJSONObject(0).getString("title"));miniArtist.setText("Nightwell Music");if("transfer".equals(page)){nativeTransfer();}else if("menu".equals(page)){head.post(this::menu);}else if("player".equals(page))openPlayer();else if("settings".equals(page))settings();else if("premium-sound".equals(page)||"premium-appearance".equals(page)){premiumOwner=user;premiumUntil=System.currentTimeMillis()+3600000;premiumChecked=System.currentTimeMillis();premiumPrefs=new JSONObject().put("bands",new JSONArray("[0,0,0,0,0]")).put("presets",new JSONObject()).put("theme","nightwell").put("ribbon_speed",1).put("ribbon_intensity",1);if("premium-sound".equals(page))equalizerPanel();else appearancePanel();}else if("wave-settings".equals(page))waveSettings();else if("auth".equals(page))auth();else if("queue".equals(page))showQueue();else if(page!=null)navigate(page);}catch(JSONException e){throw new IllegalStateException(e);}}
     String friendly(Exception error){if(error instanceof java.net.UnknownHostException||error instanceof java.net.ConnectException||error instanceof java.net.SocketTimeoutException)return "Нет соединения. Офлайн-файлы доступны в меню.";String message=error.getMessage();return message!=null&&!message.startsWith("Unable")&&message.length()<180?message:"Не удалось выполнить действие. Повтори попытку.";}
     interface Work{JSONObject run()throws Exception;} interface Done{void run(JSONObject value);}
     void task(Work work,Done done){io.execute(()->{try{JSONObject value=work.run();ui.post(()->{if(!isDestroyed())done.run(value);});}catch(Exception ex){ui.post(()->{if(!isDestroyed())status.setText(friendly(ex));});}});}

@@ -61,16 +61,19 @@ final class NightwellAccountUI {
         else Toast.makeText(host,text,Toast.LENGTH_LONG).show();
     }
     void bindHeaderAvatar(FrameLayout target){
-        header=target;
-        headerImage=new ImageView(host);
-        headerImage.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        GradientDrawable shape=new GradientDrawable();
-        shape.setColor(0xff26242c);shape.setCornerRadius(dp(22));
-        headerImage.setBackground(shape);headerImage.setClipToOutline(true);
-        headerImage.setVisibility(bitmap!=null&&bitmapUser.equals(owner())?View.VISIBLE:View.GONE);
-        if(bitmapUser.equals(owner()))headerImage.setImageBitmap(bitmap);
-        header.addView(headerImage,new FrameLayout.LayoutParams(-1,-1));
-        if(!owner().isEmpty()&&(bitmap==null||!bitmapUser.equals(owner())))refreshMetadata(false);
+        if(header!=target||headerImage==null){
+            header=target;
+            headerImage=new ImageView(host);
+            headerImage.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            GradientDrawable shape=new GradientDrawable();
+            shape.setColor(0xff26242c);shape.setCornerRadius(dp(22));
+            headerImage.setBackground(shape);headerImage.setClipToOutline(true);
+            header.addView(headerImage,new FrameLayout.LayoutParams(-1,-1));
+        }
+        boolean same=bitmap!=null&&bitmapUser.equals(owner());
+        headerImage.setVisibility(same?View.VISIBLE:View.GONE);
+        headerImage.setImageBitmap(same?bitmap:null);
+        if(!owner().isEmpty()&&!same)refreshMetadata(false);
     }
     void showProfile(){
         if(owner().isEmpty()){host.auth();return;}
