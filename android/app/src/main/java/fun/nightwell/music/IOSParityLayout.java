@@ -28,9 +28,9 @@ final class IOSParityLayout {
     // does not show through the dialog's typography and content.
     boolean sheet=Color.alpha(color)>=190;
     GradientDrawable bg=new GradientDrawable(GradientDrawable.Orientation.TL_BR,
-       vice()?(sheet?new int[]{0xf447164e,0xf178256b,0xf024385f}:
+       vice()?(sheet?new int[]{0xfe47164e,0xfd78256b,0xfe24385f}:
                new int[]{color,0x8a57375f,0x83313859})
-             :(sheet?new int[]{0xf21b1b1e,0xf32b2b2f,0xf215151a}:
+             :(sheet?new int[]{0xfe1b1b1e,0xfd2b2b2f,0xfe15151a}:
                new int[]{0xd327272b,0xe038383b,0xd3222227}));
     bg.setCornerRadius(d(radius));bg.setStroke(Math.max(1,d(1)),vice()?0x50ffb8e7:0x50ffffff);
     return bg;

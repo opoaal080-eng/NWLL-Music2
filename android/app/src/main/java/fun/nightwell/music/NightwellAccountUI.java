@@ -80,7 +80,7 @@ final class NightwellAccountUI {
     void showProfile(){
         if(owner().isEmpty()){host.auth();return;}
         profileNotice=null;
-        Dialog full=new Dialog(host,android.R.style.Theme_DeviceDefault_NoActionBar_Fullscreen);
+        Dialog full=new Dialog(host,android.R.style.Theme_DeviceDefault_NoActionBar);
         LinearLayout shell=column();
         shell.setPadding(dp(18),dp(15),dp(18),dp(15));
         shell.setBackground(new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{
@@ -161,6 +161,7 @@ final class NightwellAccountUI {
         android.view.Window w=full.getWindow();
         if(w!=null){
             w.setBackgroundDrawableResource(android.R.color.transparent);
+            w.clearFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN);
             w.addFlags(android.view.WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
             w.setStatusBarColor(0xff451747);
             w.setNavigationBarColor(0xff112b53);

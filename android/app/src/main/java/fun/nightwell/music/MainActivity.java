@@ -417,7 +417,7 @@ public final class MainActivity extends Activity {
     android.graphics.drawable.Drawable touchSurface(int color,int corners){return NightwellDesign.ripple(this,color,Math.min(corners,28),true);}
     TextView sectionLabel(String label){TextView v=text(label.toUpperCase(java.util.Locale.ROOT),11);v.setLetterSpacing(.105f);v.setTextColor(NightwellDesign.MUTED);v.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));v.setPadding(dp(3),dp(18),0,dp(10));return v;}
     void styleField(EditText view){view.setTextSize(15);NightwellDesign.styleField(this,view);}
-    void styleSwitch(android.widget.Switch view){view.setTextColor(NightwellDesign.PRIMARY);view.setTextSize(15);view.setMinHeight(dp(52));view.setPadding(dp(5),dp(8),dp(5),dp(8));view.setShowText(false);view.setThumbTintList(android.content.res.ColorStateList.valueOf(0xfff5f6f7));view.setTrackTintList(new android.content.res.ColorStateList(new int[][]{new int[]{android.R.attr.state_checked},new int[]{}},new int[]{0xff6a7078,0xff34373b}));}
+    void styleSwitch(android.widget.Switch view){view.setTextColor(NightwellDesign.PRIMARY);view.setTextSize(15);view.setMinHeight(dp(52));view.setPadding(dp(5),dp(8),dp(5),dp(8));view.setShowText(false);view.setThumbTintList(android.content.res.ColorStateList.valueOf(0xfff5f6f7));view.setTrackTintList(new android.content.res.ColorStateList(new int[][]{new int[]{android.R.attr.state_checked},new int[]{}},new int[]{ios().vice()?0xfff13599:0xffb7b7bf,0xff34373b}));}
     void styleSheet(AlertDialog dialog){dialog.setOnShowListener(ignored->{
         android.view.Window window=dialog.getWindow();
         if(window!=null){
