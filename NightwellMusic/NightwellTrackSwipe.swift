@@ -44,6 +44,7 @@ struct NightwellTrackSwipeCarousel<Content: View>: View {
                 if let previous {
                     page(previous, width: width)
                         .offset(x: dragOffset - width - gap)
+                        .opacity(dragOffset > 0 ? enteringCoverOpacity(width: width) : 0)
                         .accessibilityHidden(true)
                 }
                 page(clock.displayCurrent, width: width)
@@ -51,11 +52,15 @@ struct NightwellTrackSwipeCarousel<Content: View>: View {
                 if let following {
                     page(following, width: width)
                         .offset(x: dragOffset + width + gap)
+                        .opacity(dragOffset < 0 ? enteringCoverOpacity(width: width) : 0)
                         .accessibilityHidden(true)
                 }
             }
             .frame(width: viewport.size.width, height: viewport.size.height)
             .clipped()
+            // The incoming cover dissolves in at the viewport edge instead of
+            // being sliced by the rectangular clipping boundary.
+            .mask(featheredViewportMask(width: width))
             .contentShape(Rectangle())
             .highPriorityGesture(horizontalSwipe(width: width))
         }
@@ -67,6 +72,25 @@ struct NightwellTrackSwipeCarousel<Content: View>: View {
             }
         }
         .accessibilityHint("Проведи влево или вправо, чтобы выбрать соседний трек")
+    }
+
+    private func enteringCoverOpacity(width: CGFloat) -> Double {
+        // The finger controls both translation and reveal, including reversal.
+        // An entering cover is already fully visible before it reaches centre.
+        min(1, Double(abs(dragOffset) / max(1, width * 0.27)))
+    }
+
+    private func featheredViewportMask(width: CGFloat) -> some View {
+        // At rest the active cover stays completely opaque. Feathering only
+        // grows while dragging, keeping artwork crisp between gestures.
+        let reveal = min(1, Double(abs(dragOffset) / max(1, width * 0.22)))
+        let edgeOpacity = 1 - reveal
+        return LinearGradient(stops: [
+            .init(color: .white.opacity(edgeOpacity), location: 0),
+            .init(color: .white, location: 0.075),
+            .init(color: .white, location: 0.925),
+            .init(color: .white.opacity(edgeOpacity), location: 1)
+        ], startPoint: .leading, endPoint: .trailing)
     }
 
     private func page(_ track: Track?, width: CGFloat) -> some View {
