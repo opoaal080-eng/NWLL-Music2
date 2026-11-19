@@ -1580,11 +1580,76 @@ struct NativeRoot: View {
         case .likes:
             let tracks = favoriteTracks
             ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 18) {
                     collectionScrollMarker
-                    HStack(alignment: .center, spacing: 8) {
-                        collectionHeading("Избранное", tracks: tracks, kind: "likes")
-                        Spacer(minLength: 0)
+
+                    // Match the opened-playlist layout, but display the actual
+                    // gradient heart from the library instead of a cover mosaic.
+                    HStack(alignment: .center, spacing: 16) {
+                        NightwellFavoriteHeartArtwork(width: 104, height: 108)
+                            .frame(width: 126, height: 130)
+                            .accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Мне нравится")
+                                .font(.system(size: 28, weight: .bold, design: .rounded))
+                                .foregroundStyle(.white)
+                                .lineLimit(2)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityAddTraits(.isHeader)
+                            Text(favoritesCountLabel(store.likes.count))
+                                .font(.system(size: 17, weight: .medium))
+                                .foregroundStyle(.white.opacity(0.60))
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .padding(.top, 14)
+
+                    HStack(spacing: 10) {
+                        Button {
+                            guard let first = tracks.first else { return }
+                            store.play(first, in: tracks)
+                        } label: {
+                            Label("Слушать", systemImage: "play.fill")
+                                .font(.system(size: 15, weight: .semibold))
+                                .frame(maxWidth: .infinity, minHeight: 52)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.black)
+                        .background(
+                            appearance == .vice ? NightwellAppearance.gold : Color.white,
+                            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        )
+                        .disabled(tracks.isEmpty)
+                        .opacity(tracks.isEmpty ? 0.55 : 1)
+
+                        Button {
+                            Task { await store.rhythm(around: tracks) }
+                        } label: {
+                            Label("Твой ритм", systemImage: "waveform.path")
+                                .font(.system(size: 14, weight: .semibold))
+                                .frame(maxWidth: .infinity, minHeight: 52)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.white)
+                        .background(
+                            appearance == .vice ? NightwellAppearance.pink.opacity(0.28) : Color.white.opacity(0.10),
+                            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        )
+                        .disabled(tracks.isEmpty || store.loading)
+                        .opacity(tracks.isEmpty ? 0.55 : 1)
+                    }
+
+                    HStack(spacing: 6) {
+                        Text("ТРЕКИ")
+                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                            .tracking(1.5)
+                            .foregroundStyle(.white.opacity(0.74))
+                        Text("\(tracks.count)")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.46))
+                            .monospacedDigit()
+                            .padding(.leading, 4)
+                        Spacer()
                         Menu {
                             Button("Недавно добавленные", systemImage: favoriteSort == "recent" ? "checkmark" : "clock") {
                                 changeFavoriteSort("recent")
@@ -1598,13 +1663,42 @@ struct NativeRoot: View {
                         } label: {
                             Image(systemName: "arrow.up.arrow.down")
                                 .font(.system(size: 16))
-                                .frame(width: 44, height: 44)
+                                .frame(width: 42, height: 42)
+                                .contentShape(Rectangle())
                         }
                         .accessibilityLabel("Сортировка избранного")
+
+                        Menu {
+                            if !tracks.isEmpty && tracks.allSatisfy({ store.isDownloaded($0) }) {
+                                Button("Удалить загрузки", systemImage: "trash", role: .destructive) {
+                                    Task { for track in tracks { await store.removeDownload(track) } }
+                                }
+                            } else {
+                                Button("Скачать всё", systemImage: "arrow.down.to.line") {
+                                    Task { await store.download(tracks) }
+                                }
+                            }
+                            Button("Поделиться", systemImage: "square.and.arrow.up") {
+                                Task {
+                                    shareText = await store.share(kind: "likes", title: "Мне нравится", tracks: tracks)
+                                    showShare = shareText != nil
+                                }
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis")
+                                .font(.system(size: 18))
+                                .frame(width: 42, height: 42)
+                                .contentShape(Rectangle())
+                        }
+                        .accessibilityLabel("Действия с избранным")
                     }
+                    .foregroundStyle(.white.opacity(0.9))
+                    .padding(.top, 4)
+
                     TrackList(tracks: tracks, embedded: true)
                 }
                 .padding(.horizontal, 20)
+                .padding(.bottom, 12)
             }
             .coordinateSpace(name: "nightwell-library-scroll")
             .modifier(NightwellLibraryScrollTracker(collapsed: libraryScrollBinding(for: .likes)))
@@ -1791,6 +1885,15 @@ struct NativeRoot: View {
             .scrollDismissesKeyboard(.interactively)
         }
     }
+    private func favoritesCountLabel(_ count: Int) -> String {
+        let word: String
+        if (11...14).contains(count % 100) { word = "треков" }
+        else if count % 10 == 1 { word = "трек" }
+        else if (2...4).contains(count % 10) { word = "трека" }
+        else { word = "треков" }
+        return "\(count) \(word)"
+    }
+
     private func collectionHeading(_ title: String, tracks: [Track], kind: String) -> some View {
         HStack { Text(title).font(.largeTitle.bold()); Spacer(); Menu {
             if !tracks.isEmpty && tracks.allSatisfy({ store.isDownloaded($0) }) {
