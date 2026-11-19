@@ -211,6 +211,7 @@ struct NightwellPopup<Content: View>: View {
         }
         .transition(.opacity.combined(with: .scale(scale: 0.94)))
         .zIndex(100)
+        .nightwellEdgeBack(onBack: close)
     }
 }
 
@@ -331,6 +332,7 @@ private struct StableNavigationSheet: View {
         .presentationDetents([.height(430), .large])
         .presentationDragIndicator(.visible)
         .presentationBackground(.clear)
+        .nightwellEdgeBack { dismiss() }
     }
 }
 
@@ -424,6 +426,7 @@ struct NativeRoot: View {
     // Direction only belongs to user-initiated screen navigation. Playback,
     // library refreshes and scroll-position restoration must not animate it.
     @State private var screenTransitionDirection: CGFloat = 1
+    @State private var screenBackHistory: [MusicStore.Screen] = []
     @Environment(\.accessibilityReduceMotion) private var reducedMotion
     @ViewBuilder private var mainScene: some View {
         GeometryReader { viewport in
@@ -685,10 +688,13 @@ struct NativeRoot: View {
             .environmentObject(store)
         }
         .sheet(item: $feature) { kind in
-            PremiumFeatureView(kind: kind).environmentObject(store)
+            PremiumFeatureView(kind: kind)
+                .environmentObject(store)
+                .nightwellEdgeBack { feature = nil }
         }
         .sheet(isPresented: $dailyPlaylistsPresented) {
             DailyPublicPlaylistsScreen(store: store)
+                .nightwellEdgeBack { dailyPlaylistsPresented = false }
         }
         .fullScreenCover(isPresented: $profilePresented) {
             NavigationStack {
@@ -842,30 +848,45 @@ struct NativeRoot: View {
                 .toolbar(.hidden, for: .navigationBar)
             }
             .preferredColorScheme(.dark)
+            .nightwellEdgeBack { profilePresented = false }
             .sheet(isPresented: $profilePremiumPresented, onDismiss: {
                 Task { await favoritePremium.refresh(store) }
-            }) { PremiumView(api: store.api) }
+            }) {
+                PremiumView(api: store.api)
+                    .nightwellEdgeBack { profilePremiumPresented = false }
+            }
             .sheet(isPresented: $profileStatisticsPresented) {
                 PremiumFeatureView(kind: .statistics).environmentObject(store)
+                    .nightwellEdgeBack { profileStatisticsPresented = false }
             }
             .fullScreenCover(isPresented: $profileAccessPresented) {
                 AccountAccessView(api: store.api, accountID: store.account?.id)
+                    .nightwellEdgeBack { profileAccessPresented = false }
             }
             .sheet(isPresented: $widgetSetupPresented) {
-                NWWidgetSetupView(api: store.api, initialCode: widgetIncomingCode).environmentObject(store)
+                NWWidgetSetupView(api: store.api, initialCode: widgetIncomingCode)
+                    .environmentObject(store)
+                    .nightwellEdgeBack { widgetSetupPresented = false }
             }
         }
         .fullScreenCover(isPresented: $accountAccessPresented) {
             AccountAccessView(api: store.api, accountID: store.account?.id)
+                .nightwellEdgeBack { accountAccessPresented = false }
         }
         .sheet(isPresented: $widgetLinkSetupPresented) {
-            NWWidgetSetupView(api: store.api, initialCode: widgetIncomingCode).environmentObject(store)
+            NWWidgetSetupView(api: store.api, initialCode: widgetIncomingCode)
+                .environmentObject(store)
+                .nightwellEdgeBack { widgetLinkSetupPresented = false }
         }
         .sheet(isPresented: $premiumPresented, onDismiss: {
             Task { await favoritePremium.refresh(store) }
-        }) { PremiumView(api: store.api) }
+        }) {
+            PremiumView(api: store.api)
+                .nightwellEdgeBack { premiumPresented = false }
+        }
         .sheet(isPresented: $togetherPresented) {
             NightwellTogetherSheet(session: togetherSession, store: store)
+                .nightwellEdgeBack { togetherPresented = false }
         }
     }
 
@@ -920,13 +941,11 @@ struct NativeRoot: View {
             if ProcessInfo.processInfo.arguments.contains("--native-smoke-playlist") { selectedPlaylist = Playlist(id: "native-preview", name: "Твоя ночная подборка") }
             #endif
         }
-        .simultaneousGesture(DragGesture(minimumDistance: 24).onEnded { gesture in
-            let dx = gesture.translation.width
-            let dy = gesture.translation.height
-            if gesture.startLocation.x < 24 && dx > 90 && abs(dy) < 60 {
-                navigate(to: .home)
-            }
-        })
+        // Native-style leading-edge Back: interactive, reversible, and only
+        // on navigable screens. The full player owns horizontal track swipes.
+        .nightwellEdgeBack(enabled: canEdgeNavigateBack) {
+            returnFromEdge()
+        }
         .onChange(of: appearance) { _, _ in
             // Theme changes are published even when music is paused.
             // All WidgetKit families get a refresh after server confirmation.
@@ -983,11 +1002,22 @@ struct NativeRoot: View {
         }
         .fullScreenCover(isPresented: $fullPlayer) { FullPlayer(clock: store.clock).environmentObject(togetherSession) }
         .sheet(item: $selectedArtist) { artist in
-            ArtistProfileView(name: artist.name, togetherSession: togetherSession).environmentObject(store)
+            ArtistProfileView(name: artist.name, togetherSession: togetherSession)
+                .environmentObject(store)
+                .nightwellEdgeBack { selectedArtist = nil }
         }
-        
-        .sheet(isPresented: $transferPresented) { NightwellNativeTransfer().environmentObject(store) }
-        .sheet(isPresented: $showShare) { if let shareText { ShareSheet(items: [shareText]) } }
+
+        .sheet(isPresented: $transferPresented) {
+            NightwellNativeTransfer()
+                .environmentObject(store)
+                .nightwellEdgeBack { transferPresented = false }
+        }
+        .sheet(isPresented: $showShare) {
+            if let shareText {
+                ShareSheet(items: [shareText])
+                    .nightwellEdgeBack { showShare = false }
+            }
+        }
         .fileImporter(isPresented: $importFiles, allowedContentTypes: [.audio], allowsMultipleSelection: true) { result in
             if case let .success(urls) = result { Task { await store.importFiles(urls) } }
         }
@@ -1118,8 +1148,47 @@ struct NativeRoot: View {
         )
     }
 
-    private func navigate(to screen: MusicStore.Screen) {
+    private var canEdgeNavigateBack: Bool {
+        // Popup sheets and full-screen presentations handle their own Back
+        // gestures. Never steal a horizontal swipe from either music player.
+        guard !fullPlayer && !settings && !waveSettingsPresented &&
+              !supportPresented && !store.authPresented &&
+              selectedPlaylist == nil && !navigationMenuPresented &&
+              !profilePresented && !accountAccessPresented &&
+              !premiumPresented && !togetherPresented else { return false }
+        return backgroundOnly || store.screen != .home
+    }
+
+    private func returnFromEdge() {
+        if backgroundOnly {
+            backgroundOnly = false
+            return
+        }
+        if store.screen == .likes || store.screen == .playlists || store.screen == .offline {
+            navigate(to: .library, recordHistory: false)
+            return
+        }
+        // Back follows real navigation history, instead of always jumping
+        // straight to Home (the previous gesture did that from every tab).
+        while let last = screenBackHistory.popLast() {
+            if last != store.screen {
+                navigate(to: last, recordHistory: false)
+                return
+            }
+        }
+        if store.screen != .home { navigate(to: .home, recordHistory: false) }
+    }
+
+    private func navigate(to screen: MusicStore.Screen, recordHistory: Bool = true) {
         guard store.screen != screen else { return }
+        if recordHistory {
+            if screenBackHistory.last == screen {
+                screenBackHistory.removeLast()
+            } else {
+                screenBackHistory.append(store.screen)
+                if screenBackHistory.count > 20 { screenBackHistory.removeFirst() }
+            }
+        }
         let oldDepth = navigationDepth(store.screen)
         let newDepth = navigationDepth(screen)
         // Keep back navigation moving in the opposite direction. Avoid
