@@ -33,21 +33,39 @@ try:
     adb('shell','input','keyevent','82')
     for width,height,density in [(1080,1920,420),(720,1280,320)]:
         adb('shell','wm','size',f'{width}x{height}');adb('shell','wm','density',str(density));launch('menu')
-        # The popup is posted to the UI thread; emulator startup can outlast
-        # the fixed two-second launch delay under a busy CI runner.
+        # iOS-style Additional is a bottom sheet, not the old popup menu.
         for attempt in range(8):
-            values=capture('menu-'+str(width))
-            if find('Главная',values) is not None:break
+            values=capture('more-'+str(width))
+            if find('Слушать вместе',values) is not None:break
             time.sleep(1)
-        assert find('Главная',values) is not None,'Menu popup did not become visible'
-        scroll=next(n for n in values if n.get('scrollable')=='true')
-        l,t,r,b=map(int,re.findall(r'\d+',scroll.get('bounds')))
-        for _ in range(4):
-            if find('Выйти') is not None:break
-            adb('shell','input','swipe',str((l+r)//2),str(b-25),str((l+r)//2),str(t+25),'300');time.sleep(.3)
-        assert find('Выйти') is not None,'Last menu entry is inaccessible'
-        capture('menu-bottom-'+str(width))
+        assert find('Слушать вместе',values) is not None,'Additional sheet is missing'
+        assert find('Перенос плейлистов',values) is not None,'Transfer link is missing'
+        assert find('Обращения и поддержка',values) is not None,'Support link is missing'
     adb('shell','wm','size','reset');adb('shell','wm','density','reset')
+    launch('Главная')
+    home=capture('home-bottom-nav')
+    assert find('Медиатека',home) is not None,'Bottom navigation is missing'
+    assert find('Открыть профиль',home) is not None,'Profile avatar button is missing'
+    click('Медиатека')
+    overview=capture('library-bottom-nav')
+    assert find('Избранное',overview) is not None,'Library has no favorites entry'
+    assert find('Плейлисты',overview) is not None,'Library has no playlists entry'
+    assert find('Офлайн',overview) is not None,'Library has no offline entry'
+    click('Поиск')
+    search=capture('search-bottom-nav')
+    assert find('Медиатека',search) is not None,'Navigation was removed after screen change'
+    launch('Плейлисты')
+    capture('playlists-iphone-layout')
+    assert find('Плейлисты') is not None,'Playlist title is missing'
+    launch('settings')
+    settings=capture('settings-hub')
+    assert find('Кастомизация',settings) is not None,'Settings hub missing customization'
+    click('Темы')
+    themes=capture('themes-picker')
+    assert any('Vice Nights' in (n.get('text') or '') for n in themes),'Vice Nights theme picker is missing'
+    launch('profile')
+    profile=capture('profile')
+    assert find('Устройства и семья',profile) is not None,'Device and family screen is missing'
     fixture=out/'nightwell-playlist.csv';fixture.write_text('artist,title\nNightwell,Import Test',encoding='utf-8')
     adb('push',str(fixture),'/sdcard/Download/nightwell-playlist.csv')
     launch('transfer');capture('transfer-empty');click('Выбрать файл')
@@ -65,7 +83,7 @@ try:
     assert any('Nightwell,Import Test' in n.get('text','') for n in values),'Document text was not imported'
     click('Выбрать файл');adb('shell','input','keyevent','4');time.sleep(1)
     assert any('Nightwell,Import Test' in n.get('text','') for n in nodes()),'Cancelling picker lost the imported text'
-    print('Menu on two phone sizes, system document selection, CSV import and cancellation passed')
+    print('iOS-style bottom navigation, library and profile header, menu, SAF import and cancellation passed')
 finally:
     adb('shell','wm','size','reset');adb('shell','wm','density','reset')
     (out/'errors.txt').write_text(adb('logcat','-d','-s','AndroidRuntime:E'))

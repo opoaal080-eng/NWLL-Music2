@@ -2,11 +2,12 @@ name: Build Nightwell Music Android (Recovered)
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, feature/android-vice-palm-sway-20261118]
     paths:
       - 'android/**'
       - 'scripts/validate-app-sources.py'
       - 'scripts/make-neutral-app-icon.py'
+      - 'scripts/prepare-vice-palms.py'
       - '.github/workflows/build-android.yml'
 permissions:
   contents: read
@@ -32,6 +33,12 @@ jobs:
         run: sdkmanager --install "platforms;android-36" "build-tools;36.0.0"
       - name: Generate neutral launcher icons
         run: python3 ../scripts/make-neutral-app-icon.py --platform android
+      - name: Prepare animated Vice Nights palm layers
+        run: |
+          python3 -m venv ../.vice-venv
+          ../.vice-venv/bin/python -m pip install --quiet numpy opencv-python-headless
+          cd ..
+          .vice-venv/bin/python scripts/prepare-vice-palms.py --platform android
       - name: Validate Android resources
         run: python3 ../scripts/validate-app-sources.py --android
       - uses: gradle/actions/setup-gradle@v4
@@ -113,6 +120,12 @@ jobs:
           fi
       - name: Generate neutral launcher icons
         run: python3 ../scripts/make-neutral-app-icon.py --platform android
+      - name: Prepare animated Vice Nights palm layers
+        run: |
+          python3 -m venv ../.vice-venv
+          ../.vice-venv/bin/python -m pip install --quiet numpy opencv-python-headless
+          cd ..
+          .vice-venv/bin/python scripts/prepare-vice-palms.py --platform android
       - name: Build Google Play release bundle
         env:
           NIGHTWELL_KEYSTORE_PASSWORD: ${{ secrets.NIGHTWELL_KEYSTORE_PASSWORD }}
