@@ -2028,6 +2028,13 @@ struct NativeSettings: View {
         .font(.system(size: 17))
         .padding(20)
         .tint(appearance.accent)
+        .nightwellEdgeBack {
+            if activePage != nil {
+                withAnimation(.easeInOut(duration: 0.22)) { activePage = nil }
+            } else {
+                close()
+            }
+        }
     }
 }
 

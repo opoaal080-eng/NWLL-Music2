@@ -25,7 +25,7 @@ private struct NightwellLeadingEdgeBack: ViewModifier {
             }
             .offset(x: enabled ? displacement : 0)
             .simultaneousGesture(
-                DragGesture(minimumDistance: 12, coordinateSpace: .global)
+                DragGesture(minimumDistance: 12, coordinateSpace: .local)
                     .onChanged { value in
                         guard enabled, !completing,
                               value.startLocation.x <= 28 else { return }

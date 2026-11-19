@@ -168,14 +168,16 @@ struct NightwellPopup<Content: View>: View {
     var dimsBackground = true
     var centered = false
     var transparentSettings = false
+    var handlesBackGesture = true
     let close: () -> Void
     let content: Content
-    init(title: String, maxHeight: CGFloat = 560, dimsBackground: Bool = true, centered: Bool = false, transparentSettings: Bool = false, close: @escaping () -> Void, @ViewBuilder content: () -> Content) {
+    init(title: String, maxHeight: CGFloat = 560, dimsBackground: Bool = true, centered: Bool = false, transparentSettings: Bool = false, handlesBackGesture: Bool = true, close: @escaping () -> Void, @ViewBuilder content: () -> Content) {
         self.title = title
         self.maxHeight = maxHeight
         self.dimsBackground = dimsBackground
         self.centered = centered
         self.transparentSettings = transparentSettings
+        self.handlesBackGesture = handlesBackGesture
         self.close = close
         self.content = content()
     }
@@ -211,7 +213,7 @@ struct NightwellPopup<Content: View>: View {
         }
         .transition(.opacity.combined(with: .scale(scale: 0.94)))
         .zIndex(100)
-        .nightwellEdgeBack(onBack: close)
+        .nightwellEdgeBack(enabled: handlesBackGesture, onBack: close)
     }
 }
 
@@ -632,7 +634,7 @@ struct NativeRoot: View {
                         .environmentObject(store)
                 }
             } else if settings {
-                NightwellPopup(title: "", maxHeight: 554, dimsBackground: false, centered: true, transparentSettings: true, close: { settings = false }) {
+                NightwellPopup(title: "", maxHeight: 554, dimsBackground: false, centered: true, transparentSettings: true, handlesBackGesture: false, close: { settings = false }) {
                     NativeSettings(close: {
                         settings = false
                         openThemesDirectly = false
