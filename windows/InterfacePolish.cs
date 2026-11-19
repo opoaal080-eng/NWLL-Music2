@@ -26,10 +26,13 @@ public partial class MainWindow {
  void SetMode(Button button,bool active){
   if(button.Tag is bool previous && previous==active)return;
   button.Tag=active;
-  button.Background=active?(Brush)new SolidColorBrush(Color.FromArgb(170,66,47,90)):Brushes.Transparent;
+  // Neutral transport buttons: no purple state chip on the artwork-based player.
+  button.Background=active?(Brush)new SolidColorBrush(Color.FromArgb(210,48,48,51))
+                          :new SolidColorBrush(Color.FromArgb(140,22,22,24));
   button.Foreground=Brushes.White;
-  button.BorderBrush=active?(Brush)new SolidColorBrush(Color.FromArgb(185,217,197,237)):Brushes.Transparent;
-  button.BorderThickness=new Thickness(active?1:0);
+  button.BorderBrush=active?(Brush)new SolidColorBrush(Color.FromArgb(235,245,245,245))
+                           :new SolidColorBrush(Color.FromArgb(105,228,228,230));
+  button.BorderThickness=new Thickness(1);
   button.ToolTip=button==ShuffleButton?(active?"Перемешивание включено":"Перемешивание выключено"):button.ToolTip;
  }
  void InterfaceKeyDown(object sender,KeyEventArgs e){

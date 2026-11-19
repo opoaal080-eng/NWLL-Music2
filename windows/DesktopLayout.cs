@@ -151,12 +151,18 @@ public partial class MainWindow
         AddAction(list, "⇩", "Перенести музыку", NativeTransfer);
         AddAction(list, "◇", "Nightwell Premium", OpenPremiumPane);
 
-        dock.Children.Add(new ScrollViewer
+        var scrolling = new ScrollViewer
         {
             Content = list,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
-        });
+        };
+        // Slim, subtle scrollbar that avoids stealing width from menu labels.
+        var railScrollbar = new Style(typeof(System.Windows.Controls.Primitives.ScrollBar));
+        railScrollbar.Setters.Add(new Setter(FrameworkElement.WidthProperty, 6.0));
+        railScrollbar.Setters.Add(new Setter(UIElement.OpacityProperty, .48));
+        scrolling.Resources[typeof(System.Windows.Controls.Primitives.ScrollBar)] = railScrollbar;
+        dock.Children.Add(scrolling);
         return rail;
     }
 
