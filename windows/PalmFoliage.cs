@@ -13,9 +13,13 @@ public partial class MainWindow
     // no stationary palms, so moving these images actually moves the foliage.
     void SetupPalmFoliage()
     {
+        // The source artwork is portrait. Stretching its fronds to a desktop
+        // workspace made them HUGE. Keep each silhouette pinned to its original
+        // screen edge, at a restrained fraction of the screen size.
         var anchors = new[] { new Point(0, .42), new Point(1, .20), new Point(1, .90) };
-        var degrees = new[] { 3.0, -3.4, 2.8 };
-        var durations = new[] { 6.4, 7.2, 8.3 };
+        var sizes = new[] { 0.58, 0.55, 0.61 };
+        var degrees = new[] { 1.0, -1.15, 0.9 };
+        var durations = new[] { 7.6, 8.2, 9.0 };
         VicePalmFoliage.Children.Clear();
         try
         {
@@ -24,12 +28,16 @@ public partial class MainWindow
                 var image = new BitmapImage(new Uri(
                     $"pack://application:,,,/vice_fronds_{index}.png", UriKind.Absolute));
                 var rotation = new RotateTransform();
+                var transforms = new TransformGroup();
+                transforms.Children.Add(new ScaleTransform(sizes[index], sizes[index]));
+                transforms.Children.Add(rotation);
                 var fronds = new Image
                 {
                     Source = image,
                     Stretch = Stretch.Fill,
+                    Opacity = .82,
                     IsHitTestVisible = false,
-                    RenderTransform = rotation,
+                    RenderTransform = transforms,
                     RenderTransformOrigin = anchors[index],
                     CacheMode = new BitmapCache()
                 };

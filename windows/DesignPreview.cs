@@ -13,6 +13,17 @@ public partial class MainWindow {
  async Task CaptureDesignPreviews(){
   Directory.CreateDirectory("ui-previews");Width=1120;Height=800;
   ApplyVisualTheme("vice",false);
+  // Guard desktop foliage proportions: full-size portrait silhouettes must
+  // never be stretched across a landscape desktop window again.
+  if (VicePalmFoliage.Children.Count != 3)
+    throw new InvalidOperationException("Vice theme must render three independently moving palm groups");
+  foreach (var child in VicePalmFoliage.Children.OfType<Image>())
+  {
+    if (child.RenderTransform is not TransformGroup group ||
+        group.Children.OfType<ScaleTransform>().FirstOrDefault() is not ScaleTransform scale ||
+        scale.ScaleX > .67 || scale.ScaleY > .67 || child.Opacity > .85)
+      throw new InvalidOperationException("Desktop palm fronds are larger than the intended decorative size");
+  }
   // Fail CI before packaging if either player's play button becomes small or moves left.
   if (Grid.GetColumn(FullPlay)!=4 || FullPlay.Width<=FullNext.Width ||
       MiniPlay.Width<=MiniNext.Width || MiniPlay.Height<=MiniNext.Height ||

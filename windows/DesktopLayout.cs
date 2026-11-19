@@ -155,17 +155,11 @@ public partial class MainWindow
         var scrolling = new ScrollViewer
         {
             Content = list,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            // Keep mouse-wheel and touch scrolling without the bright scrollbar
+            // strip that covered the sidebar on desktop.
+            VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
         };
-        // Slim, subtle scrollbar that avoids stealing width from menu labels.
-        var railScrollbar = new Style(typeof(System.Windows.Controls.Primitives.ScrollBar))
-        {
-            BasedOn = (Style)FindResource(typeof(System.Windows.Controls.Primitives.ScrollBar))
-        };
-        railScrollbar.Setters.Add(new Setter(FrameworkElement.WidthProperty, 9.0));
-        railScrollbar.Setters.Add(new Setter(UIElement.OpacityProperty, .60));
-        scrolling.Resources[typeof(System.Windows.Controls.Primitives.ScrollBar)] = railScrollbar;
         dock.Children.Add(scrolling);
         return rail;
     }
