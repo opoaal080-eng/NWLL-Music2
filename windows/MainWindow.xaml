@@ -1,7 +1,7 @@
 <Window x:Class="Nightwell.Native.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:Nightwell.Native"
  Title="Nightwell Music" Width="1120" Height="800" MinWidth="800" MinHeight="620" WindowStartupLocation="CenterScreen" Style="{StaticResource {x:Type Window}}" PreviewKeyDown="InterfaceKeyDown">
  <Window.Resources><local:TrackMatchConverter x:Key="TrackMatch"/><local:CurrentArtworkConverter x:Key="CurrentCover"/><local:TrackCountConverter x:Key="TrackCount"/></Window.Resources>
- <Grid Background="{StaticResource WindowBrush}" ClipToBounds="True">
+ <Grid Background="{DynamicResource WindowBrush}" ClipToBounds="True">
   <Grid.RowDefinitions><RowDefinition x:Name="HeaderRow" Height="58"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
    <!-- Continuous ambient scene behind the header and the mini player. -->
    <local:RibbonScene x:Name="Ribbon" Grid.RowSpan="4" IsHitTestVisible="False" Opacity="0"/>
@@ -11,7 +11,7 @@
           IsHitTestVisible="False"/>
    <!-- Transparent silhouettes of the original fronds, animated independently. -->
    <Grid x:Name="VicePalmFoliage" Grid.RowSpan="4" ClipToBounds="True" IsHitTestVisible="False"/>
-   <Border Grid.RowSpan="4" IsHitTestVisible="False">
+   <Border x:Name="ViceScrim" Grid.RowSpan="4" IsHitTestVisible="False">
     <Border.Background>
      <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
       <GradientStop Color="#4C080B1B" Offset="0"/>
@@ -48,7 +48,7 @@
    </Button>
    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
     <Button Click="SearchClick" Height="40" MinHeight="0" Margin="0,0,8,0" Style="{StaticResource QuietButton}" ToolTip="Поиск музыки">
-     <StackPanel Orientation="Horizontal"><Path Data="M 8,0 A 8,8 0 1 1 7.99,0 M 14,14 L 20,20" Stroke="#B4B4B4" StrokeThickness="1.8" Width="16" Height="16" Stretch="Uniform" Margin="0,0,9,0"/><TextBlock Text="Поиск" Foreground="{StaticResource SecondaryBrush}"/></StackPanel>
+     <StackPanel Orientation="Horizontal"><Path Data="M 8,0 A 8,8 0 1 1 7.99,0 M 14,14 L 20,20" Stroke="#B4B4B4" StrokeThickness="1.8" Width="16" Height="16" Stretch="Uniform" Margin="0,0,9,0"/><TextBlock Text="Поиск" Foreground="{DynamicResource SecondaryBrush}"/></StackPanel>
     </Button>
     <Button x:Name="NavigationMenu" Click="MenuClick" Style="{StaticResource IconButton}" ToolTip="Скрыть медиатеку" AutomationProperties.Name="Показать или скрыть боковую панель">
      <Path Data="M 0,0 H 18 M 0,6 H 18 M 0,12 H 18" Stroke="#BEBEBE" StrokeThickness="1.6" Width="18" Height="12" Stretch="Uniform"/>
@@ -68,12 +68,12 @@
      <StackPanel x:Name="HomeHeading" Margin="32,28,32,0">
       <TextBlock Text="ПЕРСОНАЛЬНАЯ ПОДБОРКА" Style="{StaticResource Caption}" Foreground="#ABABAB" FontSize="10"/>
       <TextBlock Text="Твой ритм" FontSize="42" FontWeight="SemiBold" Margin="-2,8,0,0"/>
-      <TextBlock Text="Музыка, которая подходит тебе." Foreground="{StaticResource SecondaryBrush}" FontSize="14" Margin="0,8,0,0"/>
+      <TextBlock Text="Музыка, которая подходит тебе." Foreground="{DynamicResource SecondaryBrush}" FontSize="14" Margin="0,8,0,0"/>
      </StackPanel>
      <Viewbox Grid.Row="1" Stretch="Uniform" StretchDirection="DownOnly" Margin="0,12,0,24"><StackPanel x:Name="HomeControls" VerticalAlignment="Center" HorizontalAlignment="Center">
       <Button x:Name="HomePlay" Content="&#xE768;" Width="88" Height="88" FontSize="30" Style="{StaticResource PlayButton}" Click="ToggleClick" ToolTip="Воспроизвести или поставить на паузу" AutomationProperties.Name="Воспроизведение подборки"/>
       <Button x:Name="HomeWaveButton" Content="Новая подборка" Width="210" Height="46" Margin="0,22,0,0" Click="WaveClick" Style="{StaticResource PrimaryButton}" ToolTip="Создать персональную подборку"/>
-      <TextBlock x:Name="HomeWaveNote" Foreground="{StaticResource SecondaryBrush}" FontSize="12" TextWrapping="Wrap" TextAlignment="Center" MaxWidth="275" Margin="0,8,0,0" Visibility="Collapsed"/>
+      <TextBlock x:Name="HomeWaveNote" Foreground="{DynamicResource SecondaryBrush}" FontSize="12" TextWrapping="Wrap" TextAlignment="Center" MaxWidth="275" Margin="0,8,0,0" Visibility="Collapsed"/>
 
      </StackPanel></Viewbox>
     </Grid>
@@ -81,7 +81,7 @@
     <Grid x:Name="Library" Visibility="Collapsed" Margin="24">
      <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
      <Grid Margin="0,0,0,16"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-      <StackPanel><TextBlock x:Name="LibraryEyebrow" Text="ТВОЯ МУЗЫКА" Style="{StaticResource Caption}"/><TextBlock x:Name="Heading" Text="Поиск" FontSize="28" FontWeight="SemiBold" Margin="0,6,0,0"/><TextBlock x:Name="LibraryCount" Foreground="{StaticResource MutedBrush}" FontSize="11" Margin="0,6,0,0" Text="{Binding Items.Count,ElementName=Tracks,Converter={StaticResource TrackCount}}"/></StackPanel>
+      <StackPanel><TextBlock x:Name="LibraryEyebrow" Text="ТВОЯ МУЗЫКА" Style="{StaticResource Caption}"/><TextBlock x:Name="Heading" Text="Поиск" FontSize="28" FontWeight="SemiBold" Margin="0,6,0,0"/><TextBlock x:Name="LibraryCount" Foreground="{DynamicResource MutedBrush}" FontSize="11" Margin="0,6,0,0" Text="{Binding Items.Count,ElementName=Tracks,Converter={StaticResource TrackCount}}"/></StackPanel>
       <Button x:Name="CollectionActions" Grid.Column="1" Content="&#xE712;" FontFamily="Segoe MDL2 Assets" Style="{StaticResource IconButton}" Click="CollectionClick" VerticalAlignment="Bottom" ToolTip="Действия с коллекцией"/>
      </Grid>
      <StackPanel x:Name="SearchOptions" Grid.Row="1" Margin="0,0,0,16">
@@ -101,9 +101,9 @@
        </Border>
        <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="4,0,12,0">
         <TextBlock Text="{Binding title}" FontSize="15" FontWeight="Medium"><TextBlock.Style><Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}"><Style.Triggers><DataTrigger Value="True"><DataTrigger.Binding><MultiBinding Converter="{StaticResource TrackMatch}"><Binding Path="id"/><Binding Path="MainWindow.PlayingTrackId" Source="{x:Static Application.Current}"/></MultiBinding></DataTrigger.Binding><Setter Property="Foreground" Value="#CACACA"/></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock>
-        <TextBlock Text="{Binding artist}" Foreground="{StaticResource SecondaryBrush}" FontSize="12" Margin="0,5,0,0"/>
+        <TextBlock Text="{Binding artist}" Foreground="{DynamicResource SecondaryBrush}" FontSize="12" Margin="0,5,0,0"/>
        </StackPanel>
-       <TextBlock Grid.Column="2" Text="{Binding DisplayDuration}" Foreground="{StaticResource MutedBrush}" FontSize="12" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,12,0"/>
+       <TextBlock Grid.Column="2" Text="{Binding DisplayDuration}" Foreground="{DynamicResource MutedBrush}" FontSize="12" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,12,0"/>
        <Button Grid.Column="3" Tag="{Binding}" Click="TrackMenuClick" Style="{StaticResource IconButton}" ToolTip="Действия с треком"><Path Data="M 12,4 A 1,1 0 1 1 12,6 M 12,11 A 1,1 0 1 1 12,13 M 12,18 A 1,1 0 1 1 12,20" Stroke="#E1E1E1" StrokeThickness="2.6" Width="19" Height="20" Stretch="Uniform"/></Button>
       </Grid></DataTemplate></ListBox.ItemTemplate>
      </ListBox>
@@ -111,7 +111,7 @@
       <StackPanel.Style><Style TargetType="StackPanel"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding HasItems,ElementName=Tracks}" Value="False"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></StackPanel.Style>
       <Path Data="M 9,18 V 5 L 20,3 V 16 M 9,9 L 20,7 M 9,18 C 6,16 2,18 3,21 C 4,24 9,23 9,20 M 20,16 C 17,14 13,16 14,19 C 15,22 20,21 20,18" Stroke="#777777" StrokeThickness="1.9" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Width="40" Height="40" Stretch="Uniform" HorizontalAlignment="Center" Margin="0,0,0,16"/>
       <TextBlock x:Name="EmptyStateTitle" Text="Твоя музыка будет здесь" FontSize="18" FontWeight="SemiBold" TextAlignment="Center"/>
-      <TextBlock x:Name="EmptyStateBody" Text="Выбери подборку или найди любимый трек" Foreground="{StaticResource SecondaryBrush}" FontSize="13" TextAlignment="Center" Margin="0,8,0,0"/>
+      <TextBlock x:Name="EmptyStateBody" Text="Выбери подборку или найди любимый трек" Foreground="{DynamicResource SecondaryBrush}" FontSize="13" TextAlignment="Center" Margin="0,8,0,0"/>
      </StackPanel>
      </Grid>
     </Grid>
@@ -128,14 +128,14 @@
        <Grid.RowDefinitions><RowDefinition Height="*" MinHeight="92"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
        <Grid>
        <Viewbox MaxWidth="340" MaxHeight="320" Stretch="Uniform" StretchDirection="DownOnly" HorizontalAlignment="Center" VerticalAlignment="Center">
-        <Border Width="360" Height="360" CornerRadius="22" Background="#262626" BorderBrush="#454545" BorderThickness="1">
+        <Border Width="360" Height="360" CornerRadius="22" Background="{DynamicResource RaisedBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1">
          <Border.Clip><RectangleGeometry Rect="0,0,360,360" RadiusX="22" RadiusY="22"/></Border.Clip>
          <Grid><Path Data="M 8,18 V5 L20,3 V16 M8,9 L20,7 M8,18 C4,16 2,19 4,21 C7,23 10,21 10,19 M20,16 C16,14 13,17 15,20 C18,22 21,20 21,18" Stroke="#727272" StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="90" Height="90" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
           <Image x:Name="Cover" Stretch="Uniform" Width="358" Height="358" ToolTip="Обложка текущего трека без обрезки"/>
          </Grid>
         </Border>
        </Viewbox>
-       <Border Background="#1A1A1A" CornerRadius="18" BorderBrush="#424242" BorderThickness="1" Visibility="{Binding Visibility,ElementName=LyricsPanel}">
+       <Border Background="{DynamicResource PaneBrush}" CornerRadius="18" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" Visibility="{Binding Visibility,ElementName=LyricsPanel}">
         <ScrollViewer x:Name="LyricsPanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" Margin="0,44,0,0"><TextBlock x:Name="LyricsText" TextWrapping="Wrap" FontSize="19" Margin="24,8,24,24" LineHeight="32" TextAlignment="Left"/></ScrollViewer>
        </Border>
        <Button x:Name="LyricsCloseButton" Style="{StaticResource IconButton}" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="8" Click="CloseLyricsClick" Visibility="{Binding Visibility,ElementName=LyricsPanel}" ToolTip="Вернуться к обложке"/>
@@ -160,7 +160,7 @@
        <Grid Margin="55,8,55,0"><Grid.ColumnDefinitions><ColumnDefinition Width="24"/><ColumnDefinition Width="*"/><ColumnDefinition Width="48"/></Grid.ColumnDefinitions>
         <Path Data="M 3,9 H 7 L 12,5 V19 L7,15 H3 Z M 16,9 C18,11 18,13 16,15 M19,6 C23,9 23,15 19,18" Stroke="#A0A0A0" StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Width="20" Height="20" Stretch="Uniform" VerticalAlignment="Center"/>
         <Slider Grid.Column="1" x:Name="FullVolumeSlider" Minimum="0" Maximum="100" Value="100" ValueChanged="VolumeChanged" AutoToolTipPlacement="TopLeft" AutoToolTipPrecision="0" AutomationProperties.Name="Громкость"/>
-        <TextBlock Grid.Column="2" x:Name="FullVolumeValue" Text="100%" Foreground="{StaticResource SecondaryBrush}" FontSize="12" TextAlignment="Right" VerticalAlignment="Center"/>
+        <TextBlock Grid.Column="2" x:Name="FullVolumeValue" Text="100%" Foreground="{DynamicResource SecondaryBrush}" FontSize="12" TextAlignment="Right" VerticalAlignment="Center"/>
        </Grid>
        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,8,0,0">
          <Button x:Name="FullLyricsButton" Click="LyricsButtonClick" Style="{StaticResource PlayerActionButton}" Margin="0,0,10,0" ToolTip="Текст песни" AutomationProperties.Name="Открыть текст песни"/>
@@ -172,10 +172,10 @@
     </Grid>
    </Grid>
 
-  <TextBlock x:Name="Status" Grid.Row="2" Foreground="{StaticResource SecondaryBrush}" FontSize="12" TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center" MaxHeight="44" Margin="24,7,24,2">
+  <TextBlock x:Name="Status" Grid.Row="2" Foreground="{DynamicResource SecondaryBrush}" FontSize="12" TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center" MaxHeight="44" Margin="24,7,24,2">
    <TextBlock.Style><Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}"><Style.Triggers><Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed"/></Trigger></Style.Triggers></Style></TextBlock.Style>
   </TextBlock>
-  <Border x:Name="Dock" Grid.Row="3" Height="88" Margin="24,10,24,18" Background="#E0171720" BorderBrush="#383838" BorderThickness="1" CornerRadius="18" Padding="16,10">
+  <Border x:Name="Dock" Grid.Row="3" Height="88" Margin="24,10,24,18" Background="{DynamicResource DockBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="18" Padding="16,10">
    <Grid>
     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="164"/></Grid.ColumnDefinitions>
     <Grid MouseLeftButtonUp="OpenPlayerClick" Cursor="Hand" VerticalAlignment="Center" Margin="0,0,16,0">
@@ -187,7 +187,7 @@
      </Border>
      <StackPanel Grid.Column="1" VerticalAlignment="Center">
       <TextBlock x:Name="MiniTitle" Text="Выбери трек" FontSize="14" FontWeight="SemiBold"/>
-      <TextBlock x:Name="MiniArtist" Text="И начни слушать" Foreground="{StaticResource SecondaryBrush}" FontSize="12" Margin="0,5,0,0"/>
+      <TextBlock x:Name="MiniArtist" Text="И начни слушать" Foreground="{DynamicResource SecondaryBrush}" FontSize="12" Margin="0,5,0,0"/>
      </StackPanel>
     </Grid>
     <!-- Mini-player: large play/pause is always at the far right of transport controls. -->
@@ -201,7 +201,7 @@
      <Grid.ColumnDefinitions><ColumnDefinition Width="20"/><ColumnDefinition Width="*"/><ColumnDefinition Width="38"/></Grid.ColumnDefinitions>
      <Path Data="M 3,9 H7 L12,5 V19 L7,15 H3 Z M16,9 C18,11 18,13 16,15 M19,6 C23,9 23,15 19,18" Stroke="#A0A0A0" StrokeThickness="1.8" Width="18" Height="18" Stretch="Uniform" VerticalAlignment="Center"/>
      <Slider x:Name="VolumeSlider" Grid.Column="1" Minimum="0" Maximum="100" Value="100" ValueChanged="VolumeChanged" AutoToolTipPlacement="TopLeft" AutoToolTipPrecision="0" AutomationProperties.Name="Громкость миниплеера"/>
-     <TextBlock x:Name="MiniVolumeValue" Grid.Column="2" Text="100%" FontSize="11" Foreground="{StaticResource SecondaryBrush}" TextAlignment="Right" VerticalAlignment="Center"/>
+     <TextBlock x:Name="MiniVolumeValue" Grid.Column="2" Text="100%" FontSize="11" Foreground="{DynamicResource SecondaryBrush}" TextAlignment="Right" VerticalAlignment="Center"/>
     </Grid>
     <Border x:Name="MiniProgress" Background="#939393" HorizontalAlignment="Left" Width="0" Height="2" VerticalAlignment="Bottom" Margin="0,0,0,-9" Grid.ColumnSpan="3" IsHitTestVisible="False" CornerRadius="1"/>
    </Grid>

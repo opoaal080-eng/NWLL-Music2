@@ -27,11 +27,9 @@ public partial class MainWindow {
   if(button.Tag is bool previous && previous==active)return;
   button.Tag=active;
   // Neutral transport buttons: no purple state chip on the artwork-based player.
-  button.Background=active?(Brush)new SolidColorBrush(Color.FromArgb(210,48,48,51))
-                          :new SolidColorBrush(Color.FromArgb(140,22,22,24));
+  button.Background=(Brush)FindResource(active ? "PlayerActiveBrush" : "PlayerButtonBrush");
   button.Foreground=Brushes.White;
-  button.BorderBrush=active?(Brush)new SolidColorBrush(Color.FromArgb(235,245,245,245))
-                           :new SolidColorBrush(Color.FromArgb(105,228,228,230));
+  button.BorderBrush=(Brush)FindResource(active ? "PlayerHoverOutlineBrush" : "PlayerOutlineBrush");
   button.BorderThickness=new Thickness(1);
   button.ToolTip=button==ShuffleButton?(active?"Перемешивание включено":"Перемешивание выключено"):button.ToolTip;
  }

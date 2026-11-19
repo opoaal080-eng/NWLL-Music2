@@ -29,10 +29,10 @@ public partial class MainWindow
     bool settingsReady;
     bool sidebarBeforeBackground = true;
 
-    static readonly Brush RailBackground = new SolidColorBrush(Color.FromRgb(19, 19, 21));
-    static readonly Brush PaneBackground = new SolidColorBrush(Color.FromRgb(18, 18, 20));
-    static readonly Brush SelectedBackground = new SolidColorBrush(Color.FromRgb(56, 56, 59));
-    static readonly Brush SecondaryText = new SolidColorBrush(Color.FromRgb(178, 178, 182));
+    Brush RailBackground => (Brush)FindResource("RailBrush");
+    Brush PaneBackground => (Brush)FindResource("PaneBrush");
+    Brush SelectedBackground => (Brush)FindResource("SidebarSelectionBrush");
+    Brush SecondaryText => (Brush)FindResource("SideSecondaryBrush");
 
     void SetupDesktopLayout()
     {
@@ -538,6 +538,21 @@ public partial class MainWindow
     void CreateSettingsPane()
     {
         settingsPane = MakeWorkspacePane("Настройки", out var content);
+        content.Children.Add(SectionLabel("ОФОРМЛЕНИЕ"));
+        var visualThemeCard = new StackPanel();
+        visualThemeCard.Children.Add(new TextBlock
+        {
+            Text = "Тема оформления", FontSize = 15, FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 0, 0, 9)
+        });
+        visualThemeCard.Children.Add(CreateVisualThemeSelector());
+        visualThemeCard.Children.Add(new TextBlock
+        {
+            Text = "Стандартная: чёрно-белая. Vice Nights: закат, пальмы и тёплые акценты.",
+            TextWrapping = TextWrapping.Wrap, Foreground = SecondaryText,
+            FontSize = 12, Margin = new Thickness(0, 10, 0, 4)
+        });
+        content.Children.Add(SettingsCard(visualThemeCard));
         content.Children.Add(SectionLabel("ВОСПРОИЗВЕДЕНИЕ"));
         var playback = new StackPanel();
         transitionText = new TextBlock();

@@ -12,6 +12,7 @@ public partial class MainWindow {
  bool IsDesignPreview=>Environment.GetCommandLineArgs().Contains("--design-preview");
  async Task CaptureDesignPreviews(){
   Directory.CreateDirectory("ui-previews");Width=1120;Height=800;
+  ApplyVisualTheme("vice",false);
   // Fail CI before packaging if either player's play button becomes small or moves left.
   if (Grid.GetColumn(FullPlay)!=4 || FullPlay.Width<=FullNext.Width ||
       MiniPlay.Width<=MiniNext.Width || MiniPlay.Height<=MiniNext.Height ||
@@ -65,7 +66,31 @@ public partial class MainWindow {
   playlists=[new(){id="preview-collection-1",name="Ночная дорога"},new(){id="preview-collection-2",name="Избранные открытия"},new(){id="preview-collection-3",name="После полуночи"}];
   Show("Плейлисты");await PreviewWindow(this,"17-playlists-workspace");
   Show("Главная");ToggleDesktopQueue(true);await PreviewWindow(this,"18-queue-workspace");ToggleDesktopQueue(false);
-  File.WriteAllText("ui-previews/checks.json",JsonSerializer.Serialize(new{theme="vice-nights-sunset",playRightAndLarge=true,states=18,logoNavigation=true,hiddenBackgroundStopped=true,networkRequests=0,compactWidth=800,compactHeight=620,primaryContrast=Contrast(BrushHex("TextBrush"),BrushHex("SurfaceBrush")),secondaryContrast=Contrast(BrushHex("SecondaryBrush"),BrushHex("InputBrush"))}));
+  // Exercise both palettes with real runtime switches, including compact
+  // layout and settings. A theme is only shipped if both render successfully.
+  ApplyVisualTheme("standard",false);
+  if (ViceSunsetBackdrop.Visibility != Visibility.Collapsed ||
+      VicePalmFoliage.Visibility != Visibility.Collapsed)
+    throw new InvalidOperationException("Standard theme still exposes Vice artwork");
+  Show("Главная");await PreviewWindow(this,"19-standard-home");
+  OpenSettingsPane();await PreviewWindow(this,"20-standard-settings");CloseDesktopPanes();
+  Home.Visibility=Library.Visibility=Dock.Visibility=Visibility.Collapsed;
+  PlayerPage.Visibility=Visibility.Visible;
+  await PreviewWindow(this,"21-standard-player");
+  Width=800;Height=620;await PreviewWindow(this,"22-standard-player-compact");
+  Width=1120;Height=800;
+  ApplyVisualTheme("vice",false);
+  Show("Главная");await PreviewWindow(this,"23-vice-home");
+  OpenSettingsPane();await PreviewWindow(this,"24-vice-settings");CloseDesktopPanes();
+  Home.Visibility=Library.Visibility=Dock.Visibility=Visibility.Collapsed;
+  PlayerPage.Visibility=Visibility.Visible;await PreviewWindow(this,"25-vice-player");
+  ApplyVisualTheme("standard",false);
+  var monoAccent=BrushHex("AccentBrush");
+  ApplyVisualTheme("vice",false);
+  if (monoAccent == BrushHex("AccentBrush"))
+    throw new InvalidOperationException("Theme palettes did not switch");
+  Show("Главная");
+  File.WriteAllText("ui-previews/checks.json",JsonSerializer.Serialize(new{theme="vice-and-standard",bothThemes=true,themeSwitch=true,playRightAndLarge=true,states=25,logoNavigation=true,hiddenBackgroundStopped=true,networkRequests=0,compactWidth=800,compactHeight=620,primaryContrast=Contrast(BrushHex("TextBrush"),BrushHex("SurfaceBrush")),secondaryContrast=Contrast(BrushHex("SecondaryBrush"),BrushHex("InputBrush"))}));
  }
  string BrushHex(string key){var color=((SolidColorBrush)FindResource(key)).Color;return $"{color.R:X2}{color.G:X2}{color.B:X2}";}
  async Task PreviewWindow(Window window,string name){await Task.Delay(120);window.UpdateLayout();await Dispatcher.InvokeAsync(()=>{},DispatcherPriority.Render);await PreviewElement(window,name);}
