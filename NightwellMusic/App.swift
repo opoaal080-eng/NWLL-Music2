@@ -945,7 +945,8 @@ struct NativeRoot: View {
         }
         // Native-style leading-edge Back: interactive, reversible, and only
         // on navigable screens. The full player owns horizontal track swipes.
-        .nightwellEdgeBack(enabled: canEdgeNavigateBack) {
+        .nightwellEdgeBack(enabled: canEdgeNavigateBack,
+                           excludedBottom: navigationLayout.showsTabs ? 152 : 88) {
             returnFromEdge()
         }
         .onChange(of: appearance) { _, _ in
