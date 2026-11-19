@@ -1534,6 +1534,17 @@ struct NightwellAccountDevicesResponse: Decodable {
         await playSeededRhythm(seeds: [track], startWithSeed: track)
     }
 
+    // Favorites use the same genre/artist-aware ranking as a playlist mix.
+    // This method works on the already ordered local snapshot, without a
+    // redundant server round trip for hundreds of liked tracks.
+    func rhythm(around favorites: [Track]) async {
+        guard !favorites.isEmpty else {
+            error = "В избранном пока нет треков для подборки."
+            return
+        }
+        await playSeededRhythm(seeds: favorites, startWithSeed: nil)
+    }
+
     func rhythm(around playlist: Playlist) async {
         guard account != nil else { authPresented = true; return }
         do {
