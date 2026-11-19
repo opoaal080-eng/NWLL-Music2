@@ -1148,7 +1148,7 @@ final class NativePlayer {
     }
     private var previousRestartTrackID: String?
     private var previousRestartAt: TimeInterval = -Double.infinity
-    func step(_ direction: Int) {
+    func step(_ direction: Int, restartCurrent: Bool = true) {
         guard !tracks.isEmpty, tracks.indices.contains(index) else { return }
         // Repeated Next is ignored while loading. It can skip only after
         // the player has shown the actual loading-failure message.
@@ -1181,7 +1181,7 @@ final class NativePlayer {
         if direction < 0 { directForwardTrackID = nil }
         let repeated = previousRestartTrackID == tracks[index].id && now - previousRestartAt < 3
         let position = playbackPosition
-        if direction < 0 && !repeated && position.isFinite && position > 3 {
+        if direction < 0 && restartCurrent && !repeated && position.isFinite && position > 3 {
             previousRestartTrackID = tracks[index].id
             previousRestartAt = now
             seek(0)

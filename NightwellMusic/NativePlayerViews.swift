@@ -279,33 +279,38 @@ struct MiniPlayer: View {
     let open: () -> Void
     var compactHeight = false
     @State private var glow = false
-    @State private var slideDirection: CGFloat = 1
     @Environment(\.accessibilityReduceMotion) private var reduced
     var body: some View {
         GeometryReader { box in
             let compact = box.size.width < 350 || compactHeight
             HStack(spacing: compact ? 8 : 12) {
                 Button(action: open) {
-                    HStack(spacing: 7) {
-                        Cover(track: clock.displayCurrent, origin: store.origin)
-                            .frame(width: compactHeight ? 34 : 42, height: compactHeight ? 34 : 42).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(clock.displayCurrent?.title ?? "Выбери трек").font(.system(size: compact ? 12 : 14, weight: .semibold)).lineLimit(1)
-                            Text(clock.displayCurrent?.artist ?? "Nightwell Music").font(.system(size: compact ? 10 : 12)).foregroundStyle(.white.opacity(0.65)).lineLimit(1)
-                        }.frame(maxWidth: .infinity, alignment: .leading)
+                    NightwellTrackSwipeCarousel(clock: clock, gap: 8, onStep: { step in
+                        NativePlayer.shared.step(step, restartCurrent: false)
+                    }) { candidate in
+                        HStack(spacing: 7) {
+                            Cover(track: candidate, origin: store.origin)
+                                .frame(width: compactHeight ? 34 : 42,
+                                       height: compactHeight ? 34 : 42)
+                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(candidate?.title ?? "Выбери трек")
+                                    .font(.system(size: compact ? 12 : 14, weight: .semibold))
+                                    .lineLimit(1)
+                                Text(candidate?.artist ?? "Nightwell Music")
+                                    .font(.system(size: compact ? 10 : 12))
+                                    .foregroundStyle(.white.opacity(0.65))
+                                    .lineLimit(1)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                     }
-                    .id(clock.displayID)
-                    .transition(.asymmetric(
-                        insertion: .offset(x: 45 * slideDirection).combined(with: .opacity),
-                        removal: .offset(x: -45 * slideDirection).combined(with: .opacity)
-                    ))
-                    .contentShape(Rectangle())
-                }.buttonStyle(.plain)
-                .highPriorityGesture(DragGesture(minimumDistance: 18).onEnded { value in
-                    if abs(value.translation.width) > 48 && abs(value.translation.width) > abs(value.translation.height) * 1.2 {
-                        changeTrack(value.translation.width < 0 ? 1 : -1)
-                    }
-                })
+                    .frame(height: compactHeight ? 50 : 60)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Миниплеер, открыть или пролистать треки")
                 HStack(spacing: compact ? 2 : 5) {
                     if let track = clock.displayCurrent {
                         Button { Task { await store.like(track) } } label: { Image(systemName: store.likes.contains(track.id) ? "heart.fill" : "heart").font(.system(size: 19)).foregroundStyle(Color.white).frame(width: compact ? 26 : 29, height: 44) }.accessibilityLabel("Избранное")
@@ -384,10 +389,6 @@ struct MiniPlayer: View {
         return CGFloat(min(1, max(0, clock.displayPosition / clock.displayDuration)))
     }
 
-    private func changeTrack(_ step: Int) {
-        slideDirection = step < 0 ? -1 : 1
-        NativePlayer.shared.step(step)
-    }
 }
 
 
@@ -953,23 +954,30 @@ struct FullPlayer: View {
                                     let availableHeight = max(0, box.size.height - (inlineVisible ? 62 : 0))
                                     let side = min(box.size.width, availableHeight)
                                         * (inlineVisible ? 0.90 : 0.96)
-                                    Cover(track: clock.displayCurrent, origin: store.origin, pixelWidth: 1024)
-                                        .frame(width: side, height: side)
-                                        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                                        .shadow(color: .black.opacity(0.38), radius: 22, y: 12)
+                                    NightwellTrackSwipeCarousel(clock: clock, gap: 16, onStep: { step in
+                                        NativePlayer.shared.step(step, restartCurrent: false)
+                                    }) { candidate in
+                                        Cover(track: candidate, origin: store.origin, pixelWidth: 1024)
+                                            .frame(width: side, height: side)
+                                            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                                            .shadow(color: .black.opacity(0.38), radius: 22, y: 12)
+                                    }
+                                    .frame(width: side, height: side)
                                 } else {
-                                    // Immersive artwork is already behind controls.
-                                    Color.clear
-                                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                    // Even in immersive mode, preview the adjacent
+                                    // artwork while moving the finger. The cover's
+                                    // ambient colors remain behind the controls.
+                                    let side = min(box.size.width, box.size.height) * 0.96
+                                    NightwellTrackSwipeCarousel(clock: clock, gap: 16, onStep: { step in
+                                        NativePlayer.shared.step(step, restartCurrent: false)
+                                    }) { candidate in
+                                        Cover(track: candidate, origin: store.origin, pixelWidth: 1024)
+                                            .frame(width: side, height: side)
+                                            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                                    }
+                                    .frame(width: side, height: side)
                                 }
                             }
-                            .contentShape(Rectangle())
-                            .gesture(DragGesture(minimumDistance: 18).onEnded { value in
-                                let dx = value.translation.width
-                                if abs(dx) > 52 && abs(dx) > abs(value.translation.height) * 1.15 {
-                                    NativePlayer.shared.step(dx < 0 ? 1 : -1)
-                                }
-                            })
                             if inlineVisible {
                                 HomeLyricLine(model: store.lyrics, clock: clock,
                                               fontSize: 19, respectsAmbientSetting: false)

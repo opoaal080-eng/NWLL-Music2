@@ -1788,6 +1788,7 @@ struct NativeTrackRow: View {
     var libraryPreview = false
     @State private var selectedArtist: ArtistSelection?
     @State private var showArtistChoices = false
+    @State private var showPlaylistTrackActions = false
     var body: some View {
         HStack(spacing: 0) {
             // One large hit target so tapping the thumbnail, title, artist,
@@ -1820,6 +1821,15 @@ struct NativeTrackRow: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Воспроизвести " + track.title)
+            Group {
+                if playlist != nil {
+                    Button { showPlaylistTrackActions = true } label: {
+                        Image(systemName: "ellipsis")
+                            .frame(width: 44, height: libraryPreview ? 72 : 70)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                } else {
             Menu {
                 QueueTrackActions(track: track)
                 if togetherSession.joined {
@@ -1865,6 +1875,9 @@ struct NativeTrackRow: View {
                     .frame(width: 44, height: libraryPreview ? 72 : 70)
                     .contentShape(Rectangle())
             }
+
+                }
+            }
             .padding(.trailing, 5)
             .accessibilityLabel("Действия с треком " + track.title)
         }
@@ -1878,6 +1891,15 @@ struct NativeTrackRow: View {
         }
         .sheet(item: $selectedArtist) { artist in
             ArtistProfileView(name: artist.name, togetherSession: togetherSession).environmentObject(store)
+        }
+        .sheet(isPresented: $showPlaylistTrackActions) {
+            if let playlist {
+                NightwellPlaylistTrackSheet(track: track, playlist: playlist) { artist in
+                    selectedArtist = ArtistSelection(name: artist)
+                }
+                .environmentObject(store)
+                .environmentObject(togetherSession)
+            }
         }
     }
 }
