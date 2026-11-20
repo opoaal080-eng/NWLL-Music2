@@ -15,6 +15,7 @@ private struct DailyPublicPlaylist: Decodable, Identifiable {
 struct DailyPublicPlaylistsView: View {
     @ObservedObject var store: MusicStore
     @State private var playlists: [DailyPublicPlaylist] = []
+    @State private var openedPlaylist: DailyPublicPlaylist?
     @State private var loading = false
     @State private var message = ""
     @State private var saving: Set<String> = []
@@ -35,17 +36,20 @@ struct DailyPublicPlaylistsView: View {
             ForEach(playlists) { playlist in
                 HStack(spacing: 8) {
                     Button {
-                        guard let track = playlist.tracks.first else { return }
-                        store.play(track, in: playlist.tracks)
+                        // Tapping a selection opens its detail, never starts
+                        // playback. The play button inside the detail owns it.
+                        openedPlaylist = playlist
                     } label: {
                         HStack {
                             Image(systemName: "waveform")
                             VStack(alignment: .leading) {
                                 Text(playlist.name).font(.headline)
-                                Text("\(playlist.count) треков · Слушать").font(.caption).foregroundStyle(.secondary)
+                                Text("\(playlist.count) треков").font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()
-                            Image(systemName: "play.fill")
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(.secondary)
                         }.padding(14)
                     }.buttonStyle(.plain)
                     Button { Task { await toggleSaved(playlist) } } label: {
@@ -60,6 +64,20 @@ struct DailyPublicPlaylistsView: View {
             }
         }
         .task { await reload() }
+        .sheet(item: $openedPlaylist) { selection in
+            // Use the exact same playlist content as the user's playlists,
+            // with the daily response's preloaded, read-only track list.
+            PlaylistScreen(
+                close: { openedPlaylist = nil },
+                playlist: Playlist(id: "daily-" + collectionDate + "-" + selection.id,
+                                   name: selection.name),
+                previewTracks: selection.tracks
+            )
+            .environmentObject(store)
+            .presentationDetents([.large])
+            .presentationDragIndicator(.hidden)
+            .presentationBackground(Color(white: 0.065))
+        }
     }
     @MainActor private func toggleSaved(_ playlist: DailyPublicPlaylist) async {
         guard !saving.contains(playlist.id) else { return }
