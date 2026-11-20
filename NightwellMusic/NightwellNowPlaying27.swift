@@ -191,7 +191,7 @@ final class NightwellNowPlayingBridge27 {
             } catch {
                 if !Task.isCancelled {
                     self.lastActivationError = String(describing: error)
-                    NSLog("Nightwell NowPlaying activation: \\(error)")
+                    NSLog("Nightwell NowPlaying activation: \(error)")
                 }
             }
         }
