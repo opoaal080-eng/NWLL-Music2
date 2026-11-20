@@ -330,12 +330,11 @@ final class NativePlayer {
     }
     private(set) var queueRevision = 0
     private var appIsActive = UIApplication.shared.applicationState == .active
-    private var usesNowPlaying27: Bool {
-        #if canImport(NowPlaying)
-        if #available(iOS 27.0, *) { return true }
-        #endif
-        return false
-    }
+    // Use MediaPlayer's single, existing Now Playing publisher on every iOS
+    // version. The optional iOS 27 MediaSession path was keeping its player
+    // surface visible above Nightwell while the app itself was foreground.
+    // Never activate both publishers or both sets of remote commands.
+    private var usesNowPlaying27: Bool { false }
     private var offlineAccount = ""
     private var index = 0
     private var cookies: [HTTPCookie] = []
