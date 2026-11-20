@@ -291,6 +291,7 @@ public final class MainActivity extends Activity {
         };
     private LinearLayout root,body,dock,head;
     private NightwellTabBar iosTabs;
+    private NightwellDialog navigationSheet;
     private TextView status,miniTitle,miniArtist,miniPlay,miniPrev,miniNext,miniLike;
     private android.widget.ImageView miniCover;private CircularProgressRing miniProgressRing;
     private ArtworkCache artworkCache;
@@ -380,7 +381,7 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onResume(){super.onResume();restoreRecent();visible=true;openPendingTogether();ui.removeCallbacks(nightwellProbe);ui.post(nightwellProbe);if(!smokeMode&&sessionReady&&SystemClock.elapsedRealtime()-lastResumeRefresh>30000)load();if(premiumRefresh!=null)premiumRefresh.run();BackgroundDownloads.reconcile(this);updateArtworkAppearance();ui.removeCallbacks(tick);if(!smokeMode)ui.post(tick);}
-    @Override protected void onPause(){super.onPause();ui.removeCallbacks(nightwellProbe);ui.removeCallbacks(connectionRecovery);if(navigationPopup!=null)navigationPopup.dismiss();if(playback!=null)playback.persistPlayback(true);visible=false;if(ribbon!=null)ribbon.running(false);ui.removeCallbacks(tick);}
+    @Override protected void onPause(){super.onPause();ui.removeCallbacks(nightwellProbe);ui.removeCallbacks(connectionRecovery);if(navigationPopup!=null)navigationPopup.dismiss();if(navigationSheet!=null)navigationSheet.dismiss();if(playback!=null)playback.persistPlayback(true);visible=false;if(ribbon!=null)ribbon.running(false);ui.removeCallbacks(tick);}
     @Override protected void onDestroy(){if(together!=null)together.shutdown();ui.removeCallbacks(nightwellProbe);generation++;cancelMix();accountRequest.cancel();if(api!=null)api.close();ui.removeCallbacksAndMessages(null);if(artworkCache!=null)artworkCache.close();favoriteRecoveryGeneration++;favoriteIO.shutdownNow();io.shutdownNow();prefetch.shutdownNow();if(playback!=null)playback.player.removeListener(playbackIntentObserver);if(bindingRegistered){unbindService(connection);bindingRegistered=false;}super.onDestroy();}
     int dp(float n){return (int)(n*getResources().getDisplayMetrics().density+.5f);}
     LinearLayout column(){LinearLayout v=new LinearLayout(this);v.setOrientation(LinearLayout.VERTICAL);return v;}
@@ -613,8 +614,7 @@ public final class MainActivity extends Activity {
         }
     }
     void menu(){
-        if(navigationPopup!=null)navigationPopup.dismiss();
-        View anchor=head.getChildAt(head.getChildCount()-1);
+        if(navigationSheet!=null)navigationSheet.dismiss();
         LinearLayout entries=column();
         entries.setPadding(dp(10),dp(12),dp(10),dp(12));
 
@@ -680,7 +680,7 @@ public final class MainActivity extends Activity {
             }
             item.setContentDescription(label.getText());
             item.setOnClickListener(v->{
-                if(navigationPopup!=null)navigationPopup.dismiss();
+                if(navigationSheet!=null)navigationSheet.dismiss();
                 selectMenu(tab);
             });
             LinearLayout.LayoutParams rowParams=new LinearLayout.LayoutParams(-1,-2);
@@ -697,27 +697,26 @@ public final class MainActivity extends Activity {
         scroll.setVerticalScrollBarEnabled(false);
         scroll.setFillViewport(false);
         scroll.addView(entries);
-        android.graphics.Rect frame=new android.graphics.Rect();
-        anchor.getWindowVisibleDisplayFrame(frame);
-        int[] location=new int[2];anchor.getLocationOnScreen(location);
-        int available=Math.max(dp(140),frame.bottom-location[1]-anchor.getHeight()-dp(10));
-        int width=Math.min(dp(296),frame.width()-dp(26));
-        PopupWindow popup=new PopupWindow(scroll,width,WindowManager.LayoutParams.WRAP_CONTENT,true);
-        navigationPopup=popup;
-        popup.setOnDismissListener(()->{if(navigationPopup==popup){navigationPopup=null;nightwellMenuStatus=null;}});
-        GradientDrawable panel=NightwellDesign.surface(this,NightwellDesign.SURFACE,22,true);
-        popup.setBackgroundDrawable(panel);
-        popup.setElevation(dp(16));
-        popup.setOutsideTouchable(true);
-        popup.setInputMethodMode(PopupWindow.INPUT_METHOD_NOT_NEEDED);
-        scroll.setBackground(panel);scroll.setClipToOutline(true);
-        entries.measure(View.MeasureSpec.makeMeasureSpec(width,View.MeasureSpec.EXACTLY),
-            View.MeasureSpec.makeMeasureSpec(0,View.MeasureSpec.UNSPECIFIED));
-        popup.setHeight(Math.min(entries.getMeasuredHeight()+dp(4),available));
-        popup.showAsDropDown(anchor,0,dp(7),Gravity.END);
+        navigationSheet=new NightwellDialog.Builder(this)
+            .setTitle("Меню")
+            .setView(scroll)
+            .setNegativeButton("Закрыть",null)
+            .create();
+        NightwellDialog sheet=navigationSheet;
+        sheet.setOnDismissListener(dialog->{
+            if(navigationSheet==sheet)navigationSheet=null;
+            nightwellMenuStatus=null;
+        });
+        sheet.show();
+        Window sheetWindow=sheet.getWindow();
+        if(sheetWindow!=null){
+            sheetWindow.setGravity(Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL);
+            sheetWindow.setLayout(getResources().getDisplayMetrics().widthPixels-dp(16),
+                WindowManager.LayoutParams.WRAP_CONTENT);
+        }
         scroll.setAlpha(0f);
-        scroll.setTranslationY(-dp(8));
-        scroll.animate().alpha(1f).translationY(0).setDuration(190)
+        scroll.setTranslationY(dp(18));
+        scroll.animate().alpha(1f).translationY(0).setDuration(245)
             .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
     }
     void selectMenu(String tab){
@@ -1997,7 +1996,7 @@ public final class MainActivity extends Activity {
         fullAudioOutput.setEllipsize(android.text.TextUtils.TruncateAt.END);
         fullAudioOutput.setTextColor(NightwellDesign.SECONDARY);
         fullAudioOutput.setPadding(dp(15),0,dp(15),0);
-        fullAudioOutput.setBackground(NightwellDesign.ripple(this,0x9c1b1e22,15,true));
+        fullAudioOutput.setBackground(new NightwellGlassDrawable(this,18,0x5c28303b));
         fullAudioOutput.setContentDescription("Устройство вывода: "+audioOutputName()+". Изменить");
         fullAudioOutput.setOnClickListener(v->chooseAudioOutput());
         LinearLayout.LayoutParams routeParams=new LinearLayout.LayoutParams(-2,dp(34));
@@ -2007,7 +2006,7 @@ public final class MainActivity extends Activity {
 
         addCover(track,content);
 
-        TextView title=text(track.optString("title"),26);
+        TextView title=text(track.optString("title"),22);
         NightwellDesign.headline(title);
         title.setMaxLines(2);
         title.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -2051,14 +2050,16 @@ public final class MainActivity extends Activity {
             "Убрать из избранного":"Добавить в избранное");
         fullLike.setTextColor(likes.contains(track.optString("id"))?
             NightwellDesign.PRIMARY:NightwellDesign.SECONDARY);
+        fullLike.setBackground(new NightwellGlassDrawable(this,22,0x50303945));
+        fullDislike.setBackground(new NightwellGlassDrawable(this,22,0x50303945));
         artistActions.addView(fullLike,new LinearLayout.LayoutParams(dp(46),dp(46)));
         LinearLayout.LayoutParams artistParams=new LinearLayout.LayoutParams(-1,dp(50));
         artistParams.bottomMargin=dp(20);
         content.addView(artistActions,artistParams);
 
         LinearLayout transport=column();
-        transport.setPadding(dp(15),dp(12),dp(15),dp(12));
-        transport.setBackground(NightwellDesign.surface(this,0xa51a1d21,23,true));
+        transport.setPadding(dp(3),dp(9),dp(3),dp(6));
+        transport.setBackgroundColor(Color.TRANSPARENT);
         content.addView(transport);
 
         seek=new NightwellSlider(this);styleSeekBar(seek);
@@ -2103,8 +2104,8 @@ public final class MainActivity extends Activity {
             button.setTextColor(NightwellDesign.PRIMARY);
         }
         fullPlay.setTextSize(30);
-        fullPlay.setTextColor(NightwellDesign.BACKGROUND);
-        fullPlay.setBackground(NightwellDesign.ripple(this,NightwellDesign.PRIMARY,38,false));
+        fullPlay.setTextColor(NightwellDesign.PRIMARY);
+        fullPlay.setBackground(new NightwellGlassDrawable(this,38,0x8a242a35));
         fullPlay.setPadding(0,0,0,0);
         controls.addView(shuffleButton,new LinearLayout.LayoutParams(0,dp(52),1));
         controls.addView(previousButton,new LinearLayout.LayoutParams(0,dp(54),1));
@@ -2115,18 +2116,26 @@ public final class MainActivity extends Activity {
         controls.addView(repeatButton,new LinearLayout.LayoutParams(0,dp(52),1));
         transport.addView(controls);
 
-        View divider=NightwellDesign.hairline(this);
-        LinearLayout.LayoutParams dividerParams=new LinearLayout.LayoutParams(-1,dp(1));
-        dividerParams.topMargin=dp(4);
-        transport.addView(divider,dividerParams);
-        TextView queueButton=sheetAction("☷   Очередь воспроизведения  ·  "+queue.length()+" треков",
-            this::showQueue);
-        queueButton.setTextColor(NightwellDesign.SECONDARY);
-        queueButton.setGravity(Gravity.CENTER);
+        LinearLayout tools=row();
+        tools.setGravity(Gravity.CENTER);
+        tools.setBackground(new NightwellGlassDrawable(this,28,0x71232a34));
+        TextView lyricButton=iconButton("☷",()->{
+            JSONObject active=current();if(active!=null)showLyrics(active);
+        });
+        lyricButton.setContentDescription("Текст песни");
+        lyricButton.setBackgroundColor(Color.TRANSPARENT);
+        tools.addView(lyricButton,new LinearLayout.LayoutParams(0,dp(55),1));
+        TextView queueButton=iconButton("≡",this::showQueue);
+        queueButton.setContentDescription("Очередь");
         queueButton.setBackgroundColor(Color.TRANSPARENT);
-        LinearLayout.LayoutParams queueParams=new LinearLayout.LayoutParams(-1,dp(50));
-        queueParams.topMargin=dp(5);
-        transport.addView(queueButton,queueParams);
+        tools.addView(queueButton,new LinearLayout.LayoutParams(0,dp(55),1));
+        TextView equalizerButton=iconButton("☷",()->feature("sound"));
+        equalizerButton.setContentDescription("Эквалайзер");
+        equalizerButton.setBackgroundColor(Color.TRANSPARENT);
+        tools.addView(equalizerButton,new LinearLayout.LayoutParams(0,dp(55),1));
+        LinearLayout.LayoutParams toolsParams=new LinearLayout.LayoutParams(-1,dp(55));
+        toolsParams.topMargin=dp(14);
+        transport.addView(tools,toolsParams);
         fullNetworkNote=text("",12);
         fullNetworkNote.setTextColor(NightwellDesign.SECONDARY);
         fullNetworkNote.setGravity(Gravity.CENTER);
@@ -2151,11 +2160,13 @@ public final class MainActivity extends Activity {
         android.view.GestureDetector detector=gestures(true);
         cover.setOnTouchListener((v,event)->detector.onTouchEvent(event));
         GradientDrawable corners=new GradientDrawable();
-        corners.setColor(0x33251936);boolean classic=getSharedPreferences("appearance",MODE_PRIVATE).getBoolean("cover-classic",false);corners.setCornerRadius(dp(classic?25:8));
+        corners.setColor(0x33251936);boolean classic=getSharedPreferences("appearance",MODE_PRIVATE).getBoolean("cover-classic",false);corners.setCornerRadius(dp(classic?25:26));
         cover.setBackground(corners);cover.setClipToOutline(true);
-        int edge=Math.max(160,Math.min((int)(getResources().getConfiguration().screenHeightDp*
-            (getResources().getConfiguration().screenHeightDp<700?.25f:.36f)),
-            Math.min(getSharedPreferences("appearance",MODE_PRIVATE).getBoolean("cover-classic",false)?330:410,getResources().getConfiguration().screenWidthDp-(getSharedPreferences("appearance",MODE_PRIVATE).getBoolean("cover-classic",false)?44:4))));
+        int availableWidth=getResources().getConfiguration().screenWidthDp;
+        int availableHeight=getResources().getConfiguration().screenHeightDp;
+        int edge=Math.max(160,Math.min(
+            (int)(availableHeight*(availableHeight<700?.31f:.39f)),
+            (int)(availableWidth*(classic?.84f:.90f))));
         LinearLayout.LayoutParams coverLayout=new LinearLayout.LayoutParams(dp(edge),dp(edge));
         coverLayout.gravity=Gravity.CENTER_HORIZONTAL;
         parent.addView(cover,coverLayout);
@@ -2824,7 +2835,9 @@ public final class MainActivity extends Activity {
             android.content.SharedPreferences aura=getSharedPreferences("aura-response",MODE_PRIVATE);
             ribbon.setAuraResponse(aura.getBoolean(user+"|aura_voice",true),aura.getBoolean(user+"|aura_low",true),aura.getBoolean(user+"|aura_mid",true),aura.getBoolean(user+"|aura_high",true));
         }
-        if(root!=null)root.setBackgroundColor(Color.TRANSPARENT);updateArtworkAppearance();
+        if(root!=null)root.setBackgroundColor(Color.TRANSPARENT);
+        if(iosTabs!=null)iosTabs.setPremiumVisible(!allowed);
+        updateArtworkAppearance();
     }
     void premiumTick(){if(!premiumOwner.equals(user)||premiumUntil>0&&!premiumAllowed()){premiumUntil=0;premiumPrefs=new JSONObject();premiumOwner=user;premiumChecked=0;applyPremium();}if(!premiumLoading&&System.currentTimeMillis()-premiumChecked>300000)loadPremium(()->{});}
     void loadPremium(Runnable done){if(premiumLoading)return;premiumLoading=true;premiumChecked=System.currentTimeMillis();String owner=user;premiumUntil=0;applyPremium();io.execute(()->{
