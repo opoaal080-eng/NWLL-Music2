@@ -1,7 +1,6 @@
 package fun.nightwell.music;
 
 import android.content.Context;
-import android.content.res.ColorStateList;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.widget.EditText;
@@ -18,6 +17,6 @@ public final class NightwellField extends EditText {
             cursor.setSize(NightwellDesign.dp(context,2),NightwellDesign.dp(context,22));
             setTextCursorDrawable(cursor);
         }
-        if(Build.VERSION.SDK_INT>=29)setTextSelectHandleTintList(ColorStateList.valueOf(NightwellDesign.PRIMARY));
+        setHighlightColor(0x66f5f6f7);
     }
 }
