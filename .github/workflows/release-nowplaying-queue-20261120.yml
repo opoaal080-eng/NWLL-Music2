@@ -1,0 +1,25 @@
+name: Release Nightwell iOS build queue
+on:
+  push:
+    branches: [fix/ios-latest-account-family-20261116]
+    paths: ['.github/workflows/release-nowplaying-queue-20261120.yml']
+permissions:
+  contents: read
+  actions: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Cancel only stale prior workflow run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          id=44770440948
+          state="$(gh api "repos/$GH_REPO/actions/runs/$id" --jq .status)"
+          if [ "$state" != completed ]; then
+            gh api -X POST "repos/$GH_REPO/actions/runs/$id/cancel"
+          fi
+          echo "Old run is $state"
