@@ -291,6 +291,7 @@ public final class MainActivity extends Activity {
         };
     private LinearLayout root,body,dock,head;
     private NightwellTabBar iosTabs;
+    private TextView iosBrandName;
     private NightwellDialog navigationSheet;
     private TextView status,miniTitle,miniArtist,miniPlay,miniPrev,miniNext,miniLike;
     private android.widget.ImageView miniCover;private CircularProgressRing miniProgressRing;
@@ -503,6 +504,7 @@ public final class MainActivity extends Activity {
         wordmark.setGravity(Gravity.CENTER_VERTICAL);
         wordmark.setPadding(dp(10),0,0,0);
         TextView brandName=text("Nightwell",24);
+        iosBrandName=brandName;
         NightwellDesign.headline(brandName);
         wordmark.addView(brandName);
         TextView brandCaption=text("M U S I C",10);
@@ -548,7 +550,9 @@ public final class MainActivity extends Activity {
         refreshLiveHandoff();
         body=column();root.addView(body,new LinearLayout.LayoutParams(-1,0,1));status=text("",12);status.setTextColor(NightwellDesign.MUTED);status.setGravity(Gravity.CENTER);status.setMaxLines(2);status.setPadding(dp(4),dp(3),dp(4),dp(3));root.addView(status);dock=row();dock.setGravity(Gravity.CENTER_VERTICAL);dock.setPadding(dp(12),dp(10),dp(12),dp(10));dock.setBackground(new NightwellGlassDrawable(this,34,0x8b202733));dock.setClipToOutline(true);
         miniCover=new android.widget.ImageView(this);miniCover.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);GradientDrawable coverShape=new GradientDrawable();coverShape.setColor(0x443e2d52);coverShape.setCornerRadius(dp(getSharedPreferences("appearance",MODE_PRIVATE).getBoolean("cover-classic",false)?16:14));miniCover.setBackground(coverShape);miniCover.setClipToOutline(true);miniCover.setOnClickListener(v->openPlayer());LinearLayout.LayoutParams coverParams=new LinearLayout.LayoutParams(dp(44),dp(44));coverParams.rightMargin=dp(10);dock.addView(miniCover,coverParams);
-        LinearLayout labels=column();miniTitle=text("Выбери трек",15);miniTitle.setMaxLines(1);miniTitle.setTextSize(15);miniTitle.setLetterSpacing(-.015f);miniTitle.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);miniArtist=text("Nightwell Music",12);miniArtist.setMaxLines(1);miniArtist.setTextSize(12);miniArtist.setLetterSpacing(.005f);miniArtist.setTextColor(0xffa4a6b1);miniTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);miniArtist.setEllipsize(android.text.TextUtils.TruncateAt.END);labels.addView(miniTitle);labels.addView(miniArtist);labels.setOnClickListener(v->openPlayer());dock.addView(labels,new LinearLayout.LayoutParams(0,-2,1));miniPrev=action("|‹",()->previous());miniPlay=action("▶",()->toggle());miniNext=action("›|",()->{nextTrack();});miniLike=action("♡",()->toggleFavorite(current()));miniLike.setTextColor(0xffeeeeee);miniPlay.setTextSize(23);miniNext.setTextSize(24);miniPlay.setPadding(0,0,0,0);miniNext.setPadding(0,0,0,0);miniPlay.setTextColor(NightwellDesign.PRIMARY);miniPlay.setBackground(new NightwellGlassDrawable(this,24,0x3314181f));miniPrev.setPadding(0,0,0,0);miniLike.setPadding(0,0,0,0);if(getResources().getConfiguration().screenWidthDp>=380)dock.addView(miniLike,new LinearLayout.LayoutParams(dp(40),dp(48)));dock.addView(miniPrev,new LinearLayout.LayoutParams(dp(40),dp(48)));miniProgressRing=new CircularProgressRing(this);miniProgressRing.addView(miniPlay,new android.widget.FrameLayout.LayoutParams(-1,-1));dock.addView(miniProgressRing,new LinearLayout.LayoutParams(dp(48),dp(48)));dock.addView(miniNext,new LinearLayout.LayoutParams(dp(44),dp(48)));LinearLayout.LayoutParams dockParams=new LinearLayout.LayoutParams(-1,-2);dockParams.topMargin=dp(8);dockParams.bottomMargin=dp(5);root.addView(dock,dockParams);if(backgroundOnly)dock.setVisibility(View.GONE);
+        LinearLayout labels=column();miniTitle=text("Выбери трек",15);miniTitle.setMaxLines(1);miniTitle.setTextSize(15);miniTitle.setLetterSpacing(-.015f);miniTitle.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);miniArtist=text("Nightwell Music",12);miniArtist.setMaxLines(1);miniArtist.setTextSize(12);miniArtist.setLetterSpacing(.005f);miniArtist.setTextColor(0xffa4a6b1);miniTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);miniArtist.setEllipsize(android.text.TextUtils.TruncateAt.END);labels.addView(miniTitle);labels.addView(miniArtist);labels.setOnClickListener(v->openPlayer());dock.addView(labels,new LinearLayout.LayoutParams(0,-2,1));miniPrev=action("|‹",()->previous());miniPlay=action("▶",()->toggle());miniNext=action("›|",()->{nextTrack();});miniLike=action("♡",()->toggleFavorite(current()));miniLike.setTextColor(0xffeeeeee);miniPlay.setTextSize(23);miniNext.setTextSize(24);miniPlay.setPadding(0,0,0,0);miniNext.setPadding(0,0,0,0);miniPlay.setTextColor(NightwellDesign.PRIMARY);miniPlay.setBackground(new NightwellGlassDrawable(this,24,0x3314181f));miniPrev.setPadding(0,0,0,0);miniLike.setPadding(0,0,0,0);if(getResources().getConfiguration().screenWidthDp>=380)dock.addView(miniLike,new LinearLayout.LayoutParams(dp(40),dp(48)));// Previous track is controlled by a swipe, matching the iOS mini player.
+        miniProgressRing=new CircularProgressRing(this);miniProgressRing.addView(miniPlay,new android.widget.FrameLayout.LayoutParams(-1,-1));dock.addView(miniProgressRing,new LinearLayout.LayoutParams(dp(48),dp(48)));// No separate next button in the iOS mini player.
+        LinearLayout.LayoutParams dockParams=new LinearLayout.LayoutParams(-1,-2);dockParams.topMargin=dp(8);dockParams.bottomMargin=dp(5);root.addView(dock,dockParams);if(backgroundOnly)dock.setVisibility(View.GONE);
         iosTabs=new NightwellTabBar(this);
         iosTabs.setListener(index->{
             if(index==0)navigate("Главная");
@@ -953,6 +957,8 @@ public final class MainActivity extends Activity {
     }
     void navigate(String next){generation++;api.cancelSearch();if(pendingSearch!=null)ui.removeCallbacks(pendingSearch);screen=next;selectedPlaylist="";query="";if(full)build();else showScreen();}
     void showScreen(){
+        if(iosBrandName!=null)iosBrandName.setText(
+            screen.equals("Медиатека")?"Медиатека":"Nightwell");
         if(iosTabs!=null){
             int tab=screen.equals("Главная")?0:screen.equals("Поиск")?1:2;
             iosTabs.setActive(tab);
@@ -996,21 +1002,18 @@ public final class MainActivity extends Activity {
             android.widget.FrameLayout stage=new android.widget.FrameLayout(this);body.addView(stage,new LinearLayout.LayoutParams(-1,0,1));
             updateArtworkAppearance();
             LinearLayout intro=column();
-            intro.setGravity(Gravity.LEFT);
-            intro.setPadding(dp(5),dp(compact?8:21),dp(5),0);
+            intro.setGravity(Gravity.CENTER);
+            intro.setPadding(dp(5),0,dp(5),0);
             TextView theme=text("Твой ритм",compact?32:46);
             NightwellDesign.headline(theme);
-            theme.setGravity(Gravity.LEFT);
+            theme.setGravity(Gravity.CENTER);
             theme.setLetterSpacing(-.028f);
             theme.setSingleLine(true);
             theme.setAutoSizeTextTypeUniformWithConfiguration(30,46,1,android.util.TypedValue.COMPLEX_UNIT_SP);
             intro.addView(theme);
-            TextView subtitle=text("Музыка под твоё настроение",16);
-            subtitle.setTextColor(0xaaffffff);
-            subtitle.setPadding(0,dp(9),0,0);
-            intro.addView(subtitle);
-            stage.addView(intro,new android.widget.FrameLayout.LayoutParams(-1,-2,Gravity.TOP));
-            LinearLayout central=column();central.setGravity(Gravity.CENTER);
+            LinearLayout central=column();
+            central.setGravity(Gravity.CENTER);
+            central.addView(intro,new LinearLayout.LayoutParams(-1,-2));
             homePlay=action("▶",()->{if(currentID.isEmpty())wave();else toggle();});
             homePlay.setTextColor(Color.WHITE);
             homePlay.setTextSize(31);
@@ -1018,6 +1021,7 @@ public final class MainActivity extends Activity {
             homePlay.setElevation(dp(12));
             LinearLayout.LayoutParams primary=new LinearLayout.LayoutParams(dp(88),dp(88));
             primary.gravity=Gravity.CENTER_HORIZONTAL;
+            primary.topMargin=dp(compact?13:22);
             central.addView(homePlay,primary);
             TextView mix=action("Новая подборка",this::wave);
             mix.setOnLongClickListener(v->{waveSettings();return true;});
@@ -1030,7 +1034,7 @@ public final class MainActivity extends Activity {
             mixParams.topMargin=dp(24);mixParams.gravity=Gravity.CENTER_HORIZONTAL;
             central.addView(mix,mixParams);
             android.widget.FrameLayout.LayoutParams centralParams=new android.widget.FrameLayout.LayoutParams(-1,-2,Gravity.CENTER);
-            centralParams.topMargin=dp(compact?12:30);
+            centralParams.topMargin=0;
             stage.addView(central,centralParams);
             homeLyric=text("",16);homeLyric.setGravity(Gravity.CENTER);homeLyric.setTextColor(0xffe1e1e1);homeLyric.setMaxLines(2);homeLyric.setOnClickListener(v->{JSONObject t=current();if(t!=null)showLyrics(t);});android.widget.FrameLayout.LayoutParams lyricParams=new android.widget.FrameLayout.LayoutParams(-1,dp(50),Gravity.BOTTOM);stage.addView(homeLyric,lyricParams);if(compact)homeLyric.setVisibility(View.GONE);
             if(backgroundOnly){
