@@ -13,7 +13,12 @@ struct DailyPublicPlaylistsScreen: View {
                 DailyPublicPlaylistsView(store: store, togetherSession: togetherSession)
                     .padding(20)
             }
-            .background { NightwellMonochromeGlassBackground() }
+            .background {
+                NightwellThemedBackground {
+                    NightwellMonochromeGlassBackground()
+                }
+                .ignoresSafeArea()
+            }
             .navigationTitle("Подборки")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
