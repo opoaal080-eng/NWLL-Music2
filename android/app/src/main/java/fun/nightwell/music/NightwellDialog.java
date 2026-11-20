@@ -59,11 +59,12 @@ public final class NightwellDialog extends Dialog {
     private static final class LimitedHeightFrame extends FrameLayout {
         LimitedHeightFrame(Context context){super(context);}
         @Override protected void onMeasure(int widthSpec,int heightSpec){
-            int max=Math.max(120,NightwellDesign.dp(getContext(),0)+
-                (int)(getResources().getDisplayMetrics().heightPixels*.63f));
+            int max=(int)(getResources().getDisplayMetrics().heightPixels*.63f);
+            int mode=View.MeasureSpec.getMode(heightSpec);
+            int available=mode==View.MeasureSpec.UNSPECIFIED?max:
+                Math.min(max,View.MeasureSpec.getSize(heightSpec));
             super.onMeasure(widthSpec,View.MeasureSpec.makeMeasureSpec(
-                Math.min(max,View.MeasureSpec.getSize(heightSpec)),
-                View.MeasureSpec.AT_MOST));
+                Math.max(0,available),View.MeasureSpec.AT_MOST));
         }
     }
 
