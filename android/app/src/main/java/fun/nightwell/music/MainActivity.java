@@ -290,6 +290,7 @@ public final class MainActivity extends Activity {
             }
         };
     private LinearLayout root,body,dock,head;
+    private NightwellTabBar iosTabs;
     private TextView status,miniTitle,miniArtist,miniPlay,miniPrev,miniNext,miniLike;
     private android.widget.ImageView miniCover;private CircularProgressRing miniProgressRing;
     private ArtworkCache artworkCache;
@@ -482,18 +483,55 @@ public final class MainActivity extends Activity {
         if(ribbon!=null)ribbon.running(false);full=false;lyricsOpen=false;seek=null;fullTime=null;fullPlay=null;fullLike=null;fullDislike=null;fullAudioOutput=null;fullShuffle=null;fullElapsed=null;fullNetworkNote=null;
         // Render scenery and aura across the window, outside the padded controls.
         android.widget.FrameLayout scene=new android.widget.FrameLayout(this);
-        scene.setBackground(new NativeSceneryDrawable(this));
+        scene.setBackground(new NightwellBackdropDrawable());
         ambient=new ArtworkAmbientView(this);scene.addView(ambient,new android.widget.FrameLayout.LayoutParams(-1,-1));
         // Old active ribbons and starfield are deliberately removed from the view tree.
         atmosphere=null;ribbon=null;ui.post(this::applyPremium);
-        root=column();root.setPadding(dp(16),dp(10),dp(16),0);
+        root=column();root.setPadding(dp(18),dp(10),dp(18),0);
         scene.addView(root,new android.widget.FrameLayout.LayoutParams(-1,-1));setContentView(scene);
-        root.setOnApplyWindowInsetsListener((v,insets)->{int top,bottom;if(Build.VERSION.SDK_INT>=30){android.graphics.Insets bars=insets.getInsets(WindowInsets.Type.systemBars());top=bars.top;bottom=Math.max(bars.bottom,insets.getInsets(WindowInsets.Type.ime()).bottom);}else{top=insets.getSystemWindowInsetTop();bottom=insets.getSystemWindowInsetBottom();}v.setPadding(dp(16),dp(9)+top,dp(16),bottom+dp(4));return insets;});root.requestApplyInsets();
-        head=row();android.widget.ImageView brand=new android.widget.ImageView(this);brand.setImageResource(R.drawable.nightwell_mark);brand.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);brand.setOnClickListener(v->navigate("Главная"));head.addView(brand,new LinearLayout.LayoutParams(dp(40),dp(40)));LinearLayout wordmark=column();wordmark.setGravity(Gravity.CENTER_VERTICAL);wordmark.setPadding(dp(9),0,0,0);
-        TextView brandName=text("Nightwell",24);NightwellDesign.headline(brandName);brandName.setSingleLine(true);brandName.setAutoSizeTextTypeUniformWithConfiguration(19,24,1,android.util.TypedValue.COMPLEX_UNIT_SP);
-        wordmark.addView(brandName,new LinearLayout.LayoutParams(-1,dp(33)));
-        TextView brandCaption=text("M  U  S  I  C",10);brandCaption.setIncludeFontPadding(false);brandCaption.setSingleLine(true);brandCaption.setTextColor(NightwellDesign.MUTED);LinearLayout.LayoutParams captionParams=new LinearLayout.LayoutParams(-1,-2);captionParams.topMargin=dp(1);wordmark.addView(brandCaption,captionParams);
-        wordmark.setOnClickListener(v->navigate("Главная"));wordmark.setContentDescription("Nightwell Music, на главный экран");head.addView(wordmark,new LinearLayout.LayoutParams(0,-2,1));TextView searchButton=iconButton("⌕",()->navigate("Поиск"));searchButton.setBackground(NightwellDesign.ripple(this,0x99171a1e,16,true));head.addView(searchButton,new LinearLayout.LayoutParams(dp(44),dp(48)));handoffCompact=new HandoffButton(this);handoffCompact.setBackground(NightwellDesign.ripple(this,0x99171a1e,16,true));handoffCompact.setOnClickListener(v->expandLiveHandoff());handoffCompact.setContentDescription("Продолжить на этом устройстве. Развернуть плашку");handoffCompact.setVisibility(View.GONE);head.addView(handoffCompact,new LinearLayout.LayoutParams(dp(40),dp(48)));TextView menuButton=iconButton("☰",this::menu);menuButton.setBackground(NightwellDesign.ripple(this,0x99171a1e,16,true));head.addView(menuButton,new LinearLayout.LayoutParams(dp(44),dp(48)));LinearLayout.LayoutParams headerParams=new LinearLayout.LayoutParams(-1,dp(58));headerParams.bottomMargin=dp(8);root.addView(head,headerParams);if(backgroundOnly)head.setVisibility(View.GONE);
+        root.setOnApplyWindowInsetsListener((v,insets)->{int top,bottom;if(Build.VERSION.SDK_INT>=30){android.graphics.Insets bars=insets.getInsets(WindowInsets.Type.systemBars());top=bars.top;bottom=Math.max(bars.bottom,insets.getInsets(WindowInsets.Type.ime()).bottom);}else{top=insets.getSystemWindowInsetTop();bottom=insets.getSystemWindowInsetBottom();}v.setPadding(dp(18),dp(9)+top,dp(18),bottom+dp(4));return insets;});root.requestApplyInsets();
+        // iOS Nightwell shell: rounded N identity, restrained brand and profile action.
+        head=row();
+        TextView mark=text("N",29);
+        mark.setTypeface(android.graphics.Typeface.create("sans-serif-rounded",android.graphics.Typeface.BOLD));
+        mark.setGravity(Gravity.CENTER);
+        mark.setBackground(new NightwellGlassDrawable(this,13,0x7b12151c));
+        mark.setOnClickListener(v->navigate("Главная"));
+        head.addView(mark,new LinearLayout.LayoutParams(dp(42),dp(42)));
+        LinearLayout wordmark=column();
+        wordmark.setGravity(Gravity.CENTER_VERTICAL);
+        wordmark.setPadding(dp(10),0,0,0);
+        TextView brandName=text("Nightwell",24);
+        NightwellDesign.headline(brandName);
+        wordmark.addView(brandName);
+        TextView brandCaption=text("M U S I C",10);
+        brandCaption.setLetterSpacing(.08f);
+        brandCaption.setTextColor(0x99ffffff);
+        wordmark.addView(brandCaption);
+        wordmark.setOnClickListener(v->navigate("Главная"));
+        head.addView(wordmark,new LinearLayout.LayoutParams(0,-2,1));
+        TextView searchButton=iconButton("⌕",()->navigate(screen.equals("Поиск")?"Главная":"Поиск"));
+        searchButton.setBackground(new NightwellGlassDrawable(this,22,0x44323942));
+        head.addView(searchButton,new LinearLayout.LayoutParams(dp(44),dp(44)));
+        handoffCompact=new HandoffButton(this);
+        handoffCompact.setBackground(new NightwellGlassDrawable(this,22,0x44323942));
+        handoffCompact.setOnClickListener(v->expandLiveHandoff());
+        handoffCompact.setVisibility(View.GONE);
+        head.addView(handoffCompact,new LinearLayout.LayoutParams(dp(40),dp(44)));
+        TextView account=iconButton("◯",()->{if(user.isEmpty())auth();else menu();});
+        account.setText("♙");
+        account.setContentDescription(user.isEmpty()?"Войти":"Аккаунт и меню");
+        account.setBackground(new NightwellGlassDrawable(this,22,0x44323942));
+        LinearLayout.LayoutParams accountParams=new LinearLayout.LayoutParams(dp(44),dp(44));
+        accountParams.leftMargin=dp(6);head.addView(account,accountParams);
+        TextView menuButton=iconButton("☰",this::menu);
+        menuButton.setBackground(new NightwellGlassDrawable(this,22,0x44323942));
+        LinearLayout.LayoutParams menuParams=new LinearLayout.LayoutParams(dp(44),dp(44));
+        menuParams.leftMargin=dp(4);head.addView(menuButton,menuParams);
+        LinearLayout.LayoutParams headerParams=new LinearLayout.LayoutParams(-1,dp(58));
+        headerParams.bottomMargin=dp(5);
+        root.addView(head,headerParams);
+        if(backgroundOnly)head.setVisibility(View.GONE);
         nightwellBadge = text("", 11);
         nightwellBadge.setContentDescription("Состояние подключения Nightwell");
         setNightwellStatus(nightwellStatus);
@@ -507,9 +545,24 @@ public final class MainActivity extends Activity {
         liveHandoff.setOnLongClickListener(v->{collapseLiveHandoff(true);return true;});
         liveHandoff.setVisibility(View.GONE);root.addView(liveHandoff);
         refreshLiveHandoff();
-        body=column();root.addView(body,new LinearLayout.LayoutParams(-1,0,1));status=text("",12);status.setTextColor(NightwellDesign.MUTED);status.setGravity(Gravity.CENTER);status.setMaxLines(2);status.setPadding(dp(4),dp(3),dp(4),dp(3));root.addView(status);dock=row();dock.setPadding(dp(10),dp(10),dp(10),dp(10));dock.setBackground(NightwellDesign.surface(this,0xe7191b1f,22,true));dock.setClipToOutline(true);
-        miniCover=new android.widget.ImageView(this);miniCover.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);GradientDrawable coverShape=new GradientDrawable();coverShape.setColor(0x443e2d52);coverShape.setCornerRadius(dp(getSharedPreferences("appearance",MODE_PRIVATE).getBoolean("cover-classic",false)?16:9));miniCover.setBackground(coverShape);miniCover.setClipToOutline(true);miniCover.setOnClickListener(v->openPlayer());LinearLayout.LayoutParams coverParams=new LinearLayout.LayoutParams(dp(44),dp(44));coverParams.rightMargin=dp(10);dock.addView(miniCover,coverParams);
-        LinearLayout labels=column();miniTitle=text("Выбери трек",15);miniTitle.setMaxLines(1);miniTitle.setTextSize(15);miniTitle.setLetterSpacing(-.015f);miniTitle.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);miniArtist=text("Nightwell Music",12);miniArtist.setMaxLines(1);miniArtist.setTextSize(12);miniArtist.setLetterSpacing(.005f);miniArtist.setTextColor(0xffa4a6b1);miniTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);miniArtist.setEllipsize(android.text.TextUtils.TruncateAt.END);labels.addView(miniTitle);labels.addView(miniArtist);labels.setOnClickListener(v->openPlayer());dock.addView(labels,new LinearLayout.LayoutParams(0,-2,1));miniPrev=action("|‹",()->previous());miniPlay=action("▶",()->toggle());miniNext=action("›|",()->{nextTrack();});miniLike=action("♡",()->toggleFavorite(current()));miniLike.setTextColor(0xffeeeeee);miniPlay.setTextSize(23);miniNext.setTextSize(24);miniPlay.setPadding(0,0,0,0);miniNext.setPadding(0,0,0,0);miniPlay.setTextColor(NightwellDesign.PRIMARY);miniPlay.setBackground(null);miniPrev.setPadding(0,0,0,0);miniLike.setPadding(0,0,0,0);if(getResources().getConfiguration().screenWidthDp>=380)dock.addView(miniLike,new LinearLayout.LayoutParams(dp(40),dp(48)));dock.addView(miniPrev,new LinearLayout.LayoutParams(dp(40),dp(48)));miniProgressRing=new CircularProgressRing(this);miniProgressRing.addView(miniPlay,new android.widget.FrameLayout.LayoutParams(-1,-1));dock.addView(miniProgressRing,new LinearLayout.LayoutParams(dp(48),dp(48)));dock.addView(miniNext,new LinearLayout.LayoutParams(dp(44),dp(48)));LinearLayout.LayoutParams dockParams=new LinearLayout.LayoutParams(-1,-2);dockParams.topMargin=dp(8);dockParams.bottomMargin=dp(5);root.addView(dock,dockParams);if(backgroundOnly)dock.setVisibility(View.GONE);android.view.GestureDetector miniGestures=gestures(false);labels.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));dock.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));
+        body=column();root.addView(body,new LinearLayout.LayoutParams(-1,0,1));status=text("",12);status.setTextColor(NightwellDesign.MUTED);status.setGravity(Gravity.CENTER);status.setMaxLines(2);status.setPadding(dp(4),dp(3),dp(4),dp(3));root.addView(status);dock=row();dock.setGravity(Gravity.CENTER_VERTICAL);dock.setPadding(dp(12),dp(10),dp(12),dp(10));dock.setBackground(new NightwellGlassDrawable(this,34,0x8b202733));dock.setClipToOutline(true);
+        miniCover=new android.widget.ImageView(this);miniCover.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);GradientDrawable coverShape=new GradientDrawable();coverShape.setColor(0x443e2d52);coverShape.setCornerRadius(dp(getSharedPreferences("appearance",MODE_PRIVATE).getBoolean("cover-classic",false)?16:14));miniCover.setBackground(coverShape);miniCover.setClipToOutline(true);miniCover.setOnClickListener(v->openPlayer());LinearLayout.LayoutParams coverParams=new LinearLayout.LayoutParams(dp(44),dp(44));coverParams.rightMargin=dp(10);dock.addView(miniCover,coverParams);
+        LinearLayout labels=column();miniTitle=text("Выбери трек",15);miniTitle.setMaxLines(1);miniTitle.setTextSize(15);miniTitle.setLetterSpacing(-.015f);miniTitle.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);miniArtist=text("Nightwell Music",12);miniArtist.setMaxLines(1);miniArtist.setTextSize(12);miniArtist.setLetterSpacing(.005f);miniArtist.setTextColor(0xffa4a6b1);miniTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);miniArtist.setEllipsize(android.text.TextUtils.TruncateAt.END);labels.addView(miniTitle);labels.addView(miniArtist);labels.setOnClickListener(v->openPlayer());dock.addView(labels,new LinearLayout.LayoutParams(0,-2,1));miniPrev=action("|‹",()->previous());miniPlay=action("▶",()->toggle());miniNext=action("›|",()->{nextTrack();});miniLike=action("♡",()->toggleFavorite(current()));miniLike.setTextColor(0xffeeeeee);miniPlay.setTextSize(23);miniNext.setTextSize(24);miniPlay.setPadding(0,0,0,0);miniNext.setPadding(0,0,0,0);miniPlay.setTextColor(NightwellDesign.PRIMARY);miniPlay.setBackground(new NightwellGlassDrawable(this,24,0x3314181f));miniPrev.setPadding(0,0,0,0);miniLike.setPadding(0,0,0,0);if(getResources().getConfiguration().screenWidthDp>=380)dock.addView(miniLike,new LinearLayout.LayoutParams(dp(40),dp(48)));dock.addView(miniPrev,new LinearLayout.LayoutParams(dp(40),dp(48)));miniProgressRing=new CircularProgressRing(this);miniProgressRing.addView(miniPlay,new android.widget.FrameLayout.LayoutParams(-1,-1));dock.addView(miniProgressRing,new LinearLayout.LayoutParams(dp(48),dp(48)));dock.addView(miniNext,new LinearLayout.LayoutParams(dp(44),dp(48)));LinearLayout.LayoutParams dockParams=new LinearLayout.LayoutParams(-1,-2);dockParams.topMargin=dp(8);dockParams.bottomMargin=dp(5);root.addView(dock,dockParams);if(backgroundOnly)dock.setVisibility(View.GONE);
+        iosTabs=new NightwellTabBar(this);
+        iosTabs.setListener(index->{
+            if(index==0)navigate("Главная");
+            else if(index==1)navigate("Поиск");
+            else if(index==2)navigate("Медиатека");
+            else premium();
+        });
+        iosTabs.setPremiumVisible(!premiumAllowed());
+        iosTabs.setBackground(new NightwellGlassDrawable(this,21,0x76151a23));
+        LinearLayout.LayoutParams tabsParams=new LinearLayout.LayoutParams(-1,dp(62));
+        tabsParams.topMargin=dp(3);
+        tabsParams.bottomMargin=dp(2);
+        root.addView(iosTabs,tabsParams);
+        if(backgroundOnly)iosTabs.setVisibility(View.GONE);
+        android.view.GestureDetector miniGestures=gestures(false);labels.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));dock.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));
         showScreen();updateArtworkAppearance();updatePlayback();loadMiniCover(current());
     }
     // Audio routing is controlled by Android. Report the current media route without
@@ -901,6 +954,11 @@ public final class MainActivity extends Activity {
     }
     void navigate(String next){generation++;api.cancelSearch();if(pendingSearch!=null)ui.removeCallbacks(pendingSearch);screen=next;selectedPlaylist="";query="";if(full)build();else showScreen();}
     void showScreen(){
+        if(iosTabs!=null){
+            int tab=screen.equals("Главная")?0:screen.equals("Поиск")?1:2;
+            iosTabs.setActive(tab);
+            iosTabs.setPremiumVisible(!premiumAllowed());
+        }
         updateArtworkAppearance();
         if(android.animation.ValueAnimator.areAnimatorsEnabled()){body.setAlpha(.5f);body.animate().alpha(1).setDuration(180);}
         body.removeAllViews();list=null;search=null;artistStrip=null;adapter=null;
@@ -1853,6 +1911,7 @@ public final class MainActivity extends Activity {
         if(status!=null){status.setText("");status.setVisibility(View.GONE);}
         if(nightwellBadge!=null)nightwellBadge.setVisibility(View.GONE);
         if(dock!=null)dock.setVisibility(View.GONE);
+        if(iosTabs!=null)iosTabs.setVisibility(View.GONE);
         if(head!=null)head.setVisibility(View.GONE);
         body.removeAllViews();
 
@@ -2946,7 +3005,7 @@ public final class MainActivity extends Activity {
         });
     }
     android.view.GestureDetector gestures(boolean expanded){return new android.view.GestureDetector(this,new android.view.GestureDetector.SimpleOnGestureListener(){public boolean onDown(android.view.MotionEvent e){return true;}public boolean onSingleTapUp(android.view.MotionEvent e){if(expanded){JSONObject track=current();if(track!=null)showLyrics(track);}else openPlayer();return true;}public boolean onFling(android.view.MotionEvent start,android.view.MotionEvent end,float vx,float vy){if(start==null||end==null)return false;float dx=end.getX()-start.getX(),dy=end.getY()-start.getY();if(Math.abs(dx)>dp(65)&&Math.abs(dx)>Math.abs(dy)*1.25f){if(playback==null)return false;if(dx<0)nextTrack();else previous();return true;}if(expanded&&dy>dp(90)&&dy>Math.abs(dx)*1.35f){full=false;build();return true;}return false;}});}
-    @Override public void onBackPressed(){if(backgroundOnly){backgroundOnly=false;build();}else if(full){full=false;build();}else if(!screen.equals("Главная"))navigate("Главная");else super.onBackPressed();}
+    @Override public void onBackPressed(){if(backgroundOnly){backgroundOnly=false;build();}else if(full){full=false;build();}else if(screen.equals("Избранное")||screen.equals("Плейлисты")||screen.equals("Офлайн"))navigate("Медиатека");else if(!screen.equals("Главная"))navigate("Главная");else super.onBackPressed();}
     void importFiles(){Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("audio/*").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true);startActivityForResult(i,72);}
     void handleAudioImportResult(int request,int result,Intent data){if(request!=72||result!=RESULT_OK||data==null)return;ArrayList<Uri> uris=new ArrayList<>();if(data.getClipData()!=null)for(int i=0;i<data.getClipData().getItemCount();i++)uris.add(data.getClipData().getItemAt(i).getUri());else if(data.getData()!=null)uris.add(data.getData());io.execute(()->{for(Uri uri:uris)try{OfflineStore.importFile(this,origin,uri);}catch(Exception ex){ui.post(()->status.setText("Не удалось импортировать файл"));}ui.post(()->navigate("Офлайн"));});}
     final class TrackAdapter extends BaseAdapter {
