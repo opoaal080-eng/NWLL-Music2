@@ -306,9 +306,9 @@ public final class MainActivity extends Activity {
     private Runnable pendingSearch;
     private PopupWindow navigationPopup;
     private static final int PLAYLIST_DOCUMENT = 633;
-    private AlertDialog transferDialog;
+    private NightwellDialog transferDialog;
     private EditText transferInput,transferTitle;
-    private Spinner transferMode;
+    private NightwellPicker transferMode;
     private TextView transferNote;
     private int transferReadGeneration;
     private long libraryGeneration,lastResumeRefresh;
@@ -391,16 +391,16 @@ public final class MainActivity extends Activity {
     TextView sectionLabel(String label){TextView v=text(label.toUpperCase(java.util.Locale.ROOT),11);v.setLetterSpacing(.105f);v.setTextColor(NightwellDesign.MUTED);v.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));v.setPadding(dp(3),dp(18),0,dp(10));return v;}
     void styleField(EditText view){view.setTextSize(15);NightwellDesign.styleField(this,view);}
     void styleSwitch(android.widget.Switch view){view.setTextColor(NightwellDesign.PRIMARY);view.setTextSize(15);view.setMinHeight(dp(52));view.setPadding(dp(5),dp(8),dp(5),dp(8));view.setShowText(false);view.setThumbTintList(android.content.res.ColorStateList.valueOf(0xfff5f6f7));view.setTrackTintList(new android.content.res.ColorStateList(new int[][]{new int[]{android.R.attr.state_checked},new int[]{}},new int[]{0xff6a7078,0xff34373b}));}
-    void styleSheet(AlertDialog dialog){dialog.setOnShowListener(ignored->{
+    void styleSheet(NightwellDialog dialog){dialog.setOnShowListener(ignored->{
         android.view.Window window=dialog.getWindow();
         if(window!=null){
-            window.setBackgroundDrawable(NightwellDesign.surface(this,NightwellDesign.SURFACE,24,true));
+            window.setBackgroundDrawableResource(android.R.color.transparent);
             window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
             WindowManager.LayoutParams params=window.getAttributes();params.dimAmount=.78f;window.setAttributes(params);
             window.setDimAmount(.78f);
             int width=Math.min(dp(520),getResources().getDisplayMetrics().widthPixels-dp(28));
             window.setLayout(width,WindowManager.LayoutParams.WRAP_CONTENT);
-            window.getDecorView().setPadding(dp(12),dp(6),dp(12),dp(12));
+            window.getDecorView().setPadding(0,0,0,0);
             window.getDecorView().post(()->{
                 int limit=getResources().getDisplayMetrics().heightPixels-dp(64);
                 if(window.getDecorView().getHeight()>limit)window.setLayout(width,limit);
@@ -409,10 +409,10 @@ public final class MainActivity extends Activity {
             shell.animate().alpha(1).scaleX(1f).scaleY(1f).setDuration(210)
                 .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
         }
-        for(int which:new int[]{AlertDialog.BUTTON_POSITIVE,AlertDialog.BUTTON_NEGATIVE,AlertDialog.BUTTON_NEUTRAL}){
+        for(int which:new int[]{NightwellDialog.BUTTON_POSITIVE,NightwellDialog.BUTTON_NEGATIVE,NightwellDialog.BUTTON_NEUTRAL}){
             Button b=dialog.getButton(which);if(b==null)continue;
             b.setAllCaps(false);b.setTextSize(14);b.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));
-            b.setTextColor(which==AlertDialog.BUTTON_NEGATIVE?NightwellDesign.MUTED:NightwellDesign.PRIMARY);
+            b.setTextColor(which==NightwellDialog.BUTTON_NEGATIVE?NightwellDesign.MUTED:NightwellDesign.PRIMARY);
             b.setMinHeight(dp(46));b.setBackground(NightwellDesign.ripple(this,NightwellDesign.RAISED,14,true));
         }
     });}
@@ -470,7 +470,7 @@ public final class MainActivity extends Activity {
         items.setAdapter(adapter);
         content.addView(items,new LinearLayout.LayoutParams(-1,
             Math.min(dp(480),Math.max(dp(100),dp(68)*Math.min(7,snapshot.length())))));
-        AlertDialog dialog=new AlertDialog.Builder(this).setView(content)
+        NightwellDialog dialog=new NightwellDialog.Builder(this).setView(content)
             .setNegativeButton("Закрыть",null).create();
         items.setOnItemClickListener((p,v,index,id)->{
             JSONObject track=snapshot.optJSONObject(index);
@@ -537,7 +537,7 @@ public final class MainActivity extends Activity {
             android.util.Log.w("NightwellAudioRoute","System output picker unavailable",ignored);
         }
         try{
-            new AlertDialog.Builder(this)
+            new NightwellDialog.Builder(this)
                 .setTitle("Устройство вывода")
                 .setMessage("Сейчас: "+audioOutputName()+"\\nВыберите настройки подключения устройства.")
                 .setItems(new String[]{"Bluetooth","Настройки звука"},(dialog,which)->{
@@ -549,14 +549,14 @@ public final class MainActivity extends Activity {
                         else startActivity(new Intent(android.provider.Settings.ACTION_SETTINGS));
                     }catch(Throwable error){
                         android.util.Log.w("NightwellAudioRoute","Cannot open audio settings",error);
-                        android.widget.Toast.makeText(this,"Не удалось открыть настройки устройства",android.widget.Toast.LENGTH_SHORT).show();
+                        NightwellNotice.makeText(this,"Не удалось открыть настройки устройства",NightwellNotice.LENGTH_SHORT).show();
                     }
                 })
                 .setNegativeButton("Отмена",null)
                 .show();
         }catch(Throwable error){
             android.util.Log.e("NightwellAudioRoute","Cannot show audio route dialog",error);
-            android.widget.Toast.makeText(this,"Выбор устройства сейчас недоступен",android.widget.Toast.LENGTH_SHORT).show();
+            NightwellNotice.makeText(this,"Выбор устройства сейчас недоступен",NightwellNotice.LENGTH_SHORT).show();
         }
     }
     void menu(){
@@ -697,7 +697,7 @@ public final class MainActivity extends Activity {
             JSONArray tickets=data.optJSONArray("tickets");
             LinearLayout panel=column();panel.setPadding(dp(18),dp(12),dp(18),dp(12));
             ScrollView scroll=new ScrollView(this);scroll.addView(panel);
-            AlertDialog dialog=new AlertDialog.Builder(this).setTitle(adminMode?"Управление обращениями":"Обращения").setView(scroll).setNegativeButton("Закрыть",null).create();
+            NightwellDialog dialog=new NightwellDialog.Builder(this).setTitle(adminMode?"Управление обращениями":"Обращения").setView(scroll).setNegativeButton("Закрыть",null).create();
             if(!adminMode)panel.addView(action("＋ Новое обращение",()->{dialog.dismiss();supportCreate();}));
             panel.addView(action(adminMode?"Мои обращения":"Администрирование",()->{
                 dialog.dismiss();
@@ -744,7 +744,7 @@ public final class MainActivity extends Activity {
         },uploadResult->supportDetail(id,adminMode));
     }
     void chooseSupportAttachment(){
-        new AlertDialog.Builder(this).setTitle("Прикрепить вложение")
+        new NightwellDialog.Builder(this).setTitle("Прикрепить вложение")
             .setItems(new String[]{"Файлы","Галерея"},(dialog,which)->{
                 Intent choose=new Intent(which==0?Intent.ACTION_OPEN_DOCUMENT:Intent.ACTION_GET_CONTENT);
                 choose.setType(which==0?"*/*":"image/*");
@@ -752,24 +752,24 @@ public final class MainActivity extends Activity {
                 try{startActivityForResult(choose,which==0?631:632);}
                 catch(android.content.ActivityNotFoundException ex){
                     supportUploadTicket="";
-                    Toast.makeText(this,"Нет приложения для выбора вложения",Toast.LENGTH_LONG).show();
+                    NightwellNotice.makeText(this,"Нет приложения для выбора вложения",NightwellNotice.LENGTH_LONG).show();
                 }
             }).setNegativeButton("Отмена",(dialog,which)->supportUploadTicket="").show();
     }
     void supportCreate(){
         LinearLayout form=column();form.setPadding(dp(16),dp(8),dp(16),dp(8));
-        EditText subject=new EditText(this),body=new EditText(this);
+        EditText subject=new NightwellField(this),body=new NightwellField(this);
         subject.setHint("Тема");body.setHint("Описание обращения");body.setMinLines(4);styleField(subject);styleField(body);
         form.addView(subject);
-        Spinner kindPicker=new Spinner(this);
+        NightwellPicker kindPicker=new NightwellPicker(this);
         String[] labels={"Вопрос","Ошибка","Предложение","Аккаунт","Другое"};
         String[] values={"question","bug","suggestion","account","other"};
-        kindPicker.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,labels));kindPicker.setBackground(fieldSurface(0x88262a33,18));
+        kindPicker.setItems(labels);kindPicker.setBackground(fieldSurface(0x88262a33,18));
         form.addView(kindPicker);form.addView(body);
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Новое обращение").setView(form).setNegativeButton("Отмена",null).setPositiveButton("Отправить",null).create();
+        NightwellDialog dialog=new NightwellDialog.Builder(this).setTitle("Новое обращение").setView(form).setNegativeButton("Отмена",null).setPositiveButton("Отправить",null).create();
         styleSheet(dialog);dialog.show();
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
-            if(subject.length()<4||body.length()<5){Toast.makeText(this,"Заполни тему и описание",Toast.LENGTH_SHORT).show();return;}
+        dialog.getButton(NightwellDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+            if(subject.length()<4||body.length()<5){NightwellNotice.makeText(this,"Заполни тему и описание",NightwellNotice.LENGTH_SHORT).show();return;}
             task(()->api.request("api/support/tickets","POST",new JSONObject().put("subject",subject.getText().toString()).put("body",body.getText().toString()).put("kind",values[kindPicker.getSelectedItemPosition()])),result->{dialog.dismiss();supportTickets(false);});
         });
     }
@@ -787,7 +787,7 @@ public final class MainActivity extends Activity {
                     if(!folder.exists()&&!folder.mkdirs())throw new java.io.IOException("Не удалось создать папку");
                     java.io.File target=new java.io.File(folder,name);
                     try(java.io.FileOutputStream out=new java.io.FileOutputStream(target)){out.write(bytes);}
-                    ui.post(()->Toast.makeText(this,"Файл сохранён: "+target.getAbsolutePath(),Toast.LENGTH_LONG).show());
+                    ui.post(()->NightwellNotice.makeText(this,"Файл сохранён: "+target.getAbsolutePath(),NightwellNotice.LENGTH_LONG).show());
                     return;
                 }
                 android.content.ContentValues values=new android.content.ContentValues();
@@ -809,10 +809,10 @@ public final class MainActivity extends Activity {
                 getContentResolver().update(saved,ready,null,null);
                 ui.post(()->{
                     Intent view=new Intent(Intent.ACTION_VIEW).setDataAndType(saved,contentType).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                    try{startActivity(view);}catch(android.content.ActivityNotFoundException ex){Toast.makeText(this,"Сохранено в Загрузки/Nightwell Music",Toast.LENGTH_LONG).show();}
+                    try{startActivity(view);}catch(android.content.ActivityNotFoundException ex){NightwellNotice.makeText(this,"Сохранено в Загрузки/Nightwell Music",NightwellNotice.LENGTH_LONG).show();}
                 });
             }catch(Exception ex){
-                ui.post(()->Toast.makeText(this,"Ошибка файла: "+ex.getMessage(),Toast.LENGTH_LONG).show());
+                ui.post(()->NightwellNotice.makeText(this,"Ошибка файла: "+ex.getMessage(),NightwellNotice.LENGTH_LONG).show());
             }
         });
     }
@@ -844,15 +844,15 @@ public final class MainActivity extends Activity {
                 panel.addView(supportAttachment(attachment,()->downloadSupportFile(id,attachment)));
             }
             ScrollView scroll=new ScrollView(this);scroll.addView(panel);
-            AlertDialog dialog=new AlertDialog.Builder(this).setTitle(data.optString("subject")).setView(scroll).setNegativeButton("Закрыть",null).create();
+            NightwellDialog dialog=new NightwellDialog.Builder(this).setTitle(data.optString("subject")).setView(scroll).setNegativeButton("Закрыть",null).create();
             if(!data.optString("status").equals("closed"))panel.addView(action("Прикрепить файл до 10 МБ",()->{supportUploadTicket=id;supportUploadAdmin=adminMode;dialog.dismiss();chooseSupportAttachment();}));
             if(!data.optString("status").equals("closed"))panel.addView(action(adminMode?"Ответить":"Дополнить",()->{
-                EditText reply=new EditText(this);reply.setMinLines(3);
-                new AlertDialog.Builder(this).setTitle("Сообщение").setView(reply).setNegativeButton("Отмена",null).setPositiveButton("Отправить",(d,n)->task(()->api.request((adminMode?"api/support/admin/tickets/":"api/support/tickets/")+id+"/messages","POST",new JSONObject().put("body",reply.getText().toString())),result->{dialog.dismiss();supportDetail(id,adminMode);})).show();
+                EditText reply=new NightwellField(this);reply.setMinLines(3);
+                new NightwellDialog.Builder(this).setTitle("Сообщение").setView(reply).setNegativeButton("Отмена",null).setPositiveButton("Отправить",(d,n)->task(()->api.request((adminMode?"api/support/admin/tickets/":"api/support/tickets/")+id+"/messages","POST",new JSONObject().put("body",reply.getText().toString())),result->{dialog.dismiss();supportDetail(id,adminMode);})).show();
             }));
             if(adminMode)panel.addView(action("Изменить статус",()->{
                 String[] statuses={"new","in_progress","waiting_user","resolved","closed"};
-                new AlertDialog.Builder(this).setItems(statuses,(d,n)->task(()->api.request("api/support/admin/tickets/"+id+"/status","PATCH",new JSONObject().put("status",statuses[n])),result->{dialog.dismiss();supportDetail(id,true);})).show();
+                new NightwellDialog.Builder(this).setItems(statuses,(d,n)->task(()->api.request("api/support/admin/tickets/"+id+"/status","PATCH",new JSONObject().put("status",statuses[n])),result->{dialog.dismiss();supportDetail(id,true);})).show();
             }));
             styleSheet(dialog);dialog.show();
         });
@@ -889,7 +889,7 @@ public final class MainActivity extends Activity {
             refreshFavoriteButtons();updatePlayback();
             if(screen.equals("Избранное"))showScreen();else updateList();
             if(!remove&&autoFavoritesEnabled())download(new JSONArray().put(track));
-            Toast.makeText(this,remove?"Убрано из избранного":"Добавлено в избранное",Toast.LENGTH_SHORT).show();
+            NightwellNotice.makeText(this,remove?"Убрано из избранного":"Добавлено в избранное",NightwellNotice.LENGTH_SHORT).show();
         });
     }
     void refreshFavoriteButtons(){
@@ -960,7 +960,7 @@ public final class MainActivity extends Activity {
             TextView icon=action("⌕",()->{if(search!=null){search.requestFocus();((android.view.inputmethod.InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).showSoftInput(search,android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);}});
             icon.setPadding(0,0,0,0);icon.setTextColor(NightwellDesign.MUTED);
             searchRow.addView(icon,new LinearLayout.LayoutParams(dp(38),dp(48)));
-            search=new EditText(this);search.setTextColor(NightwellDesign.PRIMARY);
+            search=new NightwellField(this);search.setTextColor(NightwellDesign.PRIMARY);
             search.setSingleLine(true);search.setTextSize(15);search.setHintTextColor(NightwellDesign.MUTED);
             search.setPadding(dp(8),dp(10),dp(8),dp(10));
             search.setBackgroundColor(Color.TRANSPARENT);
@@ -1646,7 +1646,7 @@ public final class MainActivity extends Activity {
         java.util.List<String> artists=splitArtistNames(raw);
         if(artists.isEmpty())return;
         if(artists.size()==1){openArtistProfile(artists.get(0));return;}
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Выбери исполнителя")
+        NightwellDialog dialog=new NightwellDialog.Builder(this).setTitle("Выбери исполнителя")
             .setItems(artists.toArray(new String[0]),(d,index)->openArtistProfile(artists.get(index)))
             .create();
         styleSheet(dialog);dialog.show();
@@ -1679,7 +1679,7 @@ public final class MainActivity extends Activity {
         content.addView(info);
         LinearLayout songs=column();content.addView(songs);
         ScrollView scroll=new ScrollView(this);scroll.addView(content);
-        AlertDialog dialog=new AlertDialog.Builder(this).setView(scroll)
+        NightwellDialog dialog=new NightwellDialog.Builder(this).setView(scroll)
             .setNegativeButton("Закрыть",(d,w)->{}).create();
         styleSheet(dialog);dialog.show();
         String owner=user;
@@ -1766,12 +1766,12 @@ public final class MainActivity extends Activity {
             TextView note=text("Настроение и язык определяются по описанию треков и могут совпадать не точно.",12);note.setTextColor(0xffaaaaaa);note.setPadding(0,dp(8),0,0);panel.addView(note);
         };render[0].run();
         android.widget.ScrollView scroll=new android.widget.ScrollView(this);scroll.addView(panel);
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Настроить подборку").setView(scroll).setPositiveButton("Применить",null).setNeutralButton("Сбросить",null).setNegativeButton("Отмена",null).create();
+        NightwellDialog dialog=new NightwellDialog.Builder(this).setTitle("Настроить подборку").setView(scroll).setPositiveButton("Применить",null).setNeutralButton("Сбросить",null).setNegativeButton("Отмена",null).create();
         styleSheet(dialog);dialog.show();
-        dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v->{java.util.Arrays.fill(draft.selected,0);render[0].run();});
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);
-            task(()->{try{JSONObject result=api.request("api/wave-options");if(result.optInt("version")<1)throw new java.io.IOException();return result;}catch(Exception error){ui.post(()->{if(dialog.isShowing())dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);});throw new java.io.IOException("Для настроек подборки нужно обновить сервер Nightwell Music.");}},value->{
+        dialog.getButton(NightwellDialog.BUTTON_NEUTRAL).setOnClickListener(v->{java.util.Arrays.fill(draft.selected,0);render[0].run();});
+        dialog.getButton(NightwellDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+            dialog.getButton(NightwellDialog.BUTTON_POSITIVE).setEnabled(false);
+            task(()->{try{JSONObject result=api.request("api/wave-options");if(result.optInt("version")<1)throw new java.io.IOException();return result;}catch(Exception error){ui.post(()->{if(dialog.isShowing())dialog.getButton(NightwellDialog.BUTTON_POSITIVE).setEnabled(true);});throw new java.io.IOException("Для настроек подборки нужно обновить сервер Nightwell Music.");}},value->{
                 if(!account.equals(user)||isDestroyed())return;
                 cancelMix();draft.save(this,origin,account);dialog.dismiss();wave();
             });
@@ -1960,7 +1960,7 @@ public final class MainActivity extends Activity {
         transport.setBackground(NightwellDesign.surface(this,0xa51a1d21,23,true));
         content.addView(transport);
 
-        seek=new SeekBar(this);styleSeekBar(seek);
+        seek=new NightwellSlider(this);styleSeekBar(seek);
         seek.setMinimumHeight(dp(37));
         seek.setPadding(0,0,0,0);
         seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
@@ -2134,7 +2134,7 @@ public final class MainActivity extends Activity {
         if(!currentID.equals(id))return;acceptLyrics(id,v);lyricLines=v.optBoolean("synced")?v.optJSONArray("lines"):null;lyricsTrack=id;activeLyric=-2;
         lyricsScroll=new android.widget.ScrollView(this);lyricsText=text("",26);lyricsText.setGravity(Gravity.CENTER);lyricsText.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);lyricsText.setPadding(dp(22),dp(28),dp(22),dp(28));lyricsText.setLineSpacing(dp(16),1);lyricsScroll.addView(lyricsText);
         if(lyricLines==null||lyricLines.length()==0)lyricsText.setText(v.optString("plain",v.optString("message",lyricsPending(v)?"Ищем подходящий текст…":"Текст пока не найден")));
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Текст песни · "+v.optString("source")).setView(lyricsScroll).setPositiveButton("Закрыть",null).create();dialog.setOnDismissListener(d->{lyricsText=null;lyricsScroll=null;lyricLines=null;});styleSheet(dialog);dialog.show();status.setText("");syncLyrics(playback==null?0:playback.player.getCurrentPosition()/1000.0);
+        NightwellDialog dialog=new NightwellDialog.Builder(this).setTitle("Текст песни · "+v.optString("source")).setView(lyricsScroll).setPositiveButton("Закрыть",null).create();dialog.setOnDismissListener(d->{lyricsText=null;lyricsScroll=null;lyricLines=null;});styleSheet(dialog);dialog.show();status.setText("");syncLyrics(playback==null?0:playback.player.getCurrentPosition()/1000.0);
     });}
     void syncLyrics(double position){if(lyricsText==null||lyricLines==null||!currentID.equals(lyricsTrack))return;int current=-1;for(int i=0;i<lyricLines.length();i++)if(lyricLines.optJSONObject(i).optDouble("time")<=position)current=i;if(current==activeLyric)return;activeLyric=current;StringBuilder all=new StringBuilder();int start=0,end=0;for(int i=0;i<lyricLines.length();i++){if(i==current)start=all.length();all.append(lyricLines.optJSONObject(i).optString("text")).append("\n\n");if(i==current)end=all.length();}android.text.SpannableString styled=new android.text.SpannableString(all);styled.setSpan(new android.text.style.ForegroundColorSpan(0xff9c9c9c),0,styled.length(),0);if(current>=0){styled.setSpan(new android.text.style.ForegroundColorSpan(0xffeeeeee),start,end,0);styled.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD),start,end,0);}lyricsText.setText(styled);final int offset=start;lyricsText.post(()->{if(lyricsText==null||lyricsScroll==null||lyricsText.getLayout()==null)return;int line=lyricsText.getLayout().getLineForOffset(Math.min(offset,lyricsText.length()));lyricsScroll.smoothScrollTo(0,Math.max(0,lyricsText.getLayout().getLineTop(line)-lyricsScroll.getHeight()/3));});}
 
@@ -2170,7 +2170,7 @@ public final class MainActivity extends Activity {
             hiddenRecommendations().contains(id)?"Вернуть в рекомендации":"Не рекомендовать",
             isArtistHidden(track)?"Вернуть исполнителя":"Не рекомендовать исполнителя"
         };
-        AlertDialog actions=new AlertDialog.Builder(this).setTitle(track.optString("title"))
+        NightwellDialog actions=new NightwellDialog.Builder(this).setTitle(track.optString("title"))
             .setItems(options,(d,n)->{
                 if(n==0)toggleFavorite(track);
                 else if(n==1){
@@ -2191,7 +2191,7 @@ public final class MainActivity extends Activity {
                 else {
                     String[] names=new String[playlists.length()];
                     for(int i=0;i<names.length;i++)names[i]=playlists.optJSONObject(i).optString("name");
-                    AlertDialog choose=new AlertDialog.Builder(this).setTitle("В плейлист")
+                    NightwellDialog choose=new NightwellDialog.Builder(this).setTitle("В плейлист")
                         .setItems(names,(x,i)->task(()->api.request(
                             "api/playlists/"+playlists.optJSONObject(i).getString("id")+"/tracks/"+id,
                             "POST",null),v->{})).create();
@@ -2232,7 +2232,7 @@ public final class MainActivity extends Activity {
         optionsGroup.setPadding(dp(5),dp(5),dp(5),dp(5));
         optionsGroup.setBackground(NightwellDesign.surface(this,NightwellDesign.RAISED,17,true));
         panel.addView(optionsGroup);
-        AlertDialog dialog=new AlertDialog.Builder(this).setView(panel)
+        NightwellDialog dialog=new NightwellDialog.Builder(this).setView(panel)
             .setNegativeButton("Отмена",null).create();
         for(int index=0;index<options.length;index++){
             final int choice=index;
@@ -2270,7 +2270,7 @@ public final class MainActivity extends Activity {
         nightwellOptions("Действия",options,n->{
             if(n==0){if(kind.equals("likes"))download(shown);else task(()->api.request("api/playlists/"+id+"/tracks"),v->download(v.optJSONArray("tracks")));}
             else if(n==1)shareCollection(kind,id);
-            else {AlertDialog confirm=new AlertDialog.Builder(this).setMessage("Удалить плейлист?").setNegativeButton("Отмена",null).setPositiveButton("Удалить",(d,b)->task(()->api.request("api/playlists/"+id,"DELETE",null),v->load())).create();styleSheet(confirm);confirm.show();}
+            else {NightwellDialog confirm=new NightwellDialog.Builder(this).setMessage("Удалить плейлист?").setNegativeButton("Отмена",null).setPositiveButton("Удалить",(d,b)->task(()->api.request("api/playlists/"+id,"DELETE",null),v->load())).create();styleSheet(confirm);confirm.show();}
         });
     }
     void shareCollection(String kind,String playlistID){
@@ -2369,7 +2369,7 @@ public final class MainActivity extends Activity {
         },v->status.setText(BackgroundDownloads.progress(this)));
     }
     interface InputDone{void run(String value);}
-    void input(String title,InputDone done){EditText field=new EditText(this);AlertDialog dialog=new AlertDialog.Builder(this).setTitle(title).setView(field).setPositiveButton("Сохранить",(d,n)->done.run(field.getText().toString())).setNegativeButton("Отмена",null).create();styleSheet(dialog);dialog.show();}
+    void input(String title,InputDone done){EditText field=new NightwellField(this);NightwellDialog dialog=new NightwellDialog.Builder(this).setTitle(title).setView(field).setPositiveButton("Сохранить",(d,n)->done.run(field.getText().toString())).setNegativeButton("Отмена",null).create();styleSheet(dialog);dialog.show();}
     private String lastQualityNoticeKey="";
     private void verifyAudioQualitySupport() {
         if(user.isEmpty()||api==null)return;
@@ -2489,7 +2489,7 @@ public final class MainActivity extends Activity {
     }
 
     private void addArtworkToggle(LinearLayout panel,String label,String key,boolean defaultValue){
-        android.widget.Switch toggle=new android.widget.Switch(this);
+        android.widget.Switch toggle=new NightwellSwitch(this);
         toggle.setText(label);styleSwitch(toggle);
         android.content.SharedPreferences prefs=getSharedPreferences("appearance",MODE_PRIVATE);
         toggle.setChecked(prefs.getBoolean(key,defaultValue));
@@ -2634,7 +2634,7 @@ public final class MainActivity extends Activity {
         playbackGroup.addView(sheetAction("Настройка подборки",this::waveSettings));
         addArtworkChoice(playbackGroup,"Перемешивание",new String[]{"Выключено","Обычное","Умное"},"shuffle-mode",shuffleMode());
 
-        android.widget.Switch autoFavorites=new android.widget.Switch(this);
+        android.widget.Switch autoFavorites=new NightwellSwitch(this);
         autoFavorites.setText("Автоматически скачивать избранное · Premium");
         styleSwitch(autoFavorites);
         autoFavorites.setChecked(autoFavoritesEnabled());
@@ -2644,7 +2644,7 @@ public final class MainActivity extends Activity {
         float savedFade=getSharedPreferences("playback",MODE_PRIVATE).getFloat("nw-transition-seconds",1.5f);TextView label=text(String.format(Locale.ROOT,"Переход между треками · %.1f с",savedFade),15);
         label.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));
         playbackGroup.addView(label);
-        SeekBar duration=new SeekBar(this);styleSeekBar(duration);duration.setMax(50);
+        SeekBar duration=new NightwellSlider(this);styleSeekBar(duration);duration.setMax(50);
         duration.setProgress((int)(getSharedPreferences("playback",MODE_PRIVATE).getFloat("nw-transition-seconds",1.5f)*10));
         duration.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
             public void onProgressChanged(SeekBar b,int p,boolean fromUser){
@@ -2662,7 +2662,7 @@ public final class MainActivity extends Activity {
         TextView bufferLabel=text("Буфер потока · "+(selected==0?"Быстрый (1 с)":selected+" с"),15);
         bufferLabel.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));
         playbackGroup.addView(bufferLabel);
-        SeekBar buffer=new SeekBar(this);styleSeekBar(buffer);buffer.setMax(values.length-1);buffer.setProgress(selectedIndex);
+        SeekBar buffer=new NightwellSlider(this);styleSeekBar(buffer);buffer.setMax(values.length-1);buffer.setProgress(selectedIndex);
         buffer.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
             public void onProgressChanged(SeekBar bar,int progress,boolean fromUser){
                 int seconds=values[Math.min(values.length-1,Math.max(0,progress))];
@@ -2676,7 +2676,7 @@ public final class MainActivity extends Activity {
         TextView equalLabel=text("Одинаковая громкость · Выкл.",15);
         equalLabel.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));
         playbackGroup.addView(equalLabel);
-        SeekBar equalVolume=new SeekBar(this);styleSeekBar(equalVolume);equalVolume.setMax(10);
+        SeekBar equalVolume=new NightwellSlider(this);styleSeekBar(equalVolume);equalVolume.setMax(10);
         int equalPreset=Math.max(0,Math.min(100,getSharedPreferences("playback",MODE_PRIVATE).getInt("nw-equal-volume",0)));
         equalVolume.setProgress(equalPreset/10);
         equalLabel.setText(equalPreset==0?"Одинаковая громкость · Выкл.":"Одинаковая громкость · "+equalPreset+"%");
@@ -2702,7 +2702,7 @@ public final class MainActivity extends Activity {
         // Lyrics control lives in the appearance section.
         TextView version=text("Nightwell Music "+BuildConfig.VERSION_NAME+" ("+BuildConfig.VERSION_CODE+")",12);
         version.setTextColor(NightwellDesign.MUTED);version.setPadding(0,dp(12),0,0);panel.addView(version);
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Настройки Nightwell Music").setView(scroll).setPositiveButton("Готово",null).create();
+        NightwellDialog dialog=new NightwellDialog.Builder(this).setTitle("Настройки Nightwell Music").setView(scroll).setPositiveButton("Готово",null).create();
         Runnable diagnosticsTick=new Runnable(){
             public void run(){
                 if(!dialog.isShowing())return;
@@ -2740,7 +2740,7 @@ public final class MainActivity extends Activity {
         if(!title.isEmpty()){TextView label=text(title,17);NightwellDesign.headline(label);label.setPadding(0,0,0,dp(10));card.addView(label);}return card;
     }
     TextView premiumAction(String label,Runnable action){TextView button=sheetAction(label,action);button.setMinHeight(dp(48));button.setPadding(dp(14),dp(10),dp(14),dp(10));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.topMargin=dp(8);button.setLayoutParams(lp);if(label.startsWith("Сохранить")||label.equals("Проверить оплату")){button.setGravity(Gravity.CENTER);button.setTypeface(null,android.graphics.Typeface.BOLD);button.setTextColor(0xff191a20);button.setBackground(touchSurface(0xffeeeeee,24));}return button;}
-    EditText premiumInput(String hint,int limit){EditText input=new EditText(this);input.setHint(hint);input.setSingleLine(true);input.setFilters(new InputFilter[]{new InputFilter.LengthFilter(limit)});styleField(input);return input;}
+    EditText premiumInput(String hint,int limit){EditText input=new NightwellField(this);input.setHint(hint);input.setSingleLine(true);input.setFilters(new InputFilter[]{new InputFilter.LengthFilter(limit)});styleField(input);return input;}
     Dialog premiumSheet(String title,LinearLayout panel,boolean compact,Runnable extra){
         Dialog dialog=new Dialog(this);LinearLayout shell=column();shell.setPadding(dp(16),dp(9),dp(16),dp(14));GradientDrawable sheet=NightwellDesign.surface(this,NightwellDesign.SURFACE,24,true);shell.setBackground(sheet);
         View handle=new View(this);GradientDrawable bar=new GradientDrawable();bar.setColor(0xff565a60);bar.setCornerRadius(dp(4));handle.setBackground(bar);LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(dp(36),dp(4));hp.gravity=Gravity.CENTER_HORIZONTAL;hp.bottomMargin=dp(8);shell.addView(handle,hp);
@@ -2794,7 +2794,7 @@ public final class MainActivity extends Activity {
         android.content.SharedPreferences appearance=getSharedPreferences("aura-response",MODE_PRIVATE);
         for(int i=0;i<names.length;i++){
             final String name=names[i];
-            android.widget.Switch toggle=new android.widget.Switch(this);
+            android.widget.Switch toggle=new NightwellSwitch(this);
             toggle.setText(auraLabels[i]);styleSwitch(toggle);
             toggle.setChecked(appearance.getBoolean(user+"|"+name,true));
             toggle.setOnCheckedChangeListener((button,enabled)->{
@@ -2852,7 +2852,7 @@ public final class MainActivity extends Activity {
         });
     }
     void smartPanel(){String owner=user;task(()->api.request("api/premium/smart-playlists"),data->{if(!owner.equals(user))return;LinearLayout outer=column(),panel=premiumCard(outer,"Ваши подборки");panel.addView(text("Состав пересчитывается при открытии. История — за последние 90 дней.",14));JSONArray rules=data.optJSONArray("playlists");for(int i=0;rules!=null&&i<rules.length();i++){JSONObject rule=rules.optJSONObject(i);String id=rule.optString("id");panel.addView(sheetAction("▶ "+rule.optString("name"),()->task(()->api.request("api/premium/smart-playlists/"+Uri.encode(id)+"/tracks"),result->{if(!owner.equals(user))return;JSONArray items=result.optJSONArray("tracks");if(items!=null&&items.length()>0){play(items.optJSONObject(0),items,false);}else status.setText("Пока нет подходящих треков");})));panel.addView(sheetAction("Удалить «"+rule.optString("name")+"»",()->task(()->api.request("api/premium/smart-playlists/"+Uri.encode(id),"DELETE",null),v->smartPanel())));}
-        EditText name=new EditText(this);name.setHint("Название подборки");name.setTextColor(Color.WHITE);name.setFilters(new InputFilter[]{new InputFilter.LengthFilter(60)});panel.addView(name);Spinner kind=new Spinner(this);kind.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,new String[]{"Избранное","Недавно добавленные","Не слушал 14 дней"}));panel.addView(kind);panel.addView(sheetAction("Создать умный плейлист",()->{if(name.getText().toString().trim().isEmpty())return;String ruleTitle=name.getText().toString().trim(),ruleType=new String[]{"favorites","recently_added","long_unheard"}[kind.getSelectedItemPosition()];task(()->api.request("api/premium/smart-playlists","POST",new JSONObject().put("name",ruleTitle).put("kind",ruleType).put("days",14).put("track_limit",50)),v->smartPanel());}));featureDialog("Умные плейлисты",outer);});}
+        EditText name=new NightwellField(this);name.setHint("Название подборки");name.setTextColor(Color.WHITE);name.setFilters(new InputFilter[]{new InputFilter.LengthFilter(60)});panel.addView(name);NightwellPicker kind=new NightwellPicker(this);kind.setItems(new String[]{"Избранное","Недавно добавленные","Не слушал 14 дней"});panel.addView(kind);panel.addView(sheetAction("Создать умный плейлист",()->{if(name.getText().toString().trim().isEmpty())return;String ruleTitle=name.getText().toString().trim(),ruleType=new String[]{"favorites","recently_added","long_unheard"}[kind.getSelectedItemPosition()];task(()->api.request("api/premium/smart-playlists","POST",new JSONObject().put("name",ruleTitle).put("kind",ruleType).put("days",14).put("track_limit",50)),v->smartPanel());}));featureDialog("Умные плейлисты",outer);});}
     void statisticsPanel(){String owner=user;task(()->api.request("api/premium/statistics"),data->{if(!owner.equals(user))return;LinearLayout outer=column(),panel=premiumCard(outer,"Последние 90 дней");panel.addView(text("Прослушано: "+Math.round(data.optDouble("seconds")/60)+" мин. · Сессий: "+data.optInt("sessions")+"\nПоследние 90 дней. Месяцы по UTC.",17));String[] keys={"months","artists","tracks"},titles={"По месяцам","Любимые исполнители","Любимые треки"},labels={"month","artist","title"};for(int i=0;i<3;i++){panel=premiumCard(outer,titles[i]);JSONArray rows=data.optJSONArray(keys[i]);for(int k=0;rows!=null&&k<rows.length();k++){JSONObject row=rows.optJSONObject(k);panel.addView(text(row.optString(labels[i])+" · "+Math.round(row.optDouble("seconds")/60)+" мин.",15));}}featureDialog("Моя статистика",outer);});}
 
     private Runnable premiumRefresh;
@@ -2873,9 +2873,9 @@ public final class MainActivity extends Activity {
         TextView terms=text(PremiumTerms.TEXT,15);terms.setTextIsSelectable(true);terms.setVisibility(View.GONE);
         TextView read=sheetAction("Условия подписки",()->terms.setVisibility(terms.getVisibility()==View.VISIBLE?View.GONE:View.VISIBLE));panel.addView(read);panel.addView(terms);
         // Seller details remain available in the expandable Premium terms, not in the purchase sheet.
-        CheckBox consent=new CheckBox(this);consent.setText("Я ознакомился с условиями Premium и согласен с оплатой на указанный срок");consent.setTextColor(0xfff3f3f5);consent.setMinHeight(dp(48));panel.addView(consent);
+        CheckBox consent=new NightwellCheckBox(this);consent.setText("Я ознакомился с условиями Premium и согласен с оплатой на указанный срок");consent.setTextColor(0xfff3f3f5);consent.setMinHeight(dp(96));panel.addView(consent);
         panel.addView(text("Оплата откроется в браузере. Войдите на сайте в тот же аккаунт, что и в приложении, и подтвердите актуальные условия. Доступность оплаты проверяется на сайте.",14));
-        Button pay=new Button(this);pay.setText("Перейти к оплате на сайте");pay.setEnabled(false);panel.addView(pay);
+        Button pay=new NightwellButton(this);pay.setText("Перейти к оплате на сайте");pay.setEnabled(false);panel.addView(pay);
         consent.setOnCheckedChangeListener((button,checked)->pay.setEnabled(checked&&BuildConfig.EXTERNAL_PREMIUM_PAYMENTS));
         if(!BuildConfig.EXTERNAL_PREMIUM_PAYMENTS)panel.addView(text("Внешняя оплата отключена в этой сборке.",14));
         pay.setOnClickListener(v->{if(!consent.isChecked()||!BuildConfig.EXTERNAL_PREMIUM_PAYMENTS)return;Uri url=Uri.parse(origin).buildUpon().path("/premium.html").clearQuery().fragment(null).build();if(!"https".equals(url.getScheme()))return;try{startActivity(new Intent(Intent.ACTION_VIEW,url));}catch(ActivityNotFoundException e){note.setText("Установите браузер для открытия страницы.");}});
@@ -2884,7 +2884,7 @@ public final class MainActivity extends Activity {
         ScrollView scroll=new ScrollView(this);scroll.addView(panel);
         scroll.removeView(panel);Dialog dialog=premiumSheet("Nightwell Premium",panel,true,null);
         final boolean[] checking={false};
-        renewalCancel.setOnClickListener(v->new AlertDialog.Builder(this).setTitle("Отключить автопродление?").setMessage("Оплаченный Premium останется активным до конца срока.").setNegativeButton("Назад",null).setPositiveButton("Отключить",(d,w)->{
+        renewalCancel.setOnClickListener(v->new NightwellDialog.Builder(this).setTitle("Отключить автопродление?").setMessage("Оплаченный Premium останется активным до конца срока.").setNegativeButton("Назад",null).setPositiveButton("Отключить",(d,w)->{
             renewalCancel.setEnabled(false);String owner=user;
             io.execute(()->{boolean ok=false;try{JSONObject result=api.request("api/premium/lava/cancel-renewal","POST",new JSONObject());ok="disabled".equals(result.optString("auto_renewal"));}catch(Exception ignored){}
                 final boolean confirmed=ok;ui.post(()->{if(isDestroyed()||!dialog.isShowing()||!owner.equals(user))return;renewalCancel.setEnabled(true);renewalNote.setText(confirmed?"Автопродление отключено. Оплаченный срок сохранён.":"Lava не подтвердила отмену.");if(confirmed)renewalCancel.setVisibility(View.GONE);});});
@@ -2895,30 +2895,30 @@ public final class MainActivity extends Activity {
         });};
         refresh.setOnClickListener(v->check.run());premiumRefresh=check;dialog.setOnDismissListener(d->{if(premiumRefresh==check)premiumRefresh=null;});dialog.show();check.run();
     }
-    private AlertDialog activeAuthDialog;
+    private NightwellDialog activeAuthDialog;
     void auth(){
         if(activeAuthDialog!=null&&activeAuthDialog.isShowing())return;
         LinearLayout form=column();form.setPadding(dp(20),dp(4),dp(20),dp(8));
         TextView caption=text("Войди в аккаунт Nightwell Music или создай новый.",14);caption.setTextColor(0xff9fa6b8);caption.setPadding(0,0,0,dp(10));form.addView(caption);
-        EditText email=new EditText(this),password=new EditText(this);
+        EditText email=new NightwellField(this),password=new NightwellField(this);
         email.setHint("Email");email.setInputType(33);password.setHint("Пароль");password.setInputType(129);
         styleField(email);styleField(password);
         LinearLayout.LayoutParams field=new LinearLayout.LayoutParams(-1,-2);field.bottomMargin=dp(10);
         form.addView(email,field);form.addView(password);
         TextView feedback=text("",13);feedback.setTextColor(0xffffb1b1);feedback.setPadding(0,dp(8),0,dp(4));feedback.setVisibility(View.GONE);form.addView(feedback);
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Вход").setView(form)
+        NightwellDialog dialog=new NightwellDialog.Builder(this).setTitle("Вход").setView(form)
             .setPositiveButton("Войти",null).setNeutralButton("Регистрация",null)
             .setNegativeButton("Отмена",null).create();
         styleSheet(dialog);dialog.setOnDismissListener(d->{if(activeAuthDialog==dialog)activeAuthDialog=null;});
         activeAuthDialog=dialog;dialog.show();
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->loginFromDialog(dialog,email,password,feedback,false));
-        dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v->loginFromDialog(dialog,email,password,feedback,true));
+        dialog.getButton(NightwellDialog.BUTTON_POSITIVE).setOnClickListener(v->loginFromDialog(dialog,email,password,feedback,false));
+        dialog.getButton(NightwellDialog.BUTTON_NEUTRAL).setOnClickListener(v->loginFromDialog(dialog,email,password,feedback,true));
     }
-    void loginFromDialog(AlertDialog dialog,EditText email,EditText password,TextView feedback,boolean register){
+    void loginFromDialog(NightwellDialog dialog,EditText email,EditText password,TextView feedback,boolean register){
         String address=email.getText().toString().trim(),secret=password.getText().toString();
         if(address.isEmpty()||secret.isEmpty()){feedback.setText("Введи email и пароль.");feedback.setVisibility(View.VISIBLE);return;}
         feedback.setText(register?"Регистрируем аккаунт…":"Выполняем вход…");feedback.setTextColor(0xffdddddd);feedback.setVisibility(View.VISIBLE);
-        Button accept=dialog.getButton(AlertDialog.BUTTON_POSITIVE),signup=dialog.getButton(AlertDialog.BUTTON_NEUTRAL);
+        Button accept=dialog.getButton(NightwellDialog.BUTTON_POSITIVE),signup=dialog.getButton(NightwellDialog.BUTTON_NEUTRAL);
         accept.setEnabled(false);signup.setEnabled(false);
         final boolean[] pending={true};
         ui.postDelayed(()->{if(!pending[0]||isDestroyed()||!dialog.isShowing())return;pending[0]=false;accept.setEnabled(true);signup.setEnabled(true);feedback.setTextColor(0xffffb1b1);feedback.setText("Вход не завершился за 35 секунд. Сервер не отвечает приложению. Попробуй снова.");},35000);
@@ -3065,56 +3065,56 @@ public final class MainActivity extends Activity {
     }
     void handlePlaylistDocument(int result,Intent data){
         if(result!=RESULT_OK||data==null||data.getData()==null||transferDialog==null||!transferDialog.isShowing())return;
-        final Uri uri=data.getData();final AlertDialog dialog=transferDialog;final EditText target=transferInput;final TextView note=transferNote;final int ticket=++transferReadGeneration;
-        note.setText("Читаем файл…");dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setEnabled(false);
+        final Uri uri=data.getData();final NightwellDialog dialog=transferDialog;final EditText target=transferInput;final TextView note=transferNote;final int ticket=++transferReadGeneration;
+        note.setText("Читаем файл…");dialog.getButton(NightwellDialog.BUTTON_NEUTRAL).setEnabled(false);
         io.execute(()->{
             try{
                 String name="Список треков";
                 try(android.database.Cursor cursor=getContentResolver().query(uri,new String[]{android.provider.OpenableColumns.DISPLAY_NAME},null,null,null)){if(cursor!=null&&cursor.moveToFirst()&&!cursor.isNull(0))name=cursor.getString(0);}
                 final String fileName=name;final String text;
                 try(java.io.InputStream stream=getContentResolver().openInputStream(uri)){text=PlaylistImportFile.read(stream);}
-                ui.post(()->{if(transferDialog!=dialog||!dialog.isShowing()||ticket!=transferReadGeneration)return;target.setText(text);note.setText("Выбран файл: "+fileName);dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setEnabled(true);});
-            }catch(Exception ex){ui.post(()->{if(transferDialog!=dialog||!dialog.isShowing()||ticket!=transferReadGeneration)return;note.setText(ex.getMessage()==null?"Не удалось прочитать файл":ex.getMessage());dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setEnabled(true);});}
+                ui.post(()->{if(transferDialog!=dialog||!dialog.isShowing()||ticket!=transferReadGeneration)return;target.setText(text);note.setText("Выбран файл: "+fileName);dialog.getButton(NightwellDialog.BUTTON_NEUTRAL).setEnabled(true);});
+            }catch(Exception ex){ui.post(()->{if(transferDialog!=dialog||!dialog.isShowing()||ticket!=transferReadGeneration)return;note.setText(ex.getMessage()==null?"Не удалось прочитать файл":ex.getMessage());dialog.getButton(NightwellDialog.BUTTON_NEUTRAL).setEnabled(true);});}
         });
     }
     private String transferKey="",transferStage="";
     private long transferSampleAt;
     private int transferSampleProgress;
     private boolean transferBusy;
-    void transferRequest(Work work,Done done,TextView label,AlertDialog dialog){
+    void transferRequest(Work work,Done done,TextView label,NightwellDialog dialog){
         final String owner=user;final NativeAPI client=api;
         io.execute(()->{try{JSONObject value=work.run();ui.post(()->{if(!isDestroyed()&&dialog.isShowing()&&transferDialog==dialog&&owner.equals(user)&&client==api)done.run(value);});}
-            catch(Exception ex){ui.post(()->{if(dialog.isShowing()&&transferDialog==dialog){transferBusy=false;label.setText(friendly(ex)+"\nНажми «Обновить», чтобы проверить состояние переноса.");dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setEnabled(true);dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setText("Обновить");dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v->{if(transferKey.isEmpty()){transferRequest(()->client.request("api/imports"),r->{JSONArray jobs=r.optJSONArray("jobs");if(jobs!=null&&jobs.length()>0){transferKey=jobs.optJSONObject(0).optString("id");pollTransfer(transferKey,label,dialog);}else{label.setText("Перенос не запущен. Проверь список и повтори поиск.");dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setText("Найти треки");dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener((View.OnClickListener)dialog.getButton(AlertDialog.BUTTON_NEUTRAL).getTag());}},label,dialog);}else pollTransfer(transferKey,label,dialog);});}});}});
+            catch(Exception ex){ui.post(()->{if(dialog.isShowing()&&transferDialog==dialog){transferBusy=false;label.setText(friendly(ex)+"\nНажми «Обновить», чтобы проверить состояние переноса.");dialog.getButton(NightwellDialog.BUTTON_NEUTRAL).setEnabled(true);dialog.getButton(NightwellDialog.BUTTON_NEUTRAL).setText("Обновить");dialog.getButton(NightwellDialog.BUTTON_NEUTRAL).setOnClickListener(v->{if(transferKey.isEmpty()){transferRequest(()->client.request("api/imports"),r->{JSONArray jobs=r.optJSONArray("jobs");if(jobs!=null&&jobs.length()>0){transferKey=jobs.optJSONObject(0).optString("id");pollTransfer(transferKey,label,dialog);}else{label.setText("Перенос не запущен. Проверь список и повтори поиск.");dialog.getButton(NightwellDialog.BUTTON_NEUTRAL).setText("Найти треки");dialog.getButton(NightwellDialog.BUTTON_NEUTRAL).setOnClickListener((View.OnClickListener)dialog.getButton(NightwellDialog.BUTTON_NEUTRAL).getTag());}},label,dialog);}else pollTransfer(transferKey,label,dialog);});}});}});
     }
     void nativeTransfer(){
         if(transferDialog!=null&&transferDialog.isShowing())transferDialog.dismiss();
         transferKey="";transferStage="";transferBusy=false;
         LinearLayout panel=column();panel.setPadding(dp(16),dp(10),dp(16),dp(8));
-        EditText title=new EditText(this);title.setSingleLine(true);title.setText("Перенос музыки");title.setHint("Название плейлиста");title.setFilters(new InputFilter[]{new InputFilter.LengthFilter(80)});styleField(title);panel.addView(title);transferTitle=title;
-        Spinner modes=new Spinner(this);String[] modeNames={"Точный","Умный","Максимальный"};modes.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,modeNames));modes.setSelection(2);panel.addView(modes);transferMode=modes;
+        EditText title=new NightwellField(this);title.setSingleLine(true);title.setText("Перенос музыки");title.setHint("Название плейлиста");title.setFilters(new InputFilter[]{new InputFilter.LengthFilter(80)});styleField(title);panel.addView(title);transferTitle=title;
+        NightwellPicker modes=new NightwellPicker(this);String[] modeNames={"Точный","Умный","Максимальный"};modes.setItems(modeNames);modes.setSelection(2);panel.addView(modes);transferMode=modes;
         TextView info=text("JSON, CSV или TXT до 1 МБ. Разбор списка и удаление дублей выполняются на устройстве.",12);info.setPadding(0,dp(8),0,dp(8));panel.addView(info);panel.addView(sheetAction("Выбрать файл",this::choosePlaylistDocument));
-        EditText input=new EditText(this);input.setMinLines(3);input.setMaxLines(5);input.setGravity(Gravity.TOP);input.setHint("Список треков");styleField(input);input.setSaveEnabled(false);panel.addView(input);transferInput=input;
+        EditText input=new NightwellField(this);input.setMinLines(3);input.setMaxLines(5);input.setGravity(Gravity.TOP);input.setHint("Список треков");styleField(input);input.setSaveEnabled(false);panel.addView(input);transferInput=input;
         TextView result=text("После поиска нажми «Добавить», чтобы создать плейлист.",13);panel.addView(result);transferNote=result;
         ScrollView form=new ScrollView(this);form.addView(panel);
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Перенести музыку").setView(form).setNegativeButton("Закрыть",null).setNeutralButton("Найти треки",null).setPositiveButton("Добавить",null).create();
+        NightwellDialog dialog=new NightwellDialog.Builder(this).setTitle("Перенести музыку").setView(form).setNegativeButton("Закрыть",null).setNeutralButton("Найти треки",null).setPositiveButton("Добавить",null).create();
         transferDialog=dialog;
         dialog.setOnDismissListener(ignored->{if(transferDialog==dialog){transferReadGeneration++;transferDialog=null;transferInput=null;transferTitle=null;transferMode=null;transferNote=null;}});
-        styleSheet(dialog);dialog.show();dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);
+        styleSheet(dialog);dialog.show();dialog.getButton(NightwellDialog.BUTTON_POSITIVE).setEnabled(false);
         View.OnClickListener startTransfer=v->{
             if(transferBusy)return;
             String raw=input.getText().toString(),name=title.getText().toString().trim();if(raw.trim().isEmpty()||name.isEmpty()){result.setText("Укажи название плейлиста и список треков");return;}
             String mode=new String[]{"safe","balanced","wide"}[modes.getSelectedItemPosition()];
-            transferBusy=true;transferStage="";dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setEnabled(false);dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);result.setText("Разбираем список на устройстве…");
+            transferBusy=true;transferStage="";dialog.getButton(NightwellDialog.BUTTON_NEUTRAL).setEnabled(false);dialog.getButton(NightwellDialog.BUTTON_POSITIVE).setEnabled(false);result.setText("Разбираем список на устройстве…");
             final NativeAPI client=api;
             transferRequest(()->{JSONArray prepared=TransferPreparation.parse(raw);return client.request("api/imports","POST",new JSONObject().put("provider","yandex").put("name",name).put("text",prepared.toString()).put("url","").put("mode",mode));},response->{
-                transferKey=response.optString("id");if(transferKey.isEmpty()){transferBusy=false;result.setText("Сервер не вернул номер переноса");dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setEnabled(true);return;}
+                transferKey=response.optString("id");if(transferKey.isEmpty()){transferBusy=false;result.setText("Сервер не вернул номер переноса");dialog.getButton(NightwellDialog.BUTTON_NEUTRAL).setEnabled(true);return;}
                 getSharedPreferences("transfer-draft",MODE_PRIVATE).edit().putString("job|"+origin+"|"+user,transferKey).apply();
                 pollTransfer(transferKey,result,dialog);
             },result,dialog);
         };
-        dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setTag(startTransfer);dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(startTransfer);
+        dialog.getButton(NightwellDialog.BUTTON_NEUTRAL).setTag(startTransfer);dialog.getButton(NightwellDialog.BUTTON_NEUTRAL).setOnClickListener(startTransfer);
         String saved=getSharedPreferences("transfer-draft",MODE_PRIVATE).getString("job|"+origin+"|"+user,"");
-        if(!saved.isEmpty()){transferKey=saved;dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setEnabled(false);pollTransfer(saved,result,dialog);}
+        if(!saved.isEmpty()){transferKey=saved;dialog.getButton(NightwellDialog.BUTTON_NEUTRAL).setEnabled(false);pollTransfer(saved,result,dialog);}
     }
     private String transferETA(JSONObject job){
         String stage=job.optString("state");int done=stage.equals("saving")?job.optInt("saved"):job.optInt("progress");int total=stage.equals("saving")?job.optInt("matched"):job.optInt("total");long now=android.os.SystemClock.elapsedRealtime();
@@ -3124,7 +3124,7 @@ public final class MainActivity extends Activity {
         long seconds=Math.max(1,Math.round((now-transferSampleAt)/1000.0/delta*Math.max(0,total-done)));
         return "\nОсталось примерно "+(seconds<60?"меньше минуты":((seconds+59)/60)+" мин");
     }
-    private void pollTransfer(String key,TextView label,AlertDialog dialog){
+    private void pollTransfer(String key,TextView label,NightwellDialog dialog){
         if(!dialog.isShowing()||!key.equals(transferKey))return;
         final NativeAPI client=api;
         transferRequest(()->client.request("api/imports/"+Uri.encode(key)),response->{
@@ -3132,12 +3132,12 @@ public final class MainActivity extends Activity {
             String state=response.optString("state");
             label.setText(response.optString("message","Поиск")+"\nПроверено "+response.optInt("progress")+"/"+response.optInt("total")+" · Найдено "+response.optInt("matched")+transferETA(response));
             boolean active=state.equals("matching")||state.equals("reading")||state.equals("saving");transferBusy=active;
-            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setEnabled(!active);
-            if(!active){dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setText("Найти треки");dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener((View.OnClickListener)dialog.getButton(AlertDialog.BUTTON_NEUTRAL).getTag());}
+            dialog.getButton(NightwellDialog.BUTTON_NEUTRAL).setEnabled(!active);
+            if(!active){dialog.getButton(NightwellDialog.BUTTON_NEUTRAL).setText("Найти треки");dialog.getButton(NightwellDialog.BUTTON_NEUTRAL).setOnClickListener((View.OnClickListener)dialog.getButton(NightwellDialog.BUTTON_NEUTRAL).getTag());}
             boolean canAdd=(state.equals("ready")||state.equals("error"))&&response.optInt("matched")>0;
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(canAdd);
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setText("Добавить");
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{if(transferBusy)return;transferBusy=true;dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setEnabled(false);label.setText("Создаём плейлист…");transferRequest(()->client.request("api/imports/"+Uri.encode(key)+"/commit","POST",new JSONObject()),x->pollTransfer(key,label,dialog),label,dialog);});
+            dialog.getButton(NightwellDialog.BUTTON_POSITIVE).setEnabled(canAdd);
+            dialog.getButton(NightwellDialog.BUTTON_POSITIVE).setText("Добавить");
+            dialog.getButton(NightwellDialog.BUTTON_POSITIVE).setOnClickListener(v->{if(transferBusy)return;transferBusy=true;dialog.getButton(NightwellDialog.BUTTON_POSITIVE).setEnabled(false);dialog.getButton(NightwellDialog.BUTTON_NEUTRAL).setEnabled(false);label.setText("Создаём плейлист…");transferRequest(()->client.request("api/imports/"+Uri.encode(key)+"/commit","POST",new JSONObject()),x->pollTransfer(key,label,dialog),label,dialog);});
             if(active)ui.postDelayed(()->pollTransfer(key,label,dialog),2000);
             if(state.equals("done")){label.setText("Плейлист создан. Добавлено треков: "+response.optInt("saved"));getSharedPreferences("transfer-draft",MODE_PRIVATE).edit().remove("job|"+origin+"|"+user).apply();load();}
         },label,dialog);
