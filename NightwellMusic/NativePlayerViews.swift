@@ -993,61 +993,38 @@ struct FullPlayer: View {
     }
 
     @ViewBuilder private func playerTrackDetails(compact: Bool) -> some View {
-                HStack(spacing: 10) {
-                    VStack(alignment: .leading, spacing: compact ? 5 : 8) {
-                        Text(clock.displayCurrent?.title ?? "Выбери трек")
-                            .font(.system(size: compact ? 17 : 20, weight: .bold))
-                            .foregroundStyle(appearance == .vice
-                                             ? NightwellAppearance.gold : .white)
-                            .lineLimit(2)
-                        Button {
-                            let artists = ArtistNames.split(clock.displayCurrent?.artist ?? "")
-                            if artists.count > 1 { showArtistChoices = true }
-                            else if let name = artists.first { selectedArtist = ArtistSelection(name: name) }
-                        } label: {
-                            HStack(spacing: 5) {
-                                Text(clock.displayCurrent?.artist ?? "").lineLimit(1)
-                                Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold))
-                            }
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(appearance == .vice
-                                             ? NightwellAppearance.cyan.opacity(0.88)
-                                             : Color.white.opacity(0.76))
-                            .padding(.horizontal, 10).padding(.vertical, 5)
-                            .background(appearance == .vice
-                                        ? NightwellAppearance.pink.opacity(0.09)
-                                        : Color.white.opacity(0.08), in: Capsule())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Открыть исполнителя")
-                        .disabled(!ArtistAttribution.isKnown(clock.displayCurrent?.artist ?? ""))
-                        if !store.audioQualityNotice.isEmpty {
-                            Text(store.audioQualityNotice)
-                                .font(.system(size: 10))
-                                .foregroundStyle(.yellow.opacity(0.85))
-                                .lineLimit(2)
-                        }
-                    }
-                    Spacer(minLength: 4)
-                    if let track = clock.displayCurrent {
-                        Button { store.toggleRecommendationHidden(track) } label: {
-                            Image(systemName: store.isRecommendationHidden(track) ? "hand.thumbsdown.fill" : "hand.thumbsdown")
-                                .font(.system(size: compact ? 16 : 19))
-                                .foregroundStyle(store.isRecommendationHidden(track) ? Color.white : Color.white.opacity(0.65))
-                                .frame(width: compact ? 38 : 44, height: compact ? 38 : 44).nightwellLiquidGlass(compact ? 19 : 22)
-                        }
-                        .accessibilityLabel(store.isRecommendationHidden(track) ? "Вернуть в рекомендации" : "Не рекомендовать")
-                        Button { Task { await store.like(track) } } label: {
-                            Image(systemName: store.likes.contains(track.id) ? "heart.fill" : "heart")
-                                .font(.system(size: compact ? 17 : 20))
-                                .foregroundStyle(appearance == .vice
-                                    ? NightwellAppearance.pink : .white)
-                                .frame(width: compact ? 38 : 44, height: compact ? 38 : 44)
-                                .nightwellLiquidGlass(compact ? 19 : 22)
-                        }
-                        .accessibilityLabel(store.likes.contains(track.id) ? "Убрать из избранного" : "В избранное")
-                    }
+        // Track title and artist no longer occupy space beneath the cover.
+        // Preserve the like/dislike actions, leaving the artwork and controls
+        // uncluttered in both themes.
+        HStack(spacing: 10) {
+            Spacer(minLength: 4)
+            if let track = clock.displayCurrent {
+                Button { store.toggleRecommendationHidden(track) } label: {
+                    Image(systemName: store.isRecommendationHidden(track)
+                          ? "hand.thumbsdown.fill" : "hand.thumbsdown")
+                        .font(.system(size: compact ? 16 : 19))
+                        .foregroundStyle(
+                            store.isRecommendationHidden(track)
+                                ? Color.white : Color.white.opacity(0.65)
+                        )
+                        .frame(width: compact ? 38 : 44, height: compact ? 38 : 44)
+                        .nightwellLiquidGlass(compact ? 19 : 22)
                 }
+                .accessibilityLabel(store.isRecommendationHidden(track)
+                                    ? "Вернуть в рекомендации" : "Не рекомендовать")
+                Button { Task { await store.like(track) } } label: {
+                    Image(systemName: store.likes.contains(track.id) ? "heart.fill" : "heart")
+                        .font(.system(size: compact ? 17 : 20))
+                        .foregroundStyle(
+                            appearance == .vice ? NightwellAppearance.pink : .white
+                        )
+                        .frame(width: compact ? 38 : 44, height: compact ? 38 : 44)
+                        .nightwellLiquidGlass(compact ? 19 : 22)
+                }
+                .accessibilityLabel(store.likes.contains(track.id)
+                                    ? "Убрать из избранного" : "В избранное")
+            }
+        }
     }
 
     @ViewBuilder private func playerTransport(compact: Bool) -> some View {
