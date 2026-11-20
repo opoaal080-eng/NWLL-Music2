@@ -1,7 +1,9 @@
 import SwiftUI
 
-/// Interactive leading-edge Back for screens that use a custom Nightwell
-/// navigation state instead of a UINavigationController push stack.
+/// Interactive leading-edge Back for screens that use custom Nightwell
+/// navigation instead of a UINavigationController push stack.
+/// Keep the presented surface anchored: moving the entire app/sheet offscreen
+/// used to expose the black host background before the previous view appeared.
 /// Native NavigationStack pushes retain their normal iOS interactive pop.
 private struct NightwellLeadingEdgeBack: ViewModifier {
     let enabled: Bool
@@ -12,7 +14,10 @@ private struct NightwellLeadingEdgeBack: ViewModifier {
     @State private var displacement: CGFloat = 0
     @State private var viewWidth: CGFloat = 390
     @State private var viewHeight: CGFloat = 844
-    @State private var completing = false
+
+    private var progress: CGFloat {
+        min(1, displacement / max(1, viewWidth * 0.28))
+    }
 
     func body(content: Content) -> some View {
         content
@@ -29,11 +34,24 @@ private struct NightwellLeadingEdgeBack: ViewModifier {
                         }
                 }
             }
-            .offset(x: enabled ? displacement : 0)
+            .overlay(alignment: .leading) {
+                // Only the small affordance follows the finger. The actual
+                // screen and its background never move, so there is no exposed
+                // black frame before the destination is mounted.
+                Image(systemName: "chevron.backward")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white.opacity(Double(0.55 + progress * 0.45)))
+                    .frame(width: 32, height: 58)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .offset(x: -38 + min(38, displacement * 0.36))
+                    .opacity(enabled ? Double(min(1, displacement / 36)) : 0)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
             .simultaneousGesture(
                 DragGesture(minimumDistance: 12, coordinateSpace: .local)
                     .onChanged { value in
-                        guard enabled, !completing,
+                        guard enabled,
                               value.startLocation.x <= 28,
                               value.startLocation.y < viewHeight - excludedBottom else { return }
                         let dx = value.translation.width
@@ -44,7 +62,7 @@ private struct NightwellLeadingEdgeBack: ViewModifier {
                         }
                     }
                     .onEnded { value in
-                        guard enabled, !completing,
+                        guard enabled,
                               value.startLocation.x <= 28,
                               value.startLocation.y < viewHeight - excludedBottom else {
                             reset()
@@ -63,20 +81,20 @@ private struct NightwellLeadingEdgeBack: ViewModifier {
                             reset()
                             return
                         }
-                        completing = true
-                        withAnimation(reduceMotion ? .easeOut(duration: 0.10) :
-                                      .interactiveSpring(response: 0.24, dampingFraction: 0.87)) {
-                            displacement = min(viewWidth, 430)
+
+                        // Do not finish an offscreen animation and then wait
+                        // before navigating. Commit directly on release so the
+                        // outgoing and incoming views can transition together.
+                        withTransaction(Transaction(animation: nil)) {
+                            displacement = 0
                         }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.10 : 0.23)) {
-                            onBack()
-                            withTransaction(Transaction(animation: nil)) { displacement = 0 }
-                            completing = false
-                        }
+                        onBack()
                     }
             )
             .onChange(of: enabled) { _, isEnabled in
-                if !isEnabled { reset() }
+                if !isEnabled {
+                    withTransaction(Transaction(animation: nil)) { displacement = 0 }
+                }
             }
     }
 
