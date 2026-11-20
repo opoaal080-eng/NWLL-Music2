@@ -2484,9 +2484,20 @@ struct PlaylistScreen: View {
     @EnvironmentObject private var store: MusicStore
     let close: () -> Void
     let playlist: Playlist
+    // Daily collections already contain their tracks in the daily feed.
+    // Opening them should use that snapshot instead of requesting a regular
+    // playlist URL, which does not exist until the collection is saved.
+    let previewTracks: [Track]?
     @State private var tracks: [Track] = []
     @State private var isLoading = false
     @State private var loadFailed = false
+
+    init(close: @escaping () -> Void, playlist: Playlist, previewTracks: [Track]? = nil) {
+        self.close = close
+        self.playlist = playlist
+        self.previewTracks = previewTracks
+        self._tracks = State(initialValue: previewTracks ?? [])
+    }
 
     private var allDownloaded: Bool {
         !tracks.isEmpty && tracks.allSatisfy { store.isDownloaded($0) }
@@ -2573,8 +2584,13 @@ struct PlaylistScreen: View {
 
                         Button {
                             let selected = playlist
+                            let dailyTracks = previewTracks
                             close()
-                            Task { await store.rhythm(around: selected) }
+                            if let dailyTracks {
+                                Task { await store.rhythm(around: dailyTracks) }
+                            } else {
+                                Task { await store.rhythm(around: selected) }
+                            }
                         } label: {
                             Label("Твой ритм", systemImage: "waveform.path")
                                 .font(.system(size: 14, weight: .semibold))
@@ -2641,7 +2657,7 @@ struct PlaylistScreen: View {
                         .foregroundStyle(.white.opacity(0.60))
                         .frame(maxWidth: .infinity, minHeight: 130)
                     } else {
-                        TrackList(tracks: tracks, playlist: playlist, embedded: true)
+                        TrackList(tracks: tracks, playlist: previewTracks == nil ? playlist : nil, embedded: true)
                             .frame(maxWidth: .infinity)
                     }
                 }
@@ -2708,6 +2724,14 @@ struct PlaylistScreen: View {
     }
 
     private func refreshPlaylist() async {
+        if let previewTracks {
+            // The daily playlist is a read-only snapshot, not a stored user
+            // playlist. Never try /api/playlists/<daily-id>/tracks here.
+            tracks = previewTracks
+            isLoading = false
+            loadFailed = false
+            return
+        }
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--native-smoke-playlist") {
             tracks = [
