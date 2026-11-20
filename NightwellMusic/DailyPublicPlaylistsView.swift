@@ -1,10 +1,10 @@
 import SwiftUI
 
-private struct DailyPublicResponse: Decodable {
+private struct DailyPublicResponse: Codable {
     let date: String
     let playlists: [DailyPublicPlaylist]
 }
-private struct DailyPublicPlaylist: Decodable, Identifiable {
+private struct DailyPublicPlaylist: Codable, Identifiable {
     let id: String
     let name: String
     let count: Int
@@ -14,8 +14,9 @@ private struct DailyPublicPlaylist: Decodable, Identifiable {
 }
 struct DailyPublicPlaylistsView: View {
     @ObservedObject var store: MusicStore
+    @ObservedObject var togetherSession: NightwellTogetherSession
     @State private var playlists: [DailyPublicPlaylist] = []
-    @State private var openedPlaylist: DailyPublicPlaylist?
+    @State private var openedPlaylistID: String?
     @State private var loading = false
     @State private var message = ""
     @State private var saving: Set<String> = []
@@ -38,7 +39,7 @@ struct DailyPublicPlaylistsView: View {
                     Button {
                         // Tapping a selection opens its detail, never starts
                         // playback. The play button inside the detail owns it.
-                        openedPlaylist = playlist
+                        openedPlaylistID = playlist.id
                     } label: {
                         HStack {
                             Image(systemName: "waveform")
@@ -63,20 +64,36 @@ struct DailyPublicPlaylistsView: View {
                 }.glass()
             }
         }
-        .task { await reload() }
-        .sheet(item: $openedPlaylist) { selection in
-            // Use the exact same playlist content as the user's playlists,
-            // with the daily response's preloaded, read-only track list.
-            PlaylistScreen(
-                close: { openedPlaylist = nil },
-                playlist: Playlist(id: "daily-" + collectionDate + "-" + selection.id,
-                                   name: selection.name),
-                previewTracks: selection.tracks
-            )
-            .environmentObject(store)
-            .presentationDetents([.large])
-            .presentationDragIndicator(.hidden)
-            .presentationBackground(Color(white: 0.065))
+        .task(id: store.account?.id) {
+            // The catalog changes once a day. Restore yesterday's successful
+            // network result instantly on the same UTC day, avoiding another
+            // slow request and unnecessary artwork work on every visit.
+            if !restoreCachedSelection() {
+                playlists = []
+                await reload()
+            }
+        }
+        .navigationDestination(item: $openedPlaylistID) { id in
+            if let selection = playlists.first(where: { $0.id == id }) {
+                // Push within the existing NavigationStack instead of
+                // presenting a second sheet over the daily selections sheet.
+                // NativeTrackRow requires both environment objects.
+                PlaylistScreen(
+                    close: { openedPlaylistID = nil },
+                    playlist: Playlist(
+                        id: "daily-" + collectionDate + "-" + selection.id,
+                        name: selection.name
+                    ),
+                    previewTracks: selection.tracks
+                )
+                .environmentObject(store)
+                .environmentObject(togetherSession)
+                .background(Color(white: 0.065))
+                .toolbar(.hidden, for: .navigationBar)
+            } else {
+                Text("Подборка больше недоступна")
+                    .foregroundStyle(.secondary)
+            }
         }
     }
     @MainActor private func toggleSaved(_ playlist: DailyPublicPlaylist) async {
@@ -125,6 +142,7 @@ struct DailyPublicPlaylistsView: View {
                 }
                 message = "Сохранено в обычные плейлисты с датой."
             }
+            saveCachedSelection()
             await store.refresh()
         } catch {
             message = (playlist.saved == true ?
@@ -140,12 +158,42 @@ struct DailyPublicPlaylistsView: View {
             "." + account.id + "." + collectionDate + "." + id
     }
 
+    private var dailyCacheKey: String? {
+        guard let account = store.account else { return nil }
+        return "nw.daily.selection-v1." + store.origin.absoluteString + "|" + account.id
+    }
+
+    private var currentUTCDay: String {
+        String(ISO8601DateFormatter().string(from: Date()).prefix(10))
+    }
+
+    @MainActor private func restoreCachedSelection() -> Bool {
+        guard let key = dailyCacheKey,
+              let bytes = UserDefaults.standard.data(forKey: key),
+              let snapshot = try? JSONDecoder().decode(DailyPublicResponse.self, from: bytes),
+              snapshot.date == currentUTCDay else { return false }
+        collectionDate = snapshot.date
+        playlists = snapshot.playlists
+        message = playlists.isEmpty ? "Подборок пока нет" : ""
+        return true
+    }
+
+    @MainActor private func saveCachedSelection() {
+        guard let key = dailyCacheKey, !collectionDate.isEmpty,
+              let bytes = try? JSONEncoder().encode(
+                  DailyPublicResponse(date: collectionDate, playlists: playlists)
+              ), bytes.count < 1_500_000 else { return }
+        UserDefaults.standard.set(bytes, forKey: key)
+    }
+
     @MainActor private func reload() async {
         guard !loading else { return }
         loading = true
         defer { loading = false }
         do {
-            let result: DailyPublicResponse = try await store.api.request("/api/daily-public-playlists")
+            let result: DailyPublicResponse = try await store.api.request(
+                "/api/daily-public-playlists", timeout: 18
+            )
             if collectionDate != result.date {
                 locallyUnsaved.removeAll()
             }
@@ -168,8 +216,11 @@ struct DailyPublicPlaylistsView: View {
                 return entry
             }
             message = playlists.isEmpty ? "Подборок пока нет" : ""
+            saveCachedSelection()
         } catch {
-            message = "Не удалось загрузить подборки. Проверь обновление сервера."
+            message = playlists.isEmpty
+                ? "Не удалось загрузить подборки. Проверь обновление сервера."
+                : "Не удалось обновить подборки. Показываем сохранённые."
         }
     }
 }
