@@ -13,17 +13,17 @@ import android.widget.TextView;
 
 /** Nightwell Music Android design tokens: restrained, accessible, near-black surfaces. */
 final class NightwellDesign {
-    static final int BACKGROUND = 0xff08090b;
-    static final int SURFACE = 0xff17191c;
-    static final int RAISED = 0xff202226;
-    static final int FIELD = 0xff1c1e22;
-    static final int BORDER = 0xff34373d;
+    static final int BACKGROUND = 0xff070910;
+    static final int SURFACE = 0xa0232730;
+    static final int RAISED = 0x9a303643;
+    static final int FIELD = 0x9a2b323f;
+    static final int BORDER = 0x44ffffff;
     static final int PRIMARY = 0xfff5f6f7;
     static final int MUTED = 0xffa3a7ae;
     static final int SECONDARY = 0xffd5d8dd;
     static final int ACCENT = 0xffeeeeef;
     static final int DANGER = 0xffe9a7ac;
-    static final int SELECTED = 0xff292c31;
+    static final int SELECTED = 0x4affffff;
 
     private NightwellDesign() { }
 
@@ -40,9 +40,7 @@ final class NightwellDesign {
     }
 
     static Drawable ripple(Context c,int fill,float radius,boolean border) {
-        GradientDrawable content=surface(c,fill,radius,border);
-        GradientDrawable mask=surface(c,Color.WHITE,radius,false);
-        return new RippleDrawable(ColorStateList.valueOf(0x25ffffff),content,mask);
+        return new NightwellPressDrawable(c,fill,radius,border);
     }
 
     static void headline(TextView label) {
