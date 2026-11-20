@@ -137,19 +137,23 @@ final class NightwellNowPlayingBridge27 {
         model.update(track: next, playing: playing, position: elapsed,
                      queueCount: queueCount)
 
-        // For local playback, Apple explicitly advises against forcibly
-        // claiming the system-primary session unless taking over from another
-        // app/session is required. The system should manage foreground media
-        // presentation (including Dynamic Island) itself.
-        // Keep the Nightwell session app-primary so commands and metadata
-        // remain available on the Lock Screen, Control Center and headphones.
+        // A system-primary Now Playing session must exist before the user
+        // swipes Home, so iOS can own the Dynamic Island transition. Asking
+        // only for application-primary does not guarantee system presentation.
+        // Audio is already active by the time the transport becomes audible.
         if playing, !lastPlaying, let session {
             activationTask?.cancel()
             activationTask = Task { @MainActor in
                 do {
-                    try await session.requestToBecomeApplicationPrimary()
+                    if UIApplication.shared.applicationState == .active {
+                        // Apple requires this call while the app is foreground.
+                        try await session.requestToBecomeSystemPrimary()
+                    } else {
+                        // A background launch can only publish app-primary.
+                        try await session.requestToBecomeApplicationPrimary()
+                    }
                 } catch {
-                    // Do not interrupt audio if system session registration fails.
+                    NSLog("Nightwell NowPlaying: media session activation failed: \\(error)")
                 }
             }
         }

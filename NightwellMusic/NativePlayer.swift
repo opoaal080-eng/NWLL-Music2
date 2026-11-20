@@ -330,14 +330,12 @@ final class NativePlayer {
     }
     private(set) var queueRevision = 0
     private var appIsActive = UIApplication.shared.applicationState == .active
-    // Resigning active does not mean the app left the screen (alerts, calls).
-    // Only show external system playback surfaces once the app is in the background.
-    private var appIsForeground = UIApplication.shared.applicationState != .background
-    // Use MediaPlayer's single, existing Now Playing publisher on every iOS
-    // version. The optional iOS 27 MediaSession path was keeping its player
-    // surface visible above Nightwell while the app itself was foreground.
-    // Never activate both publishers or both sets of remote commands.
-    private var usesNowPlaying27: Bool { false }
+    private var usesNowPlaying27: Bool {
+        #if canImport(NowPlaying)
+        if #available(iOS 27.0, *) { return true }
+        #endif
+        return false
+    }
     private var offlineAccount = ""
     private var index = 0
     private var cookies: [HTTPCookie] = []
@@ -498,18 +496,12 @@ final class NativePlayer {
             object: nil, queue: .main) { [weak self] _ in
                 guard let self else { return }
                 self.appIsActive = true
-                self.appIsForeground = true
                 self.endBackgroundHandoff()
                 if self.callInterruptionEnded { self.attemptCallResume() }
                 self.refreshIndependentMeter()
-                // Hide only the system Now Playing card while the player
-                // is visible inside Nightwell. Playback and commands stay alive.
-                self.publish()
-            })
-        observers.append(NotificationCenter.default.addObserver(forName: UIApplication.willEnterForegroundNotification,
-            object: nil, queue: .main) { [weak self] _ in
-                guard let self else { return }
-                self.appIsForeground = true
+                // Never remove Now Playing on foreground entry. iOS owns the
+                // Dynamic Island's presentation; the lock screen, Control
+                // Center and connected accessories need the same media session.
                 self.publish()
             })
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.willResignActiveNotification,
@@ -521,11 +513,9 @@ final class NativePlayer {
             })
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification,
             object: nil, queue: .main) { [weak self] _ in
-                guard let self else { return }
-                self.appIsForeground = false
-                // Restore the player with fresh title, cover, progress and
-                // commands as soon as Nightwell really leaves the screen.
-                self.publish()
+                // Refresh playback position on background transition without
+                // recreating or withdrawing the system media session.
+                self?.publish()
             })
         fadeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.04, preferredTimescale: 600), queue: .main) { [weak self] _ in
             guard let self, self.transitionSeconds > 0, self.wantsPlay,
@@ -1752,22 +1742,13 @@ final class NativePlayer {
             commands.pauseCommand.isEnabled = current != nil
             commands.togglePlayPauseCommand.isEnabled = current != nil
             commands.changePlaybackPositionCommand.isEnabled = current != nil
-            // Nightwell owns its in-app player while visible. Hiding only the
-            // system Now Playing metadata does not stop AVPlayer / the EQ engine
-            // and does not unregister remote commands (e.g. AirPods).
-            // A fresh snapshot is published on didEnterBackground.
-            if appIsForeground {
-                if nowPlayingCenter.nowPlayingInfo != nil {
-                    nowPlayingCenter.nowPlayingInfo = nil
-                }
-                lastNowPlayingID = ""
-                lastNowPlayingIndex = -1
-                lastNowPlayingQueueRevision = -1
-                lastNowPlayingState = -1
-                lastNowPlayingPosition = -1
-                lastNowPlayingUpdate = 0
-                lastNowPlayingArtwork = nil
-            } else if let current {
+            // Keep one Now Playing session across foreground/background transitions.
+            // iOS decides when to present playback in Dynamic Island; removing
+            // metadata while the app is open would also disrupt system controls,
+            // the lock screen, CarPlay and connected accessories.
+            // The custom local EQ engine and AVPlayer publish through this same
+            // session and use the existing remote-command handlers.
+            if let current {
                 let now = ProcessInfo.processInfo.systemUptime
                 let position = playbackPosition
                 let stateCode = (wantsPlay ? 1 : 0) + (audible ? 2 : 0)
@@ -1802,7 +1783,7 @@ final class NativePlayer {
                     lastNowPlayingUpdate = now
                     lastNowPlayingArtwork = artwork
                 }
-            } else if !lastNowPlayingID.isEmpty || nowPlayingCenter.nowPlayingInfo != nil {
+            } else if !lastNowPlayingID.isEmpty {
                 nowPlayingCenter.nowPlayingInfo = nil
                 lastNowPlayingID = ""
                 lastNowPlayingIndex = -1
