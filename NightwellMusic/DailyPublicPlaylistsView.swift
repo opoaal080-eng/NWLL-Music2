@@ -12,12 +12,32 @@ private struct DailyPublicPlaylist: Codable, Identifiable {
     var saved: Bool?
     var saved_playlist_id: String?
 }
+/// A daily playlist is a read-only preview in the existing NavigationStack.
+private struct DailyPlaylistDetail: View {
+    @Environment(\.dismiss) private var dismiss
+    let store: MusicStore
+    let togetherSession: NightwellTogetherSession
+    let playlist: DailyPublicPlaylist
+    let day: String
+
+    var body: some View {
+        PlaylistScreen(
+            close: { dismiss() },
+            playlist: Playlist(id: "daily-" + day + "-" + playlist.id,
+                               name: playlist.name),
+            previewTracks: playlist.tracks
+        )
+        .environmentObject(store)
+        .environmentObject(togetherSession)
+        .toolbar(.hidden, for: .navigationBar)
+    }
+}
+
 struct DailyPublicPlaylistsView: View {
     @Environment(\.nightwellAppearance) private var appearance
     @ObservedObject var store: MusicStore
     @ObservedObject var togetherSession: NightwellTogetherSession
     @State private var playlists: [DailyPublicPlaylist] = []
-    @State private var openedPlaylistID: String?
     @State private var loading = false
     @State private var message = ""
     @State private var saving: Set<String> = []
@@ -49,69 +69,53 @@ struct DailyPublicPlaylistsView: View {
                 }
                 .disabled(loading)
             }
-            Text("Публичная музыка, подобранная для тебя. Обновляется раз в сутки.")
-                .font(.caption).foregroundStyle(.secondary)
             if loading { ProgressView("Загружаем подборки…").tint(appearance.progressTint) }
-            if !message.isEmpty { Text(message).font(.caption).foregroundStyle(.secondary) }
+            if !message.isEmpty && (message.hasPrefix("Не удалось") || playlists.isEmpty) {
+                Text(message).font(.caption).foregroundStyle(.secondary)
+            }
             ForEach(playlists) { playlist in
-                // The entire rounded card navigates, not only its text.
-                // The trailing heart is the only separately tappable action.
-                Button {
-                    openedPlaylistID = playlist.id
-                } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: "waveform")
-                            .font(.system(size: 20, weight: .semibold))
-                            .foregroundStyle(
-                                appearance == .vice ? NightwellAppearance.cyan : .white
-                            )
-                            .frame(width: 32)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(playlist.name)
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .lineLimit(2)
-                            Text("\(playlist.count) треков")
-                                .font(.caption)
-                                .foregroundStyle(.white.opacity(0.65))
-                        }
-                        Spacer(minLength: 4)
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(appearance.accent.opacity(0.82))
-                        // Reserve a separate hit target for the save heart.
-                        Color.clear.frame(width: 52, height: 1)
-                    }
-                    .padding(.leading, 14)
-                    .padding(.trailing, 4)
-                    .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
-                    .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Открыть подборку " + playlist.name)
-                .background(selectionFill,
-                            in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .strokeBorder(
-                            appearance == .vice
-                                ? NightwellAppearance.pink.opacity(0.42)
-                                : Color.white.opacity(0.16),
-                            lineWidth: 0.8
-                        )
-                        .allowsHitTesting(false)
-                }
-                .overlay(alignment: .trailing) {
-                    Button {
-                        Task { await toggleSaved(playlist) }
+                HStack(spacing: 0) {
+                    // NavigationLink fills the entire card except the heart.
+                    // Avoid a nested button overlay that can swallow taps.
+                    NavigationLink {
+                        DailyPlaylistDetail(store: store,
+                                            togetherSession: togetherSession,
+                                            playlist: playlist, day: collectionDate)
                     } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "waveform")
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundStyle(appearance == .vice
+                                                 ? NightwellAppearance.cyan : .white)
+                                .frame(width: 32)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(playlist.name)
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .lineLimit(2)
+                                Text("\(playlist.count) треков")
+                                    .font(.caption)
+                                    .foregroundStyle(.white.opacity(0.65))
+                            }
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(appearance.accent.opacity(0.82))
+                        }
+                        .padding(.leading, 14)
+                        .padding(.trailing, 8)
+                        .frame(maxWidth: .infinity, minHeight: 74)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Открыть подборку " + playlist.name)
+
+                    Button { Task { await toggleSaved(playlist) } } label: {
                         Image(systemName: playlist.saved == true ? "heart.fill" : "heart")
                             .font(.system(size: 20, weight: .medium))
-                            .foregroundStyle(
-                                playlist.saved == true
-                                    ? (appearance == .vice ? NightwellAppearance.pink : .white)
-                                    : Color.white.opacity(0.72)
-                            )
+                            .foregroundStyle(playlist.saved == true
+                                ? (appearance == .vice ? NightwellAppearance.pink : .white)
+                                : Color.white.opacity(0.72))
                             .frame(width: 54, height: 74)
                             .contentShape(Rectangle())
                     }
@@ -120,6 +124,18 @@ struct DailyPublicPlaylistsView: View {
                     .accessibilityLabel(playlist.saved == true
                         ? "Убрать подборку из плейлистов"
                         : "Сохранить подборку в плейлисты")
+                }
+                .frame(maxWidth: .infinity, minHeight: 74)
+                .background(selectionFill,
+                            in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .strokeBorder(
+                            appearance == .vice
+                                ? NightwellAppearance.pink.opacity(0.42)
+                                : Color.white.opacity(0.16),
+                            lineWidth: 0.8)
+                        .allowsHitTesting(false)
                 }
                 .nightwellThemeChrome(20)
             }
@@ -133,33 +149,7 @@ struct DailyPublicPlaylistsView: View {
                 await reload()
             }
         }
-        .navigationDestination(item: $openedPlaylistID) { id in
-            if let selection = playlists.first(where: { $0.id == id }) {
-                // Push within the existing NavigationStack instead of
-                // presenting a second sheet over the daily selections sheet.
-                // NativeTrackRow requires both environment objects.
-                PlaylistScreen(
-                    close: { openedPlaylistID = nil },
-                    playlist: Playlist(
-                        id: "daily-" + collectionDate + "-" + selection.id,
-                        name: selection.name
-                    ),
-                    previewTracks: selection.tracks
-                )
-                .environmentObject(store)
-                .environmentObject(togetherSession)
-                .background {
-                    NightwellThemedBackground {
-                        Color(white: 0.065)
-                    }
-                    .ignoresSafeArea()
-                }
-                .toolbar(.hidden, for: .navigationBar)
-            } else {
-                Text("Подборка больше недоступна")
-                    .foregroundStyle(.secondary)
-            }
-        }
+
     }
     @MainActor private func toggleSaved(_ playlist: DailyPublicPlaylist) async {
         guard !saving.contains(playlist.id) else { return }
