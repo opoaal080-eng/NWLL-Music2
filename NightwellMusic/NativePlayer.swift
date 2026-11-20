@@ -420,7 +420,16 @@ final class NativePlayer {
     var startupDiagnostics: String {
         let ready = readyAfterSeconds.map { String(format: "%.2f с", $0) } ?? "…"
         let sound = audibleAfterSeconds.map { String(format: "%.2f с", $0) } ?? "…"
-        return "Подготовка: \(ready) · Звук: \(sound) · Остановки: \(streamStalls)"
+        let audio = "Подготовка: \(ready) · Звук: \(sound) · Остановки: \(streamStalls)"
+        #if canImport(NowPlaying)
+        if #available(iOS 27.0, *) {
+            let nowPlaying = MainActor.assumeIsolated {
+                NightwellNowPlayingBridge27.shared.diagnostics
+            }
+            return audio + " | " + nowPlaying
+        }
+        #endif
+        return audio + " | MediaPlayer"
     }
     private var fadeObserver: Any?
     private var baseVolume: Float = 1
@@ -1727,6 +1736,7 @@ final class NativePlayer {
                     NightwellNowPlayingBridge27.shared.update(
                         track: current,
                         playing: wantsPlay && audible,
+                        playbackIntent: wantsPlay,
                         elapsed: playbackPosition,
                         artwork: artwork,
                         queueCount: tracks.count

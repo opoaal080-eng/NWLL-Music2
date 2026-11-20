@@ -109,55 +109,92 @@ final class NightwellNowPlayingBridge27 {
     private var session: MediaSession<NightwellNowPlayingModel>?
     private var lastArtworkObject: MPMediaItemArtwork?
     private var lastTrackID: String?
-    private var lastPlaying = false
+    private var playbackRequested = false
     private var activationTask: Task<Void, Never>?
+    private var lastActivationAttempt = Date.distantPast
+    private var lastActivationError = ""
+    private var wasForeground = true
+
+    var diagnostics: String {
+        guard let session else { return "NP27: сессии нет" }
+        let app = session.isApplicationPrimary ? "да" : "нет"
+        let system = session.isSystemPrimary ? "да" : "нет"
+        let sound = model.isPlaying ? "да" : "нет"
+        let request = playbackRequested ? "да" : "нет"
+        let problem = lastActivationError.isEmpty ? "" : " · ошибка: \(lastActivationError)"
+        return "NP27: приложение \(app) · система \(system) · звук \(sound) · запрос \(request)\(problem)"
+    }
 
     private init() {}
 
-    func update(track: NativeTrack?, playing: Bool, elapsed: Double,
-                artwork: MPMediaItemArtwork?, queueCount: Int) {
-        if session == nil, track != nil {
+    func update(track: NativeTrack?, playing: Bool, playbackIntent: Bool,
+                elapsed: Double, artwork: MPMediaItemArtwork?, queueCount: Int) {
+        guard let track else {
+            // A stopped player must not leave a stale system media session.
+            activationTask?.cancel()
+            activationTask = nil
+            session = nil
+            playbackRequested = false
+            lastTrackID = nil
+            lastArtworkObject = nil
+            lastActivationAttempt = .distantPast
+            lastActivationError = ""
+            model.update(track: nil, playing: false, position: 0, queueCount: 0)
+            model.updateArtwork(nil)
+            return
+        }
+
+        if session == nil {
             session = MediaSession(model)
         }
 
-        let next = track.map(NightwellNowPlayingTrack.init)
-        let trackChanged = next?.id != lastTrackID
+        let next = NightwellNowPlayingTrack(track)
+        let trackChanged = next.id != lastTrackID
         let artworkChanged = lastArtworkObject !== artwork
         if trackChanged || artworkChanged {
-            lastTrackID = next?.id
+            lastTrackID = next.id
             lastArtworkObject = artwork
-            // The legacy player already fetched the cover. Reuse it rather
-            // than making a second request from a protected SoundCloud URL.
             let data = artwork?
                 .image(at: CGSize(width: 512, height: 512))?
                 .jpegData(compressionQuality: 0.86)
             model.updateArtwork(data)
         }
-
         model.update(track: next, playing: playing, position: elapsed,
                      queueCount: queueCount)
 
-        // A system-primary Now Playing session must exist before the user
-        // swipes Home, so iOS can own the Dynamic Island transition. Asking
-        // only for application-primary does not guarantee system presentation.
-        // Audio is already active by the time the transport becomes audible.
-        if playing, !lastPlaying, let session {
-            activationTask?.cancel()
-            activationTask = Task { @MainActor in
-                do {
-                    if UIApplication.shared.applicationState == .active {
-                        // Apple requires this call while the app is foreground.
-                        try await session.requestToBecomeSystemPrimary()
-                    } else {
-                        // A background launch can only publish app-primary.
-                        try await session.requestToBecomeApplicationPrimary()
-                    }
-                } catch {
-                    NSLog("Nightwell NowPlaying: media session activation failed: \(error)")
+        // Publication must start when playback is requested, not only once
+        // the stream has become audible. Otherwise a buffering track may
+        // miss the home-screen/Dynamic Island handoff.
+        playbackRequested = playbackIntent
+        guard playbackIntent, let session else { return }
+
+        let foreground = UIApplication.shared.applicationState == .active
+        if foreground && !wasForeground {
+            lastActivationAttempt = .distantPast
+        }
+        wasForeground = foreground
+        let needsPrimary = !session.isApplicationPrimary ||
+            (foreground && !session.isSystemPrimary)
+        guard needsPrimary,
+              Date().timeIntervalSince(lastActivationAttempt) >= 6 else { return }
+        lastActivationAttempt = .now
+        activationTask?.cancel()
+        activationTask = Task { @MainActor in
+            do {
+                // Apple's documented first step for a local Now Playing session.
+                try await session.requestToBecomeApplicationPrimary()
+                if !Task.isCancelled && UIApplication.shared.applicationState == .active &&
+                    !session.isSystemPrimary {
+                    try await session.requestToBecomeSystemPrimary()
+                }
+                if !Task.isCancelled { self.lastActivationError = "" }
+            } catch {
+                if !Task.isCancelled {
+                    self.lastActivationError = String(describing: error)
+                    NSLog("Nightwell NowPlaying activation: \\(error)")
                 }
             }
         }
-        lastPlaying = playing
     }
 }
 #endif
