@@ -1150,8 +1150,8 @@ public final class MainActivity extends Activity {
             shown=new JSONArray();
         }
         list=new ListView(this);
-        list.setDivider(new android.graphics.drawable.ColorDrawable(NightwellDesign.BACKGROUND));
-        list.setDividerHeight(dp(7));
+        list.setDivider(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
+        list.setDividerHeight(dp(4));
         list.setSelector(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
         list.setVerticalScrollBarEnabled(false);
         list.setCacheColorHint(Color.TRANSPARENT);
@@ -1180,7 +1180,13 @@ public final class MainActivity extends Activity {
         iconBackground.setBackground(NightwellDesign.surface(this,NightwellDesign.RAISED,12,false));
         android.widget.FrameLayout cover=new android.widget.FrameLayout(this);
         cover.addView(iconBackground,new android.widget.FrameLayout.LayoutParams(-1,-1));
-        TextView glyph=text("♫",24);glyph.setTextColor(NightwellDesign.PRIMARY);
+        String artGlyph=name.equals("Избранное")?"♥":
+            name.equals("Офлайн")?"↓":
+            name.equals("Плейлисты")?"▤":
+            name.equals("Настройки")?"⚙":
+            name.equals("Слушать вместе")?"◎":"♫";
+        TextView glyph=text(artGlyph,25);
+        glyph.setTextColor(NightwellDesign.PRIMARY);
         glyph.setGravity(Gravity.CENTER);
         cover.addView(glyph,new android.widget.FrameLayout.LayoutParams(-1,-1));
         container.addView(cover,new LinearLayout.LayoutParams(dp(48),dp(48)));
@@ -3231,8 +3237,8 @@ public final class MainActivity extends Activity {
                 ArtistAttribution.isKnown(track.optString("artist"))?
                     "Открыть исполнителя":"Исполнитель не указан");
             holder.more.setOnClickListener(v->trackMenu(track));
-            row.setBackground(NightwellDesign.ripple(MainActivity.this,
-                active?NightwellDesign.SELECTED:NightwellDesign.SURFACE,18,true));
+            row.setBackground(new NightwellPressDrawable(MainActivity.this,
+                active?0x3cffffff:0x4218202a,18,true));
             if(artworkCache!=null)artworkCache.load(holder.cover,origin,track.optString("cover_url"));
             row.setContentDescription(track.optString("title")+", "+track.optString("artist"));
             return row;
