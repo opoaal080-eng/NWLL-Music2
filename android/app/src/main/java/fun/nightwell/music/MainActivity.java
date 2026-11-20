@@ -969,28 +969,70 @@ public final class MainActivity extends Activity {
             titleLayout.topMargin=dp(12);titleLayout.bottomMargin=dp(18);
             body.addView(pageTitle,titleLayout);
         }
+        if(screen.equals("Медиатека")){
+            // iPhone library overview. Existing playlist, favorites and offline logic
+            // live in their original screens and are reached through these cards.
+            ScrollView scroll=new ScrollView(this);
+            scroll.setVerticalScrollBarEnabled(false);
+            LinearLayout sections=column();
+            sections.setPadding(dp(2),dp(10),dp(2),dp(18));
+            scroll.addView(sections);
+            TextView hint=text("Вся твоя музыка в одном месте",14);
+            hint.setTextColor(0xB5ffffff);
+            hint.setPadding(dp(4),0,0,dp(22));
+            sections.addView(hint);
+            addPlaylistEntry(sections,"Избранное","Треки, которые нравятся",()->navigate("Избранное"),null);
+            addPlaylistEntry(sections,"Плейлисты","Твои подборки и коллекции",()->navigate("Плейлисты"),null);
+            addPlaylistEntry(sections,"Офлайн","Загруженная музыка",()->navigate("Офлайн"),null);
+            sections.addView(sectionLabel("Возможности"));
+            addPlaylistEntry(sections,"Перенести музыку","Импорт плейлистов и треков",this::nativeTransfer,null);
+            addPlaylistEntry(sections,"Слушать вместе","Совместное воспроизведение",()->together.open(),null);
+            sections.addView(sectionLabel("Аккаунт"));
+            addPlaylistEntry(sections,"Настройки","Оформление, звук и аккаунт",this::settings,null);
+            body.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+            return;
+        }
         if(screen.equals("Главная")){
             boolean compact=getResources().getConfiguration().orientation==android.content.res.Configuration.ORIENTATION_LANDSCAPE;
             android.widget.FrameLayout stage=new android.widget.FrameLayout(this);body.addView(stage,new LinearLayout.LayoutParams(-1,0,1));
             updateArtworkAppearance();
-            LinearLayout intro=column();intro.setGravity(Gravity.CENTER_HORIZONTAL);
-            intro.setPadding(0,dp(compact?8:32),0,0);
-            TextView eyebrow=text("ТВОЯ МУЗЫКА",11);eyebrow.setTextColor(NightwellDesign.SECONDARY);
-            eyebrow.setLetterSpacing(.24f);eyebrow.setGravity(Gravity.CENTER);
-            intro.addView(eyebrow);
-            TextView theme=text("Твой ритм",compact?30:42);NightwellDesign.headline(theme);
-            theme.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);
-            theme.setGravity(Gravity.CENTER);
-            theme.setMaxLines(2);theme.setAutoSizeTextTypeUniformWithConfiguration(27,44,1,android.util.TypedValue.COMPLEX_UNIT_SP);
-            theme.setPadding(0,dp(10),0,0);intro.addView(theme);
-            TextView subtitle=text("Музыка, которая подходит тебе",14);
-            subtitle.setTextColor(NightwellDesign.SECONDARY);
-            subtitle.setGravity(Gravity.CENTER);
-            subtitle.setPadding(0,dp(8),0,0);
+            LinearLayout intro=column();
+            intro.setGravity(Gravity.LEFT);
+            intro.setPadding(dp(5),dp(compact?8:21),dp(5),0);
+            TextView theme=text("Твой ритм",compact?32:46);
+            NightwellDesign.headline(theme);
+            theme.setGravity(Gravity.LEFT);
+            theme.setLetterSpacing(-.028f);
+            theme.setSingleLine(true);
+            theme.setAutoSizeTextTypeUniformWithConfiguration(30,46,1,android.util.TypedValue.COMPLEX_UNIT_SP);
+            intro.addView(theme);
+            TextView subtitle=text("Музыка под твоё настроение",16);
+            subtitle.setTextColor(0xaaffffff);
+            subtitle.setPadding(0,dp(9),0,0);
             intro.addView(subtitle);
             stage.addView(intro,new android.widget.FrameLayout.LayoutParams(-1,-2,Gravity.TOP));
-            homePlay=action("▶",()->{if(currentID.isEmpty())wave();else toggle();});homePlay.setTextColor(NightwellDesign.BACKGROUND);homePlay.setTextSize(31);homePlay.setBackground(NightwellDesign.ripple(this,0xeef5f6f7,44,false));homePlay.setElevation(dp(9));android.widget.FrameLayout.LayoutParams playParams=new android.widget.FrameLayout.LayoutParams(dp(88),dp(88),Gravity.CENTER);if(compact){playParams.gravity=Gravity.CENTER_VERTICAL|Gravity.RIGHT;playParams.rightMargin=dp(50);}else playParams.topMargin=dp(30);stage.addView(homePlay,playParams);
-            TextView mix=action("Новая подборка",this::wave);mix.setOnLongClickListener(v->{waveSettings();return true;});mix.setContentDescription("Новая подборка. Удерживай, чтобы настроить");mix.setTextSize(14);mix.setBackground(NightwellDesign.ripple(this,NightwellDesign.RAISED,17,true));mix.setTextColor(NightwellDesign.PRIMARY);mix.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));android.widget.FrameLayout.LayoutParams mixParams=new android.widget.FrameLayout.LayoutParams(dp(184),dp(44),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL);mixParams.bottomMargin=dp(compact?18:106);stage.addView(mix,mixParams);
+            LinearLayout central=column();central.setGravity(Gravity.CENTER);
+            homePlay=action("▶",()->{if(currentID.isEmpty())wave();else toggle();});
+            homePlay.setTextColor(Color.WHITE);
+            homePlay.setTextSize(31);
+            homePlay.setBackground(new NightwellGlassDrawable(this,44,0x8a1d2631));
+            homePlay.setElevation(dp(12));
+            LinearLayout.LayoutParams primary=new LinearLayout.LayoutParams(dp(88),dp(88));
+            primary.gravity=Gravity.CENTER_HORIZONTAL;
+            central.addView(homePlay,primary);
+            TextView mix=action("Новая подборка",this::wave);
+            mix.setOnLongClickListener(v->{waveSettings();return true;});
+            mix.setContentDescription("Новая подборка. Удерживай, чтобы настроить");
+            mix.setTextSize(13);
+            mix.setTextColor(Color.WHITE);
+            mix.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));
+            mix.setBackground(new NightwellGlassDrawable(this,22,0x661a2029));
+            LinearLayout.LayoutParams mixParams=new LinearLayout.LayoutParams(dp(180),dp(42));
+            mixParams.topMargin=dp(24);mixParams.gravity=Gravity.CENTER_HORIZONTAL;
+            central.addView(mix,mixParams);
+            android.widget.FrameLayout.LayoutParams centralParams=new android.widget.FrameLayout.LayoutParams(-1,-2,Gravity.CENTER);
+            centralParams.topMargin=dp(compact?12:30);
+            stage.addView(central,centralParams);
             homeLyric=text("",16);homeLyric.setGravity(Gravity.CENTER);homeLyric.setTextColor(0xffe1e1e1);homeLyric.setMaxLines(2);homeLyric.setOnClickListener(v->{JSONObject t=current();if(t!=null)showLyrics(t);});android.widget.FrameLayout.LayoutParams lyricParams=new android.widget.FrameLayout.LayoutParams(-1,dp(50),Gravity.BOTTOM);stage.addView(homeLyric,lyricParams);if(compact)homeLyric.setVisibility(View.GONE);
             if(backgroundOnly){
                 intro.setVisibility(View.GONE);
@@ -1129,7 +1171,7 @@ public final class MainActivity extends Activity {
     private void addPlaylistEntry(LinearLayout parent,String name,String subtitle,
                                   Runnable open,Runnable more){
         LinearLayout container=row();
-        container.setBackground(NightwellDesign.ripple(this,NightwellDesign.SURFACE,18,true));
+        container.setBackground(new NightwellGlassDrawable(this,20,0x5819232e));
         container.setPadding(dp(12),dp(12),dp(10),dp(12));
         View iconBackground=new View(this);
         iconBackground.setBackground(NightwellDesign.surface(this,NightwellDesign.RAISED,12,false));
@@ -3030,7 +3072,7 @@ public final class MainActivity extends Activity {
             if(!(recycled instanceof LinearLayout)||!(recycled.getTag() instanceof Holder)){
                 row=row();
                 row.setGravity(Gravity.CENTER_VERTICAL);
-                row.setPadding(dp(10),dp(9),dp(7),dp(9));
+                row.setPadding(dp(10),dp(7),dp(7),dp(7));
                 row.setMinimumHeight(dp(70));
                 android.widget.ImageView cover=new android.widget.ImageView(MainActivity.this);
                 cover.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
