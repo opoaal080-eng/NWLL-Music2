@@ -34,7 +34,7 @@ on:
 concurrency:
   # Isolate the current iOS 27 build queue from a superseded macOS job
   # whose cancellation remains stuck in GitHub's previous group.
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-ios27
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-ios27-nowplaying-primary
   cancel-in-progress: true
 
 permissions:
