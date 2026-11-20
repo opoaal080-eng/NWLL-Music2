@@ -31,12 +31,21 @@ def launch(screen):
     adb('shell','am','start','-W','-n','fun.nightwell.music/.MainActivity','--ez','nativeSmoke','true','--es','screen',screen);time.sleep(2)
 try:
     adb('shell','input','keyevent','82')
+    # Android 10 first-run immersive education hides the app behind a system overlay.
+    # Confirm the emulator-only onboarding so screenshots test Nightwell, not Android UI.
+    subprocess.run(['adb','shell','settings','put','secure',
+        'immersive_mode_confirmations','confirmed'],check=False,capture_output=True)
+
     for width,height,density in [(1080,1920,420),(720,1280,320)]:
         adb('shell','wm','size',f'{width}x{height}');adb('shell','wm','density',str(density));launch('menu')
         # The popup is posted to the UI thread; emulator startup can outlast
         # the fixed two-second launch delay under a busy CI runner.
         for attempt in range(8):
             values=capture('menu-'+str(width))
+            immersive=find('GOT IT',values)
+            if immersive is not None:
+                tap(immersive)
+                continue
             if find('Главная',values) is not None:break
             time.sleep(1)
         assert find('Главная',values) is not None,'Menu popup did not become visible'
@@ -48,6 +57,14 @@ try:
         assert find('Выйти') is not None,'Last menu entry is inaccessible'
         capture('menu-bottom-'+str(width))
     adb('shell','wm','size','reset');adb('shell','wm','density','reset')
+    # Save screenshots from the real APK, not generated mockups.
+    launch('Главная')
+    capture('ios-home')
+    launch('Медиатека')
+    library=capture('ios-library')
+    assert find('Избранное',library) is not None,'iOS-style media library is missing'
+    launch('player')
+    capture('ios-full-player')
     fixture=out/'nightwell-playlist.csv';fixture.write_text('artist,title\nNightwell,Import Test',encoding='utf-8')
     adb('push',str(fixture),'/sdcard/Download/nightwell-playlist.csv')
     launch('transfer');capture('transfer-empty');click('Выбрать файл')
