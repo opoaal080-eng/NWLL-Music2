@@ -13,6 +13,7 @@ private struct DailyPublicPlaylist: Codable, Identifiable {
     var saved_playlist_id: String?
 }
 struct DailyPublicPlaylistsView: View {
+    @Environment(\.nightwellAppearance) private var appearance
     @ObservedObject var store: MusicStore
     @ObservedObject var togetherSession: NightwellTogetherSession
     @State private var playlists: [DailyPublicPlaylist] = []
@@ -22,46 +23,105 @@ struct DailyPublicPlaylistsView: View {
     @State private var saving: Set<String> = []
     @State private var collectionDate = ""
     @State private var locallyUnsaved: Set<String> = []
+
+    private var selectionFill: LinearGradient {
+        LinearGradient(
+            colors: appearance == .vice
+                ? [
+                    Color(red: 0.37, green: 0.10, blue: 0.38).opacity(0.87),
+                    NightwellAppearance.pink.opacity(0.24),
+                    Color(red: 0.09, green: 0.12, blue: 0.29).opacity(0.92)
+                  ]
+                : [Color.white.opacity(0.12), Color.white.opacity(0.055)],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("Подборки дня").font(.title3.bold())
                 Spacer()
-                Button { Task { await reload() } } label: { Image(systemName: "arrow.clockwise") }
-                    .disabled(loading)
+                Button { Task { await reload() } } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .foregroundStyle(appearance.accent)
+                }
+                .disabled(loading)
             }
             Text("Публичная музыка, подобранная для тебя. Обновляется раз в сутки.")
                 .font(.caption).foregroundStyle(.secondary)
-            if loading { ProgressView("Загружаем подборки…") }
+            if loading { ProgressView("Загружаем подборки…").tint(appearance.progressTint) }
             if !message.isEmpty { Text(message).font(.caption).foregroundStyle(.secondary) }
             ForEach(playlists) { playlist in
-                HStack(spacing: 8) {
-                    Button {
-                        // Tapping a selection opens its detail, never starts
-                        // playback. The play button inside the detail owns it.
-                        openedPlaylistID = playlist.id
-                    } label: {
-                        HStack {
-                            Image(systemName: "waveform")
-                            VStack(alignment: .leading) {
-                                Text(playlist.name).font(.headline)
-                                Text("\(playlist.count) треков").font(.caption).foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(.secondary)
-                        }.padding(14)
-                    }.buttonStyle(.plain)
-                    Button { Task { await toggleSaved(playlist) } } label: {
-                        Image(systemName: playlist.saved == true ? "heart.fill" : "heart")
-                            .foregroundStyle(.white)
-                            .frame(width: 48, height: 48)
+                // The entire rounded card navigates, not only its text.
+                // The trailing heart is the only separately tappable action.
+                Button {
+                    openedPlaylistID = playlist.id
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "waveform")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundStyle(
+                                appearance == .vice ? NightwellAppearance.cyan : .white
+                            )
+                            .frame(width: 32)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(playlist.name)
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .lineLimit(2)
+                            Text("\(playlist.count) треков")
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(0.65))
+                        }
+                        Spacer(minLength: 4)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(appearance.accent.opacity(0.82))
+                        // Reserve a separate hit target for the save heart.
+                        Color.clear.frame(width: 52, height: 1)
                     }
+                    .padding(.leading, 14)
+                    .padding(.trailing, 4)
+                    .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+                    .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Открыть подборку " + playlist.name)
+                .background(selectionFill,
+                            in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .strokeBorder(
+                            appearance == .vice
+                                ? NightwellAppearance.pink.opacity(0.42)
+                                : Color.white.opacity(0.16),
+                            lineWidth: 0.8
+                        )
+                        .allowsHitTesting(false)
+                }
+                .overlay(alignment: .trailing) {
+                    Button {
+                        Task { await toggleSaved(playlist) }
+                    } label: {
+                        Image(systemName: playlist.saved == true ? "heart.fill" : "heart")
+                            .font(.system(size: 20, weight: .medium))
+                            .foregroundStyle(
+                                playlist.saved == true
+                                    ? (appearance == .vice ? NightwellAppearance.pink : .white)
+                                    : Color.white.opacity(0.72)
+                            )
+                            .frame(width: 54, height: 74)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                     .disabled(saving.contains(playlist.id))
-                    .accessibilityLabel(playlist.saved == true ? "Убрать подборку из плейлистов" : "Сохранить подборку в плейлисты")
-                    .accessibilityHint(playlist.saved == true ? "Повторное нажатие удалит сохранённую копию подборки" : "")
-                }.glass()
+                    .accessibilityLabel(playlist.saved == true
+                        ? "Убрать подборку из плейлистов"
+                        : "Сохранить подборку в плейлисты")
+                }
+                .nightwellThemeChrome(20)
             }
         }
         .task(id: store.account?.id) {
@@ -88,7 +148,12 @@ struct DailyPublicPlaylistsView: View {
                 )
                 .environmentObject(store)
                 .environmentObject(togetherSession)
-                .background(Color(white: 0.065))
+                .background {
+                    NightwellThemedBackground {
+                        Color(white: 0.065)
+                    }
+                    .ignoresSafeArea()
+                }
                 .toolbar(.hidden, for: .navigationBar)
             } else {
                 Text("Подборка больше недоступна")
