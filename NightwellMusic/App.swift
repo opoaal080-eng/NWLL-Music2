@@ -2057,8 +2057,18 @@ struct NativeTrackRow: View {
             .accessibilityLabel("Действия с треком " + track.title)
         }
         .padding(.horizontal, libraryPreview ? 8 : 0)
-        .background(status.id == track.id ? pumpkin.opacity(0.12) : libraryPreview ? .clear : .white.opacity(0.035),
-                    in: RoundedRectangle(cornerRadius: 18))
+        .background(
+            appearance == .vice
+                ? (status.id == track.id
+                    ? NightwellAppearance.pink.opacity(0.24)
+                    : (libraryPreview ? Color.clear
+                        : Color(red: 0.18, green: 0.075, blue: 0.28).opacity(0.78)))
+                : (status.id == track.id
+                    ? pumpkin.opacity(0.12)
+                    : (libraryPreview ? Color.clear : Color.white.opacity(0.035))),
+            in: RoundedRectangle(cornerRadius: 18)
+        )
+        .nightwellThemeChrome(18)
         .confirmationDialog("Выбери исполнителя", isPresented: $showArtistChoices, titleVisibility: .visible) {
             ForEach(ArtistNames.split(track.artist), id: \.self) { name in
                 Button(name) { selectedArtist = ArtistSelection(name: name) }
@@ -2519,13 +2529,17 @@ struct PlaylistScreen: View {
                 Text("ПЛЕЙЛИСТ")
                     .font(.system(size: 11, weight: .bold, design: .rounded))
                     .tracking(2)
-                    .foregroundStyle(.white.opacity(0.55))
+                    .foregroundStyle(appearance == .vice
+                                     ? NightwellAppearance.cyan.opacity(0.88)
+                                     : .white.opacity(0.55))
                 Spacer()
                 Button { Task { await toggleDownloads() } } label: {
                     Image(systemName: allDownloaded ? "checkmark.circle.fill" : "arrow.down.to.line")
                         .font(.system(size: 17, weight: .medium))
                         .frame(width: 42, height: 42)
-                        .background(.white.opacity(0.10), in: Circle())
+                        .background(appearance == .vice
+                                    ? NightwellAppearance.pink.opacity(0.24)
+                                    : Color.white.opacity(0.10), in: Circle())
                 }
                 .buttonStyle(.plain)
                 .disabled(tracks.isEmpty)
@@ -2534,7 +2548,9 @@ struct PlaylistScreen: View {
                     Image(systemName: "xmark")
                         .font(.system(size: 15, weight: .semibold))
                         .frame(width: 42, height: 42)
-                        .background(.white.opacity(0.10), in: Circle())
+                        .background(appearance == .vice
+                                    ? NightwellAppearance.pink.opacity(0.24)
+                                    : Color.white.opacity(0.10), in: Circle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Закрыть плейлист")
@@ -2599,9 +2615,12 @@ struct PlaylistScreen: View {
                         .buttonStyle(.plain)
                         .foregroundStyle(.white)
                         .background(
-                            .white.opacity(0.10),
+                            appearance == .vice
+                                ? NightwellAppearance.pink.opacity(0.28)
+                                : Color.white.opacity(0.10),
                             in: RoundedRectangle(cornerRadius: 18, style: .continuous)
                         )
+                        .nightwellThemeChrome(18)
                     }
 
                     if let fraction = store.playlistDownloadProgress(tracks) {
@@ -2668,6 +2687,14 @@ struct PlaylistScreen: View {
         }
         .foregroundStyle(.white)
         .tint(appearance.progressTint)
+        .background {
+            // The theme must be drawn inside the playlist, above the popup's
+            // dark glass layer, rather than behind it.
+            NightwellThemedBackground {
+                Color(white: 0.065)
+            }
+            .ignoresSafeArea()
+        }
         .task(id: playlist.id) { await refreshPlaylist() }
     }
 
