@@ -152,7 +152,7 @@ public final class NightwellDialog extends Dialog {
             window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
             window.setGravity(Gravity.CENTER);
             window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
-            window.setLayout(Math.min(dp(520),getResources().getDisplayMetrics().widthPixels-dp(28)),
+            window.setLayout(Math.min(dp(520),getContext().getResources().getDisplayMetrics().widthPixels-dp(28)),
                 WindowManager.LayoutParams.WRAP_CONTENT);
         }
     }
