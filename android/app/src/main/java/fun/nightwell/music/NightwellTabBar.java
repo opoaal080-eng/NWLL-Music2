@@ -21,7 +21,7 @@ final class NightwellTabBar extends View {
 
     NightwellTabBar(Context c){
         super(c);
-        setMinimumHeight(dp(62));
+        setMinimumHeight(dpInt(62));
         setClickable(true);
         setContentDescription("Навигация Nightwell Music");
     }
