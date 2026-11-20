@@ -381,7 +381,32 @@ public final class MainActivity extends Activity {
         super.onSaveInstanceState(saved);
     }
 
-    @Override protected void onResume(){super.onResume();restoreRecent();visible=true;openPendingTogether();ui.removeCallbacks(nightwellProbe);ui.post(nightwellProbe);if(!smokeMode&&sessionReady&&SystemClock.elapsedRealtime()-lastResumeRefresh>30000)load();if(premiumRefresh!=null)premiumRefresh.run();BackgroundDownloads.reconcile(this);updateArtworkAppearance();ui.removeCallbacks(tick);if(!smokeMode)ui.post(tick);}
+    // Hide Android's three-button navigation chrome; edge swipes still reveal
+    // temporary system controls when needed. Status/permission/keyboard remain OS-owned.
+    private void applyNightwellNavigationBars(){
+        Window window=getWindow();
+        if(window==null)return;
+        if(Build.VERSION.SDK_INT>=30){
+            android.view.WindowInsetsController controller=window.getInsetsController();
+            if(controller!=null){
+                controller.setSystemBarsBehavior(
+                    android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                controller.hide(WindowInsets.Type.navigationBars());
+            }
+        }else{
+            window.getDecorView().setSystemUiVisibility(
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                |View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                |View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                |View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                |View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
+        }
+    }
+    @Override public void onWindowFocusChanged(boolean hasFocus){
+        super.onWindowFocusChanged(hasFocus);
+        if(hasFocus)applyNightwellNavigationBars();
+    }
+    @Override protected void onResume(){super.onResume();applyNightwellNavigationBars();restoreRecent();visible=true;openPendingTogether();ui.removeCallbacks(nightwellProbe);ui.post(nightwellProbe);if(!smokeMode&&sessionReady&&SystemClock.elapsedRealtime()-lastResumeRefresh>30000)load();if(premiumRefresh!=null)premiumRefresh.run();BackgroundDownloads.reconcile(this);updateArtworkAppearance();ui.removeCallbacks(tick);if(!smokeMode)ui.post(tick);}
     @Override protected void onPause(){super.onPause();ui.removeCallbacks(nightwellProbe);ui.removeCallbacks(connectionRecovery);if(navigationPopup!=null)navigationPopup.dismiss();if(navigationSheet!=null)navigationSheet.dismiss();if(playback!=null)playback.persistPlayback(true);visible=false;if(ribbon!=null)ribbon.running(false);ui.removeCallbacks(tick);}
     @Override protected void onDestroy(){if(together!=null)together.shutdown();ui.removeCallbacks(nightwellProbe);generation++;cancelMix();accountRequest.cancel();if(api!=null)api.close();ui.removeCallbacksAndMessages(null);if(artworkCache!=null)artworkCache.close();favoriteRecoveryGeneration++;favoriteIO.shutdownNow();io.shutdownNow();prefetch.shutdownNow();if(playback!=null)playback.player.removeListener(playbackIntentObserver);if(bindingRegistered){unbindService(connection);bindingRegistered=false;}super.onDestroy();}
     int dp(float n){return (int)(n*getResources().getDisplayMetrics().density+.5f);}
