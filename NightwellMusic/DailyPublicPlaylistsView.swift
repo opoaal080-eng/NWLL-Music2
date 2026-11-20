@@ -18,6 +18,8 @@ struct DailyPublicPlaylistsView: View {
     @State private var loading = false
     @State private var message = ""
     @State private var saving: Set<String> = []
+    @State private var collectionDate = ""
+    @State private var locallyUnsaved: Set<String> = []
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
@@ -76,6 +78,10 @@ struct DailyPublicPlaylistsView: View {
                 let _: OK = try await store.api.request(
                     "/api/playlists/" + savedID, method: "DELETE"
                 )
+                if let key = savedPlaylistKey(for: playlist.id) {
+                    UserDefaults.standard.removeObject(forKey: key)
+                }
+                locallyUnsaved.insert(playlist.id)
                 if let index = playlists.firstIndex(where: { $0.id == playlist.id }) {
                     playlists[index].saved = false
                     playlists[index].saved_playlist_id = nil
@@ -91,6 +97,10 @@ struct DailyPublicPlaylistsView: View {
                     message = "Сервер не вернул ID сохранённого плейлиста."
                     return
                 }
+                if let key = savedPlaylistKey(for: playlist.id) {
+                    UserDefaults.standard.set(result.id, forKey: key)
+                }
+                locallyUnsaved.remove(playlist.id)
                 if let index = playlists.firstIndex(where: { $0.id == playlist.id }) {
                     playlists[index].saved = true
                     playlists[index].saved_playlist_id = result.id
@@ -104,13 +114,41 @@ struct DailyPublicPlaylistsView: View {
                 error.localizedDescription
         }
     }
+    /// Never derive saved IDs from playlist names: a personal playlist can
+    /// have the same title as a daily selection. Store the exact server ID.
+    private func savedPlaylistKey(for id: String) -> String? {
+        guard let account = store.account, !collectionDate.isEmpty else { return nil }
+        return "nw.daily.saved." + (store.origin.host ?? "server") +
+            "." + account.id + "." + collectionDate + "." + id
+    }
+
     @MainActor private func reload() async {
         guard !loading else { return }
         loading = true
         defer { loading = false }
         do {
             let result: DailyPublicResponse = try await store.api.request("/api/daily-public-playlists")
-            playlists = result.playlists
+            if collectionDate != result.date {
+                locallyUnsaved.removeAll()
+            }
+            collectionDate = result.date
+            playlists = result.playlists.map { playlist in
+                var entry = playlist
+                if locallyUnsaved.contains(entry.id) {
+                    // A cached daily response may still report the deleted
+                    // copy as saved. Honor this session's confirmed removal.
+                    entry.saved = false
+                    entry.saved_playlist_id = nil
+                } else if let key = savedPlaylistKey(for: entry.id),
+                          let savedID = UserDefaults.standard.string(forKey: key),
+                          !savedID.isEmpty, entry.saved != false {
+                    // Some server versions omit saved_playlist_id on GET.
+                    // Restore only the ID returned by our own successful POST.
+                    entry.saved = true
+                    entry.saved_playlist_id = entry.saved_playlist_id ?? savedID
+                }
+                return entry
+            }
             message = playlists.isEmpty ? "Подборок пока нет" : ""
         } catch {
             message = "Не удалось загрузить подборки. Проверь обновление сервера."
