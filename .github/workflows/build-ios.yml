@@ -32,8 +32,9 @@ on:
       - 'scripts/prepare-vice-palms.py'
       - '.github/workflows/build-ios.yml'
 concurrency:
-  # Old PR checks must not consume emulator/macOS runners after source updates.
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # Isolate the current iOS 27 build queue from a superseded macOS job
+  # whose cancellation remains stuck in GitHub's previous group.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-ios27
   cancel-in-progress: true
 
 permissions:
