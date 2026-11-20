@@ -695,7 +695,7 @@ struct NativeRoot: View {
                 .nightwellEdgeBack { feature = nil }
         }
         .sheet(isPresented: $dailyPlaylistsPresented) {
-            DailyPublicPlaylistsScreen(store: store)
+            DailyPublicPlaylistsScreen(store: store, togetherSession: togetherSession)
                 .nightwellEdgeBack { dailyPlaylistsPresented = false }
         }
         .fullScreenCover(isPresented: $profilePresented) {
