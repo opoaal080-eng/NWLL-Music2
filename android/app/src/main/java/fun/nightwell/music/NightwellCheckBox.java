@@ -4,7 +4,8 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.text.TextPaint;
-import android.text.TextUtils;
+import android.text.Layout;
+import android.text.StaticLayout;
 import android.widget.CheckBox;
 
 /** Own-drawn premium consent control. Preserves checked state and semantics. */
@@ -16,7 +17,7 @@ public final class NightwellCheckBox extends CheckBox {
         setButtonDrawable(android.R.color.transparent);
         setPadding(NightwellDesign.dp(context,8),NightwellDesign.dp(context,9),
             NightwellDesign.dp(context,8),NightwellDesign.dp(context,9));
-        setMinHeight(NightwellDesign.dp(context,52));
+        setMinHeight(NightwellDesign.dp(context,78));
     }
     @Override protected void onDraw(Canvas canvas){
         float density=getResources().getDisplayMetrics().density;
@@ -40,8 +41,15 @@ public final class NightwellCheckBox extends CheckBox {
         }
         type.setTypeface(getTypeface());type.setTextSize(getTextSize());type.setColor(getCurrentTextColor());
         float textX=x+box+12*density;
-        CharSequence shown=TextUtils.ellipsize(getText(),type,Math.max(0,getWidth()-getPaddingRight()-textX),TextUtils.TruncateAt.END);
-        Paint.FontMetrics m=type.getFontMetrics();
-        canvas.drawText(shown.toString(),textX,cy-(m.ascent+m.descent)/2,type);
+        int available=Math.max(1,(int)(getWidth()-getPaddingRight()-textX));
+        CharSequence shown=getText()==null?"":getText();
+        StaticLayout layout=StaticLayout.Builder.obtain(shown,0,shown.length(),type,available)
+            .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+            .setIncludePad(false)
+            .build();
+        canvas.save();
+        canvas.translate(textX,Math.max(getPaddingTop(),cy-layout.getHeight()/2f));
+        layout.draw(canvas);
+        canvas.restore();
     }
 }
