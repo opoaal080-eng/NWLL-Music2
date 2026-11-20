@@ -153,7 +153,7 @@ final class NightwellNowPlayingBridge27 {
                         try await session.requestToBecomeApplicationPrimary()
                     }
                 } catch {
-                    NSLog("Nightwell NowPlaying: media session activation failed: \\(error)")
+                    NSLog("Nightwell NowPlaying: media session activation failed: \(error)")
                 }
             }
         }
