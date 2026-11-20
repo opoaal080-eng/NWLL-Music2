@@ -129,7 +129,7 @@ final class NightwellNowPlayingBridge27 {
             // The legacy player already fetched the cover. Reuse it rather
             // than making a second request from a protected SoundCloud URL.
             let data = artwork?
-                .image(at: CGSize(width: 512, height: 512))
+                .image(at: CGSize(width: 512, height: 512))?
                 .jpegData(compressionQuality: 0.86)
             model.updateArtwork(data)
         }
