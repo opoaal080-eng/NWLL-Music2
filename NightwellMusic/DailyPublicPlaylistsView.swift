@@ -46,34 +46,62 @@ struct DailyPublicPlaylistsView: View {
                             Image(systemName: "play.fill")
                         }.padding(14)
                     }.buttonStyle(.plain)
-                    Button { Task { await save(playlist) } } label: {
+                    Button { Task { await toggleSaved(playlist) } } label: {
                         Image(systemName: playlist.saved == true ? "heart.fill" : "heart")
                             .foregroundStyle(.white)
                             .frame(width: 48, height: 48)
                     }
-                    .disabled(playlist.saved == true || saving.contains(playlist.id))
-                    .accessibilityLabel(playlist.saved == true ? "Сохранено в плейлисты" : "Сохранить подборку в плейлисты")
+                    .disabled(saving.contains(playlist.id))
+                    .accessibilityLabel(playlist.saved == true ? "Убрать подборку из плейлистов" : "Сохранить подборку в плейлисты")
+                    .accessibilityHint(playlist.saved == true ? "Повторное нажатие удалит сохранённую копию подборки" : "")
                 }.glass()
             }
         }
         .task { await reload() }
     }
-    @MainActor private func save(_ playlist: DailyPublicPlaylist) async {
-        guard !saving.contains(playlist.id), playlist.saved != true else { return }
+    @MainActor private func toggleSaved(_ playlist: DailyPublicPlaylist) async {
+        guard !saving.contains(playlist.id) else { return }
         saving.insert(playlist.id)
         defer { saving.remove(playlist.id) }
+
         do {
-            struct Saved: Decodable { let id: String; let name: String }
-            let _: Saved = try await store.api.request(
-                "/api/daily-public-playlists/" + playlist.id + "/save",
-                method: "POST", body: ["track_ids": playlist.tracks.map(\.id)])
-            if let index = playlists.firstIndex(where: { $0.id == playlist.id }) {
-                playlists[index].saved = true
+            if playlist.saved == true {
+                // Delete only the concrete playlist created by the Save
+                // endpoint. A daily selection is never a generic favorite
+                // and must not delete a similarly named personal playlist.
+                guard let savedID = playlist.saved_playlist_id, !savedID.isEmpty else {
+                    message = "Не удалось определить сохранённый плейлист. Обнови подборки и попробуй снова."
+                    return
+                }
+                let _: OK = try await store.api.request(
+                    "/api/playlists/" + savedID, method: "DELETE"
+                )
+                if let index = playlists.firstIndex(where: { $0.id == playlist.id }) {
+                    playlists[index].saved = false
+                    playlists[index].saved_playlist_id = nil
+                }
+                message = "Лайк убран, сохранённая копия подборки удалена."
+            } else {
+                struct Saved: Decodable { let id: String; let name: String }
+                let result: Saved = try await store.api.request(
+                    "/api/daily-public-playlists/" + playlist.id + "/save",
+                    method: "POST", body: ["track_ids": playlist.tracks.map(\.id)]
+                )
+                guard !result.id.isEmpty else {
+                    message = "Сервер не вернул ID сохранённого плейлиста."
+                    return
+                }
+                if let index = playlists.firstIndex(where: { $0.id == playlist.id }) {
+                    playlists[index].saved = true
+                    playlists[index].saved_playlist_id = result.id
+                }
+                message = "Сохранено в обычные плейлисты с датой."
             }
-            message = "Сохранено в обычные плейлисты с датой."
             await store.refresh()
         } catch {
-            message = "Не удалось сохранить подборку: " + error.localizedDescription
+            message = (playlist.saved == true ?
+                "Не удалось убрать лайк: " : "Не удалось сохранить подборку: ") +
+                error.localizedDescription
         }
     }
     @MainActor private func reload() async {
