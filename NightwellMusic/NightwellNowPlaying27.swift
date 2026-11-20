@@ -137,16 +137,19 @@ final class NightwellNowPlayingBridge27 {
         model.update(track: next, playing: playing, position: elapsed,
                      queueCount: queueCount)
 
-        // A new playback session should become primary when it starts.
-        // Do not repeatedly claim priority every time the playhead advances.
+        // For local playback, Apple explicitly advises against forcibly
+        // claiming the system-primary session unless taking over from another
+        // app/session is required. The system should manage foreground media
+        // presentation (including Dynamic Island) itself.
+        // Keep the Nightwell session app-primary so commands and metadata
+        // remain available on the Lock Screen, Control Center and headphones.
         if playing, !lastPlaying, let session {
             activationTask?.cancel()
             activationTask = Task { @MainActor in
                 do {
                     try await session.requestToBecomeApplicationPrimary()
-                    try await session.requestToBecomeSystemPrimary()
                 } catch {
-                    // Lack of system-primary permission must not stop audio.
+                    // Do not interrupt audio if system session registration fails.
                 }
             }
         }
