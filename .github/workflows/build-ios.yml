@@ -40,8 +40,10 @@ permissions:
   contents: read
 jobs:
   ios:
-    # Use the current Intel image that successfully provisions for this account.
-    runs-on: macos-26-intel
+    # The new NowPlaying MediaSession API requires the iOS 27 SDK.
+    # Xcode 27 is available on the dedicated arm64 hosted runner, not on
+    # the macos-26-intel runner used for the legacy regression tests.
+    runs-on: xcode-27
     steps:
       - uses: actions/checkout@v4
       - name: Install XcodeGen
@@ -61,6 +63,11 @@ jobs:
           subprocess.run(['sudo', 'xcode-select', '-s', developer], check=True)
           print('Selected Xcode', version)
           PYCODE
+      - name: Verify iOS 27 NowPlaying SDK
+        run: |
+          xcodebuild -version
+          SDK_PATH="$(xcrun --sdk iphoneos --show-sdk-path)"
+          printf 'import NowPlaying\n' | xcrun swiftc -sdk "$SDK_PATH" -target arm64-apple-ios27.0 -typecheck -
       - name: Generate neutral app icon
         run: python3 scripts/make-neutral-app-icon.py --platform ios
       - name: Prepare animated Vice Nights palm layers
