@@ -48,6 +48,14 @@ try:
         assert find('Выйти') is not None,'Last menu entry is inaccessible'
         capture('menu-bottom-'+str(width))
     adb('shell','wm','size','reset');adb('shell','wm','density','reset')
+    # Save screenshots from the real APK, not generated mockups.
+    launch('Главная')
+    capture('ios-home')
+    launch('Медиатека')
+    library=capture('ios-library')
+    assert find('Избранное',library) is not None,'iOS-style media library is missing'
+    launch('player')
+    capture('ios-full-player')
     fixture=out/'nightwell-playlist.csv';fixture.write_text('artist,title\nNightwell,Import Test',encoding='utf-8')
     adb('push',str(fixture),'/sdcard/Download/nightwell-playlist.csv')
     launch('transfer');capture('transfer-empty');click('Выбрать файл')
