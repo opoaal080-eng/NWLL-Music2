@@ -154,13 +154,9 @@ struct NightwellAccountDevicesResponse: Decodable {
     @Published private(set) var accountDeviceSupported = false
 
     func registerAccountDevice() async {
-        guard account != nil else { return }
+        guard let user = account else { return }
         do {
-            let _: OK = try await api.request("/api/devices/register", method: "POST", body: [
-                "device_id": NightwellClientDevice.id,
-                "platform": "ios",
-                "name": NightwellClientDevice.label,
-            ], timeout: 10)
+            try await api.bindDevice(account: user.id)
             accountDeviceSupported = true
             accountDeviceNotice = ""
             await refreshAccountDevices()
@@ -225,6 +221,8 @@ struct NightwellAccountDevicesResponse: Decodable {
     @Published var downloadMessage = ""
     @Published var downloading = false
     @Published var downloadFractions: [String: Double] = [:]
+    @Published private(set) var pendingDownloadKeys = Set<String>()
+    @Published private(set) var completedDownloadKeys = Set<String>()
     @Published var authPresented = false
     @Published var emailChallenge: EmailChallenge?
     @Published var likeFlash = 0
@@ -661,6 +659,13 @@ struct NightwellAccountDevicesResponse: Decodable {
                 self.cacheAccount()
                 if changedAccount { self.restoreAutoFavoritesSetting(); self.startLiveSync() }
                 await client.setCSRF(identity.csrf)
+                if changedAccount || wasOffline {
+                    if let user = identity.user {
+                        try await client.bindDevice(account: user.id)
+                    } else {
+                        await client.clearDeviceSession()
+                    }
+                }
                 guard !Task.isCancelled, self.origin == server,
                       self.sessionGeneration == session, self.connectionCheckGeneration == checkID else { return }
                 if changedAccount { self.restoreCachedProfile(); self.restoreSessionSnapshot() }
@@ -745,17 +750,24 @@ struct NightwellAccountDevicesResponse: Decodable {
         restoreSessionSnapshot()
         startConnectionWatcher()
         clock.onTick = { [weak self] value in self?.playbackTick(value) }
+        // Seed the shared snapshot immediately, then update it when playback
+        // changes. Do not wait for the first track-end or periodic UI refresh.
+        NightwellWidgetBridge.shared.update(track: clock.current, playing: clock.playing,
+                                            origin: origin, force: true)
         observers.append(NotificationCenter.default.addObserver(forName: BackgroundDownloads.changed, object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
             let progress = BackgroundDownloads.shared.progress
             let statusChanged = self.downloadMessage != progress.message
             self.downloading = progress.active; self.downloadMessage = progress.message; self.downloadFractions = progress.fractions
+            if self.pendingDownloadKeys != progress.pendingKeys { self.pendingDownloadKeys = progress.pendingKeys }
+            if self.completedDownloadKeys != progress.completedKeys { self.completedDownloadKeys = progress.completedKeys }
             // Updating a progress bar must not rescan offline storage each percent.
             if statusChanged || !progress.active { Task { await self.refreshOffline() } }
         })
         BackgroundDownloads.shared.reconnect()
         let progress = BackgroundDownloads.shared.progress
         downloading = progress.active; downloadMessage = progress.message; downloadFractions = progress.fractions
+        pendingDownloadKeys = progress.pendingKeys; completedDownloadKeys = progress.completedKeys
 
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
@@ -763,10 +775,28 @@ struct NightwellAccountDevicesResponse: Decodable {
             self.connectionCheck?.cancel(); self.connectionCheck = nil
             self.connectionCheckGeneration = UUID()
             self.savePlayback(force: true)
+            // Final sync before the home screen becomes visible. The
+            // publisher will reload the WidgetKit timeline after POST succeeds.
+            NWWidgetServerPublisher.shared.update(
+                track: self.clock.current, playing: self.clock.playing,
+                account: self.account?.id, api: self.api, origin: self.origin)
         })
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            self?.applicationIsActive = true
-            self?.checkConnection()
+            guard let self else { return }
+            self.applicationIsActive = true
+            self.checkConnection()
+            self.clock.sync()
+            // WidgetKit may have discarded a reload while the app was asleep.
+            NightwellWidgetBridge.shared.update(track: self.clock.current,
+                                                playing: self.clock.playing,
+                                                origin: self.origin, force: true)
+            NWWidgetServerPublisher.shared.update(track: self.clock.current,
+                playing: self.clock.playing, account: self.account?.id,
+                api: self.api, origin: self.origin, force: true)
+            // Restore orphaned background transfers when returning to the app.
+            BackgroundDownloads.shared.reconnect()
+            // A transfer may have finished while the UI was suspended.
+            Task { await self.refreshOffline() }
         })
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in self?.savePlayback(force: true) })
     }
@@ -971,6 +1001,9 @@ struct NightwellAccountDevicesResponse: Decodable {
         }
     }
     private func playbackTick(_ state: [String: Any]) {
+        NightwellWidgetBridge.shared.update(track: clock.current, playing: clock.playing, origin: origin)
+        NWWidgetServerPublisher.shared.update(track: clock.current, playing: clock.playing,
+                                              account: account?.id, api: api, origin: origin)
         PremiumFeatureState.shared.tick(self)
         let now = ProcessInfo.processInfo.systemUptime, elapsed = min(1, max(0, now - lastTick)); lastTick = now
         if clock.id != listeningID {
@@ -1188,6 +1221,7 @@ struct NightwellAccountDevicesResponse: Decodable {
             connectionCheck?.cancel(); connectionCheck = nil; connectionCheckGeneration = UUID(); sessionReady = false
             stopLiveSync()
             accountDevices = []; accountDeviceNotice = ""; accountDeviceSupported = false
+            await api.clearDeviceSession()
             account = nil; profileNickname = ""; profileAvatar = nil; restoreAutoFavoritesSetting(); mixRecentIDs = []; cacheAccount(); catalog = []; results = []; likes = []; favoriteOrder = []; playlists = []; lastWave = []; query = ""; await api.setCSRF(nil)
         } catch { self.error = error.localizedDescription }
     }
@@ -1498,6 +1532,17 @@ struct NightwellAccountDevicesResponse: Decodable {
     }
     func rhythm(around track: Track) async {
         await playSeededRhythm(seeds: [track], startWithSeed: track)
+    }
+
+    // Favorites use the same genre/artist-aware ranking as a playlist mix.
+    // This method works on the already ordered local snapshot, without a
+    // redundant server round trip for hundreds of liked tracks.
+    func rhythm(around favorites: [Track]) async {
+        guard !favorites.isEmpty else {
+            error = "В избранном пока нет треков для подборки."
+            return
+        }
+        await playSeededRhythm(seeds: favorites, startWithSeed: nil)
     }
 
     func rhythm(around playlist: Playlist) async {
@@ -1891,13 +1936,23 @@ struct NightwellAccountDevicesResponse: Decodable {
         }
     }
     func download(_ list: [Track]) async {
+        guard !list.isEmpty else { return }
         guard let account else { authPresented = true; return }
+        // The user may lock the phone immediately after pressing Download.
+        // Allow the entitlement check to finish and the entire playlist to
+        // enter URLSession.background before foreground execution is suspended.
+        let preparation = OfflineDownloadPreparation()
+        defer { preparation.end() }
         struct DownloadAccess: Decodable { let premium: Bool }
         let owner = account.id
         do {
             let state: DownloadAccess = try await api.request("api/premium/me")
+            let family: AccountAccessStatus? = try? await api.request("/api/account/access")
             guard self.account?.id == owner else { return }
-            guard state.premium else { error = "Скачивание доступно с Premium — 150 ₽ за 30 дней."; return }
+            guard state.premium || family?.premium == true else {
+                error = "Скачивание доступно с личным или семейным Premium."
+                return
+            }
         } catch { self.error = error.localizedDescription; return }
         BackgroundDownloads.shared.enqueue(list, origin: origin, account: account.id)
     }
@@ -1912,7 +1967,32 @@ struct NightwellAccountDevicesResponse: Decodable {
     }
     func downloadProgress(_ id: String) -> Double? {
         guard let account else { return nil }
-        return downloadFractions[origin.absoluteString + "|" + account.id + "|" + id]
+        let key = origin.absoluteString + "|" + account.id + "|" + id
+        // Include queued tracks at 0%, and hide the indicator as soon as the
+        // underlying job finishes instead of retaining the last displayed value.
+        guard pendingDownloadKeys.contains(key) else { return nil }
+        return downloadFractions[key] ?? 0
+    }
+    func playlistDownloadProgress(_ tracks: [Track]) -> Double? {
+        playlistDownloadProgress(trackIDs: tracks.map(\.id))
+    }
+    func playlistDownloadProgress(trackIDs: [String]) -> Double? {
+        guard let account, !trackIDs.isEmpty else { return nil }
+        let prefix = origin.absoluteString + "|" + account.id + "|"
+        // No pending job means the circular ring and playlist progress bar hide.
+        guard trackIDs.contains(where: { pendingDownloadKeys.contains(prefix + $0) }) else { return nil }
+        let total = trackIDs.reduce(0.0) { result, id in
+            let key = prefix + id
+            if completedDownloadKeys.contains(key) || downloadedTrackIDs.contains(id) {
+                return result + 1
+            }
+            // Queued tracks contribute 0 until data is actually transferred.
+            if pendingDownloadKeys.contains(key) {
+                return result + min(0.999, max(0, downloadFractions[key] ?? 0))
+            }
+            return result
+        }
+        return min(0.999, total / Double(trackIDs.count))
     }
     func isDownloaded(_ track: Track) -> Bool {
         if downloadedTrackIDs.contains(track.id) { return true }

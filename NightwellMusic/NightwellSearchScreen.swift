@@ -3,6 +3,7 @@ import UIKit
 
 /// One scroll container owns the search controls, suggestions, artists and lazy track rows.
 struct NightwellSearchScreen: View {
+    @Environment(\.nightwellAppearance) private var appearance
     @EnvironmentObject private var store: MusicStore
     @Environment(\.nightwellBottomContentInset) private var bottomContentInset
     @Environment(\.accessibilityReduceMotion) private var reducedMotion
@@ -77,7 +78,7 @@ struct NightwellSearchScreen: View {
                     }
                     .overlay {
                         RoundedRectangle(cornerRadius: 28, style: .continuous)
-                            .stroke(.white.opacity(0.22), lineWidth: 1)
+                            .stroke(appearance == .vice ? NightwellAppearance.pink.opacity(0.45) : Color.white.opacity(0.22), lineWidth: 1)
                     }
                     .overlay {
                         NightwellSearchEdgeSweep(active: !collapsed)
@@ -293,6 +294,7 @@ private struct NightwellSearchFieldOriginPreference: PreferenceKey {
 }
 
 private struct NightwellSearchCaretLight: View {
+    @Environment(\.nightwellAppearance) private var appearance
     let x: CGFloat
     let active: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -307,8 +309,8 @@ private struct NightwellSearchCaretLight: View {
                 Circle()
                     .fill(RadialGradient(
                         colors: [
-                            .white.opacity(active ? 0.23 * pulse : 0),
-                            .white.opacity(active ? 0.09 * pulse : 0),
+                            appearance.progressTint.opacity(active ? 0.23 * pulse : 0),
+                            appearance.progressTint.opacity(active ? 0.09 * pulse : 0),
                             .clear
                         ],
                         center: .center, startRadius: 0, endRadius: 42
@@ -326,6 +328,7 @@ private struct NightwellSearchCaretLight: View {
 // Two fast white highlights move across the top and bottom of the search
 // field. This view is only used in an overlay; it never affects field size.
 private struct NightwellSearchEdgeSweep: View {
+    @Environment(\.nightwellAppearance) private var appearance
     var active = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -340,7 +343,7 @@ private struct NightwellSearchEdgeSweep: View {
                 ZStack {
                     Capsule()
                         .fill(LinearGradient(
-                            colors: [.clear, .white.opacity(0.9), .clear],
+                            colors: [.clear, appearance.progressTint.opacity(0.9), .clear],
                             startPoint: .leading, endPoint: .trailing
                         ))
                         .frame(width: 94, height: 2.4)
@@ -348,7 +351,7 @@ private struct NightwellSearchEdgeSweep: View {
 
                     Capsule()
                         .fill(LinearGradient(
-                            colors: [.clear, .white.opacity(0.22), .clear],
+                            colors: [.clear, appearance.progressTint.opacity(0.22), .clear],
                             startPoint: .leading, endPoint: .trailing
                         ))
                         .frame(width: 105, height: 10)
@@ -357,7 +360,7 @@ private struct NightwellSearchEdgeSweep: View {
 
                     Capsule()
                         .fill(LinearGradient(
-                            colors: [.clear, .white.opacity(0.72), .clear],
+                            colors: [.clear, appearance.progressTint.opacity(0.72), .clear],
                             startPoint: .leading, endPoint: .trailing
                         ))
                         .frame(width: 78, height: 2.2)
@@ -365,7 +368,7 @@ private struct NightwellSearchEdgeSweep: View {
 
                     Capsule()
                         .fill(LinearGradient(
-                            colors: [.clear, .white.opacity(0.18), .clear],
+                            colors: [.clear, appearance.progressTint.opacity(0.18), .clear],
                             startPoint: .leading, endPoint: .trailing
                         ))
                         .frame(width: 90, height: 9)

@@ -81,16 +81,21 @@ extension View {
 // Shared with the mini-player: only the background is translucent.
 struct NativeBackdropBlur: UIViewRepresentable {
     var intensity: CGFloat = 1
+    var style: UIBlurEffect.Style = .systemUltraThinMaterialDark
     func makeCoordinator() -> Coordinator { Coordinator() }
     func makeUIView(context: Context) -> UIVisualEffectView {
         let view = UIVisualEffectView(effect: nil)
+        view.backgroundColor = .clear
+        view.contentView.backgroundColor = .clear
+        view.isOpaque = false
         view.isUserInteractionEnabled = false
         return view
     }
     func updateUIView(_ view: UIVisualEffectView, context: Context) {
-        guard context.coordinator.intensity != intensity else { return }
+        guard context.coordinator.intensity != intensity || context.coordinator.style != style else { return }
         let coordinator = context.coordinator
         coordinator.intensity = intensity
+        coordinator.style = style
         DispatchQueue.main.async { [weak view] in
             guard let view else { return }
             coordinator.apply(to: view)
@@ -98,10 +103,11 @@ struct NativeBackdropBlur: UIViewRepresentable {
     }
     final class Coordinator {
         var intensity: CGFloat = -1
+        var style: UIBlurEffect.Style = .systemUltraThinMaterialDark
         private var animator: UIViewPropertyAnimator?
         func apply(to view: UIVisualEffectView) {
             animator?.stopAnimation(true)
-            let effect = UIBlurEffect(style: .systemUltraThinMaterialDark)
+            let effect = UIBlurEffect(style: style)
             guard intensity < 1 else { view.effect = effect; animator = nil; return }
             view.effect = nil
             let animation = UIViewPropertyAnimator(duration: 1, curve: .linear) { view.effect = effect }
@@ -196,20 +202,31 @@ struct NightwellPopup<Content: View>: View {
 
 private enum StableNavigationAction {
     case screen(MusicStore.Screen)
-    case backgroundOnly, statistics, premium, transfer, settings, waveSettings, support, together, profile, authentication
+    case backgroundOnly, premium, accountAccess, transfer, settings, waveSettings, support, together, profile, authentication
 }
 
 /// An independently presented, stable scroll view. Playback updates cannot
 /// re-create the menu or send it back to its first item.
-/// A stable two-level navigation sheet. Feature tools are grouped under
-/// "Дополнительно"; core library screens stay one tap away.
+/// A stable two-level sheet for profile, settings and additional tools.
+/// Main screens use the bottom navigation or this menu, as customized.
 private struct StableNavigationSheet: View {
     let status: String
     let signedIn: Bool
+    let libraryScreen: MusicStore.Screen
+    let showsMainNavigation: Bool
+    let opensAdditional: Bool
+    let showsPremiumEntry: Bool
     let select: (StableNavigationAction) -> Void
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var store: MusicStore
-    @State private var showingAdditional = false
+    private var connectionMessage: String {
+        switch status {
+        case "Онлайн": return "API доступен. Подключено"
+        case "Ограничен": return "API ограничен. Подключение нестабильно"
+        case "Оффлайн": return "API недоступен. Нет подключения"
+        default: return "Проверка API. Подключаемся"
+        }
+    }
 
     private func choose(_ action: StableNavigationAction) {
         // Parent dismisses this sheet and presents the destination afterward.
@@ -238,15 +255,9 @@ private struct StableNavigationSheet: View {
 
     var body: some View {
         VStack(spacing: 14) {
-            HStack(spacing: 12) {
-                Text(showingAdditional ? "Дополнительно" : "Меню")
-                    .font(.system(size: 24, weight: .bold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.76)
-                // Compact connectivity indicator on the same baseline as
-                // "Меню", without using a separate row in navigation.
+            HStack(spacing: 10) {
                 Group {
-                    if status == "Загрузка…" {
+                    if status == "Загрузка…" || status == "Проверка…" {
                         ProgressView()
                             .progressViewStyle(.circular)
                             .tint(Color(red: 0.25, green: 0.60, blue: 1.0))
@@ -254,95 +265,46 @@ private struct StableNavigationSheet: View {
                     } else {
                         Image(systemName: status == "Онлайн" ? "wifi" :
                               status == "Ограничен" ? "wifi.exclamationmark" : "wifi.slash")
-                            .font(.system(size: 15, weight: .semibold))
+                            .font(.system(size: 16, weight: .semibold))
                             .foregroundStyle(status == "Онлайн" ? Color.green :
                                              status == "Ограничен" ? Color.orange : Color.gray)
                     }
                 }
-                .frame(width: 22, height: 28)
-                .accessibilityLabel("Подключение Nightwell: " + status)
-                Spacer(minLength: 8)
-                // Always one tap from the menu header, immediately to the
-                // left of the profile avatar. Tapping again returns to Menu.
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        showingAdditional.toggle()
-                    }
-                } label: {
-                    Image(systemName: showingAdditional ? "square.grid.2x2.fill" : "square.grid.2x2")
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundStyle(.white)
-                        .frame(width: 42, height: 42)
-                        .background {
-                            Circle().fill(.ultraThinMaterial)
-                                .overlay {
-                                    Circle().fill(.white.opacity(showingAdditional ? 0.15 : 0.07))
-                                }
-                        }
-                        .overlay(Circle().strokeBorder(.white.opacity(showingAdditional ? 0.40 : 0.27), lineWidth: 1))
-                        .shadow(color: .black.opacity(0.17), radius: 9, y: 4)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(showingAdditional ? "Назад в меню" : "Дополнительно")
-                // Avatar replaces the close icon in the menu header.
-                // Its identity comes from the existing cached user profile.
-                Button {
-                    choose(signedIn ? .profile : .authentication)
-                } label: {
-                    Group {
-                        if let image = store.profileAvatar, signedIn {
-                            Image(uiImage: image)
-                                .resizable()
-                                .scaledToFill()
-                        } else {
-                            Image(systemName: "person.crop.circle.fill")
-                                .resizable()
-                                .scaledToFit()
-                                .foregroundStyle(.white.opacity(0.78))
-                                .padding(5)
-                        }
-                    }
-                    .frame(width: 38, height: 38)
-                    .clipShape(Circle())
-                    .frame(width: 42, height: 42)
-                    .background(Circle().fill(.ultraThinMaterial))
-                    .overlay(Circle().strokeBorder(.white.opacity(0.36), lineWidth: 1))
-                    .shadow(color: .black.opacity(0.2), radius: 9, y: 4)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(signedIn ? "Открыть профиль" : "Войти в аккаунт")
+                .frame(width: 24, height: 28)
+                Text(connectionMessage)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .lineLimit(2)
+                Spacer(minLength: 0)
             }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Подключение Nightwell: " + connectionMessage)
             .padding(.horizontal, 20).padding(.top, 24)
 
             ScrollView(.vertical, showsIndicators: false) {
                 LazyVStack(alignment: .leading, spacing: 8) {
-                    if showingAdditional {
-                        Text("Совместное прослушивание и другие возможности Nightwell")
-                            .font(.system(size: 13))
-                            .foregroundStyle(.white.opacity(0.65))
-                            .padding(.horizontal, 16)
-                            .padding(.bottom, 8)
-                        entry("Слушать вместе", icon: "person.2.wave.2", action: .together)
-                        if signedIn {
-                            entry("Моя статистика", icon: "chart.bar", action: .statistics)
-                            entry("Перенос плейлистов", icon: "square.and.arrow.down", action: .transfer)
-                        }
-                        entry("Обращения и поддержка", icon: "envelope", action: .support)
-                    } else {
-                        if !signedIn {
-                            entry("Войти", icon: "person.crop.circle", action: .authentication)
-                            entry("Главная", icon: "house", action: .screen(.home))
-                        } else {
-                            entry("Главная", icon: "house", action: .screen(.home))
-                            entry("Избранное", icon: "heart", action: .screen(.likes))
-                            entry("Плейлисты", icon: "music.note.list", action: .screen(.playlists))
-                            entry("Офлайн", icon: "arrow.down.to.line", action: .screen(.offline))
-                        }
-                        Divider().overlay(.white.opacity(0.16)).padding(.vertical, 6)
-                        if signedIn {
+                    if showsMainNavigation {
+                        entry("Главная", icon: "house", action: .screen(.home))
+                        entry("Поиск", icon: "magnifyingglass", action: .screen(.search))
+                        entry("Медиатека", icon: "square.stack", action: .screen(libraryScreen))
+                        if showsPremiumEntry {
                             entry("Nightwell Premium", icon: "star", action: .premium)
                         }
                         entry("Настройки", icon: "gearshape", action: .settings)
+                        if signedIn { entry("Устройства и семья", icon: "person.2", action: .accountAccess) }
+                        Divider().overlay(.white.opacity(0.16)).padding(.vertical, 6)
+                    }
+                    if showsMainNavigation || opensAdditional {
+                        entry("Слушать вместе", icon: "person.2.wave.2", action: .together)
+                        if signedIn {
+                            entry("Перенос плейлистов", icon: "square.and.arrow.down", action: .transfer)
+                        }
+                        entry("Обращения и поддержка", icon: "envelope", action: .support)
+                    }
+                    if showsMainNavigation || !opensAdditional {
+                        Divider().overlay(.white.opacity(0.16)).padding(.vertical, 6)
+                        entry(signedIn ? "Профиль" : "Войти", icon: "person.crop.circle",
+                              action: signedIn ? .profile : .authentication)
                     }
                 }
                 .padding(.horizontal, 20).padding(.bottom, 24)
@@ -394,189 +356,32 @@ private struct NightwellLibraryScrollTracker: ViewModifier {
     }
 }
 
-// Soft white search illumination tracks the actual UIKit text insertion caret.
-// UIKit supplies precise caret coordinates even when a long query scrolls horizontally.
-private struct NightwellSearchCaretField: UIViewRepresentable {
-    @Binding var text: String
-    @Binding var caretX: CGFloat
-    @Binding var focused: Bool
-
-    func makeUIView(context: Context) -> UITextField {
-        let field = UITextField(frame: .zero)
-        field.delegate = context.coordinator
-        field.addTarget(context.coordinator, action: #selector(Coordinator.changed(_:)), for: .editingChanged)
-        field.textColor = .white
-        field.tintColor = .white
-        field.font = .systemFont(ofSize: 17, weight: .medium)
-        field.attributedPlaceholder = NSAttributedString(
-            string: "Трек или исполнитель",
-            attributes: [.foregroundColor: UIColor.white.withAlphaComponent(0.44)]
-        )
-        field.autocapitalizationType = .none
-        field.autocorrectionType = .no
-        field.spellCheckingType = .no
-        field.keyboardAppearance = .dark
-        field.returnKeyType = .search
-        field.clearButtonMode = .never
-        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        return field
-    }
-
-    func updateUIView(_ field: UITextField, context: Context) {
-        context.coordinator.parent = self
-        if field.text != text {
-            field.text = text
-            context.coordinator.reportCaret(field)
-        }
-    }
-
-    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
-
-    final class Coordinator: NSObject, UITextFieldDelegate {
-        var parent: NightwellSearchCaretField
-        init(parent: NightwellSearchCaretField) { self.parent = parent }
-
-        @objc func changed(_ field: UITextField) {
-            let value = field.text ?? ""
-            if parent.text != value { parent.text = value }
-            reportCaret(field)
-        }
-
-        func textFieldDidChangeSelection(_ field: UITextField) { reportCaret(field) }
-        func textFieldDidBeginEditing(_ field: UITextField) {
-            DispatchQueue.main.async { self.parent.focused = true }
-            reportCaret(field)
-        }
-        func textFieldDidEndEditing(_ field: UITextField) {
-            DispatchQueue.main.async { self.parent.focused = false }
-        }
-        func textFieldShouldReturn(_ field: UITextField) -> Bool {
-            field.resignFirstResponder()
-            return true
-        }
-        func reportCaret(_ field: UITextField) {
-            guard let range = field.selectedTextRange else { return }
-            // Do not mutate SwiftUI state during a UIViewRepresentable update.
-            DispatchQueue.main.async {
-                guard field.window != nil else { return }
-                let x = field.caretRect(for: range.end).midX
-                if abs(self.parent.caretX - x) > 0.5 { self.parent.caretX = x }
-            }
-        }
-    }
-}
-
-// The caret's soft white halo is drawn across the *whole* search pill.
-// Keeping it behind the text prevents clipping at the UITextField's left edge.
-private struct NightwellSearchFieldOriginPreference: PreferenceKey {
-    static var defaultValue: CGFloat = 50
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
-
-private struct NightwellSearchCaretLight: View {
-    let x: CGFloat
-    let active: Bool
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        GeometryReader { geometry in
-            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !active || reduceMotion)) { timeline in
-                let seconds = timeline.date.timeIntervalSinceReferenceDate
-                let pulse = reduceMotion ? 1.0 : 0.94 + 0.06 * sin(seconds * 10)
-                let center = min(max(14, x), geometry.size.width - 14)
-
-                Circle()
-                    .fill(RadialGradient(
-                        colors: [
-                            .white.opacity(active ? 0.23 * pulse : 0),
-                            .white.opacity(active ? 0.09 * pulse : 0),
-                            .clear
-                        ],
-                        center: .center, startRadius: 0, endRadius: 42
-                    ))
-                    .frame(width: 84, height: 84)
-                    .blur(radius: 4)
-                    .position(x: center, y: geometry.size.height / 2)
-            }
-        }
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-    }
-}
-
-// Two fast white highlights move across the top and bottom of the search
-// field. This view is only used in an overlay; it never affects field size.
-private struct NightwellSearchEdgeSweep: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        GeometryReader { geometry in
-            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: reduceMotion)) { timeline in
-                let seconds = timeline.date.timeIntervalSinceReferenceDate
-                let progress = reduceMotion ? 0.5 : seconds.truncatingRemainder(dividingBy: 1.65) / 1.65
-                let width = geometry.size.width
-                let x = -60 + (width + 120) * CGFloat(progress)
-
-                ZStack {
-                    Capsule()
-                        .fill(LinearGradient(
-                            colors: [.clear, .white.opacity(0.9), .clear],
-                            startPoint: .leading, endPoint: .trailing
-                        ))
-                        .frame(width: 94, height: 2.4)
-                        .position(x: x, y: 1.5)
-
-                    Capsule()
-                        .fill(LinearGradient(
-                            colors: [.clear, .white.opacity(0.22), .clear],
-                            startPoint: .leading, endPoint: .trailing
-                        ))
-                        .frame(width: 105, height: 10)
-                        .blur(radius: 3.0)
-                        .position(x: x, y: 2)
-
-                    Capsule()
-                        .fill(LinearGradient(
-                            colors: [.clear, .white.opacity(0.72), .clear],
-                            startPoint: .leading, endPoint: .trailing
-                        ))
-                        .frame(width: 78, height: 2.2)
-                        .position(x: x - 20, y: geometry.size.height - 1.5)
-
-                    Capsule()
-                        .fill(LinearGradient(
-                            colors: [.clear, .white.opacity(0.18), .clear],
-                            startPoint: .leading, endPoint: .trailing
-                        ))
-                        .frame(width: 90, height: 9)
-                        .blur(radius: 2.8)
-                        .position(x: x - 20, y: geometry.size.height - 2)
-                }
-            }
-        }
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-    }
-}
-
 struct NativeRoot: View {
     @EnvironmentObject var store: MusicStore
     @State private var feature: PremiumFeatureView.Kind?
     @State private var settings = false
     @State private var navigationMenuPresented = false
+    @State private var initialSessionLoaded = false
     @State private var profilePresented = false
+    @State private var dailyPlaylistsPresented = false
     @State private var profileSigningOut = false
     @State private var pendingNavigation: StableNavigationAction?
     @State private var waveSettingsPresented = false
     @State private var supportPresented = false
     @State private var premiumPresented = false
+    @State private var accountAccessPresented = false
+    @State private var profileAccessPresented = false
+    @State private var profilePremiumPresented = false
+    @State private var profileStatisticsPresented = false
+    @State private var libraryMenuStartsAdditional = false
     @State private var transferPresented = false
     @State private var togetherPresented = false
     @StateObject private var togetherSession = NightwellTogetherSession()
     @State private var favoriteSort = "recent"
-    @State private var collectionScrolled = false
+    @State private var librarySession = LibrarySessionState<MusicStore.Screen>(overview: .library)
+    @AppStorage(NavigationLayout.storageKey) private var navigationLayout = NavigationLayout.belowPlayer
+    @AppStorage("nw-ambient-lyrics") private var showHomeLyrics = true
+    @State private var libraryScrollCollapsed: [String: Bool] = [:]
     @StateObject private var artworkPalette = NightwellArtworkPalette()
     @State private var remoteHomeCollapsed = false
     @ObservedObject private var favoritePremium = PremiumFeatureState.shared
@@ -591,14 +396,17 @@ struct NativeRoot: View {
     @State private var shareText: String?
     @State private var showShare = false
     @State private var launching = true
-    @State private var searchCaretX: CGFloat = 16
-    @State private var searchFieldOriginX: CGFloat = 50
-    @State private var searchFocused = false
+    @State private var searchScrollCollapsed = false
+    @State private var searchRevealRequest = 0
+    // Direction only belongs to user-initiated screen navigation. Playback,
+    // library refreshes and scroll-position restoration must not animate it.
+    @State private var screenTransitionDirection: CGFloat = 1
     @Environment(\.accessibilityReduceMotion) private var reducedMotion
     @ViewBuilder private var mainScene: some View {
         GeometryReader { viewport in
             let landscape = viewport.size.width > viewport.size.height * 1.12 &&
                 viewport.size.height < 650
+            let bottomInset = dockContentInset(landscape: landscape) + viewport.safeAreaInsets.bottom + 12
             ZStack {
             // Shared monochrome background for Home, Search, Favorites, Playlists and Offline.
             LinearGradient(
@@ -622,22 +430,14 @@ struct NativeRoot: View {
             } else {
                 HStack(alignment: .top, spacing: 0) {
                 VStack(spacing: landscape ? 6 : 18) {
-                    header(landscape: landscape)
-                    if !landscape {
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(store.connectionStatus == "Онлайн" ? Color.green :
-                                  store.connectionStatus == "Ограничен" ? Color.orange : Color.gray)
-                            .frame(width: 6, height: 6)
-                        Text("Nightwell · \(store.connectionStatus)")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.65))
-                        Spacer()
+                    if isLibraryScreen {
+                        libraryHeader(landscape: landscape)
+                    } else if store.screen == .search && searchScrollCollapsed {
+                        compactSearchHeader(landscape: landscape)
+                    } else {
+                        header(landscape: landscape)
                     }
-                    .accessibilityLabel("Подключение Nightwell: \(store.connectionStatus)")
-                    .padding(.horizontal, 22)
-                    }
-                    if !landscape && store.hasRemotePlayback && !remoteHomeCollapsed && compactCollectionTitle == nil {
+                    if !landscape && !isLibraryScreen && !(store.screen == .search && searchScrollCollapsed) && store.hasRemotePlayback && !remoteHomeCollapsed {
                         Button {
                             Task { await store.continuePlaybackHere() }
                         } label: {
@@ -655,26 +455,65 @@ struct NativeRoot: View {
                         .padding(.horizontal, 20)
                         .transition(.move(edge: .top).combined(with: .opacity))
                     }
-                    content
-                    MiniPlayer(clock: store.clock, open: { fullPlayer = true },
-                               compactHeight: landscape)
-                        .padding(.horizontal, landscape ? 8 : 16)
-                        .padding(.bottom, landscape ? 4 : 18)
+                    content(bottomContentInset: bottomInset)
+                        .environment(\.nightwellBottomContentInset, bottomInset)
                         .overlay(alignment: .bottom) {
-                            if store.screen == .home && !landscape {
-                                HomeLyricLine(model: store.lyrics, clock: store.clock)
-                                    .saturation(0)
-                                    .frame(height: 60)
-                                    .padding(.horizontal, 24)
-                                    .offset(y: -85)
-                            }
+                            playerDock(landscape: landscape)
                         }
                 }
-                .ignoresSafeArea(.container, edges: .bottom)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
         }
+        }
+    }
+
+    private func dockContentInset(landscape: Bool) -> CGFloat {
+        if navigationLayout.showsTabs { return landscape ? 102 : 118 }
+        return landscape ? 54 : 70
+    }
+
+    private func playerDock(landscape: Bool) -> some View {
+        VStack(spacing: navigationLayout.showsTabs ? (landscape ? 2 : 4) : 0) {
+            MiniPlayer(clock: store.clock, open: { fullPlayer = true },
+                       compactHeight: landscape)
+                .padding(.horizontal, landscape ? 18 : 16)
+                .overlay(alignment: .bottom) {
+                    if store.screen == .home && !landscape && showHomeLyrics {
+                        HomeLyricLine(model: store.lyrics, clock: store.clock)
+                            .saturation(0)
+                            .frame(height: 60)
+                            .padding(.horizontal, 24)
+                            .offset(y: -85)
+                    }
+                }
+                .overlay(alignment: .top) {
+                    if !store.queueNotice.isEmpty {
+                        Text(store.queueNotice)
+                            .font(.system(size: 13, weight: .medium))
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 16).padding(.vertical, 10)
+                            .background(.regularMaterial, in: Capsule())
+                            .padding(.horizontal, 20)
+                            .offset(y: -52)
+                            .allowsHitTesting(false)
+                    }
+                }
+            if navigationLayout.showsTabs {
+                bottomNavigation(landscape: landscape)
+            }
+        }
+        .background {
+            // Apply native backdrop blur at full strength, without a separate
+            // translucent surface. Keep the controls in the sharp foreground layer.
+            NativeBackdropBlur(intensity: 1, style: .regular)
+                .mask {
+                    LinearGradient(gradient: NavigationDockAppearance.blurFade,
+                                   startPoint: .top, endPoint: .bottom)
+                }
+                .padding(.top, -32)
+                .ignoresSafeArea(.container, edges: .bottom)
+                .allowsHitTesting(false)
         }
     }
 
@@ -712,8 +551,12 @@ struct NativeRoot: View {
     // Keep the large root view-builder simple for the Swift type checker.
     private var artworkScene: some View {
         mainScene
-            .environmentObject(artworkPalette)
             .overlay { modalScene }
+            // Apply these to the entire composite, including the playlist
+            // overlay. NativeTrackRow inside PlaylistScreen requires the
+            // Together session; injecting only into mainScene crashes SwiftUI.
+            .environmentObject(artworkPalette)
+            .environmentObject(togetherSession)
             .task(id: artworkRefreshKey) {
                 await artworkPalette.refresh(track: store.clock.current, origin: store.origin)
             }
@@ -721,6 +564,9 @@ struct NativeRoot: View {
 
     private var navigationSheetsScene: some View {
         artworkScene
+        .task(id: store.account?.id) {
+            await favoritePremium.refresh(store)
+        }
         .animation(.spring(response: 0.3, dampingFraction: 0.86), value: settings)
         .animation(.spring(response: 0.3, dampingFraction: 0.86), value: store.authPresented)
         .tint(pumpkin)
@@ -729,7 +575,11 @@ struct NativeRoot: View {
             pendingNavigation = nil
             openNavigation(destination)
         }) {
-            StableNavigationSheet(status: store.connectionStatus, signedIn: store.account != nil) { action in
+            StableNavigationSheet(status: store.connectionStatus, signedIn: store.account != nil,
+                                  libraryScreen: libraryDestination,
+                                  showsMainNavigation: !navigationLayout.showsTabs,
+                                  opensAdditional: libraryMenuStartsAdditional,
+                                  showsPremiumEntry: initialSessionLoaded && favoritePremium.shouldOfferPremium(for: store.account?.id)) { action in
                 pendingNavigation = action
                 navigationMenuPresented = false
             }
@@ -738,12 +588,75 @@ struct NativeRoot: View {
         .sheet(item: $feature) { kind in
             PremiumFeatureView(kind: kind).environmentObject(store)
         }
-        .sheet(isPresented: $profilePresented) {
+        .sheet(isPresented: $dailyPlaylistsPresented) {
+            DailyPublicPlaylistsScreen(store: store)
+        }
+        .fullScreenCover(isPresented: $profilePresented) {
             NavigationStack {
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 10) {
                         ProfileSettingsView()
                             .environmentObject(store)
+                        if store.account != nil {
+                            Button {
+                                profileAccessPresented = true
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "person.2")
+                                    Text("Устройства и семья")
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                }
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 15)
+                                .padding(.vertical, 13)
+                                .frame(maxWidth: .infinity)
+                                .nightwellMonochromeGlass(radius: 19)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        if favoritePremium.hasVerifiedPremium(for: store.account?.id) {
+                            Button {
+                                // Validate again at tap time in case Premium has expired
+                                // while the profile remained on screen.
+                                guard favoritePremium.hasVerifiedPremium(for: store.account?.id) else { return }
+                                profileStatisticsPresented = true
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "chart.bar")
+                                    Text("Статистика")
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                }
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 15)
+                                .padding(.vertical, 13)
+                                .frame(maxWidth: .infinity)
+                                .nightwellMonochromeGlass(radius: 19)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        if store.account != nil && favoritePremium.allowed {
+                            Button {
+                                profilePremiumPresented = true
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "star.fill")
+                                    Text("Nightwell Premium · Подписка активна")
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                }
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 15)
+                                .padding(.vertical, 13)
+                                .frame(maxWidth: .infinity)
+                                .nightwellMonochromeGlass(radius: 19)
+                            }
+                            .buttonStyle(.plain)
+                        }
                         if store.account != nil {
                             Button {
                                 guard !profileSigningOut else { return }
@@ -781,29 +694,52 @@ struct NativeRoot: View {
                     .padding(.top, 10)
                     .padding(.bottom, 16)
                 }
-                .background { NightwellMonochromeGlassBackground() }
-                .navigationTitle("Профиль")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button { profilePresented = false } label: {
-                            Text("Готово")
-                                .font(.system(size: 15, weight: .medium))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 17)
-                                .padding(.vertical, 9)
-                                .nightwellMonochromeGlass(radius: 22)
+                // Keep the full-screen profile title centred independently
+                // of the Done button. Native navigation bars truncate glass
+                // toolbar controls on narrow iPhones and iOS 27.
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    ZStack {
+                        Text("Профиль")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(.white)
+                        HStack {
+                            Spacer(minLength: 0)
+                            Button { profilePresented = false } label: {
+                                Text("Готово")
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 88, height: 44)
+                                    .nightwellMonochromeGlass(radius: 22)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Закрыть профиль")
                         }
-                        .buttonStyle(.plain)
                     }
+                    .frame(height:54)
+                    .padding(.horizontal,18)
+                    .padding(.vertical,7)
+                    .background(.black.opacity(0.16))
                 }
+                .background { NightwellMonochromeGlassBackground() }
+                .toolbar(.hidden, for: .navigationBar)
             }
             .preferredColorScheme(.dark)
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
-            .presentationBackground(.clear)
+            .sheet(isPresented: $profilePremiumPresented, onDismiss: {
+                Task { await favoritePremium.refresh(store) }
+            }) { PremiumView(api: store.api) }
+            .sheet(isPresented: $profileStatisticsPresented) {
+                PremiumFeatureView(kind: .statistics).environmentObject(store)
+            }
+            .fullScreenCover(isPresented: $profileAccessPresented) {
+                AccountAccessView(api: store.api, accountID: store.account?.id)
+            }
         }
-        .sheet(isPresented: $premiumPresented) { PremiumView(api: store.api) }
+        .fullScreenCover(isPresented: $accountAccessPresented) {
+            AccountAccessView(api: store.api, accountID: store.account?.id)
+        }
+        .sheet(isPresented: $premiumPresented, onDismiss: {
+            Task { await favoritePremium.refresh(store) }
+        }) { PremiumView(api: store.api) }
         .sheet(isPresented: $togetherPresented) {
             NightwellTogetherSheet(session: togetherSession, store: store)
         }
@@ -836,6 +772,7 @@ struct NativeRoot: View {
             Task { await store.refreshProfile() }
         }
         .task { await store.start()
+            initialSessionLoaded = true
             #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("--native-smoke-focus") { backgroundOnly = true }
             if ProcessInfo.processInfo.arguments.contains("--native-smoke-settings") { settings = true }
@@ -847,17 +784,17 @@ struct NativeRoot: View {
             if ProcessInfo.processInfo.arguments.contains("--native-smoke-playlist") { selectedPlaylist = Playlist(id: "native-preview", name: "Твоя ночная подборка") }
             #endif
         }
-        .animation(reducedMotion ? nil : .easeInOut(duration: 0.22), value: store.screen)
         .simultaneousGesture(DragGesture(minimumDistance: 24).onEnded { gesture in
             let dx = gesture.translation.width
             let dy = gesture.translation.height
             if gesture.startLocation.x < 24 && dx > 90 && abs(dy) < 60 {
-                store.screen = .home
+                navigate(to: .home)
             }
         })
-        .onChange(of: store.screen) { _ in
-            collectionScrolled = false
-            if store.screen != .search { store.leaveSearch() }
+        .onChange(of: store.screen) { oldScreen, newScreen in
+            if isLibraryScreen && librarySession.lastVisited != newScreen { librarySession.remember(newScreen) }
+            if oldScreen == .search { store.leaveSearch(); searchScrollCollapsed = false }
+            if newScreen == .search { store.scheduleSearch() }
         }
         .onOpenURL { url in
             if let code = NightwellTogetherSession.invitationCode(from: url.absoluteString, origin: store.origin) {
@@ -876,9 +813,9 @@ struct NativeRoot: View {
                 fullPlayer = true
             }
         }
-        .fullScreenCover(isPresented: $fullPlayer) { FullPlayer(clock: store.clock) }
+        .fullScreenCover(isPresented: $fullPlayer) { FullPlayer(clock: store.clock).environmentObject(togetherSession) }
         .sheet(item: $selectedArtist) { artist in
-            ArtistProfileView(name: artist.name).environmentObject(store)
+            ArtistProfileView(name: artist.name, togetherSession: togetherSession).environmentObject(store)
         }
         
         .sheet(isPresented: $transferPresented) { NightwellNativeTransfer().environmentObject(store) }
@@ -891,10 +828,10 @@ struct NativeRoot: View {
     }
     private func openNavigation(_ action: StableNavigationAction) {
         switch action {
-        case .screen(let screen): store.screen = screen
+        case .screen(let screen): navigate(to: screen)
         case .backgroundOnly: backgroundOnly = true
-        case .statistics: feature = .statistics
         case .premium: premiumPresented = true
+        case .accountAccess: accountAccessPresented = true
         case .transfer: transferPresented = true
         case .settings: settings = true
         case .profile: profilePresented = true
@@ -917,6 +854,172 @@ struct NativeRoot: View {
             }
         }
     }
+    private let libraryScreens: [MusicStore.Screen] = [.library, .likes, .playlists, .offline]
+
+    private var isLibraryScreen: Bool { libraryScreens.contains(store.screen) }
+
+    private var libraryDestination: MusicStore.Screen {
+        isLibraryScreen ? .library : librarySession.lastVisited
+    }
+
+    private var collectionScrolled: Bool {
+        libraryScrollCollapsed[store.screen.rawValue] ?? false
+    }
+
+    private func libraryScrollBinding(for screen: MusicStore.Screen) -> Binding<Bool> {
+        let revision = librarySession.revision(for: screen)
+        return Binding(get: { libraryScrollCollapsed[screen.rawValue] ?? false }, set: { collapsed in
+            guard store.screen == screen, revision == librarySession.revision(for: screen) else { return }
+            if libraryScrollCollapsed[screen.rawValue] != collapsed {
+                libraryScrollCollapsed[screen.rawValue] = collapsed
+            }
+        })
+    }
+
+    private func libraryScrollPosition(for screen: MusicStore.Screen) -> Binding<String?> {
+        let revision = librarySession.revision(for: screen)
+        return Binding(get: { librarySession.scrollPosition(for: screen) }, set: { position in
+            // Ignore removal callbacks and stale views from before a sort.
+            guard store.screen == screen, revision == librarySession.revision(for: screen) else { return }
+            if librarySession.scrollPosition(for: screen) != position {
+                librarySession.saveScrollPosition(position, for: screen, revision: revision)
+            }
+        })
+    }
+
+    private func changeFavoriteSort(_ sort: String) {
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            librarySession.resetScroll(for: .likes)
+            libraryScrollCollapsed[MusicStore.Screen.likes.rawValue] = false
+            favoriteSort = sort
+        }
+    }
+
+    private func navigationDepth(_ screen: MusicStore.Screen) -> Int {
+        switch screen {
+        case .home: return 0
+        case .search: return 1
+        case .library: return 2
+        case .likes, .playlists, .offline: return 3
+        }
+    }
+
+    private var screenChangeTransition: AnyTransition {
+        if reducedMotion { return .opacity }
+        return .asymmetric(
+            insertion: .opacity.combined(with: .offset(x: screenTransitionDirection * 26)),
+            removal: .opacity.combined(with: .offset(x: -screenTransitionDirection * 14))
+        )
+    }
+
+    private func navigate(to screen: MusicStore.Screen) {
+        guard store.screen != screen else { return }
+        let oldDepth = navigationDepth(store.screen)
+        let newDepth = navigationDepth(screen)
+        // Keep back navigation moving in the opposite direction. Avoid
+        // springing the entire layout and reinitialising large music lists.
+        screenTransitionDirection = newDepth < oldDepth ? -1 : 1
+        let animation: Animation? = reducedMotion ? nil : .easeInOut(duration: 0.23)
+        withTransaction(Transaction(animation: animation)) {
+            if libraryScreens.contains(screen) { librarySession.remember(screen) }
+            store.screen = screen
+        }
+    }
+
+    private func libraryHeader(landscape: Bool) -> some View {
+        HStack(spacing: 2) {
+            if store.screen != .library {
+                Button { navigate(to: .library) } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 20, weight: .medium))
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel("Назад в медиатеку")
+            }
+            Button { settings = true } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 21, weight: .regular))
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel("Настройки")
+            Spacer()
+            Button {
+                libraryMenuStartsAdditional = navigationLayout.showsTabs
+                navigationMenuPresented = true
+            } label: {
+                Image(systemName: "line.3.horizontal")
+                    .font(.system(size: 23, weight: .medium))
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel("Дополнительно")
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.white)
+        .overlay {
+            if store.screen == .library || compactCollectionTitle != nil {
+                Text(store.screen == .library ? "Медиатека" : store.screen.rawValue)
+                    .font(.system(size: 20, weight: .semibold))
+                    .lineLimit(1).minimumScaleFactor(0.8)
+                    .padding(.horizontal, 100)
+                    .allowsHitTesting(false)
+                    .accessibilityAddTraits(.isHeader)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, landscape ? 4 : 8)
+    }
+
+    private func bottomNavigation(landscape: Bool) -> some View {
+        HStack(spacing: 0) {
+            navigationTab("Главная", icon: "house", selected: store.screen == .home,
+                          landscape: landscape) { navigate(to: .home) }
+            navigationTab("Поиск", icon: "magnifyingglass", selected: store.screen == .search,
+                          landscape: landscape) { navigate(to: .search) }
+            navigationTab("Медиатека", icon: "square.stack", selected: isLibraryScreen,
+                          landscape: landscape) { navigate(to: libraryDestination) }
+            if initialSessionLoaded && favoritePremium.shouldOfferPremium(for: store.account?.id) {
+                navigationTab("Premium", icon: "star", selected: false,
+                              landscape: landscape) { premiumPresented = true }
+            }
+        }
+        .padding(.horizontal, landscape ? 18 : 8)
+        .padding(.bottom, landscape ? 2 : 0)
+    }
+
+    private func navigationTab(_ title: String, icon: String, selected: Bool,
+                               landscape: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Group {
+                if landscape {
+                    HStack(spacing: 7) {
+                        Image(systemName: selected && icon != "magnifyingglass" ? icon + ".fill" : icon)
+                            .font(.system(size: 16, weight: selected ? .semibold : .regular))
+                        Text(title).font(.system(size: 12, weight: .medium))
+                    }
+                } else {
+                    VStack(spacing: 2) {
+                        Image(systemName: selected && icon != "magnifyingglass" ? icon + ".fill" : icon)
+                            .font(.system(size: 18, weight: selected ? .semibold : .regular))
+                        Text(title).font(.system(size: 11, weight: selected ? .semibold : .regular))
+                    }
+                }
+            }
+            .foregroundStyle(.white.opacity(selected ? 1 : 0.46))
+            .scaleEffect(selected && !reducedMotion ? 1.055 : 1)
+            .animation(reducedMotion ? nil : .easeOut(duration: 0.2), value: selected)
+            .frame(maxWidth: .infinity, minHeight: 44,
+                   alignment: landscape ? .center : .bottom)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
+    }
+
     private var compactCollectionTitle: String? {
         guard collectionScrolled else { return nil }
         switch store.screen {
@@ -938,22 +1041,78 @@ struct NativeRoot: View {
         .accessibilityHidden(true)
     }
 
-    private func updateCollectionScroll(_ y: CGFloat) {
-        guard store.screen == .likes || store.screen == .playlists || store.screen == .offline else { return }
-        let compact = y < -12
-        if collectionScrolled != compact {
-            withAnimation(reducedMotion ? nil : .easeInOut(duration: 0.18)) {
-                collectionScrolled = compact
-            }
+    // The colored mark is the actual dot in the lowercase i glyph, not
+    // another circle drawn above the wordmark.
+    private var connectionBrandName: AttributedString {
+        let name = NSMutableAttributedString(string: "Nı\u{0307}ghtwell")
+        let color: UIColor
+        switch store.connectionStatus {
+        case "Онлайн": color = .systemGreen
+        case "Ограничен": color = .systemOrange
+        case "Оффлайн": color = .systemGray
+        default: color = .systemBlue
         }
+        name.addAttribute(.foregroundColor, value: color, range: NSRange(location: 2, length: 1))
+        return AttributedString(name)
+    }
+
+    private func compactSearchHeader(landscape: Bool) -> some View {
+        HStack(spacing: 8) {
+            Button { navigate(to: .home) } label: {
+                Text("N").font(.system(size: 25, weight: .black, design: .rounded))
+                    .frame(width: 38, height: 40)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("На главную")
+            Button { searchRevealRequest += 1 } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass").font(.system(size: 14, weight: .medium))
+                    Text(store.query.isEmpty ? "Поиск" : store.query)
+                        .font(.system(size: 14, weight: .medium)).lineLimit(1)
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.55))
+                }
+                .padding(.horizontal, 12).frame(maxWidth: .infinity, minHeight: 40)
+                .frostedGlass(20, bordered: false, intensity: 0.20)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Развернуть поиск")
+            .accessibilityValue(store.query)
+            if !navigationLayout.showsTabs {
+                Button { libraryMenuStartsAdditional = false; navigationMenuPresented = true } label: {
+                    Image(systemName: "line.3.horizontal").font(.system(size: 18, weight: .medium))
+                        .frame(width: 40, height: 44)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Открыть меню навигации")
+            }
+            Button {
+                if store.account == nil { store.authPresented = true }
+                else { profilePresented = true }
+            } label: {
+                Group {
+                    if let avatar = store.profileAvatar {
+                        Image(uiImage: avatar).resizable().scaledToFill()
+                    } else {
+                        Image(systemName: "person.crop.circle").font(.system(size: 19, weight: .medium))
+                    }
+                }
+                .frame(width: 40, height: 40).clipShape(Circle())
+                .frostedGlass(20, bordered: false, intensity: 0.20)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(store.account == nil ? "Войти в аккаунт" : "Открыть профиль")
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 20).padding(.top, landscape ? 14 : 8)
+        .transition(.opacity)
     }
 
     private func header(landscape: Bool) -> some View {
         HStack(spacing: landscape ? 5 : 7) {
             Button {
-                withAnimation(reducedMotion ? nil : .easeInOut(duration: 0.22)) {
-                    store.screen = .home
-                }
+                navigate(to: .home)
             } label: {
                 HStack(spacing: 9) {
                     Text("N")
@@ -965,13 +1124,13 @@ struct NativeRoot: View {
                     // Keep only the N icon when scrolling Favorites, Playlists or Offline.
                     if compactCollectionTitle == nil {
                         if landscape {
-                            Text("Nightwell Music")
+                            (Text(connectionBrandName) + Text(" Music"))
                                 .font(.system(size: 16, weight: .semibold))
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.8)
                         } else {
                             VStack(alignment: .leading, spacing: 1) {
-                                Text("Nightwell").font(.system(size: 25, weight: .bold))
+                                Text(connectionBrandName).font(.system(size: 25, weight: .bold))
                                 Text("M U S I C").font(.caption).foregroundStyle(.secondary)
                             }
                         }
@@ -982,9 +1141,28 @@ struct NativeRoot: View {
             .foregroundStyle(nightwellText)
             .accessibilityLabel("На главную")
             Spacer()
-            Button { if store.screen == .search { store.screen = .home } else { store.screen = .search } } label: { Image(systemName: store.screen == .search ? "xmark" : "magnifyingglass").font(.system(size: 19, weight: .medium)).foregroundStyle(.white).frame(width: 44, height: 44).frostedGlass(22, bordered: false, intensity: 0.20) }.accessibilityLabel(store.screen == .search ? "Закрыть поиск" : "Поиск")
+            if !navigationLayout.showsTabs {
+                Button { navigate(to: store.screen == .search ? .home : .search) } label: {
+                    Image(systemName: store.screen == .search ? "xmark" : "magnifyingglass")
+                        .font(.system(size: 19, weight: .medium))
+                        .foregroundStyle(.white)
+                        .frame(width: 44, height: 44)
+                        .frostedGlass(22, bordered: false, intensity: 0.20)
+                }
+                .accessibilityLabel(store.screen == .search ? "Закрыть поиск" : "Поиск")
+                Button {
+                    libraryMenuStartsAdditional = false
+                    navigationMenuPresented = true
+                } label: {
+                    Image(systemName: "line.3.horizontal")
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundStyle(.white)
+                        .frame(width: 44, height: 44)
+                        .frostedGlass(22, bordered: false, intensity: 0.20)
+                }
+                .accessibilityLabel("Открыть меню навигации")
+            }
             // Hide the compact handoff button while a collection is scrolled.
-            // Removing it from the HStack makes Search slide to the right.
             if store.hasRemotePlayback && (remoteHomeCollapsed || landscape) && compactCollectionTitle == nil {
                 Button {
                     Task { await store.continuePlaybackHere() }
@@ -1000,11 +1178,12 @@ struct NativeRoot: View {
                 .transition(.asymmetric(insertion: .scale(scale: 0.68, anchor: .trailing).combined(with: .opacity),
                                         removal: .opacity))
             }
-            // Remove the menu opener from layout while the sheet is open.
-            // The search and Continue buttons slide right to fill its space;
-            // closing the sheet restores all three controls to their positions.
+            // Keep the existing avatar menu for profile and additional tools.
             if !navigationMenuPresented {
-                Button { navigationMenuPresented = true } label: {
+                Button {
+                    if store.account == nil { store.authPresented = true }
+                    else { profilePresented = true }
+                } label: {
                     Group {
                         if let avatar=store.profileAvatar {
                             Image(uiImage:avatar).resizable().scaledToFill()
@@ -1019,7 +1198,7 @@ struct NativeRoot: View {
                         .frostedGlass(22, bordered: false, intensity: 0.20)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Меню")
+                .accessibilityLabel(store.account == nil ? "Войти в аккаунт" : "Открыть профиль")
                 .transition(.asymmetric(
                     insertion: .scale(scale: 0.72, anchor: .trailing).combined(with: .opacity),
                     removal: .scale(scale: 0.72, anchor: .trailing).combined(with: .opacity)
@@ -1030,8 +1209,8 @@ struct NativeRoot: View {
                    value: navigationMenuPresented)
         .animation(reducedMotion ? nil : .spring(response: 0.34, dampingFraction: 0.86),
                    value: collectionScrolled)
-        .padding(.horizontal, landscape ? 10 : 20)
-        .padding(.top, landscape ? 0 : 8)
+        .padding(.horizontal, landscape ? 20 : 20)
+        .padding(.top, landscape ? 14 : 8)
         .overlay(alignment: .center) {
             if let title = compactCollectionTitle {
                 Text(title)
@@ -1057,130 +1236,76 @@ struct NativeRoot: View {
         }
         // The catalogue order is unrelated to the time a song was liked.
         // The saved per-account favorite order is newest first.
-        let ranks = Dictionary(uniqueKeysWithValues:
-            store.favoriteOrder.enumerated().map { ($0.element, $0.offset) })
-        return entries.sorted { left, right in
-            let a = ranks[left.id] ?? Int.max
-            let b = ranks[right.id] ?? Int.max
-            if a != b { return a < b }
-            return left.title.localizedStandardCompare(right.title) == .orderedAscending
+        // The store already presents the known chronology in order. Only
+        // records absent from that chronology need the title fallback sort.
+        let orderedIDs = Set(store.favoriteOrder)
+        guard let firstUnordered = entries.firstIndex(where: { !orderedIDs.contains($0.id) }) else { return entries }
+        return Array(entries[..<firstUnordered]) + entries[firstUnordered...].sorted {
+            $0.title.localizedStandardCompare($1.title) == .orderedAscending
         }
     }
-    @ViewBuilder private var content: some View {
-        switch store.screen {
+    // Use monochrome SF Symbols until the playlist model exposes real artwork.
+    private func playlistIcon(for name: String) -> String {
+        let lowercased = name.lowercased()
+        if lowercased.contains("нрав") || lowercased.contains("любим") ||
+           lowercased.contains("favorite") || lowercased.contains("liked") {
+            return "heart"
+        }
+        if lowercased.contains("перенос") || lowercased.contains("import") {
+            return "arrow.left.arrow.right"
+        }
+        if lowercased.contains("новогод") || lowercased.contains("зимн") ||
+           lowercased.contains("winter") || lowercased.contains("christmas") {
+            return "snowflake"
+        }
+        return "music.note.list"
+    }
+
+    private func content(bottomContentInset: CGFloat) -> some View {
+        // Animate the screen content only: the mini-player and tab bar stay
+        // in place, so audio and artwork updates never jolt the whole layout.
+        // Views from the outgoing screen are released after the brief fade.
+        ZStack(alignment: .top) {
+            screenContent(for: store.screen, bottomContentInset: bottomContentInset)
+                .id(store.screen)
+                .transition(screenChangeTransition)
+        }
+        .clipped()
+        .ignoresSafeArea(.container, edges: .bottom)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    @ViewBuilder private func screenContent(for screen: MusicStore.Screen, bottomContentInset: CGFloat) -> some View {
+        switch screen {
         case .home:
             NativeHome(configureWave: { waveSettingsPresented = true }, clock: store.clock)
+        case .library:
+            LibraryOverview(favorites: favoriteTracks, scrollPosition: libraryScrollPosition(for: .library),
+                            openFavorites: { navigate(to: .likes) },
+                            openPlaylists: { navigate(to: .playlists) },
+                            openOffline: { navigate(to: .offline) },
+                            openDailyPlaylists: { dailyPlaylistsPresented = true },
+                            openSmartPlaylists: { feature = .smart })
         case .search:
-            VStack(alignment: .leading, spacing: 14) {
-                Text("Поиск").font(.largeTitle.bold())
-                HStack(spacing: 12) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 20))
-                        .foregroundStyle(.white.opacity(0.86))
-
-                    NightwellSearchCaretField(
-                        text: $store.query,
-                        caretX: $searchCaretX,
-                        focused: $searchFocused
-                    )
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 50)
-                    .background {
-                        // Measure the text field's actual origin in the pill.
-                        // A hard-coded offset drifts across devices and fonts.
-                        GeometryReader { field in
-                            Color.clear.preference(
-                                key: NightwellSearchFieldOriginPreference.self,
-                                value: field.frame(in: .named("nightwellSearchPill")).minX
-                            )
-                        }
-                    }
-                    .onChange(of: store.query) { _ in store.scheduleSearch() }
-
-                    if !store.query.isEmpty {
-                        Button { store.query = "" } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 23))
-                                .foregroundStyle(.white.opacity(0.78))
-                        }
-                    }
-                }
-                // Keep the pill exactly the same size while typing,
-                // showing the keyboard, or animating either highlight.
-                .frame(height: 54)
-                .padding(.horizontal, 18)
-                .coordinateSpace(name: "nightwellSearchPill")
-                .background {
-                    RoundedRectangle(cornerRadius: 28, style: .continuous)
-                        .fill(.ultraThinMaterial)
-                        .opacity(0.48)
-                        .overlay {
-                            NightwellSearchCaretLight(
-                                x: searchFieldOriginX + searchCaretX,
-                                active: searchFocused
-                            )
-                            .animation(.easeOut(duration: 0.10), value: searchCaretX)
-                            .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-                        }
-                }
-                .onPreferenceChange(NightwellSearchFieldOriginPreference.self) { origin in
-                    if abs(searchFieldOriginX - origin) > 0.5 {
-                        searchFieldOriginX = origin
-                    }
-                }
-                .overlay {
-                    RoundedRectangle(cornerRadius: 28, style: .continuous)
-                        .stroke(.white.opacity(0.22), lineWidth: 1)
-                }
-                .overlay {
-                    NightwellSearchEdgeSweep()
-                        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-                if !store.searchMessage.isEmpty { Text(store.searchMessage).font(.caption).foregroundStyle(.secondary) }
-                // Prepared off the UI thread. Never rescan the whole catalogue while typing.
-                let combinedArtists = store.searchArtistSuggestions
-                if !combinedArtists.isEmpty {
-                    Text("Исполнители").font(.headline)
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 9) {
-                            ForEach(combinedArtists) { artist in
-                                Button { selectedArtist = ArtistSelection(name: artist.name) } label: {
-                                    HStack(spacing: 8) {
-                                        ArtistPortrait(name: artist.name, imageURL: artist.image_url, size: 30)
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text(artist.name).font(.system(size: 13, weight: .medium))
-                                            if let count = artist.track_count {
-                                                Text("\(count) треков").font(.system(size: 10)).foregroundStyle(.secondary)
-                                            }
-                                        }
-                                    }
-                                    .padding(.horizontal, 10).padding(.vertical, 6)
-                                    .background(.white.opacity(0.09), in: Capsule())
-                                }.buttonStyle(.plain)
-                            }
-                        }
-                    }
-                }
-                // Owned results are ranked first in the same list, without
-                // blocking input while remote providers are still searching.
-                TrackList(tracks: store.results)
-            }.padding(.horizontal, 20)
-        case .library, .likes:
+            NightwellSearchScreen(collapsed: $searchScrollCollapsed, revealRequest: searchRevealRequest) { name in
+                selectedArtist = ArtistSelection(name: name)
+            }
+        case .likes:
+            let tracks = favoriteTracks
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     collectionScrollMarker
                     HStack(alignment: .center, spacing: 8) {
-                        collectionHeading("Избранное", tracks: favoriteTracks, kind: "likes")
+                        collectionHeading("Избранное", tracks: tracks, kind: "likes")
                         Spacer(minLength: 0)
                         Menu {
                             Button("Недавно добавленные", systemImage: favoriteSort == "recent" ? "checkmark" : "clock") {
-                                favoriteSort = "recent"
+                                changeFavoriteSort("recent")
                             }
                             if favoritePremium.allowed {
-                                Button("По названию") { favoriteSort = "title" }
-                                Button("По исполнителю") { favoriteSort = "artist" }
-                            } else {
+                                Button("По названию") { changeFavoriteSort("title") }
+                                Button("По исполнителю") { changeFavoriteSort("artist") }
+                            } else if favoritePremium.entitlementVerified {
                                 Button("Другие виды сортировки · Premium") { premiumPresented = true }
                             }
                         } label: {
@@ -1190,35 +1315,92 @@ struct NativeRoot: View {
                         }
                         .accessibilityLabel("Сортировка избранного")
                     }
-                    TrackList(tracks: favoriteTracks, embedded: true)
+                    TrackList(tracks: tracks, embedded: true)
                 }
                 .padding(.horizontal, 20)
             }
             .coordinateSpace(name: "nightwell-library-scroll")
-            .modifier(NightwellLibraryScrollTracker(collapsed: $collectionScrolled))
+            .modifier(NightwellLibraryScrollTracker(collapsed: libraryScrollBinding(for: .likes)))
+            .scrollPosition(id: libraryScrollPosition(for: .likes), anchor: .top)
+            .contentMargins(.bottom, bottomContentInset, for: .scrollContent)
+            .contentMargins(.bottom, bottomContentInset, for: .scrollIndicators)
             .scrollDismissesKeyboard(.interactively)
+            .id(librarySession.revision(for: .likes))
         case .playlists:
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
+                LazyVStack(alignment: .leading, spacing: 16) {
                     collectionScrollMarker
-                    HStack {
-                        Text("Плейлисты").font(.largeTitle.bold())
-                        Spacer()
+
+                    HStack(spacing: 12) {
+                        Text("Плейлисты")
+                            .font(.system(size: 34, weight: .bold))
+                            .foregroundStyle(.white)
+                            .accessibilityAddTraits(.isHeader)
+                        Spacer(minLength: 0)
                         Button { createPlaylist = true } label: {
-                            Image(systemName: "plus").frame(width: 44, height: 44)
+                            Image(systemName: "plus")
+                                .font(.system(size: 19, weight: .medium))
+                                .foregroundStyle(.white)
+                                .frame(width: 44, height: 44)
+                                .background(Color.white.opacity(0.075),
+                                            in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 13, style: .continuous)
+                                        .strokeBorder(.white.opacity(0.11), lineWidth: 0.8)
+                                }
                         }
+                        .buttonStyle(.plain)
                         .accessibilityLabel("Новый плейлист")
                     }
-                    Button((favoritePremium.allowed || !favoritePremium.entitlementVerified) ? "Умные плейлисты" : "Умные плейлисты · Premium") { feature = .smart }
-                    DailyPublicPlaylistsView(store: store)
-                    LazyVStack(spacing: 12) {
+                    .padding(.top, 6)
+
+                    HStack(spacing: 10) {
+                        Text("Мои плейлисты")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.86))
+                            .accessibilityAddTraits(.isHeader)
+                        Spacer()
+                        Text("\(store.playlists.count)")
+                            .font(.system(size: 12, weight: .medium))
+                            .monospacedDigit()
+                            .foregroundStyle(.white.opacity(0.47))
+                    }
+                    .padding(.top, 7)
+
+                    LazyVStack(spacing: 8) {
                         ForEach(store.playlists) { playlist in
-                            HStack {
+                            HStack(spacing: 0) {
                                 Button { selectedPlaylist = playlist } label: {
-                                    Text(playlist.name)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .padding(.vertical, 16)
+                                    HStack(spacing: 11) {
+                                        Image(systemName: playlistIcon(for: playlist.name))
+                                            .font(.system(size: 19, weight: .regular))
+                                            .foregroundStyle(.white.opacity(0.9))
+                                            .frame(width: 44, height: 44)
+                                            .background {
+                                                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                                                    .fill(LinearGradient(
+                                                        colors: [.white.opacity(0.14), .white.opacity(0.045)],
+                                                        startPoint: .topLeading, endPoint: .bottomTrailing))
+                                            }
+                                            .overlay {
+                                                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                                                    .strokeBorder(.white.opacity(0.12), lineWidth: 0.75)
+                                            }
+                                            .accessibilityHidden(true)
+                                        Text(playlist.name)
+                                            .font(.system(size: 15, weight: .semibold))
+                                            .foregroundStyle(.white)
+                                            .lineLimit(2)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                        Spacer(minLength: 0)
+                                    }
+                                    .padding(.leading, 10)
+                                    .padding(.vertical, 7)
+                                    .contentShape(Rectangle())
                                 }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Открыть плейлист \(playlist.name)")
+
                                 Menu {
                                     Button("Твой ритм по плейлисту", systemImage: "waveform.path") {
                                         selectedPlaylist = nil
@@ -1241,18 +1423,38 @@ struct NativeRoot: View {
                                         Task { await store.deletePlaylist(playlist.id) }
                                     }
                                 } label: {
-                                    Image(systemName: "ellipsis").frame(width: 44, height: 44)
+                                    Image(systemName: "ellipsis")
+                                        .font(.system(size: 19, weight: .medium))
+                                        .foregroundStyle(.white.opacity(0.78))
+                                        .frame(width: 44, height: 60)
+                                        .contentShape(Rectangle())
                                 }
+                                .accessibilityLabel("Действия с плейлистом \(playlist.name)")
                             }
-                            .padding(.horizontal, 18)
-                            .glass()
+                            .frame(maxWidth: .infinity, minHeight: 62)
+                            .background {
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .fill(LinearGradient(
+                                        colors: [.white.opacity(0.075), .white.opacity(0.032)],
+                                        startPoint: .topLeading, endPoint: .bottomTrailing))
+                            }
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .strokeBorder(.white.opacity(0.10), lineWidth: 0.8)
+                            }
+                            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            .id(playlist.id)
                         }
                     }
+                    .scrollTargetLayout()
                 }
                 .padding(.horizontal, 20)
             }
             .coordinateSpace(name: "nightwell-library-scroll")
-            .modifier(NightwellLibraryScrollTracker(collapsed: $collectionScrolled))
+            .modifier(NightwellLibraryScrollTracker(collapsed: libraryScrollBinding(for: .playlists)))
+            .scrollPosition(id: libraryScrollPosition(for: .playlists), anchor: .top)
+            .contentMargins(.bottom, bottomContentInset, for: .scrollContent)
+            .contentMargins(.bottom, bottomContentInset, for: .scrollIndicators)
             .scrollDismissesKeyboard(.interactively)
         case .offline:
             ScrollView {
@@ -1292,7 +1494,10 @@ struct NativeRoot: View {
                 .padding(.horizontal, 20)
             }
             .coordinateSpace(name: "nightwell-library-scroll")
-            .modifier(NightwellLibraryScrollTracker(collapsed: $collectionScrolled))
+            .modifier(NightwellLibraryScrollTracker(collapsed: libraryScrollBinding(for: .offline)))
+            .scrollPosition(id: libraryScrollPosition(for: .offline), anchor: .top)
+            .contentMargins(.bottom, bottomContentInset, for: .scrollContent)
+            .contentMargins(.bottom, bottomContentInset, for: .scrollIndicators)
             .scrollDismissesKeyboard(.interactively)
         }
     }
@@ -1312,6 +1517,7 @@ struct NativeRoot: View {
 
 struct TrackList: View {
     @EnvironmentObject var store: MusicStore
+    @Environment(\.nightwellBottomContentInset) private var bottomContentInset
     let tracks: [Track]
     var playlist: Playlist? = nil
     var embedded = false
@@ -1327,8 +1533,10 @@ struct TrackList: View {
             }
             ForEach(tracks) { track in
                 NativeTrackRow(track: track, queue: tracks, status: store.clock.status, playlist: playlist)
+                    .id(track.id)
             }
         }
+        .scrollTargetLayout()
     }
 
     @ViewBuilder var body: some View {
@@ -1337,6 +1545,8 @@ struct TrackList: View {
                 rows
             } else {
                 ScrollView { rows }
+                    .contentMargins(.bottom, bottomContentInset, for: .scrollContent)
+                    .contentMargins(.bottom, bottomContentInset, for: .scrollIndicators)
                     .scrollDismissesKeyboard(.interactively)
             }
         }
@@ -1350,26 +1560,32 @@ struct TrackList: View {
 }
 struct NativeTrackRow: View {
     @EnvironmentObject var store: MusicStore
+    @EnvironmentObject private var togetherSession: NightwellTogetherSession
     let track: Track
     let queue: [Track]
     @ObservedObject var status: TrackStatus
     var playlist: Playlist?
+    var onPlay: (() -> Void)? = nil
+    var libraryPreview = false
     @State private var selectedArtist: ArtistSelection?
     @State private var showArtistChoices = false
     var body: some View {
         HStack(spacing: 0) {
             // One large hit target so tapping the thumbnail, title, artist,
             // playback indicator, or empty area starts the song.
-            Button { store.play(track, in: queue) } label: {
+            Button {
+                if let onPlay { onPlay() }
+                else { store.play(track, in: queue) }
+            } label: {
                 HStack(spacing: 12) {
-                    Cover(track: track, origin: store.origin)
-                        .frame(width: 46, height: 46)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                    Cover(track: track, origin: store.origin, pixelWidth: libraryPreview ? 224 : 160)
+                        .frame(width: libraryPreview ? 56 : 46, height: libraryPreview ? 56 : 46)
+                        .clipShape(RoundedRectangle(cornerRadius: libraryPreview ? 8 : 12))
                     VStack(alignment: .leading, spacing: 5) {
-                        Text(track.title).font(.subheadline.weight(.semibold))
-                            .lineLimit(2)
-                        Text(track.artist).font(.caption).foregroundStyle(.secondary)
-                            .lineLimit(2)
+                        Text(track.title).font(libraryPreview ? .body.weight(.medium) : .subheadline.weight(.semibold))
+                            .lineLimit(libraryPreview ? 1 : 2)
+                        Text(track.artist).font(libraryPreview ? .subheadline : .caption).foregroundStyle(.secondary)
+                            .lineLimit(libraryPreview ? 1 : 2)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     if status.id == track.id {
@@ -1377,14 +1593,20 @@ struct NativeTrackRow: View {
                             .frame(width: 20, height: 20)
                     }
                 }
-                .frame(maxWidth: .infinity, minHeight: 54, alignment: .leading)
-                .padding(.leading, 12)
-                .padding(.vertical, 9)
+                .frame(maxWidth: .infinity, minHeight: libraryPreview ? 56 : 54, alignment: .leading)
+                .padding(.leading, libraryPreview ? 0 : 12)
+                .padding(.vertical, libraryPreview ? 8 : 9)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Воспроизвести " + track.title)
             Menu {
+                QueueTrackActions(track: track)
+                if togetherSession.joined {
+                    Button("Добавить в совместное прослушивание", systemImage: "person.2.wave.2") {
+                        Task { await togetherSession.add(trackID: track.id, store: store) }
+                    }
+                }
                 if ArtistAttribution.isKnown(track.artist) {
                     let names = ArtistNames.split(track.artist)
                     if names.count == 1, let name = names.first {
@@ -1420,13 +1642,14 @@ struct NativeTrackRow: View {
                 if let playlist { Button("Убрать из плейлиста", role: .destructive) { Task { await store.add(track, playlist: playlist, remove: true) } } }
             } label: {
                 Image(systemName: "ellipsis")
-                    .frame(width: 44, height: 70)
+                    .frame(width: 44, height: libraryPreview ? 72 : 70)
                     .contentShape(Rectangle())
             }
             .padding(.trailing, 5)
             .accessibilityLabel("Действия с треком " + track.title)
         }
-        .background(status.id == track.id ? pumpkin.opacity(0.12) : .white.opacity(0.035),
+        .padding(.horizontal, libraryPreview ? 8 : 0)
+        .background(status.id == track.id ? pumpkin.opacity(0.12) : libraryPreview ? .clear : .white.opacity(0.035),
                     in: RoundedRectangle(cornerRadius: 18))
         .confirmationDialog("Выбери исполнителя", isPresented: $showArtistChoices, titleVisibility: .visible) {
             ForEach(ArtistNames.split(track.artist), id: \.self) { name in
@@ -1434,7 +1657,7 @@ struct NativeTrackRow: View {
             }
         }
         .sheet(item: $selectedArtist) { artist in
-            ArtistProfileView(name: artist.name).environmentObject(store)
+            ArtistProfileView(name: artist.name, togetherSession: togetherSession).environmentObject(store)
         }
     }
 }
@@ -1523,47 +1746,180 @@ struct ArtistPortrait: View {
 struct ArtistProfileView: View {
     @EnvironmentObject private var store: MusicStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let name: String
+    private let togetherSession: NightwellTogetherSession
     @State private var tracks: [Track] = []
     @State private var loading = true
     @State private var message = ""
     @State private var profileImageURL: String?
     @State private var totalTracks: Int?
+    @State private var reloadRevision = 0
+
+    init(name: String, togetherSession: NightwellTogetherSession) {
+        self.name = name
+        self.togetherSession = togetherSession
+    }
+
+    #if DEBUG
+    private var usesPreviewTracks = false
+
+    init(name: String, togetherSession: NightwellTogetherSession, previewTracks: [Track]) {
+        self.name = name
+        self.togetherSession = togetherSession
+        self.usesPreviewTracks = true
+        _tracks = State(initialValue: previewTracks)
+        _loading = State(initialValue: false)
+    }
+    #endif
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 16) {
-                ArtistPortrait(name: name, imageURL: profileImageURL, size: 94)
-                    .accessibilityLabel("Исполнитель " + name)
-                Text(name).font(.title2.bold()).multilineTextAlignment(.center)
-                if loading { ProgressView("Ищем треки…").tint(.white) }
-                if !message.isEmpty { Text(message).font(.caption).foregroundStyle(.secondary) }
-                if !tracks.isEmpty {
-                    HStack {
-                        Text("Треки").font(.headline)
-                        Spacer()
-                        Text("\(totalTracks ?? tracks.count)").foregroundStyle(.secondary)
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 20) {
+                    VStack(spacing: 14) {
+                        ArtistPortrait(name: name, imageURL: profileImageURL, size: 108)
+                            .overlay(Circle().strokeBorder(.white.opacity(0.14), lineWidth: 1))
+                            .shadow(color: .black.opacity(0.22), radius: 18, y: 8)
+                            .accessibilityLabel("Исполнитель " + name)
+                        VStack(spacing: 6) {
+                            Text(name)
+                                .font(.title.bold())
+                                .multilineTextAlignment(.center)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityAddTraits(.isHeader)
+                            if !tracks.isEmpty || totalTracks != nil {
+                                Text(trackCountText)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.white.opacity(0.58))
+                            }
+                        }
                     }
-                    TrackList(tracks: tracks)
-                } else if !loading {
-                    ContentUnavailableView("Треки не найдены", systemImage: "music.note",
-                                           description: Text("Попробуй поискать исполнителя позже."))
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 8)
+
+                    if !tracks.isEmpty {
+                        playbackActions
+                    }
+
+                    if loading {
+                        HStack(spacing: 10) {
+                            ProgressView().tint(.white)
+                            Text(tracks.isEmpty ? "Ищем треки…" : "Обновляем каталог…")
+                                .font(.footnote)
+                                .foregroundStyle(.white.opacity(0.65))
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(14)
+                        .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 16))
+                    }
+
+                    if !message.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Label(message, systemImage: "wifi.exclamationmark")
+                                .font(.footnote)
+                                .foregroundStyle(.white.opacity(0.7))
+                                .fixedSize(horizontal: false, vertical: true)
+                            Button("Повторить загрузку") { reloadRevision += 1 }
+                                .font(.subheadline.weight(.semibold))
+                                .frame(minHeight: 44)
+                                .disabled(loading)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(14)
+                        .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 16))
+                    }
+
+                    if !tracks.isEmpty {
+                        HStack {
+                            Text("Треки").font(.title3.bold())
+                                .accessibilityAddTraits(.isHeader)
+                            Spacer()
+                            Text("\(tracks.count)")
+                                .font(.subheadline.monospacedDigit())
+                                .foregroundStyle(.white.opacity(0.45))
+                        }
+                        TrackList(tracks: tracks, embedded: true)
+                    } else if !loading && message.isEmpty {
+                        ContentUnavailableView("Треки не найдены", systemImage: "music.note",
+                                               description: Text("Попробуй открыть исполнителя позже."))
+                            .padding(.vertical, 24)
+                    }
                 }
-                Spacer(minLength: 0)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 24)
             }
-            .padding(20)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color.black.ignoresSafeArea())
+            .background {
+                LinearGradient(colors: [Color(red: 0.075, green: 0.065, blue: 0.105),
+                                        Color(white: 0.025), .black],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+                    .ignoresSafeArea()
+            }
             .navigationTitle("Исполнитель")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(Color(white: 0.035), for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Закрыть") { dismiss() }
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 13, weight: .semibold))
+                            .frame(width: 44, height: 44)
+                            .background(.white.opacity(0.065), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Закрыть исполнителя")
                 }
             }
         }
+        // Presentation modifiers outside NativeRoot's artworkScene do not
+        // inherit its session. Every track row needs the same active instance.
+        .environmentObject(togetherSession)
+        .environment(\.nightwellBottomContentInset, 0)
         .preferredColorScheme(.dark)
-        .task(id: name) { await load() }
+        .tint(.white)
+        .task(id: "\(name)|\(reloadRevision)") {
+            #if DEBUG
+            if usesPreviewTracks { return }
+            #endif
+            await load()
+        }
+    }
+
+    private var playbackActions: some View {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(spacing: 10)) : AnyLayout(HStackLayout(spacing: 10))
+        return layout {
+            Button { playAll(shuffled: false) } label: {
+                Label("Слушать всё", systemImage: "play.fill")
+                    .frame(maxWidth: .infinity, minHeight: 48)
+                    .background(.white, in: RoundedRectangle(cornerRadius: 16))
+                    .foregroundStyle(.black)
+            }
+            Button { playAll(shuffled: true) } label: {
+                Label("Перемешать", systemImage: "shuffle")
+                    .frame(maxWidth: .infinity, minHeight: 48)
+                    .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 16))
+                    .foregroundStyle(.white)
+            }
+        }
+        .font(.subheadline.weight(.semibold))
+        .buttonStyle(.plain)
+    }
+
+    private var trackCountText: String {
+        let count = max(tracks.count, totalTracks ?? 0)
+        let ending = count % 100
+        let word = (11...14).contains(ending) ? "треков"
+            : count % 10 == 1 ? "трек" : (2...4).contains(count % 10) ? "трека" : "треков"
+        return "\(count) \(word)"
+    }
+
+    private func playAll(shuffled: Bool) {
+        let queue = shuffled ? tracks.shuffled() : tracks
+        guard let first = queue.first else { return }
+        store.play(first, in: queue, wave: false)
     }
 
     @MainActor private func load() async {
@@ -1573,7 +1929,7 @@ struct ArtistProfileView: View {
             ArtistNames.normalized($0.name) == ArtistNames.normalized(name)
         }?.image_url
         totalTracks = nil
-        var combined = (store.catalog + store.results).filter { ArtistNames.track($0, includes: name) }
+        var combined = (tracks + store.catalog + store.results).filter { ArtistNames.track($0, includes: name) }
         tracks = unique(combined)
         let encoded = name.addingPercentEncoding(
             withAllowedCharacters: .urlQueryAllowed.subtracting(CharacterSet(charactersIn: "&+=?#"))) ?? ""
@@ -1611,7 +1967,8 @@ struct ArtistProfileView: View {
                 try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             } catch is CancellationError { return }
               catch {
-                if tracks.isEmpty { message = "Не удалось загрузить каталог: " + error.localizedDescription }
+                message = tracks.isEmpty ? "Не удалось загрузить каталог: " + error.localizedDescription
+                    : "Не удалось обновить каталог. Загруженные треки доступны."
                 break
             }
         }
@@ -1629,28 +1986,35 @@ struct Cover: View {
     let origin: URL
     var pixelWidth = 160
     @State private var artwork: UIImage?
+    @State private var loadedArtworkURL: URL?
 
     private var coverURL: URL? {
         track.flatMap { CoverImagePipeline.coverURL(for: $0, origin: origin) }
     }
     var body: some View {
-        ZStack {
-            if let artwork {
-                Image(uiImage: artwork).resizable().scaledToFill()
-            } else {
+        GeometryReader { box in
+            ZStack {
                 Color.white.opacity(0.08)
-                Image(systemName: "music.note")
-                    .font(.title)
-                    .foregroundStyle(.white.opacity(0.7))
+                if let artwork, loadedArtworkURL == coverURL {
+                    Image(uiImage: artwork).resizable().scaledToFill()
+                        .frame(width: box.size.width, height: box.size.height)
+                        .clipped()
+                } else {
+                    Image(systemName: "music.note")
+                        .font(.title)
+                        .foregroundStyle(.white.opacity(0.7))
+                }
             }
+            .frame(width: box.size.width, height: box.size.height)
+            .clipped()
         }
-        .clipped()
         .task(id: "\(coverURL?.absoluteString ?? "")#\(pixelWidth)") {
-            artwork = nil
-            guard let coverURL else { return }
+            guard let coverURL else { artwork = nil; loadedArtworkURL = nil; return }
+            if loadedArtworkURL != coverURL { artwork = nil; loadedArtworkURL = nil }
             let image = await CoverImagePipeline.shared.image(for: coverURL, maxPixel: pixelWidth)
             guard !Task.isCancelled else { return }
             artwork = image
+            loadedArtworkURL = image == nil ? nil : coverURL
         }
     }
 }

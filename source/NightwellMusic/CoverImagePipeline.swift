@@ -121,6 +121,15 @@ actor CoverImagePipeline {
                 // Cover URLs are content-addressed; reuse downloaded images even
                 // when the API serves conservative cache headers.
                 request.cachePolicy = .returnCacheDataElseLoad
+                // Authenticate Nightwell covers only, never an external image CDN.
+                let configured = UserDefaults.standard.string(forKey: "nightwell.server") ?? "https://music.nightwell.fun/"
+                if let origin = ServerAddress.validated(configured),
+                   url.host == origin.host, url.port == origin.port,
+                   let data = UserDefaults.standard.data(forKey: "native.account"),
+                   let account = try? JSONDecoder().decode(Account.self, from: data),
+                   let credential = try? AccountDeviceVault.read(origin: origin, account: account.id) {
+                    request.setValue(credential.device_token, forHTTPHeaderField: "X-NW-Device-Token")
+                }
                 let (bytes, response) = try await session.data(for: request)
                 guard let http = response as? HTTPURLResponse,
                       (200..<300).contains(http.statusCode),

@@ -200,9 +200,13 @@ private extension UIImage {
 
 /// A neutral, softly lit backdrop used only by the menu and profile sheets.
 struct NightwellMonochromeGlassBackground: View {
+    @Environment(\.nightwellAppearance) private var appearance
     var body: some View {
         GeometryReader { proxy in
             ZStack {
+                if appearance == .vice {
+                    NightwellViceBackdrop()
+                } else {
                 LinearGradient(
                     colors: [Color(white: 0.14), Color(white: 0.045), .black,
                              Color(white: 0.08)],
@@ -221,6 +225,7 @@ struct NightwellMonochromeGlassBackground: View {
                     .blur(radius: 88)
                     .offset(x: proxy.size.width * 0.42,
                             y: proxy.size.height * 0.37)
+                }
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
             .clipped()
@@ -233,6 +238,7 @@ struct NightwellMonochromeGlassBackground: View {
 /// Subtle liquid-glass surface with white edge lighting and a dark base.
 /// Keeping it scoped to two sheets avoids changing the rest of the player.
 private struct NightwellMonochromeGlassModifier: ViewModifier {
+    @Environment(\.nightwellAppearance) private var appearance
     let radius: CGFloat
 
     func body(content: Content) -> some View {
@@ -242,17 +248,25 @@ private struct NightwellMonochromeGlassModifier: ViewModifier {
                 shape.fill(.ultraThinMaterial)
                     .overlay {
                         shape.fill(LinearGradient(
-                            colors: [Color.white.opacity(0.09),
-                                     Color.white.opacity(0.025),
-                                     Color.white.opacity(0.055)],
+                            colors: appearance == .vice
+                                ? [NightwellAppearance.pink.opacity(0.15),
+                                   Color.white.opacity(0.025),
+                                   NightwellAppearance.cyan.opacity(0.09)]
+                                : [Color.white.opacity(0.09),
+                                   Color.white.opacity(0.025),
+                                   Color.white.opacity(0.055)],
                             startPoint: .topLeading, endPoint: .bottomTrailing
                         ))
                     }
             }
             .overlay {
                 shape.strokeBorder(LinearGradient(
-                    colors: [Color.white.opacity(0.30), Color.white.opacity(0.08),
-                             Color.white.opacity(0.17)],
+                    colors: appearance == .vice
+                        ? [NightwellAppearance.pink.opacity(0.55),
+                           NightwellAppearance.cyan.opacity(0.20),
+                           NightwellAppearance.pink.opacity(0.27)]
+                        : [Color.white.opacity(0.30), Color.white.opacity(0.08),
+                           Color.white.opacity(0.17)],
                     startPoint: .topLeading, endPoint: .bottomTrailing
                 ), lineWidth: 0.85)
             }
@@ -267,6 +281,7 @@ extension View {
 }
 
 struct ProfileSettingsView: View {
+    @Environment(\.nightwellAppearance) private var appearance
     @EnvironmentObject private var store: MusicStore
     @State private var nickname = ""
     @State private var selectedPhoto: PhotosPickerItem?
@@ -324,7 +339,7 @@ struct ProfileSettingsView: View {
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .foregroundStyle(.white)
-                .tint(.white)
+                .tint(appearance.accent)
                 .padding(12)
                 .nightwellMonochromeGlass(radius: 14)
             Button(busy ? "Сохраняем…" : "Сохранить ник") {
@@ -348,56 +363,12 @@ struct ProfileSettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.white.opacity(0.68))
             }
-            Divider().overlay(.white.opacity(0.12)).padding(.vertical, 6)
-            HStack {
-                Label("Мои устройства", systemImage: "iphone.and.arrow.forward")
-                    .font(.system(size: 16, weight: .semibold))
-                Spacer()
-                Button {
-                    Task { await store.refreshAccountDevices() }
-                } label: {
-                    Image(systemName: "arrow.clockwise").frame(width: 36, height: 36)
-                }
-                .accessibilityLabel("Обновить устройства")
-            }
-            if store.accountDeviceSupported {
-                Text("Подключено: \(store.accountDevices.count) из \(store.accountDeviceLimit)")
-                    .font(.subheadline).foregroundStyle(.white.opacity(0.62))
-                ForEach(store.accountDevices) { device in
-                    HStack(spacing: 10) {
-                        Image(systemName: device.platform == "ios" ? "iphone" :
-                              device.platform == "android" ? "smartphone" : "desktopcomputer")
-                            .font(.system(size: 18))
-                            .frame(width: 30)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(device.name + (device.current ? " · Это устройство" : ""))
-                                .font(.subheadline.weight(.medium))
-                            Text(device.blocked ? "Лимит подписки превышен" :
-                                 "Последний вход: " + Date(timeIntervalSince1970: device.last_seen)
-                                     .formatted(date: .abbreviated, time: .shortened))
-                                .font(.caption2).foregroundStyle(.secondary)
-                        }
-                        Spacer(minLength: 0)
-                        Button("Удалить", role: .destructive) {
-                            Task { await store.removeAccountDevice(device.id) }
-                        }
-                        .font(.caption).buttonStyle(.borderless)
-                    }
-                    .padding(.vertical, 7)
-                }
-            } else if !store.accountDeviceNotice.isEmpty {
-                Text(store.accountDeviceNotice)
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.65))
-            }
-
-
         }
         .padding(.horizontal, 17)
         .padding(.vertical, 15)
         .frame(maxWidth: .infinity, alignment: .leading)
         .nightwellMonochromeGlass(radius: 25)
-        .task { await store.refreshProfile(); nickname = store.profileNickname; await store.refreshAccountDevices() }
+        .task { await store.refreshProfile(); nickname = store.profileNickname }
         .onChange(of:selectedPhoto) { next in
             guard let next, !busy else { return }
             busy=true

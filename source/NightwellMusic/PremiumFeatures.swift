@@ -32,6 +32,14 @@ struct PremiumPreferences: Codable {
     func shouldOfferPremium(for accountID: String?) -> Bool {
         entitlementVerified && owner == accountID && !allowed
     }
+
+    // Only show account-only Premium destinations after an actual entitlement
+    // check for this account. Never reuse the previous account's paid status.
+    func hasVerifiedPremium(for accountID: String?) -> Bool {
+        guard let accountID, !accountID.isEmpty else { return false }
+        return entitlementVerified && owner == accountID && allowed &&
+               until > Date().timeIntervalSince1970
+    }
     @Published var note = "Проверяем Premium…"
     private var owner: String?, until = 0.0, checked = Date.distantPast, checking = false
     private func cacheKey(_ id: String) -> String { "nw-aura-" + id }
@@ -68,9 +76,15 @@ struct PremiumPreferences: Codable {
         struct Response: Decodable { let preferences: PremiumPreferences }
         do {
             let state: Status = try await store.api.request("api/premium/me")
+            let family: AccountAccessStatus? = try? await store.api.request("/api/account/access")
             guard store.account?.id == account else { return }
-            guard state.premium, let expiry = state.expires_at,
-                  expiry > Date().timeIntervalSince1970 else {
+            let effective = state.premium || family?.premium == true
+            // Expiry is authoritative when supplied. For valid family access without a
+            // reported date, refresh its server-confirmed entitlement in five minutes.
+            let expiry = state.premium ? state.expires_at :
+                         family?.expires_at ?? (family?.premium == true ?
+                             Date().timeIntervalSince1970 + 300 : nil)
+            guard effective, let expiry, expiry > Date().timeIntervalSince1970 else {
                 allowed = false
                 until = 0
                 entitlementVerified = true
@@ -114,7 +128,7 @@ struct PremiumPreferences: Codable {
 }
 
 @MainActor struct PremiumFeatureView: View {
-    enum Kind: String, Identifiable { case sound = "Эквалайзер", appearance = "Оформление", smart = "Умные плейлисты", statistics = "Моя статистика"; var id: String { rawValue } }
+    enum Kind: String, Identifiable { case sound = "Эквалайзер", appearance = "Оформление", smart = "Умные плейлисты", statistics = "Статистика"; var id: String { rawValue } }
     let kind: Kind
     init(kind: Kind) { self.kind = kind }
     @EnvironmentObject private var store: MusicStore

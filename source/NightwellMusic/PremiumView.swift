@@ -23,6 +23,7 @@ struct PremiumView: View {
     @State private var payment: PremiumPaymentSession?
     @State private var activeExpiry: Double?
     @State private var isActivePremium = false
+    @State private var familyAccess = false
     @State private var statusChecked = false
     @State private var statusAvailable = false
     @State private var showFeatures = false
@@ -115,7 +116,7 @@ struct PremiumView: View {
                     .padding(.top, 26)
 
                     VStack(spacing: 6) {
-                        Text("Подписка активна")
+                        Text(familyAccess ? "Семейный Premium активен" : "Подписка активна")
                             .font(.system(size: 26, weight: .bold))
                             .multilineTextAlignment(.center)
                         if let expiry {
@@ -153,6 +154,14 @@ struct PremiumView: View {
                         .transition(.opacity.combined(with: .move(edge: .top)))
                     }
 
+                    if familyAccess {
+                        Text("Premium предоставляет владелец семьи. Его оплатой и автопродлением нельзя управлять из этого аккаунта.")
+                            .font(.footnote)
+                            .foregroundStyle(.white.opacity(0.7))
+                            .frame(maxWidth: .infinity)
+                            .padding(14)
+                            .nightwellLiquidGlass(24)
+                    } else {
                     VStack(spacing: 10) {
                         Text(renewal?.auto_renewal == "disabled" ? "Автопродление отключено" :
                              renewal == nil ? "Не удалось получить статус автопродления" :
@@ -178,6 +187,7 @@ struct PremiumView: View {
                     .frame(maxWidth: .infinity)
                     .padding(14)
                     .nightwellLiquidGlass(24)
+                    }
                     Button(checking ? "Проверяем…" : "Обновить статус") {
                         Task { await refresh() }
                     }
@@ -397,12 +407,15 @@ struct PremiumView: View {
                     status = try await api.request("api/premium/me")
                 }
             }
-            isActivePremium = status.premium
-            activeExpiry = status.premium ? status.expires_at : nil
+            let access: AccountAccessStatus? = try? await api.request("/api/account/access")
+            let entitled = status.premium || access?.premium == true
+            familyAccess = access?.source == "family"
+            isActivePremium = entitled
+            activeExpiry = status.premium ? status.expires_at : access?.expires_at
             statusAvailable = true
-            renewal = status.premium ? (try? await api.request("api/premium/lava/renewal")) : nil
-            if status.premium {
-                if let expiry = status.expires_at {
+            renewal = entitled && !familyAccess ? (try? await api.request("api/premium/lava/renewal")) : nil
+            if isActivePremium {
+                if let expiry = activeExpiry {
                     message = "Premium активен до " + Date(timeIntervalSince1970: expiry).formatted(date: .abbreviated, time: .omitted)
                 } else {
                     message = "Premium активен."

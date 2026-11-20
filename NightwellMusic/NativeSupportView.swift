@@ -42,6 +42,7 @@ private struct SupportMessage: Identifiable, Decodable {
 private struct TicketCreated: Decodable { let id: String }
 
 struct NativeSupportView: View {
+    @Environment(\.nightwellAppearance) private var appearance
     @EnvironmentObject private var store: MusicStore
     let close: () -> Void
     @State private var adminMode = false
@@ -97,13 +98,13 @@ struct NativeSupportView: View {
                         }
                         if !attachmentStatus.isEmpty { Text(attachmentStatus).font(.caption).foregroundStyle(pumpkin) }
                         ForEach(ticket.attachments ?? []) { attachment in
-                            Button { Task { await preview(ticket.id, attachment) } } label: { Label(attachment.name, systemImage: "doc") }.tint(pumpkin)
+                            Button { Task { await preview(ticket.id, attachment) } } label: { Label(attachment.name, systemImage: "doc") }.tint(appearance.accent)
                         }
                         if ticket.status != "closed" {
-                            Button { showAttachmentSources = true } label: { Label(uploading ? "Загрузка…" : "Прикрепить файл до 10 МБ", systemImage: "paperclip") }.buttonStyle(.borderedProminent).tint(pumpkin).disabled(uploading)
+                            Button { showAttachmentSources = true } label: { Label(uploading ? "Загрузка…" : "Прикрепить файл до 10 МБ", systemImage: "paperclip") }.buttonStyle(.borderedProminent).tint(appearance.accent).disabled(uploading)
                             TextField(adminMode ? "Ответ пользователю" : "Дополнить обращение", text: $message, axis: .vertical)
                                 .lineLimit(3...7).padding().frostedGlass()
-                            Button("Отправить") { Task { await reply(ticket.id) } }.buttonStyle(.borderedProminent).tint(pumpkin).disabled(message.isEmpty || busy)
+                            Button("Отправить") { Task { await reply(ticket.id) } }.buttonStyle(.borderedProminent).tint(appearance.accent).disabled(message.isEmpty || busy)
                         }
                         if adminMode {
                             ForEach(statuses, id: \.self) { status in
@@ -152,7 +153,7 @@ struct NativeSupportView: View {
                         ToolbarItem(placement: .topBarTrailing) {
                             Button { previewItem = nil } label: { Image(systemName: "xmark").fontWeight(.semibold) }
                                 .accessibilityLabel("Закрыть вложение")
-                                .tint(pumpkin)
+                                .tint(appearance.accent)
                         }
                     }
             }

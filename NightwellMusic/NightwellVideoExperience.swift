@@ -227,6 +227,7 @@ final class NightwellClipAvailabilityCache {
 }
 
 struct NightwellClipScreen: View {
+    @Environment(\.nightwellAppearance) private var appearance
     let clipURL: URL
     let title: String
     let origin: URL
@@ -251,7 +252,8 @@ struct NightwellClipScreen: View {
             }
             .padding(16)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .background(Color.black.ignoresSafeArea())
+            .background { NightwellThemedBackground { Color.black }.ignoresSafeArea() }
+            .tint(appearance.accent)
             .navigationTitle("Клип")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

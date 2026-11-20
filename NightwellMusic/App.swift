@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 @main struct NightwellMusicApp: App {
     @UIApplicationDelegateAdaptor(DownloadAppDelegate.self) private var appDelegate
     @StateObject private var store = MusicStore()
+    @AppStorage(NightwellAppearance.storageKey) private var themeID = NightwellAppearance.standard.rawValue
     @AppStorage("nw-first-run-completed-v1") private var firstRunCompleted = false
     var body: some Scene {
         WindowGroup {
@@ -11,7 +12,9 @@ import UniformTypeIdentifiers
                 if firstRunCompleted { NativeRoot() }
                 else { NightwellFirstLaunch { firstRunCompleted = true } }
             }
-            .environmentObject(store).preferredColorScheme(.dark)
+            .environmentObject(store)
+            .environment(\.nightwellAppearance, NightwellAppearance(rawValue: themeID) ?? .standard)
+            .preferredColorScheme(.dark)
         }
     }
 }
@@ -61,6 +64,7 @@ extension View {
                 )
             )
             .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+            .nightwellThemeChrome(radius)
     }
 }
 
@@ -70,6 +74,7 @@ extension View {
         #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             self.glassEffect(.regular, in: .rect(cornerRadius: radius))
+                .nightwellThemeChrome(radius)
         } else {
             self.glass(radius)
         }
@@ -119,13 +124,18 @@ struct NativeBackdropBlur: UIViewRepresentable {
     }
 }
 struct FrostedSurface: View {
+    @Environment(\.nightwellAppearance) private var appearance
     var radius: CGFloat = 30
     var intensity: CGFloat = 1
     var body: some View {
         NativeBackdropBlur(intensity: intensity)
             .overlay(
                 LinearGradient(
-                    colors: [Color.white.opacity(0.06), nightwellViolet.opacity(0.12), pumpkin.opacity(0.04)],
+                    colors: appearance == .vice
+                        ? [NightwellAppearance.pink.opacity(0.18),
+                           NightwellAppearance.cyan.opacity(0.09),
+                           NightwellAppearance.pink.opacity(0.05)]
+                        : [Color.white.opacity(0.06), nightwellViolet.opacity(0.12), pumpkin.opacity(0.04)],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
@@ -147,23 +157,27 @@ extension View {
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+            .nightwellThemeChrome(radius)
     }
 }
 
 struct NightwellPopup<Content: View>: View {
+    @Environment(\.nightwellAppearance) private var appearance
     let title: String
     var maxHeight: CGFloat = 600
     var dimsBackground = true
     var centered = false
     var transparentSettings = false
+    var handlesBackGesture = true
     let close: () -> Void
     let content: Content
-    init(title: String, maxHeight: CGFloat = 560, dimsBackground: Bool = true, centered: Bool = false, transparentSettings: Bool = false, close: @escaping () -> Void, @ViewBuilder content: () -> Content) {
+    init(title: String, maxHeight: CGFloat = 560, dimsBackground: Bool = true, centered: Bool = false, transparentSettings: Bool = false, handlesBackGesture: Bool = true, close: @escaping () -> Void, @ViewBuilder content: () -> Content) {
         self.title = title
         self.maxHeight = maxHeight
         self.dimsBackground = dimsBackground
         self.centered = centered
         self.transparentSettings = transparentSettings
+        self.handlesBackGesture = handlesBackGesture
         self.close = close
         self.content = content()
     }
@@ -181,6 +195,9 @@ struct NightwellPopup<Content: View>: View {
                         maxHeight,
                         proxy.size.height * (proxy.size.width > proxy.size.height ? 0.94 : 0.88)
                     ))
+                    .background {
+                        if appearance == .vice { NightwellViceBackdrop() }
+                    }
                     .frostedGlass(32, bordered: !transparentSettings, intensity: transparentSettings ? 0.28 : 1)
                     .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
                     .overlay {
@@ -196,13 +213,14 @@ struct NightwellPopup<Content: View>: View {
         }
         .transition(.opacity.combined(with: .scale(scale: 0.94)))
         .zIndex(100)
+        .nightwellEdgeBack(enabled: handlesBackGesture, onBack: close)
     }
 }
 
 
 private enum StableNavigationAction {
     case screen(MusicStore.Screen)
-    case backgroundOnly, statistics, premium, transfer, settings, waveSettings, support, together, profile, authentication
+    case backgroundOnly, premium, accountAccess, transfer, settings, waveSettings, support, together, profile, authentication
 }
 
 /// An independently presented, stable scroll view. Playback updates cannot
@@ -291,12 +309,12 @@ private struct StableNavigationSheet: View {
                             entry("Nightwell Premium", icon: "star", action: .premium)
                         }
                         entry("Настройки", icon: "gearshape", action: .settings)
+                        if signedIn { entry("Устройства и семья", icon: "person.2", action: .accountAccess) }
                         Divider().overlay(.white.opacity(0.16)).padding(.vertical, 6)
                     }
                     if showsMainNavigation || opensAdditional {
                         entry("Слушать вместе", icon: "person.2.wave.2", action: .together)
                         if signedIn {
-                            entry("Моя статистика", icon: "chart.bar", action: .statistics)
                             entry("Перенос плейлистов", icon: "square.and.arrow.down", action: .transfer)
                         }
                         entry("Обращения и поддержка", icon: "envelope", action: .support)
@@ -316,6 +334,7 @@ private struct StableNavigationSheet: View {
         .presentationDetents([.height(430), .large])
         .presentationDragIndicator(.visible)
         .presentationBackground(.clear)
+        .nightwellEdgeBack { dismiss() }
     }
 }
 
@@ -357,19 +376,26 @@ private struct NightwellLibraryScrollTracker: ViewModifier {
 }
 
 struct NativeRoot: View {
+    @Environment(\.nightwellAppearance) private var appearance
     @EnvironmentObject var store: MusicStore
     @State private var feature: PremiumFeatureView.Kind?
     @State private var settings = false
     @State private var navigationMenuPresented = false
     @State private var initialSessionLoaded = false
     @State private var profilePresented = false
+    @State private var widgetSetupPresented = false
+    @State private var widgetLinkSetupPresented = false
+    @State private var widgetIncomingCode: String?
     @State private var dailyPlaylistsPresented = false
     @State private var profileSigningOut = false
     @State private var pendingNavigation: StableNavigationAction?
     @State private var waveSettingsPresented = false
     @State private var supportPresented = false
     @State private var premiumPresented = false
+    @State private var accountAccessPresented = false
+    @State private var profileAccessPresented = false
     @State private var profilePremiumPresented = false
+    @State private var profileStatisticsPresented = false
     @State private var libraryMenuStartsAdditional = false
     @State private var transferPresented = false
     @State private var togetherPresented = false
@@ -381,6 +407,10 @@ struct NativeRoot: View {
     @State private var libraryScrollCollapsed: [String: Bool] = [:]
     @StateObject private var artworkPalette = NightwellArtworkPalette()
     @State private var remoteHomeCollapsed = false
+    @AppStorage("nw-vice-nights-intro-viewed-v1") private var viceIntroViewed = false
+    @AppStorage("nw-vice-nights-intro-acknowledged-v1") private var viceIntroAcknowledged = false
+    @State private var viceIntroCollapsed = false
+    @State private var openThemesDirectly = false
     @ObservedObject private var favoritePremium = PremiumFeatureState.shared
     @State private var fullPlayer = false
     @State private var selectedArtist: ArtistSelection?
@@ -395,6 +425,10 @@ struct NativeRoot: View {
     @State private var launching = true
     @State private var searchScrollCollapsed = false
     @State private var searchRevealRequest = 0
+    // Direction only belongs to user-initiated screen navigation. Playback,
+    // library refreshes and scroll-position restoration must not animate it.
+    @State private var screenTransitionDirection: CGFloat = 1
+    @State private var screenBackHistory: [MusicStore.Screen] = []
     @Environment(\.accessibilityReduceMotion) private var reducedMotion
     @ViewBuilder private var mainScene: some View {
         GeometryReader { viewport in
@@ -402,14 +436,26 @@ struct NativeRoot: View {
                 viewport.size.height < 650
             let bottomInset = dockContentInset(landscape: landscape) + viewport.safeAreaInsets.bottom + 12
             ZStack {
-            // Shared monochrome background for Home, Search, Favorites, Playlists and Offline.
-            LinearGradient(
-                colors: [Color(red: 0.055, green: 0.062, blue: 0.074), Color(white: 0.025), .black],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
-            if !backgroundOnly {
+            // Standard stays visually identical to the previous version.
+            if appearance == .vice {
+                // Keep tropical artwork only on the three top-level tabs.
+                // Favorites, playlists, offline, sheets and background-only
+                // use the clean color-only Vice Nights backdrop.
+                if !backgroundOnly &&
+                    (store.screen == .home || store.screen == .search || store.screen == .library) {
+                    NightwellViceScenicBackdrop().ignoresSafeArea()
+                } else {
+                    NightwellViceBackdrop().ignoresSafeArea()
+                }
+            } else {
+                LinearGradient(
+                    colors: [Color(red: 0.055, green: 0.062, blue: 0.074), Color(white: 0.025), .black],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .ignoresSafeArea()
+            }
+            if !backgroundOnly && appearance == .standard {
                 // Keep one backdrop alive while the app changes tabs, pauses,
                 // buffers audio, and restores a session after launch.
                 RibbonScene(playing: store.clock.playing, flash: store.likeFlash,
@@ -430,6 +476,13 @@ struct NativeRoot: View {
                         compactSearchHeader(landscape: landscape)
                     } else {
                         header(landscape: landscape)
+                    }
+                    if !landscape && !isLibraryScreen &&
+                        !(store.screen == .search && searchScrollCollapsed) &&
+                        !viceIntroAcknowledged && !viceIntroViewed && !viceIntroCollapsed {
+                        viceIntroBanner
+                            .padding(.horizontal, 20)
+                            .transition(.move(edge: .top).combined(with: .opacity))
                     }
                     if !landscape && !isLibraryScreen && !(store.screen == .search && searchScrollCollapsed) && store.hasRemotePlayback && !remoteHomeCollapsed {
                         Button {
@@ -460,6 +513,60 @@ struct NativeRoot: View {
             }
         }
         }
+    }
+
+    private var viceIntroBanner: some View {
+        Button(action: openViceThemes) {
+            HStack(spacing: 11) {
+                Image(systemName: "paintpalette.fill")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(NightwellAppearance.pink)
+                    .frame(width: 36, height: 36)
+                    .background(NightwellAppearance.pink.opacity(0.15), in: RoundedRectangle(cornerRadius: 11))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Новая тема: Vice Nights")
+                        .font(.system(size: 14, weight: .semibold))
+                    Text("Неоновый стиль GTA VI · Настроить")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.67))
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold))
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 13)
+            .padding(.vertical, 11)
+            .background(.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 18))
+            .overlay(RoundedRectangle(cornerRadius: 18)
+                .strokeBorder(NightwellAppearance.pink.opacity(0.28), lineWidth: 0.9))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Новая тема Vice Nights. Открыть темы")
+    }
+
+    private func openViceThemes() {
+        // Both the banner and its compact button permanently acknowledge it.
+        viceIntroAcknowledged = true
+        viceIntroViewed = true
+        withAnimation(reducedMotion ? nil : .easeInOut(duration: 0.22)) {
+            viceIntroCollapsed = true
+            openThemesDirectly = true
+            settings = true
+        }
+    }
+
+    private var viceIntroCompactButton: some View {
+        Button(action: openViceThemes) {
+            Image(systemName: "paintpalette.fill")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(NightwellAppearance.pink)
+                .frame(width: 42, height: 44)
+                .frostedGlass(22, bordered: false, intensity: 0.20)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Новая тема Vice Nights. Открыть настройки темы")
+        .transition(.scale(scale: 0.7).combined(with: .opacity))
     }
 
     private func dockContentInset(landscape: Bool) -> CGFloat {
@@ -527,11 +634,14 @@ struct NativeRoot: View {
                         .environmentObject(store)
                 }
             } else if settings {
-                NightwellPopup(title: "", maxHeight: 554, dimsBackground: false, centered: true, transparentSettings: true, close: { settings = false }) {
-                    NativeSettings(close: { settings = false })
+                NightwellPopup(title: "", maxHeight: 554, dimsBackground: false, centered: true, transparentSettings: true, handlesBackGesture: false, close: { settings = false }) {
+                    NativeSettings(close: {
+                        settings = false
+                        openThemesDirectly = false
+                    }, startOnThemes: openThemesDirectly)
                 }
             } else if let playlist = selectedPlaylist {
-                NightwellPopup(title: "", maxHeight: 618, dimsBackground: false, centered: true, transparentSettings: true, close: { selectedPlaylist = nil }) {
+                NightwellPopup(title: "", maxHeight: 900, dimsBackground: false, centered: true, transparentSettings: true, close: { selectedPlaylist = nil }) {
                     PlaylistScreen(close: { selectedPlaylist = nil }, playlist: playlist)
                         .id(playlist.id)
                 }
@@ -563,7 +673,7 @@ struct NativeRoot: View {
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.86), value: settings)
         .animation(.spring(response: 0.3, dampingFraction: 0.86), value: store.authPresented)
-        .tint(pumpkin)
+        .tint(appearance.accent)
         .sheet(isPresented: $navigationMenuPresented, onDismiss: {
             guard let destination = pendingNavigation else { return }
             pendingNavigation = nil
@@ -580,17 +690,80 @@ struct NativeRoot: View {
             .environmentObject(store)
         }
         .sheet(item: $feature) { kind in
-            PremiumFeatureView(kind: kind).environmentObject(store)
+            PremiumFeatureView(kind: kind)
+                .environmentObject(store)
+                .nightwellEdgeBack { feature = nil }
         }
         .sheet(isPresented: $dailyPlaylistsPresented) {
-            DailyPublicPlaylistsScreen(store: store)
+            DailyPublicPlaylistsScreen(store: store, togetherSession: togetherSession)
+                .nightwellEdgeBack { dailyPlaylistsPresented = false }
         }
-        .sheet(isPresented: $profilePresented) {
+        .fullScreenCover(isPresented: $profilePresented) {
             NavigationStack {
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 10) {
                         ProfileSettingsView()
                             .environmentObject(store)
+                        if store.account != nil {
+                            Button {
+                                profileAccessPresented = true
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "person.2")
+                                    Text("Устройства и семья")
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                }
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 15)
+                                .padding(.vertical, 13)
+                                .frame(maxWidth: .infinity)
+                                .nightwellMonochromeGlass(radius: 19)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        if store.account != nil {
+                            Button {
+                                widgetSetupPresented = true
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "square.grid.2x2")
+                                    Text("Виджеты")
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                }
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 15)
+                                .padding(.vertical, 13)
+                                .frame(maxWidth: .infinity)
+                                .nightwellMonochromeGlass(radius: 19)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        if favoritePremium.hasVerifiedPremium(for: store.account?.id) {
+                            Button {
+                                // Validate again at tap time in case Premium has expired
+                                // while the profile remained on screen.
+                                guard favoritePremium.hasVerifiedPremium(for: store.account?.id) else { return }
+                                profileStatisticsPresented = true
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "chart.bar")
+                                    Text("Статистика")
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                }
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 15)
+                                .padding(.vertical, 13)
+                                .frame(maxWidth: .infinity)
+                                .nightwellMonochromeGlass(radius: 19)
+                            }
+                            .buttonStyle(.plain)
+                        }
                         if store.account != nil && favoritePremium.allowed {
                             Button {
                                 profilePremiumPresented = true
@@ -647,36 +820,75 @@ struct NativeRoot: View {
                     .padding(.top, 10)
                     .padding(.bottom, 16)
                 }
-                .background { NightwellMonochromeGlassBackground() }
-                .navigationTitle("Профиль")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button { profilePresented = false } label: {
-                            Text("Готово")
-                                .font(.system(size: 15, weight: .medium))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 17)
-                                .padding(.vertical, 9)
-                                .nightwellMonochromeGlass(radius: 22)
+                // Keep the full-screen profile title centred independently
+                // of the Done button. Native navigation bars truncate glass
+                // toolbar controls on narrow iPhones and iOS 27.
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    ZStack {
+                        Text("Профиль")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(.white)
+                        HStack {
+                            Spacer(minLength: 0)
+                            Button { profilePresented = false } label: {
+                                Text("Готово")
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 88, height: 44)
+                                    .nightwellMonochromeGlass(radius: 22)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Закрыть профиль")
                         }
-                        .buttonStyle(.plain)
                     }
+                    .frame(height:54)
+                    .padding(.horizontal,18)
+                    .padding(.vertical,7)
+                    .background(.black.opacity(0.16))
                 }
+                .background { NightwellMonochromeGlassBackground() }
+                .toolbar(.hidden, for: .navigationBar)
             }
             .preferredColorScheme(.dark)
+            .nightwellEdgeBack { profilePresented = false }
             .sheet(isPresented: $profilePremiumPresented, onDismiss: {
                 Task { await favoritePremium.refresh(store) }
-            }) { PremiumView(api: store.api) }
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
-            .presentationBackground(.clear)
+            }) {
+                PremiumView(api: store.api)
+                    .nightwellEdgeBack { profilePremiumPresented = false }
+            }
+            .sheet(isPresented: $profileStatisticsPresented) {
+                PremiumFeatureView(kind: .statistics).environmentObject(store)
+                    .nightwellEdgeBack { profileStatisticsPresented = false }
+            }
+            .fullScreenCover(isPresented: $profileAccessPresented) {
+                AccountAccessView(api: store.api, accountID: store.account?.id)
+                    .nightwellEdgeBack { profileAccessPresented = false }
+            }
+            .sheet(isPresented: $widgetSetupPresented) {
+                NWWidgetSetupView(api: store.api, initialCode: widgetIncomingCode)
+                    .environmentObject(store)
+                    .nightwellEdgeBack { widgetSetupPresented = false }
+            }
+        }
+        .fullScreenCover(isPresented: $accountAccessPresented) {
+            AccountAccessView(api: store.api, accountID: store.account?.id)
+                .nightwellEdgeBack { accountAccessPresented = false }
+        }
+        .sheet(isPresented: $widgetLinkSetupPresented) {
+            NWWidgetSetupView(api: store.api, initialCode: widgetIncomingCode)
+                .environmentObject(store)
+                .nightwellEdgeBack { widgetLinkSetupPresented = false }
         }
         .sheet(isPresented: $premiumPresented, onDismiss: {
             Task { await favoritePremium.refresh(store) }
-        }) { PremiumView(api: store.api) }
+        }) {
+            PremiumView(api: store.api)
+                .nightwellEdgeBack { premiumPresented = false }
+        }
         .sheet(isPresented: $togetherPresented) {
             NightwellTogetherSheet(session: togetherSession, store: store)
+                .nightwellEdgeBack { togetherPresented = false }
         }
     }
 
@@ -684,6 +896,18 @@ struct NativeRoot: View {
         navigationSheetsScene
         .overlay { if launching { MonochromeNightwellLaunch().transition(.opacity) } }
         .task { try? await Task.sleep(nanoseconds: reducedMotion ? 150_000_000 : 1_200_000_000); withAnimation(.easeOut(duration: 0.3)) { launching = false } }
+        // Show the new theme only once in expanded form per installation.
+        // The compact paintpalette remains until the user visits Themes.
+        .task {
+            guard !viceIntroAcknowledged, !viceIntroViewed else { return }
+            do { try await Task.sleep(nanoseconds: 8_000_000_000) }
+            catch { return }
+            guard !viceIntroAcknowledged else { return }
+            viceIntroViewed = true
+            withAnimation(reducedMotion ? nil : .spring(response: 0.45, dampingFraction: 0.82)) {
+                viceIntroCollapsed = true
+            }
+        }
         // Collapse the remote-playback banner once per remote session, not
         // once per Home visit. Switching tabs must never expand it again.
         // Only losing remote playback resets the banner for the next session.
@@ -719,20 +943,33 @@ struct NativeRoot: View {
             if ProcessInfo.processInfo.arguments.contains("--native-smoke-playlist") { selectedPlaylist = Playlist(id: "native-preview", name: "Твоя ночная подборка") }
             #endif
         }
-        .simultaneousGesture(DragGesture(minimumDistance: 24).onEnded { gesture in
-            let dx = gesture.translation.width
-            let dy = gesture.translation.height
-            if gesture.startLocation.x < 24 && dx > 90 && abs(dy) < 60 {
-                navigate(to: .home)
-            }
-        })
+        // Native-style leading-edge Back: interactive, reversible, and only
+        // on navigable screens. The full player owns horizontal track swipes.
+        .nightwellEdgeBack(enabled: canEdgeNavigateBack,
+                           excludedBottom: navigationLayout.showsTabs ? 152 : 88) {
+            returnFromEdge()
+        }
+        .onChange(of: appearance) { _, _ in
+            // Theme changes are published even when music is paused.
+            // All WidgetKit families get a refresh after server confirmation.
+            NWWidgetServerPublisher.shared.update(
+                track: store.clock.current,
+                playing: store.clock.playing,
+                account: store.account?.id, api: store.api,
+                origin: store.origin, force: true)
+            // Reload happens only after the server confirms the new theme.
+            // An earlier reload could render the previous palette and cause
+            // WidgetKit to coalesce the subsequent correct refresh.
+        }
         .onChange(of: store.screen) { oldScreen, newScreen in
             if isLibraryScreen && librarySession.lastVisited != newScreen { librarySession.remember(newScreen) }
             if oldScreen == .search { store.leaveSearch(); searchScrollCollapsed = false }
             if newScreen == .search { store.scheduleSearch() }
         }
         .onOpenURL { url in
-            if let code = NightwellTogetherSession.invitationCode(from: url.absoluteString, origin: store.origin) {
+            if openWidgetURL(url) {
+                // Widget navigation handled
+            } else if let code = NightwellTogetherSession.invitationCode(from: url.absoluteString, origin: store.origin) {
                 togetherPresented = true
                 Task { await togetherSession.join(code, store: store) }
             } else {
@@ -743,18 +980,47 @@ struct NativeRoot: View {
             if let url = activity.webpageURL { openSharedURL(url) }
         }
         .onChange(of: store.clock.id) { id in
+            // Fire immediately when the player changes tracks, rather than
+            // relying on the next periodic playback tick. If the app is still
+            // executing in the background, WidgetKit can receive a reload
+            // as soon as the server acknowledges this song.
+            NWWidgetServerPublisher.shared.update(
+                track: store.clock.current,
+                playing: store.clock.playing,
+                account: store.account?.id,
+                api: store.api,
+                origin: store.origin)
             if let expected = sharedLinkID, id.lowercased() == expected.lowercased() {
                 sharedLinkID = nil
                 fullPlayer = true
             }
         }
+        .onChange(of: store.clock.playing) { _, _ in
+            NWWidgetServerPublisher.shared.update(
+                track: store.clock.current,
+                playing: store.clock.playing,
+                account: store.account?.id,
+                api: store.api,
+                origin: store.origin)
+        }
         .fullScreenCover(isPresented: $fullPlayer) { FullPlayer(clock: store.clock).environmentObject(togetherSession) }
         .sheet(item: $selectedArtist) { artist in
-            ArtistProfileView(name: artist.name, togetherSession: togetherSession).environmentObject(store)
+            ArtistProfileView(name: artist.name, togetherSession: togetherSession)
+                .environmentObject(store)
+                .nightwellEdgeBack { selectedArtist = nil }
         }
-        
-        .sheet(isPresented: $transferPresented) { NightwellNativeTransfer().environmentObject(store) }
-        .sheet(isPresented: $showShare) { if let shareText { ShareSheet(items: [shareText]) } }
+
+        .sheet(isPresented: $transferPresented) {
+            NightwellNativeTransfer()
+                .environmentObject(store)
+                .nightwellEdgeBack { transferPresented = false }
+        }
+        .sheet(isPresented: $showShare) {
+            if let shareText {
+                ShareSheet(items: [shareText])
+                    .nightwellEdgeBack { showShare = false }
+            }
+        }
         .fileImporter(isPresented: $importFiles, allowedContentTypes: [.audio], allowsMultipleSelection: true) { result in
             if case let .success(urls) = result { Task { await store.importFiles(urls) } }
         }
@@ -765,8 +1031,8 @@ struct NativeRoot: View {
         switch action {
         case .screen(let screen): navigate(to: screen)
         case .backgroundOnly: backgroundOnly = true
-        case .statistics: feature = .statistics
         case .premium: premiumPresented = true
+        case .accountAccess: accountAccessPresented = true
         case .transfer: transferPresented = true
         case .settings: settings = true
         case .profile: profilePresented = true
@@ -777,6 +1043,42 @@ struct NativeRoot: View {
             if store.account == nil { store.authPresented = true }
             else { Task { await store.logout() } }
         }
+    }
+    private func openWidgetURL(_ url: URL) -> Bool {
+        guard url.scheme?.lowercased() == "nightwell",
+              url.host?.lowercased() == "open" else { return false }
+        switch url.path.lowercased() {
+        case "/home": navigate(to: .home)
+        case "/likes": navigate(to: .likes)
+        case "/search": navigate(to: .search)
+        case "/offline": navigate(to: .offline)
+        case "/widget-setup":
+            if let supplied = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "code" })?.value {
+                let challenge = supplied.uppercased().filter { $0.isHexDigit }
+                if challenge.count == 16 {
+                    widgetIncomingCode = stride(from: 0, to: 16, by: 4)
+                        .map { start in
+                            let from = challenge.index(challenge.startIndex, offsetBy: start)
+                            let to = challenge.index(from, offsetBy: 4)
+                            return String(challenge[from..<to])
+                        }.joined(separator: "-")
+                    // Copy for convenience, but the connection form is
+                    // already prefilled even if clipboard access is disabled.
+                    UIPasteboard.general.string = widgetIncomingCode
+                }
+            }
+            if profilePresented {
+                widgetSetupPresented = true
+            } else {
+                widgetLinkSetupPresented = true
+            }
+        case "/player":
+            if store.clock.current != nil { fullPlayer = true }
+            else { navigate(to: .home) }
+        default: return false
+        }
+        return true
     }
     private func openSharedURL(_ url: URL) {
         guard let id = DeepLink.trackID(from: url) else { return }
@@ -832,11 +1134,71 @@ struct NativeRoot: View {
         }
     }
 
-    private func navigate(to screen: MusicStore.Screen) {
+    private func navigationDepth(_ screen: MusicStore.Screen) -> Int {
+        switch screen {
+        case .home: return 0
+        case .search: return 1
+        case .library: return 2
+        case .likes, .playlists, .offline: return 3
+        }
+    }
+
+    private var screenChangeTransition: AnyTransition {
+        if reducedMotion { return .opacity }
+        return .asymmetric(
+            insertion: .opacity.combined(with: .offset(x: screenTransitionDirection * 26)),
+            removal: .opacity.combined(with: .offset(x: -screenTransitionDirection * 14))
+        )
+    }
+
+    private var canEdgeNavigateBack: Bool {
+        // Popup sheets and full-screen presentations handle their own Back
+        // gestures. Never steal a horizontal swipe from either music player.
+        guard !fullPlayer && !settings && !waveSettingsPresented &&
+              !supportPresented && !store.authPresented &&
+              selectedPlaylist == nil && !navigationMenuPresented &&
+              !profilePresented && !accountAccessPresented &&
+              !premiumPresented && !togetherPresented else { return false }
+        return backgroundOnly || store.screen != .home
+    }
+
+    private func returnFromEdge() {
+        if backgroundOnly {
+            backgroundOnly = false
+            return
+        }
+        if store.screen == .likes || store.screen == .playlists || store.screen == .offline {
+            navigate(to: .library, recordHistory: false)
+            return
+        }
+        // Back follows real navigation history, instead of always jumping
+        // straight to Home (the previous gesture did that from every tab).
+        while let last = screenBackHistory.popLast() {
+            if last != store.screen {
+                navigate(to: last, recordHistory: false)
+                return
+            }
+        }
+        if store.screen != .home { navigate(to: .home, recordHistory: false) }
+    }
+
+    private func navigate(to screen: MusicStore.Screen, recordHistory: Bool = true) {
         guard store.screen != screen else { return }
-        var transaction = Transaction(animation: nil)
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
+        if recordHistory {
+            if screenBackHistory.last == screen {
+                screenBackHistory.removeLast()
+            } else {
+                screenBackHistory.append(store.screen)
+                if screenBackHistory.count > 20 { screenBackHistory.removeFirst() }
+            }
+        }
+        let oldDepth = navigationDepth(store.screen)
+        let newDepth = navigationDepth(screen)
+        // Keep back navigation moving in the opposite direction. Avoid
+        // springing the entire layout and reinitialising large music lists.
+        screenTransitionDirection = newDepth < oldDepth ? -1 : 1
+        let animation: Animation? = reducedMotion ? nil : .easeInOut(duration: 0.23)
+        withTransaction(Transaction(animation: animation)) {
             if libraryScreens.contains(screen) { librarySession.remember(screen) }
             store.screen = screen
         }
@@ -861,6 +1223,9 @@ struct NativeRoot: View {
             }
             .accessibilityLabel("Настройки")
             Spacer()
+            if !viceIntroAcknowledged && (viceIntroViewed || viceIntroCollapsed || landscape) {
+                viceIntroCompactButton
+            }
             Button {
                 libraryMenuStartsAdditional = navigationLayout.showsTabs
                 navigationMenuPresented = true
@@ -924,6 +1289,8 @@ struct NativeRoot: View {
                 }
             }
             .foregroundStyle(.white.opacity(selected ? 1 : 0.46))
+            .scaleEffect(selected && !reducedMotion ? 1.055 : 1)
+            .animation(reducedMotion ? nil : .easeOut(duration: 0.2), value: selected)
             .frame(maxWidth: .infinity, minHeight: 44,
                    alignment: landscape ? .center : .bottom)
             .contentShape(Rectangle())
@@ -999,6 +1366,9 @@ struct NativeRoot: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Открыть меню навигации")
             }
+            if !viceIntroAcknowledged && (viceIntroViewed || viceIntroCollapsed || landscape) {
+                viceIntroCompactButton
+            }
             Button {
                 if store.account == nil { store.authPresented = true }
                 else { profilePresented = true }
@@ -1073,6 +1443,11 @@ struct NativeRoot: View {
                         .frostedGlass(22, bordered: false, intensity: 0.20)
                 }
                 .accessibilityLabel("Открыть меню навигации")
+            }
+            if !viceIntroAcknowledged &&
+                (viceIntroViewed || viceIntroCollapsed || landscape) &&
+                compactCollectionTitle == nil {
+                viceIntroCompactButton
             }
             // Hide the compact handoff button while a collection is scrolled.
             if store.hasRemotePlayback && (remoteHomeCollapsed || landscape) && compactCollectionTitle == nil {
@@ -1174,12 +1549,17 @@ struct NativeRoot: View {
     }
 
     private func content(bottomContentInset: CGFloat) -> some View {
-        // Inactive lists must release their layout, subscriptions and cover
-        // tasks. Keep only small scroll anchors, never three invisible trees.
-        screenContent(for: store.screen, bottomContentInset: bottomContentInset)
-            .id(store.screen)
-            .ignoresSafeArea(.container, edges: .bottom)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        // Animate the screen content only: the mini-player and tab bar stay
+        // in place, so audio and artwork updates never jolt the whole layout.
+        // Views from the outgoing screen are released after the brief fade.
+        ZStack(alignment: .top) {
+            screenContent(for: store.screen, bottomContentInset: bottomContentInset)
+                .id(store.screen)
+                .transition(screenChangeTransition)
+        }
+        .clipped()
+        .ignoresSafeArea(.container, edges: .bottom)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     @ViewBuilder private func screenContent(for screen: MusicStore.Screen, bottomContentInset: CGFloat) -> some View {
@@ -1200,11 +1580,76 @@ struct NativeRoot: View {
         case .likes:
             let tracks = favoriteTracks
             ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 18) {
                     collectionScrollMarker
-                    HStack(alignment: .center, spacing: 8) {
-                        collectionHeading("Избранное", tracks: tracks, kind: "likes")
-                        Spacer(minLength: 0)
+
+                    // Match the opened-playlist layout, but display the actual
+                    // gradient heart from the library instead of a cover mosaic.
+                    HStack(alignment: .center, spacing: 16) {
+                        NightwellFavoriteHeartArtwork(width: 104, height: 108)
+                            .frame(width: 126, height: 130)
+                            .accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Избранное")
+                                .font(.system(size: 28, weight: .bold, design: .rounded))
+                                .foregroundStyle(.white)
+                                .lineLimit(2)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityAddTraits(.isHeader)
+                            Text(favoritesCountLabel(store.likes.count))
+                                .font(.system(size: 17, weight: .medium))
+                                .foregroundStyle(.white.opacity(0.60))
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .padding(.top, 14)
+
+                    HStack(spacing: 10) {
+                        Button {
+                            guard let first = tracks.first else { return }
+                            store.play(first, in: tracks)
+                        } label: {
+                            Label("Слушать", systemImage: "play.fill")
+                                .font(.system(size: 15, weight: .semibold))
+                                .frame(maxWidth: .infinity, minHeight: 52)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.black)
+                        .background(
+                            appearance == .vice ? NightwellAppearance.gold : Color.white,
+                            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        )
+                        .disabled(tracks.isEmpty)
+                        .opacity(tracks.isEmpty ? 0.55 : 1)
+
+                        Button {
+                            Task { await store.rhythm(around: tracks) }
+                        } label: {
+                            Label("Твой ритм", systemImage: "waveform.path")
+                                .font(.system(size: 14, weight: .semibold))
+                                .frame(maxWidth: .infinity, minHeight: 52)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.white)
+                        .background(
+                            appearance == .vice ? NightwellAppearance.pink.opacity(0.28) : Color.white.opacity(0.10),
+                            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        )
+                        .disabled(tracks.isEmpty || store.loading)
+                        .opacity(tracks.isEmpty ? 0.55 : 1)
+                    }
+
+                    HStack(spacing: 6) {
+                        Text("ТРЕКИ")
+                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                            .tracking(1.5)
+                            .foregroundStyle(.white.opacity(0.74))
+                        Text("\(tracks.count)")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.46))
+                            .monospacedDigit()
+                            .padding(.leading, 4)
+                        Spacer()
                         Menu {
                             Button("Недавно добавленные", systemImage: favoriteSort == "recent" ? "checkmark" : "clock") {
                                 changeFavoriteSort("recent")
@@ -1218,13 +1663,42 @@ struct NativeRoot: View {
                         } label: {
                             Image(systemName: "arrow.up.arrow.down")
                                 .font(.system(size: 16))
-                                .frame(width: 44, height: 44)
+                                .frame(width: 42, height: 42)
+                                .contentShape(Rectangle())
                         }
                         .accessibilityLabel("Сортировка избранного")
+
+                        Menu {
+                            if !tracks.isEmpty && tracks.allSatisfy({ store.isDownloaded($0) }) {
+                                Button("Удалить загрузки", systemImage: "trash", role: .destructive) {
+                                    Task { for track in tracks { await store.removeDownload(track) } }
+                                }
+                            } else {
+                                Button("Скачать всё", systemImage: "arrow.down.to.line") {
+                                    Task { await store.download(tracks) }
+                                }
+                            }
+                            Button("Поделиться", systemImage: "square.and.arrow.up") {
+                                Task {
+                                    shareText = await store.share(kind: "likes", title: "Избранное", tracks: tracks)
+                                    showShare = shareText != nil
+                                }
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis")
+                                .font(.system(size: 18))
+                                .frame(width: 42, height: 42)
+                                .contentShape(Rectangle())
+                        }
+                        .accessibilityLabel("Действия с избранным")
                     }
+                    .foregroundStyle(.white.opacity(0.9))
+                    .padding(.top, 4)
+
                     TrackList(tracks: tracks, embedded: true)
                 }
                 .padding(.horizontal, 20)
+                .padding(.bottom, 12)
             }
             .coordinateSpace(name: "nightwell-library-scroll")
             .modifier(NightwellLibraryScrollTracker(collapsed: libraryScrollBinding(for: .likes)))
@@ -1292,6 +1766,9 @@ struct NativeRoot: View {
                                             .overlay {
                                                 RoundedRectangle(cornerRadius: 13, style: .continuous)
                                                     .strokeBorder(.white.opacity(0.12), lineWidth: 0.75)
+                                            }
+                                            .overlay {
+                                                PlaylistDownloadRing(playlistID: playlist.id)
                                             }
                                             .accessibilityHidden(true)
                                         Text(playlist.name)
@@ -1408,6 +1885,15 @@ struct NativeRoot: View {
             .scrollDismissesKeyboard(.interactively)
         }
     }
+    private func favoritesCountLabel(_ count: Int) -> String {
+        let word: String
+        if (11...14).contains(count % 100) { word = "треков" }
+        else if count % 10 == 1 { word = "трек" }
+        else if (2...4).contains(count % 10) { word = "трека" }
+        else { word = "треков" }
+        return "\(count) \(word)"
+    }
+
     private func collectionHeading(_ title: String, tracks: [Track], kind: String) -> some View {
         HStack { Text(title).font(.largeTitle.bold()); Spacer(); Menu {
             if !tracks.isEmpty && tracks.allSatisfy({ store.isDownloaded($0) }) {
@@ -1466,6 +1952,7 @@ struct TrackList: View {
     }
 }
 struct NativeTrackRow: View {
+    @Environment(\.nightwellAppearance) private var appearance
     @EnvironmentObject var store: MusicStore
     @EnvironmentObject private var togetherSession: NightwellTogetherSession
     let track: Track
@@ -1476,6 +1963,7 @@ struct NativeTrackRow: View {
     var libraryPreview = false
     @State private var selectedArtist: ArtistSelection?
     @State private var showArtistChoices = false
+    @State private var showPlaylistTrackActions = false
     var body: some View {
         HStack(spacing: 0) {
             // One large hit target so tapping the thumbnail, title, artist,
@@ -1497,6 +1985,7 @@ struct NativeTrackRow: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     if status.id == track.id {
                         PlayingIndicator(playing: status.playing)
+                            .foregroundStyle(appearance.progressTint)
                             .frame(width: 20, height: 20)
                     }
                 }
@@ -1507,6 +1996,15 @@ struct NativeTrackRow: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Воспроизвести " + track.title)
+            Group {
+                if playlist != nil {
+                    Button { showPlaylistTrackActions = true } label: {
+                        Image(systemName: "ellipsis")
+                            .frame(width: 44, height: libraryPreview ? 72 : 70)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                } else {
             Menu {
                 QueueTrackActions(track: track)
                 if togetherSession.joined {
@@ -1552,19 +2050,43 @@ struct NativeTrackRow: View {
                     .frame(width: 44, height: libraryPreview ? 72 : 70)
                     .contentShape(Rectangle())
             }
+
+                }
+            }
             .padding(.trailing, 5)
             .accessibilityLabel("Действия с треком " + track.title)
         }
         .padding(.horizontal, libraryPreview ? 8 : 0)
-        .background(status.id == track.id ? pumpkin.opacity(0.12) : libraryPreview ? .clear : .white.opacity(0.035),
-                    in: RoundedRectangle(cornerRadius: 18))
+        .background(
+            appearance == .vice
+                ? (status.id == track.id
+                    ? NightwellAppearance.pink.opacity(0.24)
+                    : (libraryPreview ? Color.clear
+                        : Color(red: 0.18, green: 0.075, blue: 0.28).opacity(0.78)))
+                : (status.id == track.id
+                    ? pumpkin.opacity(0.12)
+                    : (libraryPreview ? Color.clear : Color.white.opacity(0.035))),
+            in: RoundedRectangle(cornerRadius: 18)
+        )
+        .nightwellThemeChrome(18)
         .confirmationDialog("Выбери исполнителя", isPresented: $showArtistChoices, titleVisibility: .visible) {
             ForEach(ArtistNames.split(track.artist), id: \.self) { name in
                 Button(name) { selectedArtist = ArtistSelection(name: name) }
             }
         }
         .sheet(item: $selectedArtist) { artist in
-            ArtistProfileView(name: artist.name, togetherSession: togetherSession).environmentObject(store)
+            ArtistProfileView(name: artist.name, togetherSession: togetherSession)
+                .environmentObject(store)
+                .nightwellEdgeBack { selectedArtist = nil }
+        }
+        .sheet(isPresented: $showPlaylistTrackActions) {
+            if let playlist {
+                NightwellPlaylistTrackSheet(track: track, playlist: playlist) { artist in
+                    selectedArtist = ArtistSelection(name: artist)
+                }
+                .environmentObject(store)
+                .environmentObject(togetherSession)
+            }
         }
     }
 }
@@ -1651,6 +2173,7 @@ struct ArtistPortrait: View {
 }
 
 struct ArtistProfileView: View {
+    @Environment(\.nightwellAppearance) private var appearance
     @EnvironmentObject private var store: MusicStore
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -1757,14 +2280,15 @@ struct ArtistProfileView: View {
                 .padding(.bottom, 24)
             }
             .background {
-                LinearGradient(colors: [Color(red: 0.075, green: 0.065, blue: 0.105),
-                                        Color(white: 0.025), .black],
-                               startPoint: .topLeading, endPoint: .bottomTrailing)
-                    .ignoresSafeArea()
+                NightwellThemedBackground {
+                    LinearGradient(colors: [Color(red: 0.075, green: 0.065, blue: 0.105),
+                                            Color(white: 0.025), .black],
+                                   startPoint: .topLeading, endPoint: .bottomTrailing)
+                }.ignoresSafeArea()
             }
             .navigationTitle("Исполнитель")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(Color(white: 0.035), for: .navigationBar)
+            .toolbarBackground(appearance == .vice ? Color(red: 0.12, green: 0.055, blue: 0.19) : Color(white: 0.035), for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
@@ -1785,7 +2309,7 @@ struct ArtistProfileView: View {
         .environmentObject(togetherSession)
         .environment(\.nightwellBottomContentInset, 0)
         .preferredColorScheme(.dark)
-        .tint(.white)
+        .tint(appearance.accent)
         .task(id: "\(name)|\(reloadRevision)") {
             #if DEBUG
             if usesPreviewTracks { return }
@@ -1935,79 +2459,330 @@ struct PlayingIndicator: View {
         }.accessibilityLabel(playing ? "Сейчас играет" : "На паузе")
     }
 }
+// A thin, determinate download ring around the playlist artwork. Keep
+// the symbol visible and avoid decoding cached playlists on each byte update.
+private struct PlaylistDownloadRing: View {
+    @EnvironmentObject private var store: MusicStore
+    let playlistID: String
+    @State private var trackIDs: [String] = []
+
+    var body: some View {
+        Group {
+            if let fraction = store.playlistDownloadProgress(trackIDs: trackIDs) {
+                ZStack {
+                    Circle()
+                        .stroke(.white.opacity(0.20), lineWidth: 2)
+                    Circle()
+                        .trim(from: 0, to: fraction)
+                        .stroke(.white, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                }
+                .padding(3)
+                .animation(.easeOut(duration: 0.2), value: fraction)
+            }
+        }
+        .allowsHitTesting(false)
+        // Refresh cache only when jobs start or finish, not on every progress tick.
+        .task(id: store.pendingDownloadKeys) {
+            trackIDs = (store.cachedPlaylistTracks(playlistID) ?? []).map(\.id)
+        }
+    }
+}
+
 struct PlaylistScreen: View {
-    @EnvironmentObject var store: MusicStore
+    @Environment(\.nightwellAppearance) private var appearance
+    @EnvironmentObject private var store: MusicStore
     let close: () -> Void
     let playlist: Playlist
+    // Daily collections already contain their tracks in the daily feed.
+    // Opening them should use that snapshot instead of requesting a regular
+    // playlist URL, which does not exist until the collection is saved.
+    let previewTracks: [Track]?
     @State private var tracks: [Track] = []
-    @Environment(\.dismiss) private var dismiss
+    @State private var isLoading = false
+    @State private var loadFailed = false
+
+    init(close: @escaping () -> Void, playlist: Playlist, previewTracks: [Track]? = nil) {
+        self.close = close
+        self.playlist = playlist
+        self.previewTracks = previewTracks
+        self._tracks = State(initialValue: previewTracks ?? [])
+    }
+
+    private var allDownloaded: Bool {
+        !tracks.isEmpty && tracks.allSatisfy { store.isDownloaded($0) }
+    }
+
+    private var trackCountLabel: String {
+        let count = tracks.count
+        let word: String
+        if (11...14).contains(count % 100) { word = "треков" }
+        else if count % 10 == 1 { word = "трек" }
+        else if (2...4).contains(count % 10) { word = "трека" }
+        else { word = "треков" }
+        return "\(count) \(word)"
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text(playlist.name)
-                    .font(.title2.bold())
-                    .lineLimit(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Button { Task {
-                    if tracks.allSatisfy({ store.isDownloaded($0) }) {
-                        for track in tracks { await store.removeDownload(track) }
-                    } else { await store.download(tracks.filter { !store.isDownloaded($0) }) }
-                } } label: {
-                    Image(systemName: (!tracks.isEmpty && tracks.allSatisfy({ store.isDownloaded($0) })) ? "trash" : "arrow.down.to.line").frame(width: 42, height: 42).frostedGlass(20, bordered: false, intensity: 0.55)
-                }.accessibilityLabel(tracks.allSatisfy { store.isDownloaded($0) } ? "Удалить загрузку плейлиста" : "Скачать плейлист")
-                Menu {
-                    Button("Твой ритм по плейлисту", systemImage: "waveform.path") {
-                        let currentPlaylist = playlist
-                        close()
-                        Task { await store.rhythm(around: currentPlaylist) }
-                    }
-                } label: {
-                    Image(systemName: "ellipsis")
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Text("ПЛЕЙЛИСТ")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .tracking(2)
+                    .foregroundStyle(appearance == .vice
+                                     ? NightwellAppearance.cyan.opacity(0.88)
+                                     : .white.opacity(0.55))
+                Spacer()
+                Button { Task { await toggleDownloads() } } label: {
+                    Image(systemName: allDownloaded ? "checkmark.circle.fill" : "arrow.down.to.line")
+                        .font(.system(size: 17, weight: .medium))
                         .frame(width: 42, height: 42)
-                        .frostedGlass(20, bordered: false, intensity: 0.55)
+                        .background(appearance == .vice
+                                    ? NightwellAppearance.pink.opacity(0.24)
+                                    : Color.white.opacity(0.10), in: Circle())
                 }
-                .accessibilityLabel("Действия с плейлистом")
+                .buttonStyle(.plain)
+                .disabled(tracks.isEmpty)
+                .accessibilityLabel(allDownloaded ? "Удалить загрузки плейлиста" : "Скачать плейлист")
                 Button(action: close) {
-                    Image(systemName: "xmark").frame(width: 42, height: 42).frostedGlass(20, bordered: false, intensity: 0.55)
-                }.accessibilityLabel("Закрыть плейлист")
+                    Image(systemName: "xmark")
+                        .font(.system(size: 15, weight: .semibold))
+                        .frame(width: 42, height: 42)
+                        .background(appearance == .vice
+                                    ? NightwellAppearance.pink.opacity(0.24)
+                                    : Color.white.opacity(0.10), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Закрыть плейлист")
             }
-            .padding(.top, 18)
-            let activeFractions = tracks.compactMap { store.downloadProgress($0.id) }
-            if !activeFractions.isEmpty {
-                let fraction = activeFractions.reduce(0, +) / Double(activeFractions.count)
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("Скачивание · \\(Int(fraction * 100))%").font(.caption).foregroundStyle(.secondary)
-                    ProgressView(value: fraction).tint(pumpkin)
+            .padding(.horizontal, 21)
+            .padding(.top, 14)
+            .padding(.bottom, 13)
+
+            Rectangle()
+                .fill(.white.opacity(0.08))
+                .frame(height: 1)
+
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 18) {
+                    HStack(alignment: .center, spacing: 17) {
+                        playlistArtwork
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(playlist.name)
+                                .font(.system(size: 24, weight: .bold, design: .rounded))
+                                .lineLimit(3)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Text(trackCountLabel)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(.white.opacity(0.58))
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .padding(.top, 8)
+
+                    HStack(spacing: 10) {
+                        Button {
+                            guard let first = tracks.first else { return }
+                            store.play(first, in: tracks)
+                        } label: {
+                            Label("Слушать", systemImage: "play.fill")
+                                .font(.system(size: 15, weight: .semibold))
+                                .frame(maxWidth: .infinity, minHeight: 50)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Color.black)
+                        .background(
+                            appearance == .vice ? NightwellAppearance.gold : Color.white,
+                            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        )
+                        .disabled(tracks.isEmpty)
+                        .opacity(tracks.isEmpty ? 0.55 : 1)
+
+                        Button {
+                            let selected = playlist
+                            let dailyTracks = previewTracks
+                            close()
+                            if let dailyTracks {
+                                Task { await store.rhythm(around: dailyTracks) }
+                            } else {
+                                Task { await store.rhythm(around: selected) }
+                            }
+                        } label: {
+                            Label("Твой ритм", systemImage: "waveform.path")
+                                .font(.system(size: 14, weight: .semibold))
+                                .frame(maxWidth: .infinity, minHeight: 50)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.white)
+                        .background(
+                            appearance == .vice
+                                ? NightwellAppearance.pink.opacity(0.28)
+                                : Color.white.opacity(0.10),
+                            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        )
+                        .nightwellThemeChrome(18)
+                    }
+
+                    if let fraction = store.playlistDownloadProgress(tracks) {
+                        VStack(alignment: .leading, spacing: 7) {
+                            HStack {
+                                Text("Скачивание плейлиста")
+                                    .font(.system(size: 12, weight: .medium))
+                                Spacer()
+                                Text("\(Int(fraction * 100))%")
+                                    .monospacedDigit()
+                            }
+                            .foregroundStyle(.white.opacity(0.65))
+                            ProgressView(value: fraction)
+                                .tint(appearance.progressTint)
+                        }
+                        .padding(.horizontal, 4)
+                    }
+
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("ТРЕКИ")
+                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                            .tracking(1.5)
+                            .foregroundStyle(.white.opacity(0.74))
+                        Spacer()
+                        Text("\(tracks.count)")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.46))
+                            .monospacedDigit()
+                    }
+                    .padding(.horizontal, 4)
+                    .padding(.top, 3)
+
+                    if tracks.isEmpty {
+                        VStack(spacing: 12) {
+                            if isLoading {
+                                ProgressView()
+                                    .tint(.white)
+                                Text("Загружаем треки")
+                            } else {
+                                Image(systemName: loadFailed ? "wifi.exclamationmark" : "music.note.list")
+                                    .font(.system(size: 26))
+                                Text(loadFailed ? "Не удалось загрузить треки" : "В плейлисте пока нет треков")
+                                if loadFailed {
+                                    Button("Попробовать ещё") {
+                                        Task { await refreshPlaylist() }
+                                    }
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                }
+                            }
+                        }
+                        .font(.system(size: 13))
+                        .foregroundStyle(.white.opacity(0.60))
+                        .frame(maxWidth: .infinity, minHeight: 130)
+                    } else {
+                        TrackList(tracks: tracks, playlist: previewTracks == nil ? playlist : nil, embedded: true)
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .padding(.horizontal, 18)
+                .padding(.bottom, 30)
+            }
+            .scrollDismissesKeyboard(.interactively)
+        }
+        .foregroundStyle(.white)
+        .tint(appearance.progressTint)
+        .background {
+            // The theme must be drawn inside the playlist, above the popup's
+            // dark glass layer, rather than behind it.
+            NightwellThemedBackground {
+                Color(white: 0.065)
+            }
+            .ignoresSafeArea()
+        }
+        .task(id: playlist.id) { await refreshPlaylist() }
+    }
+
+    private var playlistArtwork: some View {
+        Group {
+            if tracks.count >= 2 {
+                LazyVGrid(
+                    columns: [GridItem(.flexible(), spacing: 2), GridItem(.flexible(), spacing: 2)],
+                    spacing: 2
+                ) {
+                    ForEach(0..<4, id: \.self) { index in
+                        Group {
+                            if tracks.indices.contains(index) {
+                                Cover(track: tracks[index], origin: store.origin, pixelWidth: 224)
+                            } else {
+                                Rectangle().fill(.white.opacity(0.08))
+                            }
+                        }
+                        .frame(width: 57, height: 57)
+                        .clipped()
+                    }
+                }
+            } else if let first = tracks.first {
+                Cover(track: first, origin: store.origin, pixelWidth: 300)
+            } else {
+                ZStack {
+                    LinearGradient(
+                        colors: [Color(white: 0.24), Color(white: 0.08)],
+                        startPoint: .topLeading, endPoint: .bottomTrailing
+                    )
+                    Image(systemName: "music.note.list")
+                        .font(.system(size: 38, weight: .light))
+                        .foregroundStyle(.white.opacity(0.8))
                 }
             }
-            Text("Треки плейлиста · \\(tracks.count)")
-                .font(.caption).foregroundStyle(.secondary)
-            TrackList(tracks: tracks, playlist: playlist)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .clipped()
         }
-        .padding(.horizontal, 18)
-        .padding(.bottom, 16)
-        .tint(pumpkin)
-        .task {
-            #if DEBUG
-            if ProcessInfo.processInfo.arguments.contains("--native-smoke-playlist") {
-                tracks = [Track(id: "preview-one", title: "Музыка этой ночи", artist: "Nightwell Music"), Track(id: "preview-two", title: "Твой тёмный ритм", artist: "Nightwell Music")]
-                return
-            }
-            #endif
-            // Render the device copy first, then refresh asynchronously.
-            // A slow network must never leave an already-visited playlist empty.
-            let cached = store.cachedPlaylistTracks(playlist.id)
-            if let cached { tracks = cached }
-            do {
-                let fresh = try await store.playlistTracks(playlist.id)
-                guard !Task.isCancelled else { return }
-                tracks = fresh
-            } catch {
-                if cached == nil { store.error = error.localizedDescription }
-            }
+        .frame(width: 116, height: 116)
+        .clipShape(RoundedRectangle(cornerRadius: 23, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 23, style: .continuous)
+                .strokeBorder(.white.opacity(0.18), lineWidth: 0.7)
         }
+        .shadow(color: .black.opacity(0.28), radius: 16, y: 8)
+        .accessibilityHidden(true)
+    }
+
+    private func toggleDownloads() async {
+        guard !tracks.isEmpty else { return }
+        if allDownloaded {
+            for track in tracks { await store.removeDownload(track) }
+        } else {
+            await store.download(tracks.filter { !store.isDownloaded($0) })
+        }
+    }
+
+    private func refreshPlaylist() async {
+        if let previewTracks {
+            // The daily playlist is a read-only snapshot, not a stored user
+            // playlist. Never try /api/playlists/<daily-id>/tracks here.
+            tracks = previewTracks
+            isLoading = false
+            loadFailed = false
+            return
+        }
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--native-smoke-playlist") {
+            tracks = [
+                Track(id: "preview-one", title: "Музыка этой ночи", artist: "Nightwell Music"),
+                Track(id: "preview-two", title: "Твой тёмный ритм", artist: "Nightwell Music")
+            ]
+            return
+        }
+        #endif
+        // Show the device snapshot immediately; networking must not blank it.
+        let cached = store.cachedPlaylistTracks(playlist.id)
+        if let cached { tracks = cached }
+        isLoading = cached == nil
+        loadFailed = false
+        do {
+            let fresh = try await store.playlistTracks(playlist.id)
+            guard !Task.isCancelled else { return }
+            tracks = fresh
+        } catch {
+            guard !Task.isCancelled else { return }
+            loadFailed = cached == nil
+            if cached == nil { store.error = error.localizedDescription }
+        }
+        isLoading = false
     }
 }
 struct ShareSheet: UIViewControllerRepresentable {
@@ -2019,6 +2794,7 @@ struct ShareSheet: UIViewControllerRepresentable {
 
 
 struct NightwellNativeTransfer: View {
+    @Environment(\.nightwellAppearance) private var appearance
     @EnvironmentObject private var store: MusicStore
     @Environment(\.dismiss) private var dismiss
     @State private var showingFile = false
@@ -2206,7 +2982,11 @@ struct NightwellNativeTransfer: View {
 
                 }.padding(20)
             }
-            .background(Color(red: 0.045, green: 0.045, blue: 0.052))
+            .background {
+                NightwellThemedBackground { Color(red: 0.045, green: 0.045, blue: 0.052) }
+                    .ignoresSafeArea()
+            }
+            .tint(appearance.accent)
              .task { await refreshHistory() }
              .onDisappear { transferTask?.cancel() }
             .navigationTitle("Перенос")
@@ -2488,10 +3268,12 @@ private struct NightwellImportFilePicker: UIViewControllerRepresentable {
 
 
 private struct MonochromeNightwellLaunch: View {
+    @Environment(\.nightwellAppearance) private var appearance
     var body: some View {
         ZStack {
-            LinearGradient(colors: [Color(white: 0.085), .black], startPoint: .top, endPoint: .bottom)
-                .ignoresSafeArea()
+            NightwellThemedBackground {
+                LinearGradient(colors: [Color(white: 0.085), .black], startPoint: .top, endPoint: .bottom)
+            }.ignoresSafeArea()
             GeometryReader { geometry in
                 Canvas { context, size in
                     let w = size.width, h = size.height
@@ -2514,6 +3296,7 @@ private struct MonochromeNightwellLaunch: View {
                 .blur(radius: 20)
                 .allowsHitTesting(false)
             }
+            .opacity(appearance == .vice ? 0 : 1)
             VStack(spacing: 14) {
                 Text("N")
                     .font(.system(size: 92, weight: .black, design: .rounded))

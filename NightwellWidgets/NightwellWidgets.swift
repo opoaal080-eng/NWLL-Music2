@@ -1,0 +1,659 @@
+
+import SwiftUI
+import WidgetKit
+import AppIntents
+import Security
+import CryptoKit
+
+private struct NWEntry: TimelineEntry {
+    let date: Date
+    let snapshot: NWWidgetState
+    let cover: Data?
+    let theme: String
+    init(date: Date, snapshot: NWWidgetState, cover: Data?, theme: String = "standard") {
+        self.date = date
+        self.snapshot = snapshot
+        self.cover = cover
+        self.theme = theme
+    }
+}
+private struct NWProvider: TimelineProvider {
+    func placeholder(in context: Context) -> NWEntry {
+        NWEntry(date: .now, snapshot: NWWidgetState(trackID: "preview",
+            title: "Пульс ночи", artist: "Nightwell Music",
+            playing: true, coverID: nil, updated: .now), cover: nil)
+    }
+    func getSnapshot(in context: Context, completion: @escaping (NWEntry) -> Void) {
+        completion(context.isPreview ? placeholder(in: context) : current())
+    }
+    func getTimeline(in context: Context, completion: @escaping (Timeline<NWEntry>) -> Void) {
+        // WidgetKit may delay refreshes, but request a reasonable fallback
+        // when the app cannot actively notify the extension.
+        completion(Timeline(entries: [current()], policy: .after(Date().addingTimeInterval(300))))
+    }
+    private func current() -> NWEntry {
+        let data = NWWidgetStorage.read()
+        return NWEntry(date: .now, snapshot: data, cover: NWWidgetStorage.cover(for: data))
+    }
+}
+// Unlike App Group storage, widget pairing works even when the installed
+// app and extension cannot share a container. A single-use code is exchanged
+// for a revocable, high-entropy token kept only by the widget extension.
+struct NWPairWidgetIntent: WidgetConfigurationIntent {
+    static var title: LocalizedStringResource = "Nightwell Music"
+    static var description = IntentDescription("Введи код из Профиль → Виджеты.")
+
+    @Parameter(title: "Код привязки", default: "")
+    var code: String
+}
+
+private enum NWPairTokenKeychain {
+    private static let service = "fun.nightwell.music.widget.pairing.v1"
+    private static func account(_ code: String) -> String {
+        SHA256.hash(data: Data(code.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+    private static func query(_ code: String) -> [String: Any] {
+        [kSecClass as String: kSecClassGenericPassword,
+         kSecAttrService as String: service,
+         kSecAttrAccount as String: account(code)]
+    }
+    // The extension has its own sandbox even without an App Group. Use a
+    // protected, backup-excluded file ONLY if private Keychain storage fails.
+    private static func privateFile(_ code: String) throws -> URL {
+        var directory = try FileManager.default.url(
+            for: .applicationSupportDirectory, in: .userDomainMask,
+            appropriateFor: nil, create: true
+        ).appendingPathComponent("NightwellWidgetPairing", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
+            attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication])
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try directory.setResourceValues(values)
+        return directory.appendingPathComponent(account(code), isDirectory: false)
+    }
+
+    static func read(_ code: String) -> String? {
+        var query = query(code)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: CFTypeRef?
+        if SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+           let bytes = result as? Data, let token = String(data: bytes, encoding: .utf8) {
+            return token
+        }
+        guard let file = try? privateFile(code),
+              let bytes = try? Data(contentsOf: file) else { return nil }
+        return String(data: bytes, encoding: .utf8)
+    }
+    static func store(_ token: String, for code: String) -> Bool {
+        var item = query(code)
+        SecItemDelete(item as CFDictionary)
+        let bytes = Data(token.utf8)
+        item[kSecValueData as String] = bytes
+        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        if SecItemAdd(item as CFDictionary, nil) == errSecSuccess {
+            if let file = try? privateFile(code) { try? FileManager.default.removeItem(at: file) }
+            return true
+        }
+        do {
+            let file = try privateFile(code)
+            try bytes.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            return true
+        } catch {
+            return false
+        }
+    }
+    static func remove(_ code: String) {
+        SecItemDelete(query(code) as CFDictionary)
+        if let file = try? privateFile(code) { try? FileManager.default.removeItem(at: file) }
+    }
+}
+
+private struct NWPairResponse: Decodable { let token: String }
+private struct NWRemoteState: Decodable {
+    let track_id: String
+    let title: String
+    let artist: String
+    let playing: Bool
+    let has_cover: Bool
+    let theme: String?
+}
+
+private enum NWWidgetRemote {
+    private static let origin = URL(string: "https://music.nightwell.fun")!
+    private static let session: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 12
+        config.httpShouldSetCookies = false
+        config.urlCache = nil
+        return URLSession(configuration: config)
+    }()
+    static func load(code: String) async -> NWEntry {
+        let direct = NWWidgetConfiguration.accessToken(code)
+        let normalized = code.uppercased().filter { $0.isHexDigit }
+        guard direct != nil || normalized.count == 16 else {
+            return message("Нет ключа", "Открой настройки виджета")
+        }
+        var token = direct ?? NWPairTokenKeychain.read(normalized)
+        do {
+            if token == nil {
+                var request = URLRequest(url: origin.appendingPathComponent("api/widgets/pair"))
+                request.httpMethod = "POST"
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.httpBody = try JSONSerialization.data(withJSONObject: ["code": normalized])
+                let (data, response) = try await session.data(for: request)
+                guard let http = response as? HTTPURLResponse else {
+                    return message("Нет соединения", "Сервер пока недоступен")
+                }
+                if http.statusCode == 404 {
+                    return message("Нужен серверный модуль", "Виджеты ещё не включены на сервере")
+                }
+                guard http.statusCode == 200,
+                      let result = try? JSONDecoder().decode(NWPairResponse.self, from: data) else {
+                    if http.statusCode == 401 || http.statusCode == 400 {
+                        return message("Код истёк", "Создай новый код в профиле")
+                    }
+                    return message("Ошибка подключения", "Проверь сервер и повтори попытку")
+                }
+                guard NWPairTokenKeychain.store(result.token, for: normalized) else {
+                    return message("Ошибка сохранения", "Не удалось сохранить ключ виджета")
+                }
+                token = result.token
+            }
+
+            guard let token else { return message("Ошибка привязки", "Повтори попытку") }
+            var request = URLRequest(url: origin.appendingPathComponent("api/widgets/state"))
+            if direct != nil {
+                // Never send a widget-only key as an account bearer token.
+                // The host server might reject it as an invalid JWT.
+                request.setValue(token, forHTTPHeaderField: "X-Nightwell-Widget-Token")
+            } else {
+                request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
+            }
+            request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                return message("Нет соединения", "Повтори позже")
+            }
+            if http.statusCode == 401 {
+                if direct == nil { NWPairTokenKeychain.remove(normalized) }
+                return message("Ключ отозван", "Создай новый ключ в профиле")
+            }
+            guard http.statusCode == 200 else {
+                return message("Ошибка сервера", "HTTP \(http.statusCode)")
+            }
+            guard let model = try? JSONDecoder().decode(NWRemoteState.self, from: data) else {
+                return message("Ошибка ответа", "Неверный формат данных")
+            }
+
+            guard !model.track_id.isEmpty else {
+                return message("Нет текущего трека", "Открой Nightwell и включи музыку")
+            }
+            let state = NWWidgetState(trackID: model.track_id,
+                                     title: model.title.isEmpty ? "Твой ритм" : model.title,
+                                     artist: model.artist.isEmpty ? "Nightwell Music" : model.artist,
+                                     playing: model.playing,
+                                     coverID: model.has_cover ? model.track_id : nil,
+                                     updated: .now)
+            var cover: Data?
+            if model.has_cover {
+                var coverRequest = URLRequest(url: origin.appendingPathComponent("api/widgets/cover"))
+                if direct != nil {
+                    coverRequest.setValue(token, forHTTPHeaderField: "X-Nightwell-Widget-Token")
+                } else {
+                    coverRequest.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
+                }
+                if let (bytes, imageResponse) = try? await session.data(for: coverRequest),
+                   (imageResponse as? HTTPURLResponse)?.statusCode == 200,
+                   bytes.count < 240_000, UIImage(data: bytes) != nil {
+                    cover = bytes
+                }
+            }
+            return NWEntry(date: .now, snapshot: state, cover: cover,
+                           theme: model.theme == "vice" ? "vice" : "standard")
+        } catch {
+            return message("Нет соединения", "Последняя музыка появится после обновления")
+        }
+    }
+
+    static func message(_ title: String, _ subtitle: String) -> NWEntry {
+        NWEntry(date: .now, snapshot: NWWidgetState(trackID: "", title: title,
+                artist: subtitle, playing: false, coverID: nil, updated: .now), cover: nil)
+    }
+}
+
+// A configured live snapshot and a timeline share one network operation.
+// Gallery previews never exchange a pairing code.
+private actor NWWidgetLoadCoordinator {
+    static let shared = NWWidgetLoadCoordinator()
+    private var pending: [String: Task<NWEntry, Never>] = [:]
+
+    func load(_ code: String) async -> NWEntry {
+        if let task = pending[code] { return await task.value }
+        let task = Task { await NWWidgetRemote.load(code: code) }
+        pending[code] = task
+        let entry = await task.value
+        pending[code] = nil
+        return entry
+    }
+}
+
+private struct NWRemoteProvider: AppIntentTimelineProvider {
+    private func setupEntry() -> NWEntry {
+        // If the signed installation does support App Groups, the widget
+        // can show a genuine local track even without a server pairing code.
+        if NWWidgetStorage.isAvailable {
+            let state = NWWidgetStorage.read()
+            if !state.trackID.isEmpty {
+                return NWEntry(date: .now, snapshot: state,
+                               cover: NWWidgetStorage.cover(for: state))
+            }
+        }
+        return NWWidgetRemote.message("Подключить виджет", "Нажми для получения кода")
+    }
+
+    func placeholder(in context: Context) -> NWEntry {
+        // iOS can keep placeholders on a real home screen. Make the
+        // placeholder actionable as well; never show an apparent song.
+        setupEntry()
+    }
+    func snapshot(for configuration: NWPairWidgetIntent, in context: Context) async -> NWEntry {
+        if context.isPreview { return setupEntry() }
+        let code = configuration.code.uppercased().filter { $0.isHexDigit }
+        guard code.count == 16 else { return setupEntry() }
+        // A live snapshot must contain the actual server response. The
+        // coordinator serializes pairing with simultaneous timeline loads.
+        return await NWWidgetLoadCoordinator.shared.load(code)
+    }
+    func timeline(for configuration: NWPairWidgetIntent, in context: Context) async -> Timeline<NWEntry> {
+        let code = configuration.code.uppercased().filter { $0.isHexDigit }
+        let entry: NWEntry
+        if context.isPreview {
+            entry = placeholder(in: context)
+        } else if code.count != 16 {
+            entry = setupEntry()
+        } else {
+            entry = await NWWidgetLoadCoordinator.shared.load(code)
+        }
+        return Timeline(entries: [entry], policy: .after(Date().addingTimeInterval(300)))
+    }
+}
+
+private struct NWDirectProvider: AppIntentTimelineProvider {
+    func placeholder(in context: Context) -> NWEntry {
+        NWWidgetRemote.message("Nightwell Music", "Настрой виджет")
+    }
+    private func current(_ config: NWNowPlayingConfigurationV2) async -> NWEntry {
+        guard let key = config.accessKey, !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return NWWidgetRemote.message("Нет ключа", "Зажми виджет → Изменить")
+        }
+        guard NWWidgetConfiguration.accessToken(key) != nil else {
+            return NWWidgetRemote.message("Неверный ключ", "Вставь полный ключ NW2")
+        }
+        return await NWWidgetLoadCoordinator.shared.load(key)
+    }
+    func snapshot(for configuration: NWNowPlayingConfigurationV2, in context: Context) async -> NWEntry {
+        if context.isPreview { return placeholder(in: context) }
+        return await current(configuration)
+    }
+    func timeline(for configuration: NWNowPlayingConfigurationV2, in context: Context) async -> Timeline<NWEntry> {
+        let entry = await current(configuration)
+        return Timeline(entries: [entry], policy: .after(Date().addingTimeInterval(300)))
+    }
+}
+
+// Static configuration avoids the system's serialization of AppIntent
+// parameters entirely. The widget owns its credential, not the host app.
+private actor NWReversePairing {
+    static let shared = NWReversePairing()
+    private let storageID = "nw-widget-device-v3"
+    private var running: Task<NWEntry, Never>?
+
+    func current() async -> NWEntry {
+        if let running { return await running.value }
+        let job = Task { await self.fetch() }
+        running = job
+        let entry = await job.value
+        running = nil
+        return entry
+    }
+
+    private func fetch() async -> NWEntry {
+        let token: String
+        if let existing = NWPairTokenKeychain.read(storageID), existing.count == 43 {
+            token = existing
+        } else {
+            var bytes = [UInt8](repeating: 0, count: 32)
+            let result = bytes.withUnsafeMutableBytes { buffer in
+                SecRandomCopyBytes(kSecRandomDefault, 32, buffer.baseAddress!)
+            }
+            guard result == errSecSuccess else {
+                return NWWidgetRemote.message("Ошибка ключа", "Не удалось создать ключ")
+            }
+            token = Data(bytes).base64EncodedString()
+                .replacingOccurrences(of: "+", with: "-")
+                .replacingOccurrences(of: "/", with: "_")
+                .replacingOccurrences(of: "=", with: "")
+            guard NWPairTokenKeychain.store(token, for: storageID) else {
+                return NWWidgetRemote.message("Нет хранилища", "iOS не сохранила ключ")
+            }
+        }
+
+        struct Registration: Decodable {
+            let paired: Bool
+            let code: String?
+        }
+        let endpoint = URL(string: "https://music.nightwell.fun/api/widgets/device/register")!
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 10
+        // Registration is anonymous by design. A regular Authorization
+        // header gets rejected by the host JWT middleware before FastAPI.
+        request.setValue(token, forHTTPHeaderField: "X-Nightwell-Widget-Token")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data("{}".utf8)
+        let config = URLSessionConfiguration.ephemeral
+        config.httpShouldSetCookies = false
+        config.urlCache = nil
+        let session = URLSession(configuration: config)
+        defer { session.finishTasksAndInvalidate() }
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                return NWWidgetRemote.message("Нет ответа", "Проверь соединение")
+            }
+            if http.statusCode == 404 {
+                return NWWidgetRemote.message("Обнови сервер", "Нужен модуль виджетов V3.1")
+            }
+            if http.statusCode == 401 || http.statusCode == 403 {
+                return NWWidgetRemote.message("Блокировка API", "HTTP \(http.statusCode). Проверь входной прокси")
+            }
+            guard http.statusCode == 200 else {
+                return NWWidgetRemote.message("Ошибка сервера", "HTTP \(http.statusCode)")
+            }
+            let registration = try JSONDecoder().decode(Registration.self, from: data)
+            if registration.paired {
+                return await NWWidgetRemote.load(code: "NW2." + token)
+            }
+            guard let code = registration.code else {
+                return NWWidgetRemote.message("Нет кода", "Сервер не выдал код")
+            }
+            // The displayed code is not a bearer secret. Tapping the widget
+            // opens the app; enter this code in the authenticated profile.
+            return NWWidgetRemote.message("Подключить виджет", code)
+        } catch {
+            return NWWidgetRemote.message("Нет соединения", "Повтори обновление")
+        }
+    }
+}
+
+private struct NWReverseProvider: TimelineProvider {
+    func placeholder(in context: Context) -> NWEntry {
+        NWWidgetRemote.message("Nightwell Music", "Подключение через профиль")
+    }
+    func getSnapshot(in context: Context, completion: @escaping (NWEntry) -> Void) {
+        if context.isPreview {
+            completion(placeholder(in: context))
+        } else {
+            Task { completion(await NWReversePairing.shared.current()) }
+        }
+    }
+    func getTimeline(in context: Context, completion: @escaping (Timeline<NWEntry>) -> Void) {
+        Task {
+            let entry = await NWReversePairing.shared.current()
+            // WidgetKit may defer scheduled refreshes, but ask for a shorter
+            // fallback while music plays. App-initiated reloads are primary.
+            let interval: TimeInterval = entry.snapshot.playing ? 60 :
+                (entry.snapshot.title == "Подключить виджет" ? 120 : 300)
+            completion(Timeline(entries: [entry], policy: .after(Date().addingTimeInterval(interval))))
+        }
+    }
+}
+
+private struct NightwellWidgetSurface: View {
+    var theme = "standard"
+    var body: some View {
+        GeometryReader { geometry in
+            let extent = max(geometry.size.width, geometry.size.height)
+            ZStack {
+                if theme == "vice" {
+                    LinearGradient(colors: [
+                        Color(red: 0.055, green: 0.035, blue: 0.135),
+                        Color(red: 0.18, green: 0.068, blue: 0.24),
+                        Color(red: 0.025, green: 0.03, blue: 0.075)
+                    ], startPoint: .topLeading, endPoint: .bottomTrailing)
+                    RadialGradient(colors: [
+                        Color(red: 0.96, green: 0.28, blue: 0.58).opacity(0.37), .clear
+                    ], center: .topTrailing, startRadius: 0, endRadius: extent * 1.15)
+                    RadialGradient(colors: [
+                        Color(red: 0.25, green: 0.68, blue: 0.84).opacity(0.16), .clear
+                    ], center: .bottomLeading, startRadius: 0, endRadius: extent * 0.85)
+                } else {
+                    LinearGradient(
+                        colors: [Color(white: 0.16), Color(white: 0.065),
+                                 Color(white: 0.025)],
+                        startPoint: .topLeading, endPoint: .bottomTrailing
+                    )
+                }
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+        }
+    }
+}
+
+private struct NWArtwork: View {
+    let data: Data?
+    var theme = "standard"
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                if let data, let image = UIImage(data: data) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .clipped()
+                } else {
+                    LinearGradient(
+                        colors: theme == "vice"
+                            ? [Color(red: 0.25, green: 0.21, blue: 0.52),
+                               Color(red: 0.77, green: 0.26, blue: 0.54),
+                               Color(red: 0.16, green: 0.12, blue: 0.32)]
+                            : [Color(white: 0.25), Color(white: 0.14),
+                               Color(white: 0.07)],
+                        startPoint: .topLeading, endPoint: .bottomTrailing
+                    )
+                    Circle()
+                        .fill(Color(red: 1.0, green: 0.67, blue: 0.59).opacity(0.40))
+                        .frame(width: geometry.size.width * 0.5)
+                        .blur(radius: geometry.size.width * 0.08)
+                        .offset(x: geometry.size.width * 0.16,
+                                y: -geometry.size.height * 0.16)
+                    Text("N")
+                        .font(.system(size: min(geometry.size.width * 0.52, 56),
+                                      weight: .black, design: .rounded))
+                        .shadow(color: .black.opacity(0.3), radius: 9)
+                }
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+            .clipped()
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+    }
+}
+
+private struct NWPlayerWidgetView: View {
+    @Environment(\.widgetFamily) private var family
+    let entry: NWEntry
+    private var destination: URL? {
+        // WidgetKit does not share the app's clipboard or memory. Carry only
+        // the short-lived, non-secret enrollment challenge in the deep link.
+        if entry.snapshot.title == "Подключить виджет",
+           entry.snapshot.trackID.isEmpty {
+            let code = entry.snapshot.artist.uppercased().filter { $0.isHexDigit }
+            if code.count == 16 {
+                return URL(string: "nightwell://open/widget-setup?code=" + code)
+            }
+        }
+        return URL(string: entry.snapshot.trackID.isEmpty
+                   ? "nightwell://open/widget-setup"
+                   : "nightwell://open/player")
+    }
+
+    @ViewBuilder var body: some View {
+        // Public setup / loading text can be shown immediately. Genuine
+        // listening history retains the system's privacy redaction.
+        if entry.snapshot.trackID.isEmpty {
+            playerContent.unredacted()
+        } else {
+            playerContent
+        }
+    }
+
+    private var playerContent: some View {
+        Group {
+            switch family {
+            case .accessoryCircular:
+                ZStack {
+                    Circle().stroke(.white.opacity(0.5), lineWidth: 1.5)
+                    Text("N").font(.system(size: 25, weight: .black, design: .rounded))
+                }.padding(3)
+            case .accessoryRectangular:
+                HStack(spacing: 7) {
+                    Image(systemName: entry.snapshot.playing ? "waveform" : "music.note")
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(entry.snapshot.title)
+                            .font(.caption.weight(.bold)).lineLimit(1)
+                        Text(entry.snapshot.artist).font(.caption2).lineLimit(1)
+                    }
+                }
+            case .systemMedium:
+                HStack(spacing: 14) {
+                    NWArtwork(data: entry.cover, theme: entry.theme).frame(width: 115, height: 115)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("NIGHTWELL MUSIC")
+                            .font(.system(size: 10, weight: .bold)).tracking(1.1)
+                            .foregroundStyle(.white.opacity(0.55))
+                        Spacer(minLength: 1)
+                        Text(entry.snapshot.title).font(.system(size: entry.snapshot.trackID.isEmpty ? 16 : 19, weight: .bold)).lineLimit(2).minimumScaleFactor(0.75)
+                        Text(entry.snapshot.artist)
+                            .font(entry.snapshot.title == "Подключить виджет"
+                                  ? .system(size: 13, weight: .semibold, design: .monospaced) : .subheadline)
+                            .lineLimit(entry.snapshot.trackID.isEmpty ? 3 : 1)
+                            .minimumScaleFactor(0.8)
+                            .foregroundStyle(.white.opacity(0.65))
+                        Spacer(minLength: 1)
+                        Image(systemName: entry.snapshot.trackID.isEmpty ? "music.note" :
+                          (entry.snapshot.playing ? "waveform" : "pause.fill"))
+                            .foregroundStyle(.white.opacity(0.7))
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                }.padding(16)
+            case .systemLarge:
+                VStack(alignment: .leading, spacing: 11) {
+                    Text("NIGHTWELL").font(.system(size: 15, weight: .black)).tracking(2)
+                    GeometryReader { proxy in
+                        NWArtwork(data: entry.cover, theme: entry.theme)
+                            .frame(width: proxy.size.width, height: proxy.size.height)
+                    }
+                    Text(entry.snapshot.title).font(.title3.bold()).lineLimit(1)
+                    Text(entry.snapshot.artist).font(.subheadline)
+                        .lineLimit(entry.snapshot.title == "Подключить виджет" ? 3 : 1)
+                        .foregroundStyle(.white.opacity(0.65))
+                }.padding(18)
+            default:
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("N").font(.system(size: 18, weight: .black, design: .rounded))
+                    Spacer(minLength: 0)
+                    NWArtwork(data: entry.cover, theme: entry.theme).frame(width: 58, height: 58)
+                    Text(entry.snapshot.title).font(.system(size: 14, weight: .bold)).lineLimit(2)
+                    Text(entry.snapshot.artist).font(.system(size: 11))
+                        .lineLimit(entry.snapshot.title == "Подключить виджет" ? 3 : 1)
+                        .minimumScaleFactor(0.8)
+                        .foregroundStyle(.white.opacity(0.65))
+                }.padding(15)
+            }
+        }
+        .foregroundStyle(.white)
+        .containerBackground(for: .widget) { NightwellWidgetSurface(theme: entry.theme) }
+        .widgetURL(destination)
+    }
+}
+
+private struct NWShortcut: View {
+    let label: String
+    let symbol: String
+    let destination: String
+    var body: some View {
+        Link(destination: URL(string: "nightwell://open/" + destination)!) {
+            HStack(spacing: 7) {
+                Image(systemName: symbol).frame(width: 16)
+                Text(label).font(.system(size: 12, weight: .semibold))
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right").font(.system(size: 9))
+            }
+            .padding(10).background(.white.opacity(0.09), in: RoundedRectangle(cornerRadius: 12))
+        }
+        .foregroundStyle(.white)
+    }
+}
+private struct NWQuickWidgetView: View {
+    @Environment(\.widgetFamily) private var family
+    let entry: NWEntry
+    var body: some View {
+        Group {
+            if family == .systemSmall {
+                VStack(alignment: .leading, spacing: 9) {
+                    Text("N").font(.system(size: 38, weight: .black, design: .rounded))
+                    Spacer()
+                    Text("Твой ритм").font(.headline)
+                    Text("Открыть Nightwell Music")
+                        .font(.caption2).foregroundStyle(.white.opacity(0.6))
+                }.padding(15).widgetURL(URL(string: "nightwell://open/home"))
+            } else {
+                VStack(alignment: .leading, spacing: 11) {
+                    Text("NIGHTWELL").font(.system(size: 14, weight: .black)).tracking(1.5)
+                    HStack(spacing: 8) {
+                        VStack(spacing: 8) {
+                            NWShortcut(label: "Избранное", symbol: "heart.fill", destination: "likes")
+                            NWShortcut(label: "Поиск", symbol: "magnifyingglass", destination: "search")
+                        }
+                        VStack(spacing: 8) {
+                            NWShortcut(label: "Твой ритм", symbol: "waveform", destination: "home")
+                            NWShortcut(label: "Офлайн", symbol: "arrow.down.circle", destination: "offline")
+                        }
+                    }
+                }.padding(15)
+            }
+        }
+        .foregroundStyle(.white)
+        .containerBackground(for: .widget) { NightwellWidgetSurface(theme: entry.theme) }
+        .unredacted()
+    }
+}
+private struct NWNowPlaying: Widget {
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: NWWidgetConfiguration.kind, provider: NWReverseProvider()) { entry in
+            NWPlayerWidgetView(entry: entry)
+        }
+        .configurationDisplayName("Сейчас играет")
+        .description("Текущий трек и обложка. Введи код с виджета в Профиль → Виджеты.")
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge,
+                            .accessoryCircular, .accessoryRectangular])
+    }
+}
+private struct NWQuickAccess: Widget {
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: "nightwell.quickaccess", provider: NWReverseProvider()) { entry in
+            NWQuickWidgetView(entry: entry)
+        }
+        .configurationDisplayName("Быстрый доступ")
+        .description("Поиск, избранное, офлайн и главный экран.")
+        .supportedFamilies([.systemSmall, .systemMedium])
+    }
+}
+@main struct NightwellWidgets: WidgetBundle {
+    var body: some Widget {
+        NWNowPlaying()
+        NWQuickAccess()
+    }
+}

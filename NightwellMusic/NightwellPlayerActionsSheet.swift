@@ -16,6 +16,7 @@ struct NightwellPlayerActionSnapshot: Identifiable {
 }
 
 struct NightwellPlayerActionsOverlay: View {
+    @Environment(\.nightwellAppearance) private var appearance
     let snapshot: NightwellPlayerActionSnapshot
     let onClose: () -> Void
     let onEqualizer: () -> Void
@@ -176,14 +177,18 @@ struct NightwellPlayerActionsOverlay: View {
                 }
                 .frame(maxWidth: .infinity)
                 .frame(maxHeight: min(proxy.size.height * 0.82, 630))
-                .background(Color(white: 0.10), in: RoundedRectangle(cornerRadius: 26))
+                .background {
+                    NightwellThemedBackground { Color(white: 0.10) }
+                        .clipShape(RoundedRectangle(cornerRadius: 26))
+                }
+                .nightwellThemeChrome(26)
                 .padding(.horizontal, 8)
                 .padding(.bottom, 4)
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
         .ignoresSafeArea(edges: .bottom)
-        .tint(.white)
+        .tint(appearance.accent)
     }
 
     private var qualityChoices: [(title: String, value: String)] {

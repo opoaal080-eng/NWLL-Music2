@@ -235,6 +235,7 @@ private struct TogetherRoomResponse: Decodable {
 }
 
 struct NightwellTogetherSheet: View {
+    @Environment(\.nightwellAppearance) private var appearance
     @ObservedObject var session: NightwellTogetherSession
     @ObservedObject var store: MusicStore
     @Environment(\.dismiss) private var dismiss
@@ -385,9 +386,10 @@ struct NightwellTogetherSheet: View {
                 .padding(20)
             }
             .background {
-                LinearGradient(colors: [Color(white: 0.13), Color(white: 0.03), .black],
-                               startPoint: .topLeading, endPoint: .bottomTrailing)
-                    .ignoresSafeArea()
+                NightwellThemedBackground {
+                    LinearGradient(colors: [Color(white: 0.13), Color(white: 0.03), .black],
+                                   startPoint: .topLeading, endPoint: .bottomTrailing)
+                }.ignoresSafeArea()
             }
             .navigationTitle("Слушать вместе")
             .navigationBarTitleDisplayMode(.inline)
@@ -406,6 +408,7 @@ struct NightwellTogetherSheet: View {
             }
         }
         .preferredColorScheme(.dark)
+        .tint(appearance.accent)
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
     }

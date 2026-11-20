@@ -188,6 +188,7 @@ actor MusicAPI: LyricsService {
     let origin: URL
     private let session: URLSession
     private var csrf = ""
+    private var deviceToken = ""
     init(origin: URL) {
         self.origin = origin
         let config = URLSessionConfiguration.default
@@ -198,12 +199,45 @@ actor MusicAPI: LyricsService {
         session = URLSession(configuration: config)
     }
     func setCSRF(_ value: String?) { csrf = value ?? "" }
+    func clearDeviceSession() { deviceToken = "" }
+
+    func bindDevice(account: String) async throws {
+        deviceToken = ""
+        let saved = try AccountDeviceVault.read(origin: origin, account: account)
+        var parameters: [String: Any] = [
+            "platform": "ios",
+            "name": NightwellClientDevice.label,
+            "device_id": NightwellClientDevice.id
+        ]
+        if let saved {
+            parameters["device_id"] = saved.device_id
+            parameters["device_token"] = saved.device_token
+            deviceToken = saved.device_token
+        }
+        do {
+            let response: DeviceRegistration = try await request("/api/devices/register",
+                                                             method: "POST", body: parameters, timeout: 12)
+            guard response.ok else { throw APIError(message: "Сервер не подтвердил устройство.") }
+            if let identifier = response.device_id, let secret = response.device_token {
+                let credential = AccountDeviceCredential(device_id: identifier, device_token: secret)
+                try AccountDeviceVault.save(credential, origin: origin, account: account)
+                deviceToken = secret
+            } else {
+                // The legacy device module responds with {"ok":true} only.
+                deviceToken = ""
+            }
+        } catch let error as RequestRetry.HTTPFailure where error.status == 404 {
+            // Servers without a device module still accept ordinary requests.
+            deviceToken = ""
+        }
+    }
     func request<T: Decodable>(_ path: String, method: String = "GET", body: [String: Any]? = nil, timeout: TimeInterval? = nil) async throws -> T {
         guard let url = URL(string: path, relativeTo: origin), url.host == origin.host, url.scheme == "https" else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue(NightwellClientDevice.id, forHTTPHeaderField: "X-NW-Device-ID")
         request.setValue("ios", forHTTPHeaderField: "X-NW-Device-Platform")
+        if !deviceToken.isEmpty { request.setValue(deviceToken, forHTTPHeaderField: "X-NW-Device-Token") }
         if method == "GET", url.path == "/api/tracks", url.query != nil {
             request.cachePolicy = .reloadIgnoringLocalCacheData
             request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
@@ -229,7 +263,9 @@ actor MusicAPI: LyricsService {
     }
     func downloadSupportAttachment(ticketID: String, attachmentID: String) async throws -> URL {
         guard let url = URL(string: "api/support/tickets/" + ticketID + "/attachments/" + attachmentID, relativeTo: origin) else { throw URLError(.badURL) }
-        let (data, response) = try await session.data(from: url)
+        var request = URLRequest(url: url)
+        if !deviceToken.isEmpty { request.setValue(deviceToken, forHTTPHeaderField: "X-NW-Device-Token") }
+        let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw APIError(message: "Не удалось открыть вложение")
         }
@@ -250,6 +286,7 @@ actor MusicAPI: LyricsService {
         request.httpMethod = "POST"
         request.setValue(NightwellClientDevice.id, forHTTPHeaderField: "X-NW-Device-ID")
         request.setValue("ios", forHTTPHeaderField: "X-NW-Device-Platform")
+        if !deviceToken.isEmpty { request.setValue(deviceToken, forHTTPHeaderField: "X-NW-Device-Token") }
         request.setValue(csrf, forHTTPHeaderField: "X-CSRF-Token")
         request.setValue("multipart/form-data; boundary=" + boundary, forHTTPHeaderField: "Content-Type")
         request.httpBody = body
@@ -263,6 +300,7 @@ actor MusicAPI: LyricsService {
     func export(_ id: String) async throws -> Data {
         let url = URL(string: "api/offline-export/" + id + "?download=true&wait=true", relativeTo: origin)!
         var request = URLRequest(url: url); request.timeoutInterval = 300
+        if !deviceToken.isEmpty { request.setValue(deviceToken, forHTTPHeaderField: "X-NW-Device-Token") }
         request.setValue(NightwellClientDevice.id, forHTTPHeaderField: "X-NW-Device-ID")
         request.setValue("ios", forHTTPHeaderField: "X-NW-Device-Platform")
         let (file, response) = try await session.download(for: request)

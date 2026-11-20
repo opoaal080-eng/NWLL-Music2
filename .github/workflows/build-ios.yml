@@ -5,6 +5,8 @@ on:
     branches: [main, feature/windows-mobile-parity-20261106, fix/ios-clip-cache-retry-20261111, fix/clip-unlimited-device-cache-20261111 , feature/search-glow-android-suggestions-ios-20261112]
     paths:
       - 'NightwellMusic/**'
+      - 'NightwellWidgets/**'
+      - 'NightwellWidgetShared/**'
       - 'source/NightwellMusic/**'
       - 'NativeTests/**'
       - 'project.yml'
@@ -12,11 +14,14 @@ on:
       - 'scripts/test-*.swift'
       - 'scripts/fixtures/**'
       - 'scripts/make-neutral-app-icon.py'
+      - 'scripts/prepare-vice-palms.py'
       - '.github/workflows/build-ios.yml'
   push:
-    branches: [main, feature/windows-mobile-parity-20261106, fix/ios-clip-cache-retry-20261111, fix/clip-unlimited-device-cache-20261111, feature/search-glow-android-suggestions-ios-20261112, fix/ios-search-transfer-regressions-20261112, feature/account-devices-2-free-5-premium-20261114]
+    branches: [main, feature/windows-mobile-parity-20261106, fix/ios-clip-cache-retry-20261111, fix/clip-unlimited-device-cache-20261111, feature/search-glow-android-suggestions-ios-20261112, fix/ios-search-transfer-regressions-20261112, feature/account-devices-2-free-5-premium-20261114, fix/ios-latest-account-family-20261116]
     paths:
       - 'NightwellMusic/**'
+      - 'NightwellWidgets/**'
+      - 'NightwellWidgetShared/**'
       - 'source/NightwellMusic/**'
       - 'NativeTests/**'
       - 'project.yml'
@@ -24,18 +29,22 @@ on:
       - 'scripts/test-*.swift'
       - 'scripts/fixtures/**'
       - 'scripts/make-neutral-app-icon.py'
+      - 'scripts/prepare-vice-palms.py'
       - '.github/workflows/build-ios.yml'
 concurrency:
-  # Old PR checks must not consume emulator/macOS runners after source updates.
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # Isolate the current iOS 27 build queue from a superseded macOS job
+  # whose cancellation remains stuck in GitHub's previous group.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-ios27-nowplaying-primary
   cancel-in-progress: true
 
 permissions:
   contents: read
 jobs:
   ios:
-    # Use the current Intel image that successfully provisions for this account.
-    runs-on: macos-26-intel
+    # The new NowPlaying MediaSession API requires the iOS 27 SDK.
+    # Xcode 27 is available on the dedicated arm64 hosted runner, not on
+    # the macos-26-intel runner used for the legacy regression tests.
+    runs-on: xcode-27
     steps:
       - uses: actions/checkout@v4
       - name: Install XcodeGen
@@ -55,8 +64,18 @@ jobs:
           subprocess.run(['sudo', 'xcode-select', '-s', developer], check=True)
           print('Selected Xcode', version)
           PYCODE
+      - name: Verify iOS 27 NowPlaying SDK
+        run: |
+          xcodebuild -version
+          SDK_PATH="$(xcrun --sdk iphoneos --show-sdk-path)"
+          printf 'import NowPlaying\n' | xcrun swiftc -sdk "$SDK_PATH" -target arm64-apple-ios27.0 -typecheck -
       - name: Generate neutral app icon
         run: python3 scripts/make-neutral-app-icon.py --platform ios
+      - name: Prepare animated Vice Nights palm layers
+        run: |
+          python3 -m venv .vice-venv
+          .vice-venv/bin/python -m pip install --quiet numpy opencv-python-headless
+          .vice-venv/bin/python scripts/prepare-vice-palms.py --platform ios
       - name: Generate project
         run: |
           sed -i '' "s/SOURCE_COMMIT/$GITHUB_SHA/" project.yml
@@ -65,6 +84,7 @@ jobs:
         run: |
           xcodebuild -project NightwellMusic.xcodeproj -scheme NightwellMusic -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build-device CURRENT_PROJECT_VERSION=$((400 + GITHUB_RUN_NUMBER)) CODE_SIGNING_ALLOWED=NO build
           test -s build-device/Build/Products/Release-iphoneos/NightwellMusic.app/Assets.car
+          test -s build-device/Build/Products/Release-iphoneos/NightwellMusic.app/PlugIns/NightwellWidgets.appex/NightwellWidgets
           # Never restore old compiled assets: they carry the Halloween launcher icon.
           test -s NightwellMusic/Assets.xcassets/AppIcon.appiconset/Icon.png
           mkdir -p output/Payload
@@ -112,7 +132,7 @@ jobs:
           print(phones[0]['udid'])
           PYCODE
           )"
-          xcodebuild -project NightwellMusic.xcodeproj -scheme NightwellMusic -configuration Debug -destination "platform=iOS Simulator,id=$NIGHTWELL_SIMULATOR_ID" -derivedDataPath build-presentation -resultBundlePath artist-presentation.xcresult -only-testing:NightwellMusicTests/ArtistProfilePresentationTests -only-testing:NightwellMusicTests/SearchPresentationTests -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO test
+          xcodebuild -project NightwellMusic.xcodeproj -scheme NightwellMusic -configuration Debug -destination "platform=iOS Simulator,id=$NIGHTWELL_SIMULATOR_ID" -derivedDataPath build-presentation -resultBundlePath artist-presentation.xcresult -only-testing:NightwellMusicTests/ArtistProfilePresentationTests -only-testing:NightwellMusicTests/SearchPresentationTests -only-testing:NightwellMusicTests/AudioStreamPrefetchTests -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO test
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

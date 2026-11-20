@@ -26,6 +26,31 @@ final class NativePlayer {
     private var nextAsset: AVURLAsset?
     private var nextAssetID: String?
     private var nextAssetWarmup: Task<Void, Never>?
+    private var warmupGeneration = UUID()
+    private struct VerifiedNextAudio {
+        let asset: AVURLAsset
+        let requestIdentity: Int
+        let checkedAt: TimeInterval
+    }
+    private var verifiedNextAudio: VerifiedNextAudio?
+
+    private func streamRequestIdentity(track: NativeTrack, url: URL, origin: URL) -> Int {
+        var hash = Hasher()
+        hash.combine(track.id); hash.combine(track.offlineAccount)
+        hash.combine(offlineAccount)
+        hash.combine(url.absoluteString); hash.combine(origin.absoluteString)
+        for cookie in cookies.sorted(by: { $0.name < $1.name }) {
+            hash.combine(cookie.name); hash.combine(cookie.domain)
+            hash.combine(cookie.path); hash.combine(cookie.value)
+        }
+        return hash.finalize()
+    }
+
+    private func invalidateNextAudioWarmup() {
+        warmupGeneration = UUID()
+        nextAssetWarmup?.cancel(); nextAssetWarmup = nil
+        nextAsset = nil; nextAssetID = nil; verifiedNextAudio = nil
+    }
 
     // Only one AVPlayer owns decoding. Preparing the next AVURLAsset
     // asynchronously leaves the current song audible without creating a
@@ -139,15 +164,22 @@ final class NativePlayer {
         let ticket = pendingNextGeneration
         let asset = nextAssetID == track.id && nextAsset?.url == url
             ? nextAsset! : AVURLAsset(url: url, options: [AVURLAssetHTTPCookiesKey: cookies])
+        let identity = streamRequestIdentity(track: track, url: url, origin: origin)
+        let trustWarm = verifiedNextAudio.map {
+            $0.asset === asset && $0.requestIdentity == identity &&
+            AudioStreamPrefetch.isFresh($0.checkedAt)
+        } ?? false
+        let requestCookies = cookies
         error = ""
         beginBackgroundHandoff()
         pendingNextTask = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                // Read a small amount of stream data before handoff, not
-                // just an AVURLAsset metadata flag. Run both checks together.
+                // Real audio bytes for the SAME URL/account, verified recently,
+                // permit skipping the extra HTTP check. Metadata alone does not.
                 async let playable = asset.load(.isPlayable)
-                async let responding = self.hasFirstStreamBytes(url, origin: origin)
+                async let responding = self.hasFirstStreamBytes(
+                    url, origin: origin, cookies: requestCookies, reusable: trustWarm)
                 let (isPlayable, hasBytes) = try await (playable, responding)
                 guard !Task.isCancelled,
                       self.pendingNextGeneration == ticket,
@@ -171,28 +203,11 @@ final class NativePlayer {
         publish()
     }
 
-    // A bounded HTTP read checks that the stream endpoint actually responds
-    // with bytes. HLS manifests are accepted; this is not a second decoder.
-    private func hasFirstStreamBytes(_ url: URL, origin: URL) async -> Bool {
-        if url.isFileURL || !ServerAddress.sameOrigin(origin, url) { return true }
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 8
-        request.allHTTPHeaderFields = HTTPCookie.requestHeaderFields(with: cookies)
-        request.setValue("bytes=0-2047", forHTTPHeaderField: "Range")
-        do {
-            let (stream, response) = try await URLSession.shared.bytes(for: request)
-            guard let http = response as? HTTPURLResponse,
-                  (200..<300).contains(http.statusCode) else { return false }
-            var received = 0
-            for try await _ in stream {
-                if Task.isCancelled { return false }
-                received += 1
-                if received >= 512 { break }
-            }
-            return received > 0
-        } catch {
-            return false
-        }
+    private func hasFirstStreamBytes(_ url: URL, origin: URL,
+                                     cookies: [HTTPCookie], reusable: Bool) async -> Bool {
+        if reusable { return true }
+        // HLS playlist alone is available but never accepted as cached audio.
+        return await AudioStreamPrefetch.check(url, origin: origin, cookies: cookies).available
     }
 
     private func handleNextFailure(ticket: UUID, reason: String) {
@@ -315,6 +330,12 @@ final class NativePlayer {
     }
     private(set) var queueRevision = 0
     private var appIsActive = UIApplication.shared.applicationState == .active
+    private var usesNowPlaying27: Bool {
+        #if canImport(NowPlaying)
+        if #available(iOS 27.0, *) { return true }
+        #endif
+        return false
+    }
     private var offlineAccount = ""
     private var index = 0
     private var cookies: [HTTPCookie] = []
@@ -363,6 +384,9 @@ final class NativePlayer {
     private var waveWaiting = false
     private var waveTimer: Timer?
     private var itemObservation: NSKeyValueObservation?
+    // Visualizer audio taps are optional work: attaching before the first
+    // samples can delay a fresh AVPlayerItem on slower networks.
+    private var meterActivation: DispatchWorkItem?
     private var playbackStatusObservation: NSKeyValueObservation?
     private var endObserver: NSObjectProtocol?
     private var failureObserver: NSObjectProtocol?
@@ -396,7 +420,16 @@ final class NativePlayer {
     var startupDiagnostics: String {
         let ready = readyAfterSeconds.map { String(format: "%.2f с", $0) } ?? "…"
         let sound = audibleAfterSeconds.map { String(format: "%.2f с", $0) } ?? "…"
-        return "Подготовка: \(ready) · Звук: \(sound) · Остановки: \(streamStalls)"
+        let audio = "Подготовка: \(ready) · Звук: \(sound) · Остановки: \(streamStalls)"
+        #if canImport(NowPlaying)
+        if #available(iOS 27.0, *) {
+            let nowPlaying = MainActor.assumeIsolated {
+                NightwellNowPlayingBridge27.shared.diagnostics
+            }
+            return audio + " | " + nowPlaying
+        }
+        #endif
+        return audio + " | MediaPlayer"
     }
     private var fadeObserver: Any?
     private var baseVolume: Float = 1
@@ -434,7 +467,14 @@ final class NativePlayer {
                     if self.current?.offline != true, let item = player.currentItem {
                         item.preferredForwardBufferDuration = self.streamBufferSeconds
                     }
+                    if let item = player.currentItem {
+                        self.scheduleLiveMeterActivation(for: item)
+                    }
+                    // Full-file remote EQ export must not compete with the
+                    // first audible samples of a newly selected stream.
+                    self.prepareEqualizerPlayback()
                     self.endBackgroundHandoff()
+                    self.prewarmNextAsset()
                     if !self.waitingForReady {
                         // A playable next item resets the bounded failure chain.
                         self.unavailableIDs.removeAll()
@@ -463,47 +503,68 @@ final class NativePlayer {
         }
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification,
             object: nil, queue: .main) { [weak self] _ in
-                self?.appIsActive = true; self?.endBackgroundHandoff()
-                if self?.callInterruptionEnded == true { self?.attemptCallResume() }
-                self?.refreshIndependentMeter(); self?.publish()
+                guard let self else { return }
+                self.appIsActive = true
+                self.endBackgroundHandoff()
+                if self.callInterruptionEnded { self.attemptCallResume() }
+                self.refreshIndependentMeter()
+                // Never remove Now Playing on foreground entry. iOS owns the
+                // Dynamic Island's presentation; the lock screen, Control
+                // Center and connected accessories need the same media session.
+                self.publish()
             })
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.willResignActiveNotification,
             object: nil, queue: .main) { [weak self] _ in
-                self?.appIsActive = false; self?.updateFade(); self?.independentMeter.cancel(keepingEnvelope: true); self?.publish()
+                self?.appIsActive = false
+                self?.updateFade()
+                self?.independentMeter.cancel(keepingEnvelope: true)
+                self?.publish()
+            })
+        observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification,
+            object: nil, queue: .main) { [weak self] _ in
+                // Refresh playback position on background transition without
+                // recreating or withdrawing the system media session.
+                self?.publish()
             })
         fadeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.04, preferredTimescale: 600), queue: .main) { [weak self] _ in
             guard let self, self.transitionSeconds > 0, self.wantsPlay,
                   self.appIsActive else { return }
             self.updateFade()
         }
-        // The AVPlayer is intentionally paused when the local EQ engine owns
-        // playback. An AVPlayer-backed MPNowPlayingSession would therefore
-        // advertise Pause (rate=0) even while the EQ engine is audible.
-        let center = remoteCommands
-        center.skipForwardCommand.isEnabled = false
-        center.skipBackwardCommand.isEnabled = false
-        center.seekForwardCommand.isEnabled = false
-        center.seekBackwardCommand.isEnabled = false
-        center.playCommand.addTarget { [weak self] _ in
-            DispatchQueue.main.async { self?.play() }
-            return .success
-        }
-        center.pauseCommand.addTarget { [weak self] _ in
-            DispatchQueue.main.async { self?.pause() }
-            return .success
-        }
-        center.togglePlayPauseCommand.addTarget { [weak self] _ in
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.wantsPlay ? self.pause() : self.play()
+        if usesNowPlaying27 {
+            // Avoid two competing Now Playing publishers/command handlers.
+            // iOS 27 is handled by NightwellNowPlayingBridge27.
+            nowPlayingCenter.nowPlayingInfo = nil
+        } else {
+            // The AVPlayer is intentionally paused when the local EQ engine owns
+            // playback. An AVPlayer-backed MPNowPlayingSession would therefore
+            // advertise Pause (rate=0) even while the EQ engine is audible.
+            let center = remoteCommands
+            center.skipForwardCommand.isEnabled = false
+            center.skipBackwardCommand.isEnabled = false
+            center.seekForwardCommand.isEnabled = false
+            center.seekBackwardCommand.isEnabled = false
+            center.playCommand.addTarget { [weak self] _ in
+                DispatchQueue.main.async { self?.play() }
+                return .success
             }
-            return .success
-        }
-        center.nextTrackCommand.addTarget { [weak self] _ in DispatchQueue.main.async { self?.step(1) }; return .success }
-        center.previousTrackCommand.addTarget { [weak self] _ in DispatchQueue.main.async { self?.step(-1) }; return .success }
-        center.changePlaybackPositionCommand.addTarget { [weak self] event in
-            guard let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
-            DispatchQueue.main.async { self?.seek(event.positionTime) }; return .success
+            center.pauseCommand.addTarget { [weak self] _ in
+                DispatchQueue.main.async { self?.pause() }
+                return .success
+            }
+            center.togglePlayPauseCommand.addTarget { [weak self] _ in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    self.wantsPlay ? self.pause() : self.play()
+                }
+                return .success
+            }
+            center.nextTrackCommand.addTarget { [weak self] _ in DispatchQueue.main.async { self?.step(1) }; return .success }
+            center.previousTrackCommand.addTarget { [weak self] _ in DispatchQueue.main.async { self?.step(-1) }; return .success }
+            center.changePlaybackPositionCommand.addTarget { [weak self] event in
+                guard let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
+                DispatchQueue.main.async { self?.seek(event.positionTime) }; return .success
+            }
         }
         observers.append(NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification,
             object: nil, queue: .main) { [weak self] note in self?.interruption(note) })
@@ -535,6 +596,7 @@ final class NativePlayer {
         guard let raw = data["queue"] as? [[String: Any]], let selected = data["id"] as? String else { return }
         let queue = raw.prefix(1000).compactMap { nativeTrack(from: $0) }
         cancelPendingNext()
+        invalidateNextAudioWarmup()
         directForwardTrackID = nil
         unavailableIDs.removeAll()
         attemptedTrackID = ""; attemptedTrackLoads = 0
@@ -548,6 +610,18 @@ final class NativePlayer {
             let domain = cookie.domain.trimmingCharacters(in: CharacterSet(charactersIn: ".")).lowercased()
             let host = origin.host?.lowercased() ?? ""
             return (host == domain || host.hasSuffix("." + domain)) && (cookie.expiresDate ?? .distantFuture) > Date()
+        }
+        // iOS AVPlayer cannot attach custom headers reliably. The Nightwell server
+        // supports the same device credential as a scoped in-memory HTTP cookie.
+        // Never save this cookie in the global cookie jar or send it to an outside host.
+        if self.offlineAccount != "device",
+           let credential = try? AccountDeviceVault.read(origin: origin, account: self.offlineAccount),
+           let tokenCookie = HTTPCookie(properties: [
+                .domain: origin.host ?? "", .path: "/", .name: "nw_device_token",
+                .value: credential.device_token, .secure: "TRUE"
+           ]) {
+            self.cookies.removeAll(where: { $0.name == "nw_device_token" })
+            self.cookies.append(tokenCookie)
         }
         let nextWave = data["wave"] as? Bool ?? false
         if !waveActive || !nextWave || previousOrigin != origin { waveSeen = [] }
@@ -610,35 +684,64 @@ final class NativePlayer {
     }
 
     private func prewarmNextAsset() {
-        guard !shuffle, !waveWaiting, index + 1 < tracks.count, let origin else {
-            nextAssetWarmup?.cancel(); nextAssetWarmup = nil
-            nextAsset = nil; nextAssetID = nil; return
+        // Respect the user's explicit "play next" queue; never guess a
+        // shuffle destination or prefetch an unrelated stream.
+        let destination = nextQueuedIndex ?? (!shuffle && index + 1 < tracks.count ? index + 1 : nil)
+        guard let destination, tracks.indices.contains(destination),
+              !waveWaiting, let origin else {
+            invalidateNextAudioWarmup()
+            return
         }
-        let next = tracks[index + 1]
-        guard nextAssetID != next.id else { return }
-        nextAssetWarmup?.cancel(); nextAssetWarmup = nil
+        let next = tracks[destination]
         let saved = OfflineStore.audio(origin: origin,
             account: next.offlineAccount.isEmpty ? offlineAccount : next.offlineAccount, id: next.id)
         guard !next.offline || saved != nil,
-              let url = saved ?? URL(string: streamPath(for: next), relativeTo: origin)?.absoluteURL else { return }
-        let asset = AVURLAsset(url: url, options: [AVURLAssetHTTPCookiesKey: cookies])
-        nextAsset = asset; nextAssetID = next.id
-        // Offline files are already on disk; analyse one upcoming track at low priority.
-        // Streaming tracks stay on the live tap path to avoid duplicate downloads.
+              let url = saved ?? URL(string: streamPath(for: next), relativeTo: origin)?.absoluteURL else {
+            invalidateNextAudioWarmup()
+            return
+        }
+        if nextAssetID != next.id || nextAsset?.url != url {
+            invalidateNextAudioWarmup()
+            nextAsset = AVURLAsset(url: url, options: [AVURLAssetHTTPCookiesKey: cookies])
+            nextAssetID = next.id
+        }
+        guard let asset = nextAsset else { return }
+        let requestIdentity = streamRequestIdentity(track: next, url: url, origin: origin)
+        if let proof = verifiedNextAudio, proof.asset === asset,
+           proof.requestIdentity == requestIdentity,
+           AudioStreamPrefetch.isFresh(proof.checkedAt) { return }
         if let saved {
             let key = origin.absoluteString + "|" + offlineAccount + "|" + next.offlineAccount + "|" + next.id
             independentMeter.prewarm(key: key, local: saved)
         }
-        // Only prefetch remote playlist metadata after playback has settled.
-        // Never download a second audio stream or compete with the current track at startup.
-        if saved != nil {
-            nextAssetWarmup = Task(priority: .utility) { let _ = try? await asset.load(.isPlayable) }
-        } else if wantsPlay {
-            nextAssetWarmup = Task(priority: .utility) {
-                do { try await Task.sleep(nanoseconds: 1_000_000_000) } catch { return }
-                guard !Task.isCancelled else { return }
-                let _ = try? await asset.load(.isPlayable)
+        guard nextAssetWarmup == nil, wantsPlay else { return }
+        let ticket = UUID()
+        warmupGeneration = ticket
+        let sourceID = current?.id
+        let cookieSnapshot = cookies
+        nextAssetWarmup = Task(priority: .utility) { @MainActor [weak self] in
+            do { try await Task.sleep(nanoseconds: saved == nil ? 2_000_000_000 : 250_000_000) }
+            catch { return }
+            guard let self, !Task.isCancelled, self.warmupGeneration == ticket else { return }
+            guard self.wantsPlay, self.audible, self.current?.id == sourceID,
+                  self.nextAsset === asset else {
+                self.nextAssetWarmup = nil
+                return
             }
+            let playable = (try? await asset.load(.isPlayable)) ?? false
+            guard !Task.isCancelled, self.warmupGeneration == ticket else { return }
+            if playable {
+                let result = await AudioStreamPrefetch.check(url, origin: origin, cookies: cookieSnapshot)
+                guard !Task.isCancelled, self.warmupGeneration == ticket else { return }
+                if result.verifiedAudio, self.nextAsset === asset,
+                   self.nextAssetID == next.id,
+                   self.streamRequestIdentity(track: next, url: url, origin: origin) == requestIdentity {
+                    self.verifiedNextAudio = VerifiedNextAudio(
+                        asset: asset, requestIdentity: requestIdentity,
+                        checkedAt: ProcessInfo.processInfo.systemUptime)
+                }
+            }
+            self.nextAssetWarmup = nil
         }
     }
 
@@ -661,6 +764,8 @@ final class NativePlayer {
 
     private func load(position: Double = 0, recovering: Bool = false) {
         startupTimeout?.cancel(); startupTimeout = nil
+        meterActivation?.cancel(); meterActivation = nil
+        warmupGeneration = UUID()
         nextAssetWarmup?.cancel(); nextAssetWarmup = nil
         startupUptime = ProcessInfo.processInfo.systemUptime
         readyAfterSeconds = nil; audibleAfterSeconds = nil
@@ -700,7 +805,7 @@ final class NativePlayer {
         itemObservation = nil
         let asset = nextAssetID == current.id && nextAsset?.url == url
             ? nextAsset! : AVURLAsset(url: url, options: [AVURLAssetHTTPCookiesKey: cookies])
-        nextAsset = nil; nextAssetID = nil
+        nextAsset = nil; nextAssetID = nil; verifiedNextAudio = nil
         let item = AVPlayerItem(asset: asset)
         // Give remote streams enough audio ahead to absorb network jitter.
         // Locally downloaded tracks do not need forward network buffering.
@@ -714,7 +819,7 @@ final class NativePlayer {
         let previousMeter = audioMeter
         audioMeter = LocalAudioMeter()
         liveMeterStartUptime = ProcessInfo.processInfo.systemUptime
-        configureAudioMeter(for: item)
+        // Attach optional audio analysis only after audible playback starts.
         player.replaceCurrentItem(with: item)
         if let previousItem { previousMeter.detach(from: previousItem) }
         itemObservation = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
@@ -770,6 +875,8 @@ final class NativePlayer {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 6, execute: check)
             }
         if wantsPlay { monitorStartup(generation: generation) }
+        // Offline EQ can start immediately; remote EQ export is delayed
+        // until the normal stream starts playing.
         prepareEqualizerPlayback(); fetchArtwork(current, generation: generation); publish()
     }
 
@@ -833,7 +940,7 @@ final class NativePlayer {
                 try session.setCategory(.playback, mode: .default, policy: .longFormAudio)
             }
             try session.setActive(true)
-            if let item = player.currentItem { configureAudioMeter(for: item) }
+            // The audio tap is attached after playback starts, not here.
         }
         catch { wantsPlay = false; self.error = "Не удалось включить аудиосессию."; publish(); return }
         let rebuild = player.currentItem == nil || player.currentItem?.status == .failed || recovery.pending || !error.isEmpty
@@ -851,7 +958,10 @@ final class NativePlayer {
         refillWave(); publish()
     }
     func pause() {
+        meterActivation?.cancel(); meterActivation = nil
         cancelPendingNext()
+        warmupGeneration = UUID()
+        nextAssetWarmup?.cancel(); nextAssetWarmup = nil
         startupTimeout?.cancel(); startupTimeout = nil
         endBackgroundHandoff()
         // Snapshot the running clock BEFORE pausing either audio engine.
@@ -887,7 +997,7 @@ final class NativePlayer {
         attemptedTrackID = ""; attemptedTrackLoads = 0
         waveActive = false; waveSeedArtists = []
         waveTask?.cancel(); waveTask = nil; waveGeneration = UUID(); waveSeen = []
-        nextAssetWarmup?.cancel(); nextAssetWarmup = nil; nextAsset = nil; nextAssetID = nil
+        invalidateNextAudioWarmup()
         pause(); stallCheck?.cancel(); stallCheck = nil; itemGeneration = UUID(); itemObservation = nil; artworkLoadTask?.cancel()
         if let endObserver { NotificationCenter.default.removeObserver(endObserver); self.endObserver = nil }
         if let failureObserver { NotificationCenter.default.removeObserver(failureObserver); self.failureObserver = nil }
@@ -1074,7 +1184,7 @@ final class NativePlayer {
     }
     private var previousRestartTrackID: String?
     private var previousRestartAt: TimeInterval = -Double.infinity
-    func step(_ direction: Int) {
+    func step(_ direction: Int, restartCurrent: Bool = true) {
         guard !tracks.isEmpty, tracks.indices.contains(index) else { return }
         // Repeated Next is ignored while loading. It can skip only after
         // the player has shown the actual loading-failure message.
@@ -1107,7 +1217,7 @@ final class NativePlayer {
         if direction < 0 { directForwardTrackID = nil }
         let repeated = previousRestartTrackID == tracks[index].id && now - previousRestartAt < 3
         let position = playbackPosition
-        if direction < 0 && !repeated && position.isFinite && position > 3 {
+        if direction < 0 && restartCurrent && !repeated && position.isFinite && position > 3 {
             previousRestartTrackID = tracks[index].id
             previousRestartAt = now
             seek(0)
@@ -1276,10 +1386,14 @@ final class NativePlayer {
     var premiumSoundAvailable: Bool { enginePlayback.ready }
     private func prepareEqualizerPlayback() {
         guard eqRequested, !eqAttempted, let current, let origin else { return }
+        let local = OfflineStore.audio(origin: origin, account: current.offlineAccount.isEmpty ? offlineAccount : current.offlineAccount, id: current.id)
+        // Downloading a full remote file for EQ in parallel with the first
+        // HLS request can delay startup on both the device and our server.
+        // The player remains the initial audible source.
+        guard local != nil || audible else { return }
         eqAttempted = true
         let requestGeneration = eqGeneration
         let generation = itemGeneration
-        let local = OfflineStore.audio(origin: origin, account: current.offlineAccount.isEmpty ? offlineAccount : current.offlineAccount, id: current.id)
         if let local { activateEqualizerFile(local, temporary: false, generation: generation); return }
         premiumSoundStatus = "Готовим аудиофайл для эквалайзера. Музыка продолжает играть."
         var request = URLRequest(url: origin.appendingPathComponent("api/offline-export/" + current.id))
@@ -1327,6 +1441,22 @@ final class NativePlayer {
         premiumSoundStatus = "Аудиовыход изменился. Музыка играет без EQ."
         seekCurrentItem(to: position)
     }
+    // The source audio must become audible before attaching the optional
+    // visualizer tap. Avoid demanding audio tracks metadata during startup.
+    private func scheduleLiveMeterActivation(for item: AVPlayerItem) {
+        meterActivation?.cancel()
+        let generation = itemGeneration
+        let work = DispatchWorkItem { [weak self, weak item] in
+            guard let self, let item, self.itemGeneration == generation,
+                  self.player.currentItem === item,
+                  self.player.timeControlStatus == .playing,
+                  self.wantsPlay else { return }
+            self.configureAudioMeter(for: item)
+        }
+        meterActivation = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
+    }
+
     private func configureAudioMeter(for item: AVPlayerItem) {
         let outputs = AVAudioSession.sharedInstance().currentRoute.outputs.map(\.portType)
         usesLiveMeter = AudioOutputPolicy.usesAudioTap(outputs)
@@ -1357,7 +1487,10 @@ final class NativePlayer {
         independentMeter.prepare(key: key, local: local, request: request, origin: origin)
     }
     private func routeChanged(_ note: Notification) {
-        if let item = player.currentItem { configureAudioMeter(for: item) }
+        // Changing output route must not force media metadata while buffering.
+        if let item = player.currentItem, player.timeControlStatus == .playing {
+            scheduleLiveMeterActivation(for: item)
+        }
         guard let raw = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
               let reason = AVAudioSession.RouteChangeReason(rawValue: raw) else { publish(); return }
         // Disconnecting headphones still pauses, so audio cannot unexpectedly
@@ -1593,58 +1726,83 @@ final class NativePlayer {
             shuffleHistory.append(playing.id)
             if shuffleHistory.count > 120 { shuffleHistory.removeFirst(shuffleHistory.count - 120) }
         }
-        let commands = remoteCommands
-        commands.nextTrackCommand.isEnabled = tracks.count > 1 && pendingNextIndex == nil && !waveWaiting
-        commands.previousTrackCommand.isEnabled = !tracks.isEmpty
-        commands.playCommand.isEnabled = current != nil
-        commands.pauseCommand.isEnabled = current != nil
-        commands.togglePlayPauseCommand.isEnabled = current != nil
-        commands.changePlaybackPositionCommand.isEnabled = current != nil
-        // Keep lock-screen / Control Center metadata current while our app is foregrounded.
-        // Clearing it on every foreground tick left stale playback controls after Pause.
-        if let current {
-            let now = ProcessInfo.processInfo.systemUptime
-            let position = playbackPosition
-            let stateCode = (wantsPlay ? 1 : 0) + (audible ? 2 : 0)
-            let stateChanged = current.id != lastNowPlayingID ||
-                index != lastNowPlayingIndex ||
-                queueRevision != lastNowPlayingQueueRevision ||
-                stateCode != lastNowPlayingState ||
-                lastNowPlayingArtwork !== artwork
-            let playheadChanged = position.isFinite &&
-                abs(position - lastNowPlayingPosition) >= 1.0
-            if stateChanged || playheadChanged || now - lastNowPlayingUpdate >= 1.5 {
-                let state = snapshot(includeQueue: false)
-                var info: [String: Any] = [MPMediaItemPropertyTitle: current.title,
-                MPMediaItemPropertyArtist: current.artist, MPMediaItemPropertyAlbumTitle: current.album,
-                MPMediaItemPropertyPlaybackDuration: state["duration"] ?? 0,
-                MPNowPlayingInfoPropertyElapsedPlaybackTime: state["position"] ?? 0,
-                // Play intent is distinct from buffering, but the system must
-                // never resume its own UI while our actual transport is paused.
-                MPNowPlayingInfoPropertyPlaybackRate: wantsPlay && audible ? 1.0 : 0.0,
-                MPNowPlayingInfoPropertyDefaultPlaybackRate: 1.0,
-                MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue,
-                MPNowPlayingInfoPropertyPlaybackQueueIndex: index,
-                MPNowPlayingInfoPropertyPlaybackQueueCount: tracks.count,
-                MPNowPlayingInfoPropertyExternalContentIdentifier: current.id]
-                if let artwork { info[MPMediaItemPropertyArtwork] = artwork }
-                nowPlayingCenter.nowPlayingInfo = info
-                lastNowPlayingID = current.id
-                lastNowPlayingIndex = index
-                lastNowPlayingQueueRevision = queueRevision
-                lastNowPlayingState = stateCode
-                lastNowPlayingPosition = position.isFinite ? position : 0
-                lastNowPlayingUpdate = now
-                lastNowPlayingArtwork = artwork
+        if usesNowPlaying27 {
+            #if canImport(NowPlaying)
+            if #available(iOS 27.0, *) {
+                // NativePlayer is driven on the main thread. Tell the
+                // Swift concurrency checker before touching the @MainActor
+                // MediaSession adapter, without introducing an async lag.
+                MainActor.assumeIsolated {
+                    NightwellNowPlayingBridge27.shared.update(
+                        track: current,
+                        playing: wantsPlay && audible,
+                        playbackIntent: wantsPlay,
+                        elapsed: playbackPosition,
+                        artwork: artwork,
+                        queueCount: tracks.count
+                    )
+                }
             }
-        } else if !lastNowPlayingID.isEmpty {
-            nowPlayingCenter.nowPlayingInfo = nil
-            lastNowPlayingID = ""
-            lastNowPlayingIndex = -1
-            lastNowPlayingQueueRevision = -1
-            lastNowPlayingState = -1
-            lastNowPlayingPosition = -1
-            lastNowPlayingArtwork = nil
+            #endif
+        } else {
+            let commands = remoteCommands
+            commands.nextTrackCommand.isEnabled = tracks.count > 1 && pendingNextIndex == nil && !waveWaiting
+            commands.previousTrackCommand.isEnabled = !tracks.isEmpty
+            commands.playCommand.isEnabled = current != nil
+            commands.pauseCommand.isEnabled = current != nil
+            commands.togglePlayPauseCommand.isEnabled = current != nil
+            commands.changePlaybackPositionCommand.isEnabled = current != nil
+            // Keep one Now Playing session across foreground/background transitions.
+            // iOS decides when to present playback in Dynamic Island; removing
+            // metadata while the app is open would also disrupt system controls,
+            // the lock screen, CarPlay and connected accessories.
+            // The custom local EQ engine and AVPlayer publish through this same
+            // session and use the existing remote-command handlers.
+            if let current {
+                let now = ProcessInfo.processInfo.systemUptime
+                let position = playbackPosition
+                let stateCode = (wantsPlay ? 1 : 0) + (audible ? 2 : 0)
+                let stateChanged = current.id != lastNowPlayingID ||
+                    index != lastNowPlayingIndex ||
+                    queueRevision != lastNowPlayingQueueRevision ||
+                    stateCode != lastNowPlayingState ||
+                    lastNowPlayingArtwork !== artwork
+                let playheadChanged = position.isFinite &&
+                    abs(position - lastNowPlayingPosition) >= 1.0
+                if stateChanged || playheadChanged || now - lastNowPlayingUpdate >= 1.5 {
+                    let state = snapshot(includeQueue: false)
+                    var info: [String: Any] = [MPMediaItemPropertyTitle: current.title,
+                    MPMediaItemPropertyArtist: current.artist, MPMediaItemPropertyAlbumTitle: current.album,
+                    MPMediaItemPropertyPlaybackDuration: state["duration"] ?? 0,
+                    MPNowPlayingInfoPropertyElapsedPlaybackTime: state["position"] ?? 0,
+                    // Play intent is distinct from buffering, but the system must
+                    // never resume its own UI while our actual transport is paused.
+                    MPNowPlayingInfoPropertyPlaybackRate: wantsPlay && audible ? 1.0 : 0.0,
+                    MPNowPlayingInfoPropertyDefaultPlaybackRate: 1.0,
+                    MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue,
+                    MPNowPlayingInfoPropertyPlaybackQueueIndex: index,
+                    MPNowPlayingInfoPropertyPlaybackQueueCount: tracks.count,
+                    MPNowPlayingInfoPropertyExternalContentIdentifier: current.id]
+                    if let artwork { info[MPMediaItemPropertyArtwork] = artwork }
+                    nowPlayingCenter.nowPlayingInfo = info
+                    lastNowPlayingID = current.id
+                    lastNowPlayingIndex = index
+                    lastNowPlayingQueueRevision = queueRevision
+                    lastNowPlayingState = stateCode
+                    lastNowPlayingPosition = position.isFinite ? position : 0
+                    lastNowPlayingUpdate = now
+                    lastNowPlayingArtwork = artwork
+                }
+            } else if !lastNowPlayingID.isEmpty {
+                nowPlayingCenter.nowPlayingInfo = nil
+                lastNowPlayingID = ""
+                lastNowPlayingIndex = -1
+                lastNowPlayingQueueRevision = -1
+                lastNowPlayingState = -1
+                lastNowPlayingPosition = -1
+                lastNowPlayingUpdate = 0
+                lastNowPlayingArtwork = nil
+            }
         }
         onChange?()
     }

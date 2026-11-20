@@ -154,13 +154,9 @@ struct NightwellAccountDevicesResponse: Decodable {
     @Published private(set) var accountDeviceSupported = false
 
     func registerAccountDevice() async {
-        guard account != nil else { return }
+        guard let user = account else { return }
         do {
-            let _: OK = try await api.request("/api/devices/register", method: "POST", body: [
-                "device_id": NightwellClientDevice.id,
-                "platform": "ios",
-                "name": NightwellClientDevice.label,
-            ], timeout: 10)
+            try await api.bindDevice(account: user.id)
             accountDeviceSupported = true
             accountDeviceNotice = ""
             await refreshAccountDevices()
@@ -661,6 +657,13 @@ struct NightwellAccountDevicesResponse: Decodable {
                 self.cacheAccount()
                 if changedAccount { self.restoreAutoFavoritesSetting(); self.startLiveSync() }
                 await client.setCSRF(identity.csrf)
+                if changedAccount || wasOffline {
+                    if let user = identity.user {
+                        try await client.bindDevice(account: user.id)
+                    } else {
+                        await client.clearDeviceSession()
+                    }
+                }
                 guard !Task.isCancelled, self.origin == server,
                       self.sessionGeneration == session, self.connectionCheckGeneration == checkID else { return }
                 if changedAccount { self.restoreCachedProfile(); self.restoreSessionSnapshot() }
@@ -1188,6 +1191,7 @@ struct NightwellAccountDevicesResponse: Decodable {
             connectionCheck?.cancel(); connectionCheck = nil; connectionCheckGeneration = UUID(); sessionReady = false
             stopLiveSync()
             accountDevices = []; accountDeviceNotice = ""; accountDeviceSupported = false
+            await api.clearDeviceSession()
             account = nil; profileNickname = ""; profileAvatar = nil; restoreAutoFavoritesSetting(); mixRecentIDs = []; cacheAccount(); catalog = []; results = []; likes = []; favoriteOrder = []; playlists = []; lastWave = []; query = ""; await api.setCSRF(nil)
         } catch { self.error = error.localizedDescription }
     }
@@ -1896,8 +1900,12 @@ struct NightwellAccountDevicesResponse: Decodable {
         let owner = account.id
         do {
             let state: DownloadAccess = try await api.request("api/premium/me")
+            let family: AccountAccessStatus? = try? await api.request("/api/account/access")
             guard self.account?.id == owner else { return }
-            guard state.premium else { error = "Скачивание доступно с Premium — 150 ₽ за 30 дней."; return }
+            guard state.premium || family?.premium == true else {
+                error = "Скачивание доступно с личным или семейным Premium."
+                return
+            }
         } catch { self.error = error.localizedDescription; return }
         BackgroundDownloads.shared.enqueue(list, origin: origin, account: account.id)
     }

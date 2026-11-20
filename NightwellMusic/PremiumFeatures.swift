@@ -38,6 +38,14 @@ struct PremiumPreferences: Codable {
     func shouldOfferPremium(for accountID: String?) -> Bool {
         entitlementVerified && owner == accountID && !allowed
     }
+
+    // Only show account-only Premium destinations after an actual entitlement
+    // check for this account. Never reuse the previous account's paid status.
+    func hasVerifiedPremium(for accountID: String?) -> Bool {
+        guard let accountID, !accountID.isEmpty else { return false }
+        return entitlementVerified && owner == accountID && allowed &&
+               until > Date().timeIntervalSince1970
+    }
     @Published var note = "Проверяем Premium…"
     private var owner: String?, until = 0.0, checked = Date.distantPast, checking = false
     private func cacheKey(_ id: String) -> String { "nw-aura-" + id }
@@ -74,9 +82,15 @@ struct PremiumPreferences: Codable {
         struct Response: Decodable { let preferences: PremiumPreferences }
         do {
             let state: Status = try await store.api.request("api/premium/me")
+            let family: AccountAccessStatus? = try? await store.api.request("/api/account/access")
             guard store.account?.id == account else { return }
-            guard state.premium, let expiry = state.expires_at,
-                  expiry > Date().timeIntervalSince1970 else {
+            let effective = state.premium || family?.premium == true
+            // Expiry is authoritative when supplied. For valid family access without a
+            // reported date, refresh its server-confirmed entitlement in five minutes.
+            let expiry = state.premium ? state.expires_at :
+                         family?.expires_at ?? (family?.premium == true ?
+                             Date().timeIntervalSince1970 + 300 : nil)
+            guard effective, let expiry, expiry > Date().timeIntervalSince1970 else {
                 allowed = false
                 until = 0
                 entitlementVerified = true
@@ -120,7 +134,7 @@ struct PremiumPreferences: Codable {
 }
 
 @MainActor struct PremiumFeatureView: View {
-    enum Kind: String, Identifiable { case sound = "Эквалайзер", smart = "Умные плейлисты", statistics = "Моя статистика"; var id: String { rawValue } }
+    enum Kind: String, Identifiable { case sound = "Эквалайзер", smart = "Умные плейлисты", statistics = "Статистика"; var id: String { rawValue } }
     let kind: Kind
     init(kind: Kind) { self.kind = kind }
     @EnvironmentObject private var store: MusicStore
@@ -162,7 +176,9 @@ struct PremiumPreferences: Codable {
                     }.disabled(!premium.allowed || busy)
                 }.padding(18)
             }
-                .sheet(isPresented: $showPresetOptions) { NavigationStack { ScrollView { VStack { presetOptions }.padding(20) }.navigationTitle("Настройки эквалайзера").toolbar { Button("Готово") { showPresetOptions = false } } }.presentationDetents([.medium, .large]) }
+                .sheet(isPresented: $showPresetOptions) { NavigationStack { ScrollView { VStack { presetOptions }.padding(20) }.background {
+                        NightwellThemedBackground { Color.clear }.ignoresSafeArea()
+                    }.navigationTitle("Настройки эквалайзера").toolbar { Button("Готово") { showPresetOptions = false } } }.presentationDetents([.medium, .large]) }
                 .task(id: store.account?.id) {
                     #if DEBUG
                     if ProcessInfo.processInfo.arguments.contains("--native-smoke-statistics") {
@@ -264,6 +280,7 @@ private struct PremiumStatistics: Decodable {
 }
 
 private struct PremiumGlassSection<Content: View>: View {
+    @Environment(\.nightwellAppearance) private var appearance
     let title: String
     @ViewBuilder let content: Content
     init(_ title: String, @ViewBuilder content: () -> Content) {
@@ -271,7 +288,7 @@ private struct PremiumGlassSection<Content: View>: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(title).font(.system(size: 17, weight: .semibold)).foregroundStyle(pumpkin)
+            Text(title).font(.system(size: 17, weight: .semibold)).foregroundStyle(appearance.accent)
             content
         }.font(.system(size: 17)).padding(17).frame(maxWidth: .infinity, alignment: .leading)
             .nightwellLiquidGlass(26)
