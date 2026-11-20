@@ -113,7 +113,6 @@ final class NightwellNowPlayingBridge27 {
     private var activationTask: Task<Void, Never>?
     private var lastActivationAttempt = Date.distantPast
     private var lastActivationError = ""
-    private var wasForeground = true
 
     var diagnostics: String {
         guard let session else { return "NP27: сессии нет" }
@@ -166,32 +165,36 @@ final class NightwellNowPlayingBridge27 {
         // the stream has become audible. Otherwise a buffering track may
         // miss the home-screen/Dynamic Island handoff.
         playbackRequested = playbackIntent
-        guard playbackIntent, let session else { return }
+        guard let session else { return }
 
-        let foreground = UIApplication.shared.applicationState == .active
-        if foreground && !wasForeground {
-            lastActivationAttempt = .distantPast
+        // A local media session is system-owned automatically when playback
+        // becomes active. Apple explicitly advises against forcing
+        // requestToBecomeSystemPrimary() for ordinary on-device playback.
+        // It can return internalFailure even after iOS has promoted us.
+        if session.isApplicationPrimary {
+            // Clear stale errors after the system confirms the session.
+            lastActivationError = ""
+            return
         }
-        wasForeground = foreground
-        let needsPrimary = !session.isApplicationPrimary ||
-            (foreground && !session.isSystemPrimary)
-        guard needsPrimary,
+        guard playbackIntent,
               Date().timeIntervalSince(lastActivationAttempt) >= 6 else { return }
         lastActivationAttempt = .now
         activationTask?.cancel()
         activationTask = Task { @MainActor in
             do {
-                // Apple's documented first step for a local Now Playing session.
                 try await session.requestToBecomeApplicationPrimary()
-                if !Task.isCancelled && UIApplication.shared.applicationState == .active &&
-                    !session.isSystemPrimary {
-                    try await session.requestToBecomeSystemPrimary()
+                if !Task.isCancelled && session.isApplicationPrimary {
+                    self.lastActivationError = ""
                 }
-                if !Task.isCancelled { self.lastActivationError = "" }
             } catch {
                 if !Task.isCancelled {
-                    self.lastActivationError = String(describing: error)
-                    NSLog("Nightwell NowPlaying activation: \(error)")
+                    // A delayed response can fail after the session has
+                    // already become application-primary on its own.
+                    self.lastActivationError = session.isApplicationPrimary
+                        ? "" : String(describing: error)
+                    if !self.lastActivationError.isEmpty {
+                        NSLog("Nightwell NowPlaying app-primary: \(error)")
+                    }
                 }
             }
         }
