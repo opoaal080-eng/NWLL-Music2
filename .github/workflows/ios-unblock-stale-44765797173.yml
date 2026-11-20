@@ -1,0 +1,27 @@
+name: Unblock current Nightwell iOS build
+on:
+  push:
+    branches: [fix/ios-latest-account-family-20261116]
+    paths: ['.github/workflows/ios-unblock-stale-44765797173.yml']
+permissions:
+  contents: read
+  actions: write
+jobs:
+  cancel-old-run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Cancel stale earlier run 44765797173
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          run_id=44765797173
+          status="$(gh api "repos/$GH_REPO/actions/runs/$run_id" --jq .status)"
+          if [ "$status" != "completed" ]; then
+            gh api -X POST "repos/$GH_REPO/actions/runs/$run_id/cancel"
+            echo "Cancellation requested for stale run $run_id"
+          else
+            echo "Earlier run already completed"
+          fi
