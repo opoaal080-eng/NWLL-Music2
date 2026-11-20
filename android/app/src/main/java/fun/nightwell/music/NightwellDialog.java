@@ -95,7 +95,15 @@ public final class NightwellDialog extends Dialog {
             }
             LimitedHeightFrame content=new LimitedHeightFrame(context);
             content.setClipToPadding(false);
-            content.addView(customView,new FrameLayout.LayoutParams(-1,-2));
+            View scrollable=customView;
+            if(!(customView instanceof ScrollView)){
+                ScrollView wrapper=new ScrollView(context);
+                wrapper.setFillViewport(false);
+                wrapper.setVerticalScrollBarEnabled(false);
+                wrapper.addView(customView,new ScrollView.LayoutParams(-1,-2));
+                scrollable=wrapper;
+            }
+            content.addView(scrollable,new FrameLayout.LayoutParams(-1,-2));
             sheet.addView(content,new LinearLayout.LayoutParams(-1,-2));
         } else if(choices!=null){
             ScrollView scrolling=new ScrollView(context);
