@@ -1720,13 +1720,18 @@ final class NativePlayer {
         if usesNowPlaying27 {
             #if canImport(NowPlaying)
             if #available(iOS 27.0, *) {
-                NightwellNowPlayingBridge27.shared.update(
-                    track: current,
-                    playing: wantsPlay && audible,
-                    elapsed: playbackPosition,
-                    artwork: artwork,
-                    queueCount: tracks.count
-                )
+                // NativePlayer is driven on the main thread. Tell the
+                // Swift concurrency checker before touching the @MainActor
+                // MediaSession adapter, without introducing an async lag.
+                MainActor.assumeIsolated {
+                    NightwellNowPlayingBridge27.shared.update(
+                        track: current,
+                        playing: wantsPlay && audible,
+                        elapsed: playbackPosition,
+                        artwork: artwork,
+                        queueCount: tracks.count
+                    )
+                }
             }
             #endif
         } else {
