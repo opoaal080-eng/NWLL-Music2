@@ -4,12 +4,13 @@ import SwiftUI
 struct DailyPublicPlaylistsScreen: View {
     @Environment(\.nightwellAppearance) private var appearance
     @ObservedObject var store: MusicStore
+    @ObservedObject var togetherSession: NightwellTogetherSession
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                DailyPublicPlaylistsView(store: store)
+                DailyPublicPlaylistsView(store: store, togetherSession: togetherSession)
                     .padding(20)
             }
             .background { NightwellMonochromeGlassBackground() }
