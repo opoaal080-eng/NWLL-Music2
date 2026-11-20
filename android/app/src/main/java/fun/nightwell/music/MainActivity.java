@@ -567,7 +567,7 @@ public final class MainActivity extends Activity {
         tabsParams.bottomMargin=dp(2);
         root.addView(iosTabs,tabsParams);
         if(backgroundOnly)iosTabs.setVisibility(View.GONE);
-        android.view.GestureDetector miniGestures=gestures(false);labels.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));dock.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));
+        installMiniSwipe(labels);
         showScreen();updateArtworkAppearance();updatePlayback();loadMiniCover(current());
     }
     // Audio routing is controlled by Android. Report the current media route without
@@ -1932,6 +1932,91 @@ public final class MainActivity extends Activity {
             fullNetworkNote.setVisibility(streamNote.isEmpty()?View.GONE:View.VISIBLE);
         }
         if(!state.optString("error").isEmpty()&&status!=null)status.setText(state.optString("error"));syncLyrics(state.optDouble("position"));syncHomeLyrics(state.optDouble("position"));if(lastPlaying!=state.optBoolean("playing")){lastPlaying=state.optBoolean("playing");updateList();}}catch(Exception ignored){}}
+    /** iPhone-style swipe: content moves with the finger and cancels naturally. */
+    void installMiniSwipe(View labels){
+        final float[] down=new float[2];
+        final boolean[] dragging={false};
+        View.OnTouchListener gesture=(v,event)->{
+            switch(event.getActionMasked()){
+            case android.view.MotionEvent.ACTION_DOWN:
+                down[0]=event.getRawX();down[1]=event.getRawY();
+                dragging[0]=false;
+                return true;
+            case android.view.MotionEvent.ACTION_MOVE:
+                float dx=event.getRawX()-down[0];
+                float dy=event.getRawY()-down[1];
+                if(!dragging[0]&&Math.abs(dx)>dp(8)&&Math.abs(dx)>Math.abs(dy)*1.15f)
+                    dragging[0]=true;
+                if(dragging[0]){
+                    float translated=Math.max(-dp(82),Math.min(dp(82),dx));
+                    for(View item:new View[]{miniCover,miniTitle,miniArtist})if(item!=null){
+                        item.animate().cancel();
+                        item.setTranslationX(translated);
+                        item.setAlpha(1f-.30f*Math.abs(translated)/dp(82));
+                    }
+                }
+                return true;
+            case android.view.MotionEvent.ACTION_UP:
+                float end=event.getRawX()-down[0];
+                boolean commit=dragging[0]&&Math.abs(end)>=dp(50);
+                for(View item:new View[]{miniCover,miniTitle,miniArtist})if(item!=null){
+                    item.animate().translationX(0).alpha(1f).setDuration(235)
+                        .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
+                }
+                if(commit){
+                    if(end<0)nextTrack();else previous();
+                }else if(!dragging[0])openPlayer();
+                return true;
+            case android.view.MotionEvent.ACTION_CANCEL:
+                for(View item:new View[]{miniCover,miniTitle,miniArtist})if(item!=null)
+                    item.animate().translationX(0).alpha(1f).setDuration(180).start();
+                return true;
+            default:return true;
+            }
+        };
+        labels.setOnTouchListener(gesture);
+        miniCover.setOnTouchListener(gesture);
+        dock.setOnTouchListener(gesture);
+        labels.setContentDescription("Мини-плеер. Нажми, чтобы открыть, или проведи для смены трека");
+    }
+
+    View.OnTouchListener iphoneArtworkSwipe(){
+        final float[] start=new float[2];
+        final boolean[] moving={false};
+        return (view,event)->{
+            switch(event.getActionMasked()){
+            case android.view.MotionEvent.ACTION_DOWN:
+                start[0]=event.getRawX();start[1]=event.getRawY();
+                moving[0]=false;return true;
+            case android.view.MotionEvent.ACTION_MOVE:
+                float dx=event.getRawX()-start[0],dy=event.getRawY()-start[1];
+                if(Math.abs(dx)>dp(9)&&Math.abs(dx)>Math.abs(dy)*1.2f)moving[0]=true;
+                if(moving[0]){
+                    float offset=Math.max(-dp(96),Math.min(dp(96),dx));
+                    view.animate().cancel();
+                    view.setTranslationX(offset);
+                    view.setAlpha(1f-.24f*Math.abs(offset)/dp(96));
+                }
+                return true;
+            case android.view.MotionEvent.ACTION_UP:
+                float horizontal=event.getRawX()-start[0];
+                float vertical=event.getRawY()-start[1];
+                view.animate().translationX(0).alpha(1f).setDuration(235)
+                    .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
+                if(moving[0]&&Math.abs(horizontal)>dp(52)){
+                    if(horizontal<0)nextTrack();else previous();
+                }else if(!moving[0]&&vertical>dp(95)&&vertical>Math.abs(horizontal)*1.45f){
+                    full=false;build();
+                }
+                return true;
+            case android.view.MotionEvent.ACTION_CANCEL:
+                view.animate().translationX(0).alpha(1f).setDuration(200).start();
+                return true;
+            default:return true;
+            }
+        };
+    }
+
     void animateTrackTransition(){
         if(dock==null||!dock.isShown())return;
         final float slide=dp(24)*trackTransitionDirection;
@@ -2161,8 +2246,7 @@ public final class MainActivity extends Activity {
     void addCover(JSONObject track,LinearLayout parent) {
         android.widget.ImageView cover=new android.widget.ImageView(this);
         cover.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
-        android.view.GestureDetector detector=gestures(true);
-        cover.setOnTouchListener((v,event)->detector.onTouchEvent(event));
+        cover.setOnTouchListener(iphoneArtworkSwipe());
         GradientDrawable corners=new GradientDrawable();
         corners.setColor(0x33251936);boolean classic=getSharedPreferences("appearance",MODE_PRIVATE).getBoolean("cover-classic",false);corners.setCornerRadius(dp(classic?25:26));
         cover.setBackground(corners);cover.setClipToOutline(true);
