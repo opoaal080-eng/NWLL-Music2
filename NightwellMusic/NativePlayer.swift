@@ -330,10 +330,6 @@ final class NativePlayer {
     }
     private(set) var queueRevision = 0
     private var appIsActive = UIApplication.shared.applicationState == .active
-    // The app owns a full native player in the foreground. Only publish
-    // system Now Playing metadata after entering the background, and restore
-    // it immediately on the transition. Audio playback continues in both.
-    private var exposeNowPlayingInSystem = UIApplication.shared.applicationState == .background
     private var offlineAccount = ""
     private var index = 0
     private var cookies: [HTTPCookie] = []
@@ -490,22 +486,16 @@ final class NativePlayer {
             self?.updateLoudnessLeveling()
             self?.refreshIndependentMeter(); self?.refillWave(); self?.publish()
         }
-        observers.append(NotificationCenter.default.addObserver(forName: UIApplication.willEnterForegroundNotification,
-            object: nil, queue: .main) { [weak self] _ in
-                // Clear before showing the in-app player. A stale Now Playing
-                // dictionary may otherwise remain visible in Dynamic Island.
-                guard let self else { return }
-                self.exposeNowPlayingInSystem = false
-                self.publish()
-            })
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification,
             object: nil, queue: .main) { [weak self] _ in
                 guard let self else { return }
                 self.appIsActive = true
-                self.exposeNowPlayingInSystem = false
                 self.endBackgroundHandoff()
                 if self.callInterruptionEnded { self.attemptCallResume() }
                 self.refreshIndependentMeter()
+                // Never remove Now Playing on foreground entry. iOS owns the
+                // Dynamic Island's presentation; the lock screen, Control
+                // Center and connected accessories need the same media session.
                 self.publish()
             })
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.willResignActiveNotification,
@@ -513,17 +503,13 @@ final class NativePlayer {
                 self?.appIsActive = false
                 self?.updateFade()
                 self?.independentMeter.cancel(keepingEnvelope: true)
-                // Inactive alone isn't background: Control Center and system
-                // permission sheets can make the foreground app inactive.
                 self?.publish()
             })
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification,
             object: nil, queue: .main) { [weak self] _ in
-                guard let self else { return }
-                self.exposeNowPlayingInSystem = true
-                // The previous foreground clear invalidated our cache, so
-                // this always immediately republishes the latest track.
-                self.publish()
+                // Refresh playback position on background transition without
+                // recreating or withdrawing the system media session.
+                self?.publish()
             })
         fadeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.04, preferredTimescale: 600), queue: .main) { [weak self] _ in
             guard let self, self.transitionSeconds > 0, self.wantsPlay,
@@ -1726,18 +1712,12 @@ final class NativePlayer {
         commands.pauseCommand.isEnabled = current != nil
         commands.togglePlayPauseCommand.isEnabled = current != nil
         commands.changePlaybackPositionCommand.isEnabled = current != nil
-        // Keep remote commands registered for AirPods and headsets while the
-        // foreground app is visible, but don't actively advertise a duplicate
-        // player in Dynamic Island. The lock screen / Control Center metadata
-        // is restored as soon as the app goes to the background.
-        if !exposeNowPlayingInSystem {
-            if nowPlayingCenter.nowPlayingInfo != nil {
-                nowPlayingCenter.nowPlayingInfo = nil
-            }
-            resetNowPlayingPublishCache()
-            onChange?()
-            return
-        }
+        // Keep one Now Playing session across foreground/background transitions.
+        // iOS decides when to present playback in Dynamic Island; removing
+        // metadata while the app is open would also disrupt system controls,
+        // the lock screen, CarPlay and connected accessories.
+        // The custom local EQ engine and AVPlayer publish through this same
+        // session and use the existing remote-command handlers.
         if let current {
             let now = ProcessInfo.processInfo.systemUptime
             let position = playbackPosition
@@ -1775,19 +1755,15 @@ final class NativePlayer {
             }
         } else if !lastNowPlayingID.isEmpty {
             nowPlayingCenter.nowPlayingInfo = nil
-            resetNowPlayingPublishCache()
+            lastNowPlayingID = ""
+            lastNowPlayingIndex = -1
+            lastNowPlayingQueueRevision = -1
+            lastNowPlayingState = -1
+            lastNowPlayingPosition = -1
+            lastNowPlayingUpdate = 0
+            lastNowPlayingArtwork = nil
         }
         onChange?()
-    }
-
-    private func resetNowPlayingPublishCache() {
-        lastNowPlayingID = ""
-        lastNowPlayingIndex = -1
-        lastNowPlayingQueueRevision = -1
-        lastNowPlayingState = -1
-        lastNowPlayingPosition = -1
-        lastNowPlayingUpdate = 0
-        lastNowPlayingArtwork = nil
     }
 }
 
