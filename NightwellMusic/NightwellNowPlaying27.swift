@@ -9,7 +9,7 @@ import UIKit
 // MPRemoteCommandCenter on supported devices. Older OS releases keep the
 // existing MediaPlayer implementation in NativePlayer.swift.
 @available(iOS 27.0, *)
-private struct NightwellNowPlayingTrack: Equatable {
+struct NightwellNowPlayingTrack: Equatable {
     let id: String
     let title: String
     let artist: String
@@ -83,9 +83,10 @@ final class NightwellNowPlayingModel: MediaSessionRepresentable {
             track = newTrack
         }
         let newPlaying = newTrack != nil && playing
-        if isPlaying != newPlaying { isPlaying = newPlaying }
+        let playbackChanged = isPlaying != newPlaying
+        if playbackChanged { isPlaying = newPlaying }
         let seekPosition = position.isFinite ? max(0, position) : 0
-        if abs(elapsedTime - seekPosition) >= 0.5 || (isPlaying != newPlaying) {
+        if abs(elapsedTime - seekPosition) >= 0.5 || playbackChanged {
             elapsedTime = seekPosition
             snapshotDate = .now
         }
