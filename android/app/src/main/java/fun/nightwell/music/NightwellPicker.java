@@ -3,14 +3,13 @@ package fun.nightwell.music;
 import android.content.Context;
 import android.graphics.Typeface;
 import android.view.Gravity;
-import android.widget.ArrayAdapter;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
 /** Full custom Nightwell selector with a NightwellDialog selection sheet. */
 public final class NightwellPicker extends LinearLayout {
     private final TextView label;
-    private ArrayAdapter<?> adapter;
+    private CharSequence[] items=new CharSequence[0];
     private int selected;
 
     public NightwellPicker(Context context){
@@ -37,18 +36,18 @@ public final class NightwellPicker extends LinearLayout {
         setFocusable(true);
     }
 
-    public void setAdapter(ArrayAdapter<?> options){
-        adapter=options;
+    public void setItems(CharSequence[] options){
+        items=options==null?new CharSequence[0]:options.clone();
         selected=0;
         refresh();
     }
     public int getSelectedItemPosition(){return selected;}
     public Object getSelectedItem(){
-        return adapter!=null&&adapter.getCount()>0?adapter.getItem(selected):null;
+        return items.length>0?items[selected]:null;
     }
     public void setSelection(int value){
-        if(adapter==null||adapter.getCount()==0)return;
-        selected=Math.max(0,Math.min(adapter.getCount()-1,value));
+        if(items.length==0)return;
+        selected=Math.max(0,Math.min(items.length-1,value));
         refresh();
     }
     private void refresh(){
@@ -57,14 +56,13 @@ public final class NightwellPicker extends LinearLayout {
         setContentDescription("Выбор: "+label.getText());
     }
     private void showChoices(){
-        if(adapter==null||adapter.getCount()==0)return;
-        CharSequence[] items=new CharSequence[adapter.getCount()];
+        if(items.length==0)return;
+        CharSequence[] shown=new CharSequence[items.length];
         for(int i=0;i<items.length;i++){
-            Object item=adapter.getItem(i);
-            items[i]=(selected==i?"✓  ":"   ")+(item==null?"":item.toString());
+            shown[i]=(selected==i?"✓  ":"   ")+items[i];
         }
         new NightwellDialog.Builder(getContext()).setTitle("Выбрать вариант")
-            .setItems(items,(dialog,position)->setSelection(position))
+            .setItems(shown,(dialog,position)->setSelection(position))
             .setNegativeButton("Отмена",null).show();
     }
 }
