@@ -330,6 +330,12 @@ final class NativePlayer {
     }
     private(set) var queueRevision = 0
     private var appIsActive = UIApplication.shared.applicationState == .active
+    private var usesNowPlaying27: Bool {
+        #if canImport(NowPlaying)
+        if #available(iOS 27.0, *) { return true }
+        #endif
+        return false
+    }
     private var offlineAccount = ""
     private var index = 0
     private var cookies: [HTTPCookie] = []
@@ -516,34 +522,40 @@ final class NativePlayer {
                   self.appIsActive else { return }
             self.updateFade()
         }
-        // The AVPlayer is intentionally paused when the local EQ engine owns
-        // playback. An AVPlayer-backed MPNowPlayingSession would therefore
-        // advertise Pause (rate=0) even while the EQ engine is audible.
-        let center = remoteCommands
-        center.skipForwardCommand.isEnabled = false
-        center.skipBackwardCommand.isEnabled = false
-        center.seekForwardCommand.isEnabled = false
-        center.seekBackwardCommand.isEnabled = false
-        center.playCommand.addTarget { [weak self] _ in
-            DispatchQueue.main.async { self?.play() }
-            return .success
-        }
-        center.pauseCommand.addTarget { [weak self] _ in
-            DispatchQueue.main.async { self?.pause() }
-            return .success
-        }
-        center.togglePlayPauseCommand.addTarget { [weak self] _ in
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.wantsPlay ? self.pause() : self.play()
+        if usesNowPlaying27 {
+            // Avoid two competing Now Playing publishers/command handlers.
+            // iOS 27 is handled by NightwellNowPlayingBridge27.
+            nowPlayingCenter.nowPlayingInfo = nil
+        } else {
+            // The AVPlayer is intentionally paused when the local EQ engine owns
+            // playback. An AVPlayer-backed MPNowPlayingSession would therefore
+            // advertise Pause (rate=0) even while the EQ engine is audible.
+            let center = remoteCommands
+            center.skipForwardCommand.isEnabled = false
+            center.skipBackwardCommand.isEnabled = false
+            center.seekForwardCommand.isEnabled = false
+            center.seekBackwardCommand.isEnabled = false
+            center.playCommand.addTarget { [weak self] _ in
+                DispatchQueue.main.async { self?.play() }
+                return .success
             }
-            return .success
-        }
-        center.nextTrackCommand.addTarget { [weak self] _ in DispatchQueue.main.async { self?.step(1) }; return .success }
-        center.previousTrackCommand.addTarget { [weak self] _ in DispatchQueue.main.async { self?.step(-1) }; return .success }
-        center.changePlaybackPositionCommand.addTarget { [weak self] event in
-            guard let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
-            DispatchQueue.main.async { self?.seek(event.positionTime) }; return .success
+            center.pauseCommand.addTarget { [weak self] _ in
+                DispatchQueue.main.async { self?.pause() }
+                return .success
+            }
+            center.togglePlayPauseCommand.addTarget { [weak self] _ in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    self.wantsPlay ? self.pause() : self.play()
+                }
+                return .success
+            }
+            center.nextTrackCommand.addTarget { [weak self] _ in DispatchQueue.main.async { self?.step(1) }; return .success }
+            center.previousTrackCommand.addTarget { [weak self] _ in DispatchQueue.main.async { self?.step(-1) }; return .success }
+            center.changePlaybackPositionCommand.addTarget { [weak self] event in
+                guard let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
+                DispatchQueue.main.async { self?.seek(event.positionTime) }; return .success
+            }
         }
         observers.append(NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification,
             object: nil, queue: .main) { [weak self] note in self?.interruption(note) })
@@ -1705,63 +1717,77 @@ final class NativePlayer {
             shuffleHistory.append(playing.id)
             if shuffleHistory.count > 120 { shuffleHistory.removeFirst(shuffleHistory.count - 120) }
         }
-        let commands = remoteCommands
-        commands.nextTrackCommand.isEnabled = tracks.count > 1 && pendingNextIndex == nil && !waveWaiting
-        commands.previousTrackCommand.isEnabled = !tracks.isEmpty
-        commands.playCommand.isEnabled = current != nil
-        commands.pauseCommand.isEnabled = current != nil
-        commands.togglePlayPauseCommand.isEnabled = current != nil
-        commands.changePlaybackPositionCommand.isEnabled = current != nil
-        // Keep one Now Playing session across foreground/background transitions.
-        // iOS decides when to present playback in Dynamic Island; removing
-        // metadata while the app is open would also disrupt system controls,
-        // the lock screen, CarPlay and connected accessories.
-        // The custom local EQ engine and AVPlayer publish through this same
-        // session and use the existing remote-command handlers.
-        if let current {
-            let now = ProcessInfo.processInfo.systemUptime
-            let position = playbackPosition
-            let stateCode = (wantsPlay ? 1 : 0) + (audible ? 2 : 0)
-            let stateChanged = current.id != lastNowPlayingID ||
-                index != lastNowPlayingIndex ||
-                queueRevision != lastNowPlayingQueueRevision ||
-                stateCode != lastNowPlayingState ||
-                lastNowPlayingArtwork !== artwork
-            let playheadChanged = position.isFinite &&
-                abs(position - lastNowPlayingPosition) >= 1.0
-            if stateChanged || playheadChanged || now - lastNowPlayingUpdate >= 1.5 {
-                let state = snapshot(includeQueue: false)
-                var info: [String: Any] = [MPMediaItemPropertyTitle: current.title,
-                MPMediaItemPropertyArtist: current.artist, MPMediaItemPropertyAlbumTitle: current.album,
-                MPMediaItemPropertyPlaybackDuration: state["duration"] ?? 0,
-                MPNowPlayingInfoPropertyElapsedPlaybackTime: state["position"] ?? 0,
-                // Play intent is distinct from buffering, but the system must
-                // never resume its own UI while our actual transport is paused.
-                MPNowPlayingInfoPropertyPlaybackRate: wantsPlay && audible ? 1.0 : 0.0,
-                MPNowPlayingInfoPropertyDefaultPlaybackRate: 1.0,
-                MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue,
-                MPNowPlayingInfoPropertyPlaybackQueueIndex: index,
-                MPNowPlayingInfoPropertyPlaybackQueueCount: tracks.count,
-                MPNowPlayingInfoPropertyExternalContentIdentifier: current.id]
-                if let artwork { info[MPMediaItemPropertyArtwork] = artwork }
-                nowPlayingCenter.nowPlayingInfo = info
-                lastNowPlayingID = current.id
-                lastNowPlayingIndex = index
-                lastNowPlayingQueueRevision = queueRevision
-                lastNowPlayingState = stateCode
-                lastNowPlayingPosition = position.isFinite ? position : 0
-                lastNowPlayingUpdate = now
-                lastNowPlayingArtwork = artwork
+        if usesNowPlaying27 {
+            #if canImport(NowPlaying)
+            if #available(iOS 27.0, *) {
+                NightwellNowPlayingBridge27.shared.update(
+                    track: current,
+                    playing: wantsPlay && audible,
+                    elapsed: playbackPosition,
+                    artwork: artwork,
+                    queueCount: tracks.count
+                )
             }
-        } else if !lastNowPlayingID.isEmpty {
-            nowPlayingCenter.nowPlayingInfo = nil
-            lastNowPlayingID = ""
-            lastNowPlayingIndex = -1
-            lastNowPlayingQueueRevision = -1
-            lastNowPlayingState = -1
-            lastNowPlayingPosition = -1
-            lastNowPlayingUpdate = 0
-            lastNowPlayingArtwork = nil
+            #endif
+        } else {
+            let commands = remoteCommands
+            commands.nextTrackCommand.isEnabled = tracks.count > 1 && pendingNextIndex == nil && !waveWaiting
+            commands.previousTrackCommand.isEnabled = !tracks.isEmpty
+            commands.playCommand.isEnabled = current != nil
+            commands.pauseCommand.isEnabled = current != nil
+            commands.togglePlayPauseCommand.isEnabled = current != nil
+            commands.changePlaybackPositionCommand.isEnabled = current != nil
+            // Keep one Now Playing session across foreground/background transitions.
+            // iOS decides when to present playback in Dynamic Island; removing
+            // metadata while the app is open would also disrupt system controls,
+            // the lock screen, CarPlay and connected accessories.
+            // The custom local EQ engine and AVPlayer publish through this same
+            // session and use the existing remote-command handlers.
+            if let current {
+                let now = ProcessInfo.processInfo.systemUptime
+                let position = playbackPosition
+                let stateCode = (wantsPlay ? 1 : 0) + (audible ? 2 : 0)
+                let stateChanged = current.id != lastNowPlayingID ||
+                    index != lastNowPlayingIndex ||
+                    queueRevision != lastNowPlayingQueueRevision ||
+                    stateCode != lastNowPlayingState ||
+                    lastNowPlayingArtwork !== artwork
+                let playheadChanged = position.isFinite &&
+                    abs(position - lastNowPlayingPosition) >= 1.0
+                if stateChanged || playheadChanged || now - lastNowPlayingUpdate >= 1.5 {
+                    let state = snapshot(includeQueue: false)
+                    var info: [String: Any] = [MPMediaItemPropertyTitle: current.title,
+                    MPMediaItemPropertyArtist: current.artist, MPMediaItemPropertyAlbumTitle: current.album,
+                    MPMediaItemPropertyPlaybackDuration: state["duration"] ?? 0,
+                    MPNowPlayingInfoPropertyElapsedPlaybackTime: state["position"] ?? 0,
+                    // Play intent is distinct from buffering, but the system must
+                    // never resume its own UI while our actual transport is paused.
+                    MPNowPlayingInfoPropertyPlaybackRate: wantsPlay && audible ? 1.0 : 0.0,
+                    MPNowPlayingInfoPropertyDefaultPlaybackRate: 1.0,
+                    MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue,
+                    MPNowPlayingInfoPropertyPlaybackQueueIndex: index,
+                    MPNowPlayingInfoPropertyPlaybackQueueCount: tracks.count,
+                    MPNowPlayingInfoPropertyExternalContentIdentifier: current.id]
+                    if let artwork { info[MPMediaItemPropertyArtwork] = artwork }
+                    nowPlayingCenter.nowPlayingInfo = info
+                    lastNowPlayingID = current.id
+                    lastNowPlayingIndex = index
+                    lastNowPlayingQueueRevision = queueRevision
+                    lastNowPlayingState = stateCode
+                    lastNowPlayingPosition = position.isFinite ? position : 0
+                    lastNowPlayingUpdate = now
+                    lastNowPlayingArtwork = artwork
+                }
+            } else if !lastNowPlayingID.isEmpty {
+                nowPlayingCenter.nowPlayingInfo = nil
+                lastNowPlayingID = ""
+                lastNowPlayingIndex = -1
+                lastNowPlayingQueueRevision = -1
+                lastNowPlayingState = -1
+                lastNowPlayingPosition = -1
+                lastNowPlayingUpdate = 0
+                lastNowPlayingArtwork = nil
+            }
         }
         onChange?()
     }
