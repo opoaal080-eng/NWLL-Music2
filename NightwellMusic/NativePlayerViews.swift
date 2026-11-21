@@ -275,11 +275,20 @@ struct NativeHome: View {
 struct MiniPlayer: View {
     @Environment(\.nightwellAppearance) private var appearance
     @EnvironmentObject var store: MusicStore
-    @ObservedObject var clock: PlaybackClock
+    let clock: PlaybackClock
+    @ObservedObject private var presentation: PlaybackPresentation
     let open: () -> Void
     var compactHeight = false
     @State private var glow = false
     @Environment(\.accessibilityReduceMotion) private var reduced
+
+    init(clock: PlaybackClock, open: @escaping () -> Void, compactHeight: Bool = false) {
+        self.clock = clock
+        self.open = open
+        self.compactHeight = compactHeight
+        _presentation = ObservedObject(wrappedValue: clock.presentation)
+    }
+
     var body: some View {
         GeometryReader { box in
             let compact = box.size.width < 350 || compactHeight
@@ -315,52 +324,7 @@ struct MiniPlayer: View {
                     if let track = clock.displayCurrent {
                         Button { Task { await store.like(track) } } label: { Image(systemName: store.likes.contains(track.id) ? "heart.fill" : "heart").font(.system(size: 19)).foregroundStyle(Color.white).frame(width: compact ? 26 : 29, height: 44) }.accessibilityLabel("Избранное")
                     }
-                    Button { clock.toggle() } label: {
-                        ZStack {
-                            Circle()
-                                .fill(Color.black.opacity(0.16))
-                                .frame(width: 40, height: 40)
-                            // Track stays subtle. The white arc shows the actual
-                            // listening position, starting at 12 o'clock.
-                            Circle()
-                                .stroke(Color.white.opacity(0.22), lineWidth: 2.2)
-                                .frame(width: 44, height: 44)
-                            // During initial buffering this same ring shows
-                            // loaded audio; once audible it shows play position.
-                            Circle()
-                                .trim(from: 0, to: clock.preparing ? CGFloat(clock.bufferFraction) : playbackFraction)
-                                .stroke(appearance == .vice ? appearance.progressTint : Color.white.opacity(0.96),
-                                        style: StrokeStyle(lineWidth: 2.7, lineCap: .round))
-                                .rotationEffect(.degrees(-90))
-                                .frame(width: 44, height: 44)
-                            if clock.preparing && clock.bufferFraction < 0.01 {
-                                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: reduced)) { time in
-                                    let phase = time.date.timeIntervalSinceReferenceDate
-                                        .truncatingRemainder(dividingBy: 1.4) / 1.4
-                                    Circle()
-                                        .trim(from: 0, to: 0.22)
-                                        .stroke(appearance == .vice
-                                                ? appearance.progressTint.opacity(0.92)
-                                                : Color.white.opacity(0.92),
-                                                style: StrokeStyle(lineWidth: 2.7, lineCap: .round))
-                                        .rotationEffect(.degrees(phase * 360 - 90))
-                                        .frame(width: 44, height: 44)
-                                }
-                                .allowsHitTesting(false)
-                            }
-                            Image(systemName: clock.playing ? "pause" : "play.fill")
-                                .font(.system(size: 17, weight: .light))
-                        }
-                        .frame(width: compactHeight ? 42 : 48, height: compactHeight ? 42 : 48)
-                    }
-                    .accessibilityLabel(clock.playing ? "Пауза" : "Воспроизвести")
-                    .accessibilityValue(clock.preparing
-                        ? (clock.bufferFraction > 0
-                           ? "Загружено \(Int((clock.bufferFraction * 100).rounded()))%"
-                           : "Подготовка аудио")
-                        : (clock.duration > 0
-                           ? "\(Int((playbackFraction * 100).rounded()))% трека"
-                           : "Прогресс неизвестен"))
+                    MiniPlayerProgressButton(clock: clock, compactHeight: compactHeight)
                 }.buttonStyle(.plain)
             }.foregroundStyle(.white) .padding(.horizontal, 14).frame(maxWidth: .infinity, maxHeight: .infinity)
             .background {
@@ -381,14 +345,59 @@ struct MiniPlayer: View {
         .task(id: clock.id) { guard !reduced else { return }; glow = true; try? await Task.sleep(nanoseconds: 80_000_000); guard !Task.isCancelled else { return }; withAnimation(.easeOut(duration: 0.9)) { glow = false } }
         // Swipe wins over the artwork/title tap, so it never opens the full player.
     }
-    private var playbackFraction: CGFloat {
-        // Protect against unknown duration, invalid stream timestamps and
-        // seeking overshoot. @ObservedObject updates the ring on every tick.
-        guard clock.displayDuration.isFinite, clock.displayPosition.isFinite,
-              clock.displayDuration > 0 else { return 0 }
-        return CGFloat(min(1, max(0, clock.displayPosition / clock.displayDuration)))
-    }
+}
 
+private struct MiniPlayerProgressButton: View {
+    @ObservedObject var clock: PlaybackClock
+    let compactHeight: Bool
+    @Environment(\.nightwellAppearance) private var appearance
+    @Environment(\.scenePhase) private var scene
+    @Environment(\.accessibilityReduceMotion) private var reduced
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 15.0,
+                                paused: scene != .active || reduced || (!clock.playing && !clock.preparing))) { time in
+            let position = PlaybackProgressPresentation.position(
+                displayPosition: clock.displayPosition, duration: clock.displayDuration,
+                playing: clock.playing && scene == .active,
+                displayMatchesPlayback: clock.displayID == clock.id,
+                livePosition: { NativePlayer.shared.lyricPlaybackPosition() })
+            let fraction = PlaybackProgressPresentation.fraction(position: position, duration: clock.displayDuration)
+            let buffered = clock.bufferFraction.isFinite ? min(1, max(0, clock.bufferFraction)) : 0
+            Button { clock.toggle() } label: {
+                ZStack {
+                    Circle().fill(Color.black.opacity(0.16)).frame(width: 40, height: 40)
+                    Circle().stroke(Color.white.opacity(0.22), lineWidth: 2.2)
+                        .frame(width: 44, height: 44)
+                    Circle()
+                        .trim(from: 0, to: CGFloat(clock.preparing ? buffered : fraction))
+                        .stroke(appearance == .vice ? appearance.progressTint : Color.white.opacity(0.96),
+                                style: StrokeStyle(lineWidth: 2.7, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                        .frame(width: 44, height: 44)
+                    if clock.preparing && buffered < 0.01 {
+                        let phase = time.date.timeIntervalSinceReferenceDate
+                            .truncatingRemainder(dividingBy: 1.4) / 1.4
+                        Circle().trim(from: 0, to: 0.22)
+                            .stroke(appearance == .vice
+                                    ? appearance.progressTint.opacity(0.92) : Color.white.opacity(0.92),
+                                    style: StrokeStyle(lineWidth: 2.7, lineCap: .round))
+                            .rotationEffect(.degrees(phase * 360 - 90))
+                            .frame(width: 44, height: 44)
+                            .allowsHitTesting(false)
+                    }
+                    Image(systemName: clock.playing ? "pause" : "play.fill")
+                        .font(.system(size: 17, weight: .light))
+                }
+                .frame(width: compactHeight ? 42 : 48, height: compactHeight ? 42 : 48)
+            }
+            .accessibilityLabel(clock.playing ? "Пауза" : "Воспроизвести")
+            .accessibilityValue(clock.preparing
+                ? (buffered > 0 ? "Загружено \(Int((buffered * 100).rounded()))%" : "Подготовка аудио")
+                : (clock.displayDuration > 0
+                   ? "\(Int((fraction * 100).rounded()))% трека" : "Прогресс неизвестен"))
+        }
+    }
 }
 
 
@@ -407,6 +416,7 @@ struct GlassSlider: View {
     var knobDiameter: CGFloat = 18
     var onEditingChanged: (Bool) -> Void = { _ in }
     @State private var dragging = false
+    @Environment(\.scenePhase) private var scene
     @Environment(\.accessibilityReduceMotion) private var reducedMotion
     @Environment(\.nightwellAppearance) private var appearance
 
@@ -439,7 +449,8 @@ struct GlassSlider: View {
                 } else if preparing {
                     // The server cannot always report how much of the first
                     // audio is ready. Show movement rather than a fake percent.
-                    TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: reducedMotion)) { time in
+                    TimelineView(.animation(minimumInterval: 1.0 / 15.0,
+                                            paused: reducedMotion || scene != .active)) { time in
                         let phase = time.date.timeIntervalSinceReferenceDate
                             .truncatingRemainder(dividingBy: 1.45) / 1.45
                         Capsule()
@@ -656,12 +667,62 @@ private struct NightwellPresentedClip: Identifiable {
     let trackTitle: String
 }
 
+private struct FullPlayerProgress: View {
+    @ObservedObject var clock: PlaybackClock
+    @Binding var seeking: Bool
+    let compact: Bool
+    @State private var scrub = 0.0
+    @Environment(\.scenePhase) private var scene
+    @Environment(\.accessibilityReduceMotion) private var reduced
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 15.0,
+                                paused: scene != .active || reduced || !clock.playing || seeking)) { _ in
+            let duration = clock.displayDuration.isFinite && clock.displayDuration > 0 ? clock.displayDuration : 1
+            let position = PlaybackProgressPresentation.position(
+                displayPosition: clock.displayPosition, duration: duration,
+                playing: clock.playing && scene == .active && !seeking,
+                displayMatchesPlayback: clock.displayID == clock.id,
+                livePosition: { NativePlayer.shared.lyricPlaybackPosition() })
+            let shownPosition = seeking ? scrub : position
+            let buffered = clock.bufferFraction.isFinite ? min(1, max(0, clock.bufferFraction)) : 0
+            VStack(spacing: compact ? 5 : 8) {
+                GlassSlider(value: Binding(get: { shownPosition }, set: { scrub = $0 }),
+                            range: 0...duration, accessibilityStep: 5,
+                            label: "Позиция трека", valueText: formatTime(shownPosition),
+                            bufferedFraction: CGFloat(buffered), preparing: clock.preparing,
+                            knobDiameter: 8) { editing in
+                    if editing {
+                        scrub = position
+                        seeking = true
+                    } else {
+                        NativePlayer.shared.seek(scrub)
+                        seeking = false
+                    }
+                }
+                // During a handoff the visible metadata belongs to the next
+                // item while the former stream still owns the actual playhead.
+                .allowsHitTesting(clock.displayID == clock.id)
+                HStack {
+                    Text(formatTime(shownPosition))
+                    Spacer()
+                    Text("−" + formatTime(max(0, duration - shownPosition)))
+                }
+                .font(compact ? .caption2 : .caption)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+            }
+        }
+    }
+}
+
 struct FullPlayer: View {
     @Environment(\.nightwellAppearance) private var appearance
     @EnvironmentObject private var togetherSession: NightwellTogetherSession
     @State private var artworkTextColors: [Color] = [.white, .white]
     @EnvironmentObject var store: MusicStore
-    @ObservedObject var clock: PlaybackClock
+    let clock: PlaybackClock
+    @ObservedObject private var presentation: PlaybackPresentation
     @Environment(\.dismiss) private var dismiss
     @State private var lyricsFrame = CGRect.zero
     @State private var showLyrics = false
@@ -675,20 +736,32 @@ struct FullPlayer: View {
     @State private var selectedArtist: ArtistSelection?
     @State private var showArtistChoices = false
     @State private var seeking = false
-    @State private var scrub = 0.0
+    @State private var hasInlineLyric = false
     @State private var repeatMode = 0
     @State private var shuffleMode = 0
     @AppStorage("nw-cover-style") private var coverStyle = "classic"
     @AppStorage("nw-player-inline-lyrics") private var playerInlineLyrics = true
 
+    init(clock: PlaybackClock) {
+        self.clock = clock
+        _presentation = ObservedObject(wrappedValue: clock.presentation)
+    }
+
     private var inlineLyricVisible: Bool {
-        guard playerInlineLyrics, !showLyrics, clock.playing,
-              store.lyrics.value?.synced == true,
-              let lines = store.lyrics.value?.lines, !lines.isEmpty else { return false }
-        let currentPosition = clock.displayPosition.isFinite
-            ? clock.displayPosition : clock.position
-        guard let current = lines.last(where: { $0.time <= currentPosition }) else { return false }
-        return !current.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        playerInlineLyrics && !showLyrics && clock.playing && hasInlineLyric
+    }
+
+    private func updateInlineLyricVisibility(lyrics: Lyrics?, position: Double) {
+        var visible = false
+        if lyrics?.synced == true, let lines = lyrics?.lines, position.isFinite {
+            // Imported/cached lyrics are not required to be timestamp-sorted.
+            if let current = lines.last(where: { $0.time <= position }) {
+                visible = !current.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+        }
+        // Word/position updates stay inside HomeLyricLine. Only appearance or
+        // disappearance of the inline slot can invalidate the player layout.
+        if hasInlineLyric != visible { hasInlineLyric = visible }
     }
 
     var body: some View {
@@ -713,22 +786,12 @@ struct FullPlayer: View {
         }
     }
 
-    // Grouping unrelated SwiftUI onChange chains in one expression makes
-    // Swift 6's constraint solver hit its type-check timeout. Keep short
-    // subtrees, with simple precomputed keys for the collection observers.
+    // Keep unrelated observer chains in short subtrees for the Swift solver.
     private var clipLookupKey: String {
         let selected = clock.displayCurrent
         return store.origin.absoluteString + "|" + (selected?.id ?? "") + "|"
             + (selected?.title ?? "") + "|" + (selected?.artist ?? "")
             + "|" + (store.account?.id ?? "")
-    }
-
-    private var playlistRevision: String {
-        store.playlists.map(\.id).joined(separator: "|")
-    }
-
-    private var offlineRevision: String {
-        store.offline.map(\.id).sorted().joined(separator: "|")
     }
 
     private var playerSearchAndUpdates: some View {
@@ -764,8 +827,14 @@ struct FullPlayer: View {
 
     private var playerLibraryUpdates: some View {
         playerPlaybackUpdates
-            .onChange(of: playlistRevision) { _ in refreshNativeMenu() }
-            .onChange(of: offlineRevision) { _ in refreshNativeMenu() }
+            .onReceive(store.$playlists.removeDuplicates(by: { previous, next in
+                previous.count == next.count && zip(previous, next).allSatisfy { pair in
+                    pair.0.id == pair.1.id && pair.0.name == pair.1.name
+                }
+            }).dropFirst().receive(on: RunLoop.main)) { _ in refreshNativeMenu() }
+            .onReceive(store.$offline.removeDuplicates().dropFirst().receive(on: RunLoop.main)) { _ in
+                refreshNativeMenu()
+            }
     }
 
     private var playerPlaybackUpdates: some View {
@@ -784,6 +853,12 @@ struct FullPlayer: View {
 
     private var playerLifecycle: some View {
         playerGesture
+        .onReceive(clock.$displayPosition) { position in
+            updateInlineLyricVisibility(lyrics: store.lyrics.value, position: position)
+        }
+        .onReceive(store.lyrics.$value) { lyrics in
+            updateInlineLyricVisibility(lyrics: lyrics, position: clock.displayPosition)
+        }
         .onAppear {
             refreshNativeMenu()
             let modes = NativePlayer.shared.snapshot(includeQueue: false)
@@ -1052,13 +1127,7 @@ struct FullPlayer: View {
 
     @ViewBuilder private func playerTransport(compact: Bool) -> some View {
                 VStack(spacing: compact ? 10 : 16) {
-                    VStack(spacing: compact ? 5 : 8) {
-                        GlassSlider(value: Binding(get: { seeking ? scrub : min(clock.displayPosition, clock.displayDuration) }, set: { scrub = $0 }), range: 0...clock.displayDuration, accessibilityStep: 5, label: "Позиция трека", valueText: formatTime(seeking ? scrub : clock.displayPosition), bufferedFraction: CGFloat(clock.bufferFraction), preparing: clock.preparing, knobDiameter: 8) { editing in if editing { scrub = clock.displayPosition; seeking = true } else { NativePlayer.shared.seek(scrub); seeking = false } }
-                            // The former stream is still audible during handoff.
-                            // Disable scrubbing to avoid seeking the wrong track.
-                            .allowsHitTesting(clock.displayID == clock.id)
-                        HStack { Text(formatTime(seeking ? scrub : clock.displayPosition)); Spacer(); Text("−" + formatTime(max(0, clock.displayDuration - (seeking ? scrub : clock.displayPosition)))) }.font(compact ? .caption2 : .caption).foregroundStyle(.secondary).monospacedDigit()
-                    }
+                    FullPlayerProgress(clock: clock, seeking: $seeking, compact: compact)
                     HStack {
                         Button {
                             shuffleMode = (shuffleMode + 1) % 3
@@ -1219,10 +1288,16 @@ struct PlaybackQueue: View {
     @Environment(\.nightwellAppearance) private var appearance
     @EnvironmentObject var store: MusicStore
     @Environment(\.dismiss) private var dismiss
-    @ObservedObject var clock: PlaybackClock
+    let clock: PlaybackClock
+    @ObservedObject private var presentation: PlaybackPresentation
     @AppStorage("nw-depth-queue") private var depthQueue = true
 
-    private var currentIndex: Int { clock.queue.firstIndex { $0.id == clock.id } ?? -1 }
+    init(clock: PlaybackClock) {
+        self.clock = clock
+        _presentation = ObservedObject(wrappedValue: clock.presentation)
+    }
+
+    private var currentIndex: Int { clock.currentIndex ?? -1 }
 
     var body: some View {
         GeometryReader { viewport in

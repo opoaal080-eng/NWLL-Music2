@@ -3,7 +3,8 @@ import SwiftUI
 /// A reversible, finger-tracking page transition for both Nightwell players.
 /// A short swipe always snaps back; only a deliberate swipe commits playback.
 struct NightwellTrackSwipeCarousel<Content: View>: View {
-    @ObservedObject var clock: PlaybackClock
+    let clock: PlaybackClock
+    @ObservedObject private var presentation: PlaybackPresentation
     var gap: CGFloat = 12
     let onStep: (Int) -> Void
     let content: (Track?) -> Content
@@ -17,23 +18,19 @@ struct NightwellTrackSwipeCarousel<Content: View>: View {
          onStep: @escaping (Int) -> Void,
          @ViewBuilder content: @escaping (Track?) -> Content) {
         self.clock = clock
+        _presentation = ObservedObject(wrappedValue: clock.presentation)
         self.gap = gap
         self.onStep = onStep
         self.content = content
     }
 
-    private var currentIndex: Int? {
-        clock.queue.firstIndex(where: { $0.id == clock.displayID })
-            ?? clock.queue.firstIndex(where: { $0.id == clock.id })
-    }
-
     private var previous: Track? {
-        guard let index = currentIndex, index > 0 else { return nil }
+        guard let index = clock.displayIndex, index > 0 else { return nil }
         return clock.queue[index - 1]
     }
 
     private var following: Track? {
-        guard let index = currentIndex, index + 1 < clock.queue.count else { return nil }
+        guard let index = clock.displayIndex, index + 1 < clock.queue.count else { return nil }
         return clock.queue[index + 1]
     }
 
@@ -164,8 +161,7 @@ struct NightwellTrackSwipeCarousel<Content: View>: View {
 /// shuffle enabled could otherwise play a different track than the preview.
 enum NightwellSwipePlayback {
     @MainActor static func playAdjacent(_ direction: Int, clock: PlaybackClock) {
-        let index = clock.queue.firstIndex(where: { $0.id == clock.displayID })
-            ?? clock.queue.firstIndex(where: { $0.id == clock.id })
+        let index = clock.displayIndex
         guard let index, clock.queue.indices.contains(index + direction) else { return }
         _ = NativePlayer.shared.playQueueTrackNow(trackID: clock.queue[index + direction].id)
     }

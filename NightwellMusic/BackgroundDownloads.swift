@@ -27,13 +27,24 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
         let completedKeys: Set<String>
     }
     private let lock = NSRecursiveLock()
+    private let preparationQueue = DispatchQueue(label: "fun.nightwell.offline.preparation", qos: .utility)
+    // UI progress reads never wait for job persistence, filesystem validation,
+    // or task submission while the state lock is held on a worker queue.
+    private let progressLock = NSLock()
+    private var cachedProgress = Progress(active: false, message: "", fractions: [:],
+        pendingKeys: [], completedKeys: [])
+    private let eventLock = NSLock()
+    private let sessionLock = NSLock()
+    private var storedSession: URLSession?
     private var state = State()
     private var fractions: [String: Double] = [:]
     private var completedKeys = Set<String>()
     private var lastProgressNotification: [String: Date] = [:]
     private var reconciling = false
     private var eventCompletion: (() -> Void)?
-    private lazy var session: URLSession = {
+    private var session: URLSession {
+        sessionLock.lock(); defer { sessionLock.unlock() }
+        if let storedSession { return storedSession }
         let config = URLSessionConfiguration.background(withIdentifier: Self.identifier)
         config.sessionSendsLaunchEvents = true
         config.isDiscretionary = false
@@ -43,8 +54,10 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
         config.timeoutIntervalForResource = 7 * 24 * 3600
         config.httpCookieStorage = .shared
         let delegateQueue = OperationQueue(); delegateQueue.maxConcurrentOperationCount = 1
-        return URLSession(configuration: config, delegate: self, delegateQueue: delegateQueue)
-    }()
+        let created = URLSession(configuration: config, delegate: self, delegateQueue: delegateQueue)
+        storedSession = created
+        return created
+    }
     private var file: URL {
         let root = try! FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
         return root.appendingPathComponent("native-downloads.json")
@@ -52,27 +65,41 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
     private override init() {
         super.init()
         if let bytes = try? Data(contentsOf: file), let saved = try? JSONDecoder().decode(State.self, from: bytes) { state = saved }
+        cacheProgress()
     }
     var progress: Progress {
-        lock.lock(); defer { lock.unlock() }
+        progressLock.lock(); defer { progressLock.unlock() }
+        return cachedProgress
+    }
+    // Called during initialization or while holding the state lock. Construct
+    // the snapshot before taking the short, independent UI-read lock.
+    private func cacheProgress() {
+        let next: Progress
         if !state.jobs.isEmpty {
             let done = state.added + state.skipped + state.failed
-            return Progress(active: true, message: "Загрузка \(done) / \(state.total)", fractions: fractions,
+            next = Progress(active: true, message: "Загрузка \(done) / \(state.total)", fractions: fractions,
                             pendingKeys: Set(state.jobs.keys), completedKeys: completedKeys)
+        } else {
+            next = Progress(active: false, message: state.total == 0 ? "" : "Скачано: \(state.added) · уже сохранено: \(state.skipped) · ошибок: \(state.failed)", fractions: [:],
+                            pendingKeys: [], completedKeys: completedKeys)
         }
-        return Progress(active: false, message: state.total == 0 ? "" : "Скачано: \(state.added) · уже сохранено: \(state.skipped) · ошибок: \(state.failed)", fractions: [:],
-                        pendingKeys: [], completedKeys: completedKeys)
+        progressLock.lock()
+        cachedProgress = next
+        progressLock.unlock()
     }
     // Construct the persistent URLSession as soon as iOS relaunches the app
     // for background download events. The system, not SwiftUI, owns transfers.
     func prepareForSystemEvents() { _ = session }
     func handleEvents(_ completion: @escaping () -> Void) {
-        lock.lock(); eventCompletion = completion; lock.unlock()
+        eventLock.lock(); eventCompletion = completion; eventLock.unlock()
         prepareForSystemEvents()
     }
     // Reconcile on launch and when the user returns to the app. A one-time
     // ready flag left orphaned jobs stuck forever if a system task disappeared.
     func reconnect() {
+        preparationQueue.async { self.reconcile() }
+    }
+    private func reconcile() {
         lock.lock()
         guard !reconciling else { lock.unlock(); return }
         reconciling = true
@@ -93,10 +120,19 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
             self.publish()
         }
     }
-    func enqueue(_ tracks: [Track], origin: URL, account: String) {
+    func enqueue(_ tracks: [Track], origin: URL, account: String) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            preparationQueue.async {
+                self.enqueueJobs(tracks, origin: origin, account: account)
+                continuation.resume()
+            }
+        }
+    }
+    private func enqueueJobs(_ tracks: [Track], origin: URL, account: String) {
         lock.lock(); defer { lock.unlock() }
-        reconnect()
+        reconcile()
         if state.jobs.isEmpty { state = State(); completedKeys.removeAll(); fractions.removeAll(); lastProgressNotification.removeAll() }
+        var pending: [Job] = []
         for track in tracks {
             // A stale _offline flag must not block repair of a corrupt download.
             // Imported local files have no remote source and cannot be re-downloaded.
@@ -108,10 +144,13 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
             if OfflineStore.audio(origin: origin, account: account, id: track.id) != nil { state.skipped += 1; completedKeys.insert(key); continue }
             let job = Job(key: key, origin: origin, account: account, track: track)
             state.jobs[key] = job
-            // Persist before resume: a system wake-up can always recover the metadata.
-            persist(); submit(job)
+            pending.append(job)
         }
-        persist(); publish()
+        // Persist the complete batch once before any task resumes: a system
+        // wake-up can recover every submitted job without repeated full writes.
+        persist()
+        for job in pending { submit(job) }
+        publish()
     }
     private func submit(_ job: Job, retryAfter: TimeInterval = 0) {
         // Retries are a new transfer; do not carry over 100% from a preparation response.
@@ -142,7 +181,10 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
             var mutable = file; var values = URLResourceValues(); values.isExcludedFromBackup = true; try? mutable.setResourceValues(values)
         }
     }
-    private func publish() { DispatchQueue.main.async { NotificationCenter.default.post(name: Self.changed, object: nil) } }
+    private func publish() {
+        cacheProgress()
+        DispatchQueue.main.async { NotificationCenter.default.post(name: Self.changed, object: nil) }
+    }
     private func finish(_ task: URLSessionTask, success: Bool) {
         lock.lock(); defer { lock.unlock() }
         guard let key = task.taskDescription, state.jobs.removeValue(forKey: key) != nil else { return }
@@ -229,7 +271,7 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
         completionHandler(origin.flatMap { base in request.url.map { ServerAddress.sameOrigin(base, $0) } } == true ? request : nil)
     }
     func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
-        lock.lock(); let completion = eventCompletion; eventCompletion = nil; lock.unlock()
+        eventLock.lock(); let completion = eventCompletion; eventCompletion = nil; eventLock.unlock()
         DispatchQueue.main.async { completion?() }
     }
 }
