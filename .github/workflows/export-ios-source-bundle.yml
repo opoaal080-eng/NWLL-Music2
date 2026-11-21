@@ -1,0 +1,69 @@
+name: Export Nightwell Music iOS source
+
+on:
+  push:
+    branches:
+      - 'export/ios-source-20261121'
+
+permissions:
+  contents: read
+
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact iOS source commit
+        uses: actions/checkout@v4
+      - name: Pack complete iOS app files
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile, ZIP_DEFLATED
+          import os, subprocess, hashlib
+          roots = [
+              Path('NightwellMusic'), Path('NightwellWidgets'),
+              Path('NightwellWidgetShared'), Path('NativeTests'),
+              Path('ios'), Path('design-assets'), Path('scripts')
+          ]
+          singles = [
+              Path('project.yml'), Path('README_NATIVE_RU.md'),
+              Path('README.md'), Path('.gitignore'),
+              Path('.github/workflows/build-ios.yml')
+          ]
+          files = sorted(
+              [file for root in roots if root.exists()
+               for file in root.rglob('*') if file.is_file()] +
+              [file for file in singles if file.is_file()],
+              key=lambda f: str(f)
+          )
+          assert Path('NightwellMusic/App.swift') in files
+          assert Path('NightwellWidgets/NightwellWidgets.swift') in files
+          assert Path('project.yml') in files
+          source_commit = subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
+          notes = (
+              'Nightwell Music iOS native source archive\n'
+              'Repository: opoaal080-eng/NWLL-Music2\n'
+              'Original iOS branch: fix/ios-latest-account-family-20261116\n'
+              'Original iOS commit: 116014f501f5860a50b2f51e33c1e37d96c5e524\n'
+              'Export commit: '+source_commit+'\n'
+              'Build: install XcodeGen and run xcodegen generate using project.yml\n'
+              'Contains app Swift code, all asset catalogs, widgets, shared widget code, tests, iOS build workflow and supporting scripts.\n'
+              'The project.yml generator supplies build Info.plist files.\n'
+          )
+          target = Path('Nightwell-Music-iOS-Full-Source.zip')
+          with ZipFile(target,'w',ZIP_DEFLATED,compresslevel=6) as z:
+              z.writestr('Nightwell-iOS-Sources/SOURCE_INFO.txt',notes)
+              for file in files:
+                  z.write(file,arcname=str(Path('Nightwell-iOS-Sources')/file))
+          print('FILES',len(files))
+          print('BYTES',target.stat().st_size)
+          print('SHA256',hashlib.sha256(target.read_bytes()).hexdigest())
+          PY
+      - name: Upload iOS source ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nightwell-Music-iOS-Full-Source
+          path: Nightwell-Music-iOS-Full-Source.zip
+          retention-days: 90
+          if-no-files-found: error
