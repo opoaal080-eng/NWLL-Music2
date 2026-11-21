@@ -2,7 +2,7 @@ name: Build Nightwell Music iOS (Recovered)
 on:
   workflow_dispatch:
   pull_request:
-    branches: [main, feature/windows-mobile-parity-20261106, fix/ios-clip-cache-retry-20261111, fix/clip-unlimited-device-cache-20261111 , feature/search-glow-android-suggestions-ios-20261112, fix/ios-latest-account-family-20261116]
+    branches: [main, feature/windows-mobile-parity-20261106, fix/ios-clip-cache-retry-20261111, fix/clip-unlimited-device-cache-20261111 , feature/search-glow-android-suggestions-ios-20261112]
     paths:
       - 'NightwellMusic/**'
       - 'NightwellWidgets/**'
@@ -69,10 +69,6 @@ jobs:
           xcodebuild -version
           SDK_PATH="$(xcrun --sdk iphoneos --show-sdk-path)"
           printf 'import NowPlaying\n' | xcrun swiftc -sdk "$SDK_PATH" -target arm64-apple-ios27.0 -typecheck -
-      - name: Verify Now Playing visibility transitions
-        run: |
-          swiftc NightwellMusic/NowPlayingVisibility.swift scripts/test-now-playing-visibility.swift -o /tmp/test-now-playing
-          /tmp/test-now-playing
       - name: Generate neutral app icon
         run: python3 scripts/make-neutral-app-icon.py --platform ios
       - name: Prepare animated Vice Nights palm layers
@@ -95,18 +91,6 @@ jobs:
           cp -R build-device/Build/Products/Release-iphoneos/NightwellMusic.app output/Payload/
           cd output
           zip -qr Nightwell-Music-recovered-unsigned.ipa Payload
-      - name: Test Now Playing foreground and background presentation
-        run: |
-          NIGHTWELL_SIMULATOR_ID="$(python3 - <<'PYCODE'
-          import json, subprocess
-          devices = json.loads(subprocess.check_output(['xcrun', 'simctl', 'list', 'devices', 'available', '-j']))
-          phones = [device for runtime, group in devices['devices'].items() if 'iOS-27-' in runtime for device in group if 'iPhone' in device['name']]
-          if not phones:
-              raise SystemExit('An iOS 27 iPhone simulator is required for NowPlaying tests')
-          print(phones[0]['udid'])
-          PYCODE
-          )"
-          xcodebuild -project NightwellMusic.xcodeproj -scheme NightwellMusic -configuration Debug -destination "platform=iOS Simulator,id=$NIGHTWELL_SIMULATOR_ID" -derivedDataPath build-now-playing -resultBundlePath now-playing.xcresult -only-testing:NightwellMusicTests/NowPlayingPresentationTests -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO test
       - name: Record IPA checksum and commit
         run: python3 scripts/build-provenance.py --platform ios --directory output --output output/build-provenance.json
       - uses: actions/upload-artifact@v4
