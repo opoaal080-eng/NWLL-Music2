@@ -3,6 +3,70 @@ import AVFoundation
 @testable import NightwellMusic
 
 final class NativeEQPlaybackTests: XCTestCase {
+    @MainActor
+    func testPauseStopsRenderingAndResumeContinuesTheScheduledFile() throws {
+        let playback = NativeEQPlayback()
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString + ".caf")
+        defer {
+            playback.stop()
+            try? FileManager.default.removeItem(at: fileURL)
+        }
+        let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 2))
+        let input = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 96000))
+        input.frameLength = 96000
+        let samples = try XCTUnwrap(input.floatChannelData)
+        for frame in 0..<96000 {
+            // The louder segment proves resume reaches later file contents.
+            let amplitude = frame < 24000 ? 0.02 : 0.1
+            let sample = Float(amplitude * sin(2 * .pi * 1000 * Double(frame) / 48000))
+            samples[0][frame] = sample
+            samples[1][frame] = sample
+        }
+        do {
+            let file = try AVAudioFile(forWriting: fileURL, settings: format.settings)
+            try file.write(from: input)
+        }
+        try playback.load(fileURL, temporary: false, position: 0.25, playing: false)
+        try playback.engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: 1024)
+        let output = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 1024))
+        func renderSegment() throws -> Double {
+            var frames = 0
+            var energy = 0.0
+            for _ in 0..<100 {
+                if frames == 12000 { break }
+                let status = try playback.engine.renderOffline(
+                    AVAudioFrameCount(min(1024, 12000 - frames)), to: output)
+                guard status == .success else { continue }
+                let channel = try XCTUnwrap(output.floatChannelData)[0]
+                for frame in 0..<Int(output.frameLength) {
+                    energy += Double(channel[frame]) * Double(channel[frame])
+                }
+                frames += Int(output.frameLength)
+            }
+            XCTAssertEqual(frames, 12000, "The scheduled file must produce the complete audio segment")
+            return sqrt(energy / Double(max(1, frames)))
+        }
+        try playback.play()
+        let beforePause = try renderSegment()
+        let pausedPosition = playback.position
+        XCTAssertGreaterThan(pausedPosition, 0.45)
+        XCTAssertGreaterThan(beforePause, 0.005)
+
+        playback.pause()
+        XCTAssertFalse(playback.engine.isRunning)
+        XCTAssertFalse(playback.playing)
+        XCTAssertTrue(playback.ready)
+        XCTAssertEqual(playback.position, pausedPosition, accuracy: 1.0 / 48000)
+
+        try playback.play()
+        XCTAssertTrue(playback.engine.isRunning)
+        let afterResume = try renderSegment()
+        XCTAssertGreaterThan(playback.position, pausedPosition + 0.2)
+        XCTAssertGreaterThan(afterResume, beforePause * 3,
+                             "Resume must continue into the louder segment instead of replaying earlier audio")
+    }
+
     // Render the real AVAudioUnitEQ graph, not a duplicate filter implementation.
     private func render(_ frequency: Double, bands: [Double], expiry: Double, amplitude: Double = 0.1) throws -> (Double, Double, Double) {
         let playback = NativeEQPlayback()

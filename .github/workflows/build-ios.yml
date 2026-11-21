@@ -2,7 +2,7 @@ name: Build Nightwell Music iOS (Recovered)
 on:
   workflow_dispatch:
   pull_request:
-    branches: [main, feature/windows-mobile-parity-20261106, fix/ios-clip-cache-retry-20261111, fix/clip-unlimited-device-cache-20261111 , feature/search-glow-android-suggestions-ios-20261112]
+    branches: [main, feature/windows-mobile-parity-20261106, fix/ios-clip-cache-retry-20261111, fix/clip-unlimited-device-cache-20261111 , feature/search-glow-android-suggestions-ios-20261112, fix/ios-latest-account-family-20261116]
     paths:
       - 'NightwellMusic/**'
       - 'NightwellWidgets/**'
@@ -99,6 +99,18 @@ jobs:
           path: |
             output/Nightwell-Music-recovered-unsigned.ipa
             output/build-provenance.json
+      - name: Verify system pause and EQ resume
+        run: |
+          NIGHTWELL_SIMULATOR_ID="$(python3 - <<'PYCODE'
+          import json, subprocess
+          devices = json.loads(subprocess.check_output(['xcrun', 'simctl', 'list', 'devices', 'available', '-j']))
+          phones = [device for runtime, group in devices['devices'].items() if 'iOS-27-' in runtime for device in group if 'iPhone' in device['name']]
+          if not phones:
+              raise SystemExit('An iOS 27 iPhone simulator is required for NowPlaying tests')
+          print(phones[0]['udid'])
+          PYCODE
+          )"
+          xcodebuild -project NightwellMusic.xcodeproj -scheme NightwellMusic -configuration Debug -destination "platform=iOS Simulator,id=$NIGHTWELL_SIMULATOR_ID" -derivedDataPath build-transport -resultBundlePath transport.xcresult -only-testing:NightwellMusicTests/NowPlayingTransportTests -only-testing:NightwellMusicTests/NativeEQPlaybackTests/testPauseStopsRenderingAndResumeContinuesTheScheduledFile -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO test
 
   presentation-regression:
     name: Artist and search regression

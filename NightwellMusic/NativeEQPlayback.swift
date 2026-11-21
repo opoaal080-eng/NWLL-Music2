@@ -120,7 +120,12 @@ final class NativeEQPlayback {
         if !engine.isRunning { engine.prepare(); try engine.start() }
         node.play()
     }
-    func pause() { node.pause() }
+    func pause() {
+        node.pause()
+        // Stop rendering silence so the system observes paused audio playback.
+        // Pausing retains the graph and scheduled file for the next play().
+        engine.pause()
+    }
     func rebuild(playing: Bool) throws {
         let current = position
         engine.stop()

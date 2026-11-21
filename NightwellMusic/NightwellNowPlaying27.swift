@@ -37,6 +37,9 @@ final class NightwellNowPlayingModel: MediaSessionRepresentable {
     private(set) var imageData: Data?
     private(set) var artworkRevision = 0
     private(set) var canNavigate = false
+    // Publish transport state, clock and timestamp as one observable value.
+    // System controls must never combine a new Pause with an old running clock.
+    private(set) var playbackSnapshot: MediaPlaybackSnapshot?
 
     var content: (any MediaContentRepresentable)? {
         guard let track else { return nil }
@@ -56,15 +59,6 @@ final class NightwellNowPlayingModel: MediaSessionRepresentable {
         )
     }
 
-    var playbackSnapshot: MediaPlaybackSnapshot? {
-        guard track != nil else { return nil }
-        return MediaPlaybackSnapshot(
-            state: isPlaying ? .playing() : .paused,
-            elapsedTime: elapsedTime,
-            timestamp: snapshotDate
-        )
-    }
-
     var commands: [MediaCommand] {
         [
             .play { NativePlayer.shared.play() },
@@ -79,16 +73,25 @@ final class NightwellNowPlayingModel: MediaSessionRepresentable {
                 playing: Bool,
                 position: Double,
                 queueCount: Int) {
-        if track != newTrack {
+        let trackChanged = track != newTrack
+        if trackChanged {
             track = newTrack
         }
         let newPlaying = newTrack != nil && playing
         let playbackChanged = isPlaying != newPlaying
         if playbackChanged { isPlaying = newPlaying }
         let seekPosition = position.isFinite ? max(0, position) : 0
-        if abs(elapsedTime - seekPosition) >= 0.5 || playbackChanged {
+        if newTrack == nil {
+            elapsedTime = 0
+            if playbackSnapshot != nil { playbackSnapshot = nil }
+        } else if trackChanged || playbackChanged || playbackSnapshot == nil || abs(elapsedTime - seekPosition) >= 0.5 {
             elapsedTime = seekPosition
             snapshotDate = .now
+            playbackSnapshot = MediaPlaybackSnapshot(
+                state: newPlaying ? .playing() : .paused,
+                elapsedTime: elapsedTime,
+                timestamp: snapshotDate
+            )
         }
         let newCanNavigate = queueCount > 1
         if canNavigate != newCanNavigate { canNavigate = newCanNavigate }
@@ -143,10 +146,6 @@ final class NightwellNowPlayingBridge27 {
             return
         }
 
-        if session == nil {
-            session = MediaSession(model)
-        }
-
         let next = NightwellNowPlayingTrack(track)
         let trackChanged = next.id != lastTrackID
         let artworkChanged = lastArtworkObject !== artwork
@@ -160,6 +159,9 @@ final class NightwellNowPlayingBridge27 {
         }
         model.update(track: next, playing: playing, position: elapsed,
                      queueCount: queueCount)
+        if session == nil {
+            session = MediaSession(model)
+        }
 
         // Publication must start when playback is requested, not only once
         // the stream has become audible. Otherwise a buffering track may
