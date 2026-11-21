@@ -37,9 +37,10 @@ final class NightwellNowPlayingModel: MediaSessionRepresentable {
     private(set) var imageData: Data?
     private(set) var artworkRevision = 0
     private(set) var canNavigate = false
+    private(set) var presentationEnabled = false
 
     var content: (any MediaContentRepresentable)? {
-        guard let track else { return nil }
+        guard presentationEnabled, let track else { return nil }
         let image: Artwork? = imageData.map { data in
             Artwork(id: track.id + "-" + String(artworkRevision)) { _ in
                 try ArtworkRepresentation(data: data)
@@ -57,7 +58,7 @@ final class NightwellNowPlayingModel: MediaSessionRepresentable {
     }
 
     var playbackSnapshot: MediaPlaybackSnapshot? {
-        guard track != nil else { return nil }
+        guard presentationEnabled, track != nil else { return nil }
         return MediaPlaybackSnapshot(
             state: isPlaying ? .playing() : .paused,
             elapsedTime: elapsedTime,
@@ -78,20 +79,24 @@ final class NightwellNowPlayingModel: MediaSessionRepresentable {
     func update(track newTrack: NightwellNowPlayingTrack?,
                 playing: Bool,
                 position: Double,
-                queueCount: Int) {
-        if track != newTrack {
+                queueCount: Int,
+                presentationEnabled newPresentationEnabled: Bool) {
+        let trackChanged = track != newTrack
+        let presentationChanged = presentationEnabled != newPresentationEnabled
+        if trackChanged {
             track = newTrack
         }
         let newPlaying = newTrack != nil && playing
         let playbackChanged = isPlaying != newPlaying
         if playbackChanged { isPlaying = newPlaying }
         let seekPosition = position.isFinite ? max(0, position) : 0
-        if abs(elapsedTime - seekPosition) >= 0.5 || playbackChanged {
+        if trackChanged || presentationChanged || abs(elapsedTime - seekPosition) >= 0.5 || playbackChanged {
             elapsedTime = seekPosition
             snapshotDate = .now
         }
         let newCanNavigate = queueCount > 1
         if canNavigate != newCanNavigate { canNavigate = newCanNavigate }
+        if presentationChanged { presentationEnabled = newPresentationEnabled }
     }
 
     func updateArtwork(_ data: Data?) {
@@ -127,7 +132,8 @@ final class NightwellNowPlayingBridge27 {
     private init() {}
 
     func update(track: NativeTrack?, playing: Bool, playbackIntent: Bool,
-                elapsed: Double, artwork: MPMediaItemArtwork?, queueCount: Int) {
+                elapsed: Double, artwork: MPMediaItemArtwork?, queueCount: Int,
+                presentationEnabled: Bool) {
         guard let track else {
             // A stopped player must not leave a stale system media session.
             activationTask?.cancel()
@@ -138,13 +144,10 @@ final class NightwellNowPlayingBridge27 {
             lastArtworkObject = nil
             lastActivationAttempt = .distantPast
             lastActivationError = ""
-            model.update(track: nil, playing: false, position: 0, queueCount: 0)
+            model.update(track: nil, playing: false, position: 0, queueCount: 0,
+                         presentationEnabled: false)
             model.updateArtwork(nil)
             return
-        }
-
-        if session == nil {
-            session = MediaSession(model)
         }
 
         let next = NightwellNowPlayingTrack(track)
@@ -158,8 +161,17 @@ final class NightwellNowPlayingBridge27 {
                 .jpegData(compressionQuality: 0.86)
             model.updateArtwork(data)
         }
+        let restoringPresentation = presentationEnabled && !model.presentationEnabled
         model.update(track: next, playing: playing, position: elapsed,
-                     queueCount: queueCount)
+                     queueCount: queueCount, presentationEnabled: presentationEnabled)
+        if session == nil {
+            session = MediaSession(model)
+        }
+        if restoringPresentation { lastActivationAttempt = .distantPast }
+
+        // Retain the session and command closures while active, but expose no
+        // system content/snapshot. A late primary request cannot bypass the
+        // model's presentation gate. Playback itself is never paused here.
 
         // Publication must start when playback is requested, not only once
         // the stream has become audible. Otherwise a buffering track may
@@ -176,7 +188,7 @@ final class NightwellNowPlayingBridge27 {
             lastActivationError = ""
             return
         }
-        guard playbackIntent,
+        guard playbackIntent || restoringPresentation,
               Date().timeIntervalSince(lastActivationAttempt) >= 6 else { return }
         lastActivationAttempt = .now
         activationTask?.cancel()

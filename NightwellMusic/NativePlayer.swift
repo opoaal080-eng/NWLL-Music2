@@ -296,6 +296,7 @@ final class NativePlayer {
     private var lastNowPlayingPosition = -1.0
     private var lastNowPlayingUpdate = 0.0
     private var lastNowPlayingArtwork: MPMediaItemArtwork?
+    private var nowPlayingVisibility = NowPlayingVisibility()
     private var audioMeter = LocalAudioMeter()
     private let enginePlayback = NativeEQPlayback()
     private var eqDownload: EnvelopeDownload?
@@ -508,9 +509,8 @@ final class NativePlayer {
                 self.endBackgroundHandoff()
                 if self.callInterruptionEnded { self.attemptCallResume() }
                 self.refreshIndependentMeter()
-                // Never remove Now Playing on foreground entry. iOS owns the
-                // Dynamic Island's presentation; the lock screen, Control
-                // Center and connected accessories need the same media session.
+                // Withdraw system metadata while our own player is visible.
+                // Every subsequent publish observes the same visibility policy.
                 self.publish()
             })
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.willResignActiveNotification,
@@ -522,8 +522,7 @@ final class NativePlayer {
             })
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification,
             object: nil, queue: .main) { [weak self] _ in
-                // Refresh playback position on background transition without
-                // recreating or withdrawing the system media session.
+                // Republish the live state after the home/lock-screen handoff.
                 self?.publish()
             })
         fadeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.04, preferredTimescale: 600), queue: .main) { [weak self] _ in
@@ -1726,6 +1725,8 @@ final class NativePlayer {
             shuffleHistory.append(playing.id)
             if shuffleHistory.count > 120 { shuffleHistory.removeFirst(shuffleHistory.count - 120) }
         }
+        let presentation = nowPlayingVisibility.update(
+            applicationIsActive: appIsActive, hasTrack: current != nil)
         if usesNowPlaying27 {
             #if canImport(NowPlaying)
             if #available(iOS 27.0, *) {
@@ -1739,7 +1740,8 @@ final class NativePlayer {
                         playbackIntent: wantsPlay,
                         elapsed: playbackPosition,
                         artwork: artwork,
-                        queueCount: tracks.count
+                        queueCount: tracks.count,
+                        presentationEnabled: presentation.isPresented
                     )
                 }
             }
@@ -1752,13 +1754,18 @@ final class NativePlayer {
             commands.pauseCommand.isEnabled = current != nil
             commands.togglePlayPauseCommand.isEnabled = current != nil
             commands.changePlaybackPositionCommand.isEnabled = current != nil
-            // Keep one Now Playing session across foreground/background transitions.
-            // iOS decides when to present playback in Dynamic Island; removing
-            // metadata while the app is open would also disrupt system controls,
-            // the lock screen, CarPlay and connected accessories.
-            // The custom local EQ engine and AVPlayer publish through this same
-            // session and use the existing remote-command handlers.
-            if let current {
+            // Keep command handlers and the audio session alive. Only withdraw
+            // the metadata that drives system playback presentation while active.
+            if presentation == .hide {
+                nowPlayingCenter.nowPlayingInfo = nil
+                lastNowPlayingID = ""
+                lastNowPlayingIndex = -1
+                lastNowPlayingQueueRevision = -1
+                lastNowPlayingState = -1
+                lastNowPlayingPosition = -1
+                lastNowPlayingUpdate = 0
+                lastNowPlayingArtwork = nil
+            } else if presentation.isPresented, let current {
                 let now = ProcessInfo.processInfo.systemUptime
                 let position = playbackPosition
                 let stateCode = (wantsPlay ? 1 : 0) + (audible ? 2 : 0)
@@ -1769,7 +1776,7 @@ final class NativePlayer {
                     lastNowPlayingArtwork !== artwork
                 let playheadChanged = position.isFinite &&
                     abs(position - lastNowPlayingPosition) >= 1.0
-                if stateChanged || playheadChanged || now - lastNowPlayingUpdate >= 1.5 {
+                if presentation == .restore || stateChanged || playheadChanged || now - lastNowPlayingUpdate >= 1.5 {
                     let state = snapshot(includeQueue: false)
                     var info: [String: Any] = [MPMediaItemPropertyTitle: current.title,
                     MPMediaItemPropertyArtist: current.artist, MPMediaItemPropertyAlbumTitle: current.album,
@@ -1793,15 +1800,6 @@ final class NativePlayer {
                     lastNowPlayingUpdate = now
                     lastNowPlayingArtwork = artwork
                 }
-            } else if !lastNowPlayingID.isEmpty {
-                nowPlayingCenter.nowPlayingInfo = nil
-                lastNowPlayingID = ""
-                lastNowPlayingIndex = -1
-                lastNowPlayingQueueRevision = -1
-                lastNowPlayingState = -1
-                lastNowPlayingPosition = -1
-                lastNowPlayingUpdate = 0
-                lastNowPlayingArtwork = nil
             }
         }
         onChange?()
