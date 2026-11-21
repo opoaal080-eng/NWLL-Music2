@@ -401,7 +401,7 @@ struct NativeRoot: View {
     @State private var togetherPresented = false
     @StateObject private var togetherSession = NightwellTogetherSession()
     @State private var favoriteSort = "recent"
-    @State private var librarySession = LibrarySessionState<MusicStore.Screen>(overview: .library)
+    @StateObject private var librarySession = LibraryNavigationSession<MusicStore.Screen>(overview: .library)
     @AppStorage(NavigationLayout.storageKey) private var navigationLayout = NavigationLayout.belowPlayer
     @AppStorage("nw-ambient-lyrics") private var showHomeLyrics = true
     @State private var libraryScrollCollapsed: [String: Bool] = [:]

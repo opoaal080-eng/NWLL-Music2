@@ -8,25 +8,62 @@ import Network
     @Published var id = ""
     @Published var playing = false
 }
+// Metadata-only observers do not need to rebuild when the playhead advances.
+@MainActor final class PlaybackPresentation: ObservableObject {
+    let objectWillChange = ObservableObjectPublisher()
+    func invalidate() { objectWillChange.send() }
+}
 @MainActor final class PlaybackClock: ObservableObject {
     let status = TrackStatus()
+    let presentation = PlaybackPresentation()
     private var queueRevision = -1
+    private var queueIndexByID: [String: Int] = [:]
+    private var presentationUpdateDepth = 0
+    private var presentationChanged = false
     var onTick: (([String: Any]) -> Void)?
     @Published var position = 0.0
-    @Published var duration = 1.0
+    @Published var duration = 1.0 {
+        didSet { if duration != oldValue { invalidatePresentation() } }
+    }
     // Visual metadata may lead the actual playhead while the next asset loads.
-    @Published var displayID = ""
+    @Published var displayID = "" {
+        didSet { if displayID != oldValue { invalidatePresentation() } }
+    }
     @Published var displayPosition = 0.0
-    @Published var displayDuration = 1.0
-    @Published var playing = false
-    @Published var preparing = false
+    @Published var displayDuration = 1.0 {
+        didSet { if displayDuration != oldValue { invalidatePresentation() } }
+    }
+    @Published var playing = false {
+        didSet { if playing != oldValue { invalidatePresentation() } }
+    }
+    @Published var preparing = false {
+        didSet { if preparing != oldValue { invalidatePresentation() } }
+    }
     @Published var bufferFraction = 0.0
-    @Published var id = ""
-    @Published var queue: [Track] = []
-    @Published var failure = ""
-    init() {
+    @Published var id = "" {
+        didSet { if id != oldValue { invalidatePresentation() } }
+    }
+    @Published var queue: [Track] = [] {
+        didSet {
+            queueIndexByID.removeAll(keepingCapacity: true)
+            queueIndexByID.reserveCapacity(queue.count)
+            for (index, track) in queue.enumerated() where queueIndexByID[track.id] == nil {
+                queueIndexByID[track.id] = index
+            }
+            if queue != oldValue { invalidatePresentation() }
+        }
+    }
+    @Published var failure = "" {
+        didSet { if failure != oldValue { invalidatePresentation() } }
+    }
+    init(observesPlayer: Bool = true) {
+        guard observesPlayer else { return }
         NativePlayer.shared.onChange = { [weak self] in self?.sync() }
         sync()
+    }
+    private func invalidatePresentation() {
+        if presentationUpdateDepth > 0 { presentationChanged = true }
+        else { presentation.invalidate() }
     }
     #if DEBUG
     var preview = false
@@ -35,7 +72,19 @@ import Network
         #if DEBUG
         if preview { return }
         #endif
-        let value = NativePlayer.shared.snapshot(includeQueue: false)
+        let value = NativePlayer.shared.snapshot(includeQueue: false,
+            includeDiagnostics: false, includeQueuedIDs: false)
+        let revision = value["queueRevision"] as? Int ?? 0
+        var nextQueue: [Track]?
+        if revision != queueRevision,
+           let raw = NativePlayer.shared.snapshot()["queueTracks"],
+           let data = try? JSONSerialization.data(withJSONObject: raw) {
+            nextQueue = try? JSONDecoder().decode([Track].self, from: data)
+        }
+        applySnapshot(value, queueTracks: nextQueue)
+    }
+    func applySnapshot(_ value: [String: Any], queueTracks: [Track]? = nil) {
+        presentationUpdateDepth += 1
         // Streaming manifests occasionally expose NaN or infinite lengths.
         // Never pass those into a SwiftUI ClosedRange or an audio frame seek.
         let nextID = value["id"] as? String ?? ""
@@ -75,13 +124,21 @@ import Network
         let revision = value["queueRevision"] as? Int ?? 0
         if revision != queueRevision {
             queueRevision = revision
-            if let raw = NativePlayer.shared.snapshot()["queueTracks"], let data = try? JSONSerialization.data(withJSONObject: raw), let next = try? JSONDecoder().decode([Track].self, from: data), next != queue { queue = next }
+            invalidatePresentation()
+        }
+        if let queueTracks, queueTracks != queue { queue = queueTracks }
+        presentationUpdateDepth -= 1
+        if presentationUpdateDepth == 0 && presentationChanged {
+            presentationChanged = false
+            presentation.invalidate()
         }
         onTick?(value)
     }
-    var current: Track? { queue.first { $0.id == id } }
+    var currentIndex: Int? { queueIndexByID[id] }
+    var displayIndex: Int? { queueIndexByID[displayID.isEmpty ? id : displayID] ?? currentIndex }
+    var current: Track? { currentIndex.map { queue[$0] } }
     var displayCurrent: Track? {
-        queue.first { $0.id == (displayID.isEmpty ? id : displayID) } ?? current
+        displayIndex.map { queue[$0] }
     }
     func toggle() { playing ? NativePlayer.shared.pause() : NativePlayer.shared.play() }
 }
@@ -758,7 +815,9 @@ struct NightwellAccountDevicesResponse: Decodable {
             guard let self else { return }
             let progress = BackgroundDownloads.shared.progress
             let statusChanged = self.downloadMessage != progress.message
-            self.downloading = progress.active; self.downloadMessage = progress.message; self.downloadFractions = progress.fractions
+            if self.downloading != progress.active { self.downloading = progress.active }
+            if statusChanged { self.downloadMessage = progress.message }
+            if self.downloadFractions != progress.fractions { self.downloadFractions = progress.fractions }
             if self.pendingDownloadKeys != progress.pendingKeys { self.pendingDownloadKeys = progress.pendingKeys }
             if self.completedDownloadKeys != progress.completedKeys { self.completedDownloadKeys = progress.completedKeys }
             // Updating a progress bar must not rescan offline storage each percent.
@@ -1921,19 +1980,18 @@ struct NightwellAccountDevicesResponse: Decodable {
         return lines.joined(separator: "\n")
     }
     func refreshOffline() async {
-        let server = origin
-        let value = await Task.detached { try? OfflineStore.operation(["op": "listAll"], origin: server) }.value
-        guard origin == server else { return }
-        if let value {
-            if let data = try? JSONSerialization.data(withJSONObject: value["tracks"] ?? []),
-               let tracks = try? JSONDecoder().decode([Track].self, from: data) {
-                offline = tracks
+        let server = origin, generation = sessionGeneration
+        let value = await Task.detached(priority: .utility) { () -> (tracks: [Track]?, damaged: [Track]?)? in
+            guard let raw = try? OfflineStore.operation(["op": "listAll"], origin: server) else { return nil }
+            func decode(_ key: String) -> [Track]? {
+                guard let data = try? JSONSerialization.data(withJSONObject: raw[key] ?? []) else { return nil }
+                return try? JSONDecoder().decode([Track].self, from: data)
             }
-            if let data = try? JSONSerialization.data(withJSONObject: value["damaged"] ?? []),
-               let broken = try? JSONDecoder().decode([Track].self, from: data) {
-                damagedOffline = broken
-            }
-        }
+            return (decode("tracks"), decode("damaged"))
+        }.value
+        guard origin == server, sessionGeneration == generation, let value else { return }
+        if let tracks = value.tracks, tracks != offline { offline = tracks }
+        if let broken = value.damaged, broken != damagedOffline { damagedOffline = broken }
     }
     func download(_ list: [Track]) async {
         guard !list.isEmpty else { return }
@@ -1954,7 +2012,7 @@ struct NightwellAccountDevicesResponse: Decodable {
                 return
             }
         } catch { self.error = error.localizedDescription; return }
-        BackgroundDownloads.shared.enqueue(list, origin: origin, account: account.id)
+        await BackgroundDownloads.shared.enqueue(list, origin: origin, account: account.id)
     }
     func repairDamagedDownloads() async {
         guard account != nil else { authPresented = true; return }

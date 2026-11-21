@@ -100,18 +100,18 @@ struct Track: Identifiable, Codable, Equatable {
         let credit = try c.decodeIfPresent(String.self, forKey: .artist_credit)
         let metadataArtist = try c.decodeIfPresent(String.self, forKey: .metadata_artist)
         let previouslyChecked = try c.decodeIfPresent(Bool.self, forKey: ._artist_checked) == true
-        let parsed = ArtistAttribution.resolve(
+        let parsed = previouslyChecked ? nil : ArtistAttribution.resolve(
             title: title, artist: artist, source: source, sourceURL: sourceURL,
             remote: isRemote, performer: performer, artistCredit: credit,
             metadataArtist: metadataArtist
         )
         self.init(
-            id: id, title: previouslyChecked ? title : parsed.title,
-            artist: previouslyChecked ? artist : parsed.artist,
+            id: id, title: parsed?.title ?? title,
+            artist: parsed?.artist ?? artist,
             album: album, isrc: isrc, duration: duration, cover_url: cover,
             source: source, source_url: sourceURL, is_remote: isRemote,
             _offline: offline, _offline_account: offlineAccount, _offline_lyrics: lyrics,
-            uploader: storedUploader ?? (previouslyChecked ? nil : parsed.uploader),
+            uploader: storedUploader ?? parsed?.uploader,
             performer: performer, artist_credit: credit,
             metadata_artist: metadataArtist, _artist_checked: true
         )

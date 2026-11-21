@@ -487,19 +487,20 @@ final class NativePlayer {
         catch { self.error = "Не удалось настроить звук." }
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.5, preferredTimescale: 600),
                                                       queue: .main) { [weak self] _ in
-            if let self {
-                if self.wantsPlay && !self.waitingForReady && self.player.currentItem?.status == .readyToPlay {
-                    let position = self.playbackPosition
-                    if position.isFinite && position >= 0 { self.lastPosition = position }
-                }
-                if self.wantsPlay && self.audible && self.audibleAfterSeconds == nil && self.startupUptime > 0 {
-                    self.audibleAfterSeconds = max(0, ProcessInfo.processInfo.systemUptime - self.startupUptime)
-                    self.directForwardTrackID = nil
-                    self.startupTimeout?.cancel(); self.startupTimeout = nil
-                }
+            // The EQ source has its own clock. Publishing both clocks made the
+            // complete playback/UI pipeline run twice for the same audio source.
+            guard let self, !self.enginePlayback.ready else { return }
+            if self.wantsPlay && !self.waitingForReady && self.player.currentItem?.status == .readyToPlay {
+                let position = self.playbackPosition
+                if position.isFinite && position >= 0 { self.lastPosition = position }
             }
-            self?.updateLoudnessLeveling()
-            self?.refreshIndependentMeter(); self?.refillWave(); self?.publish()
+            if self.wantsPlay && self.audible && self.audibleAfterSeconds == nil && self.startupUptime > 0 {
+                self.audibleAfterSeconds = max(0, ProcessInfo.processInfo.systemUptime - self.startupUptime)
+                self.directForwardTrackID = nil
+                self.startupTimeout?.cancel(); self.startupTimeout = nil
+            }
+            self.updateLoudnessLeveling()
+            self.refreshIndependentMeter(); self.refillWave(); self.publish()
         }
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification,
             object: nil, queue: .main) { [weak self] _ in
@@ -572,9 +573,10 @@ final class NativePlayer {
             object: nil, queue: .main) { [weak self] note in
                 self?.routeChanged(note)
             })
-        waveTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.refillWave() }
+        waveTimer = Timer(timeInterval: 5, repeats: true) { [weak self] _ in self?.refillWave() }
+        if let waveTimer { RunLoop.main.add(waveTimer, forMode: .common) }
         enginePlayback.onEnd = { [weak self] in self?.finishTrack() }
-        engineTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+        engineTimer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
             guard let self else { return }
             self.enginePlayback.apply()
             if self.enginePlayback.ready {
@@ -589,6 +591,7 @@ final class NativePlayer {
                 self.updateFade(); self.refillWave(); self.refreshIndependentMeter(); self.publish()
             }
         }
+        if let engineTimer { RunLoop.main.add(engineTimer, forMode: .common) }
         publish()
     }
 
@@ -1664,7 +1667,8 @@ final class NativePlayer {
                 ? requestedPosition : playbackPosition)
         return time.isFinite && time >= 0 ? time : lastPosition
     }
-    func snapshot(includeQueue: Bool = true) -> [String: Any] {
+    func snapshot(includeQueue: Bool = true, includeDiagnostics: Bool = true,
+                  includeQueuedIDs: Bool = true) -> [String: Any] {
         let measuredDuration = player.currentItem?.duration.seconds ?? 0
         let metadataDuration = current?.duration ?? 0
         let duration = measuredDuration.isFinite && measuredDuration > 0.5
@@ -1707,8 +1711,8 @@ final class NativePlayer {
             "nextPreparing": pendingNextIndex != nil || waveWaiting, "account": offlineAccount, "ended": ended, "repeat": repeatMode, "shuffle": shuffle, "shuffleMode": shuffleStyle,
             "volume": baseVolume, "smoothTransitions": true, "transitionSeconds": transitionSeconds, "queueRevision": queueRevision, "queueIds": includeQueue ? tracks.map { $0.id } : [], "error": error,
             "wave": waveActive, "waveSupported": true,
-            "queuedIds": tracks.dropFirst(index + 1).filter { queuedIDs.contains($0.id) }.map { $0.id },
-            "audioOutput": AVAudioSession.sharedInstance().currentRoute.outputs.map { ["type": $0.portType.rawValue, "name": $0.portName] },
+            "queuedIds": includeQueuedIDs ? tracks.dropFirst(index + 1).filter { queuedIDs.contains($0.id) }.map { $0.id } : [],
+            "audioOutput": includeDiagnostics ? AVAudioSession.sharedInstance().currentRoute.outputs.map { ["type": $0.portType.rawValue, "name": $0.portName] } : [],
             "audioTap": audioMeter.attached, "independentAuraReady": independentMeter.envelope != nil,
             "queueTracks": (includeQueue ? tracks : []).map { track -> [String: Any] in
                 var item: [String: Any] = ["id": track.id, "title": track.title, "artist": track.artist,
