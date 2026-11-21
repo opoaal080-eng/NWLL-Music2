@@ -15,6 +15,7 @@ final class NativeEQPlayback {
     private var file: AVAudioFile?
     private var temporary: URL?
     private var offset = 0.0
+    private var pausedPosition: Double?
     private var scheduled = UUID()
     private var expiry = 0.0
     private var values = [Double](repeating: 0, count: 5)
@@ -28,6 +29,7 @@ final class NativeEQPlayback {
         set { engine.mainMixerNode.outputVolume = newValue }
     }
     var position: Double {
+        if let pausedPosition { return pausedPosition }
         guard let file else { return offset }
         guard let time = node.lastRenderTime, let playerTime = node.playerTime(forNodeTime: time) else { return offset }
         return min(Double(file.length) / file.processingFormat.sampleRate,
@@ -106,6 +108,7 @@ final class NativeEQPlayback {
         let expected = scheduled
         node.stop()
         offset = Double(frame) / rate
+        pausedPosition = playing ? nil : offset
         node.scheduleSegment(file, startingFrame: frame, frameCount: AVAudioFrameCount(remainingFrames), at: nil,
                              completionCallbackType: .dataPlayedBack) { [weak self] _ in
             DispatchQueue.main.async {
@@ -119,8 +122,18 @@ final class NativeEQPlayback {
         guard ready else { return }
         if !engine.isRunning { engine.prepare(); try engine.start() }
         node.play()
+        pausedPosition = nil
     }
-    func pause() { node.pause() }
+    func pause() {
+        let current = position
+        node.pause()
+        // Stop rendering silence so the system observes paused audio playback.
+        // Pausing retains the graph and scheduled file for the next play().
+        engine.pause()
+        // Pausing invalidates the render timestamp. Keep the clock separately
+        // from offset, which remains the origin of the scheduled file segment.
+        pausedPosition = current
+    }
     func rebuild(playing: Bool) throws {
         let current = position
         engine.stop()
@@ -128,7 +141,7 @@ final class NativeEQPlayback {
     }
     func stop() {
         scheduled = UUID()
-        node.stop(); engine.stop(); file = nil; offset = 0
+        node.stop(); engine.stop(); file = nil; offset = 0; pausedPosition = nil
         if let temporary { try? FileManager.default.removeItem(at: temporary) }
         temporary = nil
     }
