@@ -754,14 +754,9 @@ struct FullPlayer: View {
     private func updateInlineLyricVisibility(lyrics: Lyrics?, position: Double) {
         var visible = false
         if lyrics?.synced == true, let lines = lyrics?.lines, position.isFinite {
-            var lower = 0, upper = lines.count
-            while lower < upper {
-                let middle = (lower + upper) / 2
-                if lines[middle].time <= position { lower = middle + 1 }
-                else { upper = middle }
-            }
-            if lower > 0 {
-                visible = !lines[lower - 1].text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            // Imported/cached lyrics are not required to be timestamp-sorted.
+            if let current = lines.last(where: { $0.time <= position }) {
+                visible = !current.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             }
         }
         // Word/position updates stay inside HomeLyricLine. Only appearance or
