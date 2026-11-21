@@ -69,6 +69,21 @@ jobs:
           xcodebuild -version
           SDK_PATH="$(xcrun --sdk iphoneos --show-sdk-path)"
           printf 'import NowPlaying\n' | xcrun swiftc -sdk "$SDK_PATH" -target arm64-apple-ios27.0 -typecheck -
+      - name: Verify EQ pause and playhead before packaging
+        run: |
+          NIGHTWELL_EQ_CHECK="$RUNNER_TEMP/nightwell-eq-pause"
+          mkdir -p "$NIGHTWELL_EQ_CHECK/Sources" "$NIGHTWELL_EQ_CHECK/Tests"
+          cp NightwellMusic/NativeEQPlayback.swift "$NIGHTWELL_EQ_CHECK/Sources/"
+          cp NativeTests/NativeEQPlaybackTests.swift "$NIGHTWELL_EQ_CHECK/Tests/"
+          cat > "$NIGHTWELL_EQ_CHECK/Package.swift" <<'SWIFT'
+          // swift-tools-version: 5.9
+          import PackageDescription
+          let package = Package(name: "NightwellEQPause", platforms: [.macOS(.v13)], targets: [
+              .target(name: "NightwellMusic", path: "Sources"),
+              .testTarget(name: "NightwellMusicTests", dependencies: ["NightwellMusic"], path: "Tests")
+          ])
+          SWIFT
+          swift test --package-path "$NIGHTWELL_EQ_CHECK" --filter NativeEQPlaybackTests.testPauseStopsRenderingAndResumeContinuesTheScheduledFile
       - name: Generate neutral app icon
         run: python3 scripts/make-neutral-app-icon.py --platform ios
       - name: Prepare animated Vice Nights palm layers

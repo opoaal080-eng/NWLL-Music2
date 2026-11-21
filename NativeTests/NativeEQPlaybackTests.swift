@@ -4,7 +4,7 @@ import AVFoundation
 
 final class NativeEQPlaybackTests: XCTestCase {
     @MainActor
-    func testPauseStopsRenderingAndResumeContinuesTheScheduledFile() throws {
+    func testPauseStopsRenderingAndResumeContinuesTheScheduledFile() async throws {
         let playback = NativeEQPlayback()
         let fileURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString + ".caf")
@@ -58,6 +58,8 @@ final class NativeEQPlaybackTests: XCTestCase {
         XCTAssertFalse(playback.playing)
         XCTAssertTrue(playback.ready)
         XCTAssertEqual(playback.position, pausedPosition, accuracy: 1.0 / 48000)
+        playback.pause()
+        XCTAssertEqual(playback.position, pausedPosition, accuracy: 1.0 / 48000)
 
         try playback.play()
         XCTAssertTrue(playback.engine.isRunning)
@@ -65,6 +67,23 @@ final class NativeEQPlaybackTests: XCTestCase {
         XCTAssertGreaterThan(playback.position, pausedPosition + 0.2)
         XCTAssertGreaterThan(afterResume, beforePause * 3,
                              "Resume must continue into the louder segment instead of replaying earlier audio")
+
+        playback.pause()
+        try playback.seek(0.1, playing: false)
+        XCTAssertEqual(playback.position, 0.1, accuracy: 1.0 / 48000)
+        XCTAssertFalse(playback.engine.isRunning)
+        try playback.rebuild(playing: false)
+        XCTAssertEqual(playback.position, 0.1, accuracy: 1.0 / 48000)
+        XCTAssertFalse(playback.playing)
+        try playback.play()
+        let afterPausedSeek = try renderSegment()
+        XCTAssertGreaterThan(playback.position, 0.3)
+        XCTAssertGreaterThan(afterPausedSeek, 0.005)
+        XCTAssertLessThan(afterPausedSeek, afterResume / 3,
+                          "A paused seek and rebuild must resume from the new quiet segment")
+        playback.stop()
+        XCTAssertFalse(playback.ready)
+        XCTAssertEqual(playback.position, 0)
     }
 
     // Render the real AVAudioUnitEQ graph, not a duplicate filter implementation.
