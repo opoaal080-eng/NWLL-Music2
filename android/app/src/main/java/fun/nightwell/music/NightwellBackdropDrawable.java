@@ -14,8 +14,22 @@ import android.graphics.drawable.Drawable;
 final class NightwellBackdropDrawable extends Drawable {
     private final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);
     private int alpha=255;
+    private boolean library;
+
+    void setLibrary(boolean value) {
+        if (library != value) { library = value; invalidateSelf(); }
+    }
     @Override public void draw(Canvas canvas){
         Rect b=getBounds();if(b.isEmpty())return;
+        if (library) {
+            p.setShader(new LinearGradient(0,b.top,0,b.bottom,
+                new int[]{0xff0d1014,0xff080b0d,0xff030606,0xff151517},
+                new float[]{0f,.56f,.81f,.94f},Shader.TileMode.CLAMP));
+            p.setAlpha(alpha);
+            canvas.drawRect(b,p);
+            p.setShader(null);
+            return;
+        }
         p.setShader(new LinearGradient(b.left,b.top,b.right,b.bottom,
             new int[]{0xff11151e,0xff080a10,0xff030407},
             new float[]{0f,.55f,1f},Shader.TileMode.CLAMP));

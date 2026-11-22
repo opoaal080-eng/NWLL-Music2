@@ -43,6 +43,14 @@ final class NightwellDesign {
         return new NightwellPressDrawable(c,fill,radius,border);
     }
 
+    static Drawable plainButton(Context context, int radius) {
+        android.graphics.drawable.StateListDrawable states = new android.graphics.drawable.StateListDrawable();
+        states.addState(new int[]{android.R.attr.state_pressed}, surface(context, 0x20ffffff, radius, false));
+        states.addState(new int[]{android.R.attr.state_focused}, surface(context, 0x18ffffff, radius, false));
+        states.addState(new int[0], new android.graphics.drawable.ColorDrawable(0));
+        return states;
+    }
+
     static void headline(TextView label) {
         label.setTextColor(PRIMARY);
         label.setTypeface(Typeface.create("sans-serif",Typeface.BOLD));

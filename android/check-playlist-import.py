@@ -1,5 +1,5 @@
 from pathlib import Path
-import subprocess, time, re, xml.etree.ElementTree as ET
+import hashlib, subprocess, time, re, xml.etree.ElementTree as ET
 out=Path('import-menu-checks');out.mkdir(exist_ok=True)
 def adb(*args):
     return subprocess.run(['adb',*args],check=True,capture_output=True,text=True,timeout=40).stdout
@@ -36,35 +36,47 @@ try:
     subprocess.run(['adb','shell','settings','put','secure',
         'immersive_mode_confirmations','confirmed'],check=False,capture_output=True)
 
-    for width,height,density in [(1080,1920,420),(720,1280,320)]:
-        adb('shell','wm','size',f'{width}x{height}');adb('shell','wm','density',str(density));launch('menu')
-        # The popup is posted to the UI thread; emulator startup can outlast
-        # the fixed two-second launch delay under a busy CI runner.
-        for attempt in range(8):
-            values=capture('menu-'+str(width))
-            immersive=find('GOT IT',values)
-            if immersive is not None:
-                tap(immersive)
-                continue
-            if find('Главная',values) is not None:break
-            time.sleep(1)
-        assert find('Главная',values) is not None,'Menu popup did not become visible'
-        scroll=next(n for n in values if n.get('scrollable')=='true')
-        l,t,r,b=map(int,re.findall(r'\d+',scroll.get('bounds')))
-        for _ in range(4):
-            if find('Выйти') is not None:break
-            adb('shell','input','swipe',str((l+r)//2),str(b-25),str((l+r)//2),str(t+25),'300');time.sleep(.3)
-        assert find('Выйти') is not None,'Last menu entry is inaccessible'
-        capture('menu-bottom-'+str(width))
-    adb('shell','wm','size','reset');adb('shell','wm','density','reset')
-    # Save screenshots from the real APK, not generated mockups.
-    launch('Главная')
-    capture('ios-home')
-    launch('Медиатека')
-    library=capture('ios-library')
-    assert find('Избранное',library) is not None,'iOS-style media library is missing'
-    launch('player')
-    capture('ios-full-player')
+    # Real artwork already in the repository, installed only in the emulator's debug cache.
+    covers = ["../design-assets/halloween-landscape.webp",
+              "../NightwellMusic/Assets.xcassets/SeasonPortrait.imageset/background.jpg",
+              "app/src/main/res/drawable/brand_logo.png",
+              "../NightwellMusic/Assets.xcassets/SeasonLandscape.imageset/background.jpg"]
+    package = "fun.nightwell.music"
+    cache = "cache/nightwell-covers-v1"
+    adb("shell","run-as",package,"mkdir","-p",cache)
+    for index, source in enumerate(covers):
+        key = hashlib.sha256(f"https://music.nightwell.fun//api/covers/smoke-{index}".encode()).hexdigest()
+        with open(source,"rb") as cover:
+            subprocess.run(["adb","shell","-T","run-as",package,"tee",f"{cache}/{key}.image"],
+                           stdin=cover,stdout=subprocess.DEVNULL,check=True)
+    for width,height,density in [(720,1280,320),(1080,2340,440)]:
+        adb("shell","wm","size",f"{width}x{height}")
+        adb("shell","wm","density",str(density))
+        launch("Главная")
+        values=capture("home-"+str(width))
+        assert find("Открыть меню",values) is None
+        click("Вкладка «Медиатека»")
+        library=capture("library-"+str(width))
+        assert find("Настройки",library) is not None and find("Ещё в медиатеке",library) is not None
+        assert sum(n.get("content-desc","").startswith("Действия с треком «") for n in library)==3
+        if width==1080:
+            for label in ("Плейлисты","Офлайн","Подборки дня","Умные плейлисты"):
+                assert find(label,library) is not None,label
+            click("Дополнительно")
+            extra=capture("library-actions")
+            for label in ("Слушать вместе","Перенос плейлистов","Обращения и поддержка"):
+                assert find(label,extra) is not None,label
+            assert find("Выйти",extra) is None
+            click("Закрыть")
+            click("Настройки");capture("library-settings")
+            adb("shell","input","keyevent","4")
+            click("Вкладка «Главная»");click("Открыть профиль")
+            profile=capture("profile")
+            assert find("Статистика",profile) is not None and find("Выйти",profile) is not None
+    launch("player")
+    player=capture("full-player")
+    assert find("Свернуть плеер",player) is not None
+    assert not any(n.get("text","").upper() in ("СЕЙЧАС ИГРАЕТ","NIGHTWELL MUSIC") for n in player)
     fixture=out/'nightwell-playlist.csv';fixture.write_text('artist,title\nNightwell,Import Test',encoding='utf-8')
     adb('push',str(fixture),'/sdcard/Download/nightwell-playlist.csv')
     launch('transfer');capture('transfer-empty');click('Выбрать файл')
@@ -82,7 +94,7 @@ try:
     assert any('Nightwell,Import Test' in n.get('text','') for n in values),'Document text was not imported'
     click('Выбрать файл');adb('shell','input','keyevent','4');time.sleep(1)
     assert any('Nightwell,Import Test' in n.get('text','') for n in nodes()),'Cancelling picker lost the imported text'
-    print('Menu on two phone sizes, system document selection, CSV import and cancellation passed')
+    print('Library, player, profile, playlist import and cancellation passed')
 finally:
     adb('shell','wm','size','reset');adb('shell','wm','density','reset')
     (out/'errors.txt').write_text(adb('logcat','-d','-s','AndroidRuntime:E'))

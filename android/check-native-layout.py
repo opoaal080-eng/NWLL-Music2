@@ -27,7 +27,7 @@ def capture(name):
     assert not any('isn\'t responding' in n.get('text','') for n in nodes),name
     texts=[n.get('text','') for n in nodes]
     if name.startswith('player'):
-        assert 'Играет сейчас' in texts,(name,texts)
+        assert any(n.get('content-desc')=='Свернуть плеер' for n in nodes),(name,texts)
         assert not any(n.get('text')=='Nightwell Music' for n in nodes),'Mini player overlaps full player'
         if name in ['player-720','player-1080']:
             assert any(n.get('content-desc') in ['Добавить в избранное','Убрать из избранного'] and n.get('clickable')=='true' for n in nodes),(name,'Favourite action missing')
@@ -42,24 +42,16 @@ def capture(name):
         assert 'Эквалайзер' in texts,(name,texts)
     if name.startswith('premium-appearance-'):
         assert 'Ваше оформление' in texts,(name,texts)
-    if name.startswith('menu-'):
-        assert all(tab in texts for tab in ['Главная','Поиск','Избранное','Плейлисты','Офлайн','Настройки']),(name,texts)
-        if 'Выйти' not in texts:
-            scroller=next(n for n in nodes if n.get('scrollable')=='true')
-            left,top,right,bottom=map(int,re.findall(r'\d+',scroller.get('bounds')))
-            adb('shell','input','swipe',str((left+right)//2),str(bottom-20),str((left+right)//2),str(top+20),'350')
-            time.sleep(.5)
-            adb('shell','uiautomator','dump','/sdcard/menu-bottom.xml')
-            adb('pull','/sdcard/menu-bottom.xml',str(out/(name+'-bottom.xml')))
-            bottom_nodes=list(ET.parse(out/(name+'-bottom.xml')).getroot().iter('node'))
-            assert any(n.get('text')=='Выйти' for n in bottom_nodes),(name,'Logout not reachable by scrolling')
+    if name.startswith('Медиатека-'):
+        assert 'Избранное' in texts and 'Ещё в медиатеке' in texts,(name,texts)
+        assert any(n.get('content-desc')=='Дополнительно' for n in nodes),(name,texts)
     for n in nodes:
         if n.get('clickable')!='true' or n.get('enabled')!='true':continue
         values=list(map(int,re.findall(r'\d+',n.get('bounds',''))))
         if len(values)==4:assert values[2]>values[0] and values[3]>values[1],(name,n.attrib)
     if name.startswith('Главная'):
         image=Image.open(out/(name+'.png')).convert('RGB')
-        for symbol in ['⌕','☰','▶']:
+        for symbol in ['⌕','▶']:
             button=next(n for n in nodes if n.get('text')==symbol)
             left,top,right,bottom=map(int,re.findall(r'\d+',button.get('bounds')))
             width,height=right-left,bottom-top
@@ -70,7 +62,7 @@ def capture(name):
 try:
     for width,height,density in [(1080,2400,420),(720,1280,320)]:
         adb('shell','wm','size',f'{width}x{height}');adb('shell','wm','density',str(density))
-        for page in ['premium-sound','premium-appearance','Главная','Поиск','Избранное','Плейлисты','player','settings','auth','queue','menu','wave-settings']:
+        for page in ['premium-sound','premium-appearance','Главная','Поиск','Избранное','Плейлисты','player','settings','auth','queue','Медиатека','wave-settings']:
             adb('shell','am','force-stop','fun.nightwell.music')
             adb('shell','am','start','-W','-n','fun.nightwell.music/.MainActivity','--ez','nativeSmoke','true','--es','screen',page)
             time.sleep(1);capture(page+'-'+str(width))
