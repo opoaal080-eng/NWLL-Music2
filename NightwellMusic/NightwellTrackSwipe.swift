@@ -13,6 +13,10 @@ struct NightwellTrackSwipeCarousel<Content: View>: View {
     @State private var dragOffset: CGFloat = 0
     @State private var committing = false
     @State private var swipeID = UUID()
+    @State private var interaction = TrackSwipeInteraction()
+    @State private var gestureID = UUID()
+    @State private var ignoreCurrentTouch = false
+    @GestureState private var fingerDown = false
 
     init(clock: PlaybackClock, gap: CGFloat = 12,
          onStep: @escaping (Int) -> Void,
@@ -65,8 +69,27 @@ struct NightwellTrackSwipeCarousel<Content: View>: View {
             // A remote change, prepared-next handoff or manual button skips
             // any unfinished gesture so the carousel can never get stranded.
             if !committing {
-                withTransaction(Transaction(animation: nil)) { dragOffset = 0 }
+                ignoreCurrentTouch = fingerDown
+                interaction.reset()
+                moveWithoutAnimation(to: 0)
             }
+        }
+        .onChange(of: fingerDown) { _, down in
+            guard !down else { return }
+            let finishedGesture = gestureID
+            DispatchQueue.main.async {
+                guard !fingerDown, gestureID == finishedGesture else { return }
+                ignoreCurrentTouch = false
+                guard !committing, interaction.isTracking else { return }
+                interaction.reset()
+                cancelDrag()
+            }
+        }
+        .onDisappear {
+            guard !committing else { return }
+            interaction.reset()
+            ignoreCurrentTouch = false
+            moveWithoutAnimation(to: 0)
         }
         .accessibilityHint("Проведи влево или вправо, чтобы выбрать соседний трек")
     }
@@ -99,34 +122,34 @@ struct NightwellTrackSwipeCarousel<Content: View>: View {
 
     private func horizontalSwipe(width: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 12, coordinateSpace: .local)
+            .updating($fingerDown) { _, down, _ in down = true }
             .onChanged { value in
-                guard !committing else { return }
-                let dx = value.translation.width
-                guard abs(dx) > abs(value.translation.height) * 1.12 else { return }
-                let available = dx < 0 ? following != nil : previous != nil
-                // A resisted edge feels natural while avoiding an invalid skip.
-                let raw = max(-width - gap, min(width + gap, dx))
-                let offset = available ? raw : raw * 0.16
-                withTransaction(Transaction(animation: nil)) { dragOffset = offset }
+                guard !committing, !ignoreCurrentTouch else { return }
+                let wasTracking = interaction.isTracking
+                guard let offset = interaction.update(
+                    translationX: Double(value.translation.width),
+                    translationY: Double(value.translation.height),
+                    width: Double(width), gap: Double(gap),
+                    canPrevious: previous != nil, canNext: following != nil) else {
+                    if wasTracking && !interaction.isTracking { moveWithoutAnimation(to: 0) }
+                    return
+                }
+                if !wasTracking { gestureID = UUID() }
+                moveWithoutAnimation(to: CGFloat(offset))
             }
             .onEnded { value in
                 guard !committing else { return }
-                let dx = value.translation.width
-                guard abs(dx) > abs(value.translation.height) * 1.12 else {
+                guard !ignoreCurrentTouch else {
+                    ignoreCurrentTouch = false
+                    interaction.reset()
                     cancelDrag()
                     return
                 }
-                let direction = dx < 0 ? 1 : -1
-                guard direction > 0 ? following != nil : previous != nil else {
-                    cancelDrag()
-                    return
-                }
-                let threshold = max(48, width * 0.24)
-                let projected = value.predictedEndTranslation.width
-                let committed = abs(dx) >= threshold ||
-                    (abs(dx) > max(25, width * 0.10) && abs(projected) > width * 0.53 &&
-                     (dx < 0) == (projected < 0))
-                guard committed else {
+                guard let direction = interaction.finish(
+                    translationX: Double(value.translation.width),
+                    predictedX: Double(value.predictedEndTranslation.width),
+                    width: Double(width), canPrevious: previous != nil,
+                    canNext: following != nil) else {
                     cancelDrag()
                     return
                 }
@@ -146,6 +169,12 @@ struct NightwellTrackSwipeCarousel<Content: View>: View {
                     committing = false
                 }
             }
+    }
+
+    private func moveWithoutAnimation(to offset: CGFloat) {
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { dragOffset = offset }
     }
 
     private func cancelDrag() {

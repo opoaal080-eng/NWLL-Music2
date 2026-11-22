@@ -2,7 +2,7 @@ name: Build Nightwell Music iOS (Recovered)
 on:
   workflow_dispatch:
   pull_request:
-    branches: [main, feature/windows-mobile-parity-20261106, fix/ios-clip-cache-retry-20261111, fix/clip-unlimited-device-cache-20261111 , feature/search-glow-android-suggestions-ios-20261112, fix/ios-latest-account-family-20261116, fix/ios-foreground-island-20261121]
+    branches: [main, feature/windows-mobile-parity-20261106, fix/ios-clip-cache-retry-20261111, fix/clip-unlimited-device-cache-20261111 , feature/search-glow-android-suggestions-ios-20261112, fix/ios-latest-account-family-20261116, fix/ios-foreground-island-20261121, fix/ios-ui-stalls-20261121]
     paths:
       - 'NightwellMusic/**'
       - 'NightwellWidgets/**'
@@ -74,9 +74,9 @@ jobs:
           NIGHTWELL_EQ_CHECK="$RUNNER_TEMP/nightwell-eq-pause"
           mkdir -p "$NIGHTWELL_EQ_CHECK/Sources" "$NIGHTWELL_EQ_CHECK/Tests"
           cp NightwellMusic/NativeEQPlayback.swift "$NIGHTWELL_EQ_CHECK/Sources/"
-          cp NightwellMusic/LibrarySessionState.swift NightwellMusic/LibraryNavigationSession.swift NightwellMusic/PlaybackProgressPresentation.swift "$NIGHTWELL_EQ_CHECK/Sources/"
+          cp NightwellMusic/LibrarySessionState.swift NightwellMusic/LibraryNavigationSession.swift NightwellMusic/PlaybackProgressPresentation.swift NightwellMusic/TrackSwipeInteraction.swift "$NIGHTWELL_EQ_CHECK/Sources/"
           cp NativeTests/NativeEQPlaybackTests.swift "$NIGHTWELL_EQ_CHECK/Tests/"
-          cp NativeTests/LibraryNavigationSessionTests.swift NativeTests/PlaybackProgressPresentationTests.swift "$NIGHTWELL_EQ_CHECK/Tests/"
+          cp NativeTests/LibraryNavigationSessionTests.swift NativeTests/PlaybackProgressPresentationTests.swift NativeTests/TrackSwipeInteractionTests.swift "$NIGHTWELL_EQ_CHECK/Tests/"
           cat > "$NIGHTWELL_EQ_CHECK/Package.swift" <<'SWIFT'
           // swift-tools-version: 5.9
           import PackageDescription
@@ -85,7 +85,7 @@ jobs:
               .testTarget(name: "NightwellMusicTests", dependencies: ["NightwellMusic"], path: "Tests")
           ])
           SWIFT
-          swift test --package-path "$NIGHTWELL_EQ_CHECK" --filter 'NativeEQPlaybackTests.testPauseStopsRenderingAndResumeContinuesTheScheduledFile|LibraryNavigationSessionTests|PlaybackProgressPresentationTests'
+          swift test --package-path "$NIGHTWELL_EQ_CHECK" --filter 'NativeEQPlaybackTests.testPauseStopsRenderingAndResumeContinuesTheScheduledFile|LibraryNavigationSessionTests|PlaybackProgressPresentationTests|TrackSwipeInteractionTests'
       - name: Generate neutral app icon
         run: python3 scripts/make-neutral-app-icon.py --platform ios
       - name: Prepare animated Vice Nights palm layers
@@ -127,7 +127,7 @@ jobs:
           print(phones[0]['udid'])
           PYCODE
           )"
-          xcodebuild -project NightwellMusic.xcodeproj -scheme NightwellMusic -configuration Debug -destination "platform=iOS Simulator,id=$NIGHTWELL_SIMULATOR_ID" -derivedDataPath build-transport -resultBundlePath transport.xcresult -only-testing:NightwellMusicTests/NowPlayingTransportTests -only-testing:NightwellMusicTests/NativeEQPlaybackTests/testPauseStopsRenderingAndResumeContinuesTheScheduledFile -only-testing:NightwellMusicTests/LibraryNavigationSessionTests -only-testing:NightwellMusicTests/PlaybackProgressPresentationTests -only-testing:NightwellMusicTests/PlaybackPresentationTests -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO test
+          xcodebuild -project NightwellMusic.xcodeproj -scheme NightwellMusic -configuration Debug -destination "platform=iOS Simulator,id=$NIGHTWELL_SIMULATOR_ID" -derivedDataPath build-transport -resultBundlePath transport.xcresult -only-testing:NightwellMusicTests/NowPlayingTransportTests -only-testing:NightwellMusicTests/NativeEQPlaybackTests/testPauseStopsRenderingAndResumeContinuesTheScheduledFile -only-testing:NightwellMusicTests/LibraryNavigationSessionTests -only-testing:NightwellMusicTests/PlaybackProgressPresentationTests -only-testing:NightwellMusicTests/PlaybackPresentationTests -only-testing:NightwellMusicTests/TrackSwipeInteractionTests -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO test
 
   presentation-regression:
     name: Artist and search regression
