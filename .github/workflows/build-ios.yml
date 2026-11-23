@@ -17,7 +17,7 @@ on:
       - 'scripts/prepare-vice-palms.py'
       - '.github/workflows/build-ios.yml'
   push:
-    branches: [main, feature/windows-mobile-parity-20261106, fix/ios-clip-cache-retry-20261111, fix/clip-unlimited-device-cache-20261111, feature/search-glow-android-suggestions-ios-20261112, fix/ios-search-transfer-regressions-20261112, feature/account-devices-2-free-5-premium-20261114, fix/ios-latest-account-family-20261116]
+    branches: [fix/ios-swipe-reversal-20261122, main, feature/windows-mobile-parity-20261106, fix/ios-clip-cache-retry-20261111, fix/clip-unlimited-device-cache-20261111, feature/search-glow-android-suggestions-ios-20261112, fix/ios-search-transfer-regressions-20261112, feature/account-devices-2-free-5-premium-20261114, fix/ios-latest-account-family-20261116]
     paths:
       - 'NightwellMusic/**'
       - 'NightwellWidgets/**'
