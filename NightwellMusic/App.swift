@@ -7,9 +7,10 @@ import UniformTypeIdentifiers
     @StateObject private var store = MusicStore()
     @AppStorage(NightwellAppearance.storageKey) private var themeID = NightwellAppearance.standard.rawValue
     @AppStorage("nw-first-run-completed-v1") private var firstRunCompleted = false
-    @State private var startupStage: NightwellStartupStage = .studio
     @State private var startupSplashOpacity = 1.0
+    @State private var studioBrandOpacity = 0.0
     @State private var showStartupSplash = true
+    @State private var startupSequenceStarted = false
     var body: some Scene {
         WindowGroup {
             Group {
@@ -21,39 +22,36 @@ import UniformTypeIdentifiers
             .preferredColorScheme(.dark)
             .overlay {
                 if showStartupSplash {
-                    NightwellStartupSplash(stage: startupStage)
+                    NightwellStartupSplash(brandOpacity: studioBrandOpacity)
                         .opacity(startupSplashOpacity)
                         .zIndex(10)
                         .allowsHitTesting(startupSplashOpacity > 0.01)
                 }
             }
             .task {
-                // Studio -> original Music splash -> reveal the already-mounted app.
-                guard showStartupSplash, startupStage == .studio else { return }
+                // Studio alone: gently reveal the mark, then fade into the app.
+                guard showStartupSplash, !startupSequenceStarted else { return }
+                startupSequenceStarted = true
                 let reduceMotion = UIAccessibility.isReduceMotionEnabled
                 do {
-                    try await Task.sleep(nanoseconds: reduceMotion ? 800_000_000 : 1_700_000_000)
-                    withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.55)) {
-                        startupStage = .music
+                    // Give SwiftUI one frame to paint the dark background first.
+                    try await Task.sleep(nanoseconds: 80_000_000)
+                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.75)) {
+                        studioBrandOpacity = 1
                     }
 
-                    // Keep the original Music animation on screen long enough to enjoy it.
-                    try await Task.sleep(nanoseconds: reduceMotion ? 800_000_000 : 2_300_000_000)
-
-                    // Fade the *entire* Music splash over the live application.
-                    // Do not switch to .finished yet, or the logo will vanish too early.
-                    let revealDuration = reduceMotion ? 0.20 : 0.90
+                    // Keep Studio visible before transitioning to the live interface.
+                    try await Task.sleep(nanoseconds: reduceMotion ? 800_000_000 : 2_800_000_000)
+                    let revealDuration = reduceMotion ? 0.20 : 1.00
                     withAnimation(.easeInOut(duration: revealDuration)) {
                         startupSplashOpacity = 0
                     }
-                    try await Task.sleep(nanoseconds: reduceMotion ? 250_000_000 : 950_000_000)
+                    try await Task.sleep(nanoseconds: reduceMotion ? 250_000_000 : 1_050_000_000)
                     showStartupSplash = false
-                    startupStage = .finished
                 } catch {
-                    // Never leave a cancelled startup task blocking the app.
+                    // A cancelled startup sequence cannot block the application.
                     startupSplashOpacity = 0
                     showStartupSplash = false
-                    startupStage = .finished
                 }
             }
         }
