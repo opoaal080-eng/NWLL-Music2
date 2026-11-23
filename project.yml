@@ -29,7 +29,8 @@ targets:
         CFBundleURLTypes:
           - CFBundleURLName: fun.nightwell.music
             CFBundleURLSchemes: [nightwell]
-        UILaunchScreen: {}
+        UILaunchScreen:
+          UIColorName: NightwellLaunchBlack
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
     entitlements:
