@@ -1,6 +1,58 @@
 import SwiftUI
 
 // App-wide single-brand splash. The original Studio monogram is preserved.
+// Own the startup state in a real SwiftUI ViewModifier rather than in App.
+// This keeps the animation transaction connected to the rendered scene.
+struct NightwellStudioIntro: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    @State private var brandVisible = false
+    @State private var introOpacity = 1.0
+    @State private var introPresented = true
+    @State private var introStarted = false
+
+    func body(content: Content) -> some View {
+        content
+            .overlay {
+                if introPresented {
+                    NightwellStartupSplash(brandOpacity: brandVisible ? 1.0 : 0.0)
+                        .opacity(introOpacity)
+                        .animation(.easeInOut(duration: reduceMotion ? 0.35 : 1.0), value: introOpacity)
+                        .zIndex(10)
+                        .allowsHitTesting(introOpacity > 0.05)
+                }
+            }
+            .task {
+                guard !introStarted else { return }
+                introStarted = true
+                await playIntro()
+            }
+    }
+
+    @MainActor
+    private func playIntro() async {
+        do {
+            // Render the dark first frame before starting the visible logo animation.
+            try await Task.sleep(nanoseconds: 280_000_000)
+            withAnimation(.easeOut(duration: reduceMotion ? 0.35 : 0.85)) {
+                brandVisible = true
+            }
+
+            // Hold Studio after the fade-in, without showing a second Music screen.
+            try await Task.sleep(nanoseconds: reduceMotion ? 900_000_000 : 2_750_000_000)
+
+            // Crossfade the complete studio screen over the already-mounted app.
+            withAnimation(.easeInOut(duration: reduceMotion ? 0.35 : 1.0)) {
+                introOpacity = 0
+            }
+            try await Task.sleep(nanoseconds: reduceMotion ? 400_000_000 : 1_100_000_000)
+        } catch {
+            // Interrupted startup must not leave the interface blocked.
+        }
+        introPresented = false
+    }
+}
+
 struct NightwellStartupSplash: View {
     let brandOpacity: Double
 
@@ -24,6 +76,7 @@ struct NightwellStartupSplash: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .opacity(brandOpacity)
                     .scaleEffect(CGFloat(0.975 + 0.025 * brandOpacity))
+                    .animation(.easeOut(duration: 0.85), value: brandOpacity)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
         }

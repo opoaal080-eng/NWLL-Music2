@@ -7,10 +7,6 @@ import UniformTypeIdentifiers
     @StateObject private var store = MusicStore()
     @AppStorage(NightwellAppearance.storageKey) private var themeID = NightwellAppearance.standard.rawValue
     @AppStorage("nw-first-run-completed-v1") private var firstRunCompleted = false
-    @State private var startupSplashOpacity = 1.0
-    @State private var studioBrandOpacity = 0.0
-    @State private var showStartupSplash = true
-    @State private var startupSequenceStarted = false
     var body: some Scene {
         WindowGroup {
             Group {
@@ -20,40 +16,7 @@ import UniformTypeIdentifiers
             .environmentObject(store)
             .environment(\.nightwellAppearance, NightwellAppearance(rawValue: themeID) ?? .standard)
             .preferredColorScheme(.dark)
-            .overlay {
-                if showStartupSplash {
-                    NightwellStartupSplash(brandOpacity: studioBrandOpacity)
-                        .opacity(startupSplashOpacity)
-                        .zIndex(10)
-                        .allowsHitTesting(startupSplashOpacity > 0.01)
-                }
-            }
-            .task {
-                // Studio alone: gently reveal the mark, then fade into the app.
-                guard showStartupSplash, !startupSequenceStarted else { return }
-                startupSequenceStarted = true
-                let reduceMotion = UIAccessibility.isReduceMotionEnabled
-                do {
-                    // Give SwiftUI one frame to paint the dark background first.
-                    try await Task.sleep(nanoseconds: 80_000_000)
-                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.75)) {
-                        studioBrandOpacity = 1
-                    }
-
-                    // Keep Studio visible before transitioning to the live interface.
-                    try await Task.sleep(nanoseconds: reduceMotion ? 800_000_000 : 2_800_000_000)
-                    let revealDuration = reduceMotion ? 0.20 : 1.00
-                    withAnimation(.easeInOut(duration: revealDuration)) {
-                        startupSplashOpacity = 0
-                    }
-                    try await Task.sleep(nanoseconds: reduceMotion ? 250_000_000 : 1_050_000_000)
-                    showStartupSplash = false
-                } catch {
-                    // A cancelled startup sequence cannot block the application.
-                    startupSplashOpacity = 0
-                    showStartupSplash = false
-                }
-            }
+            .modifier(NightwellStudioIntro())
         }
     }
 }
