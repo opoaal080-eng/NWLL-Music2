@@ -38,7 +38,7 @@ struct NightwellStartupSplash: View {
                 // Both screens remain in the ZStack so the entire scene crossfades,
                 // including the original themed backdrop and light beams.
                 MonochromeNightwellLaunch()
-                    .opacity(stage == .music ? 1 : 0)
+                    .opacity(stage == .studio ? 0 : 1)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
