@@ -10,38 +10,40 @@ enum NightwellStartupStage: Equatable {
 struct NightwellStartupSplash: View {
     let stage: NightwellStartupStage
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
         GeometryReader { geometry in
             ZStack {
-                Color(red: 0.018, green: 0.020, blue: 0.026)
+                // Keep the clean Studio introduction before the original Music splash.
+                ZStack {
+                    Color(red: 0.018, green: 0.020, blue: 0.026)
 
-                RadialGradient(
-                    colors: [
-                        Color(red: 0.13, green: 0.15, blue: 0.18).opacity(0.55),
-                        Color(red: 0.018, green: 0.020, blue: 0.026)
-                    ],
-                    center: .center,
-                    startRadius: 5,
-                    endRadius: max(geometry.size.width, geometry.size.height) * 0.72
-                )
+                    RadialGradient(
+                        colors: [
+                            Color(red: 0.13, green: 0.15, blue: 0.18).opacity(0.55),
+                            Color(red: 0.018, green: 0.020, blue: 0.026)
+                        ],
+                        center: .center,
+                        startRadius: 5,
+                        endRadius: max(geometry.size.width, geometry.size.height) * 0.72
+                    )
 
-                Group {
-                    switch stage {
-                    case .studio:
-                        studioBrand(width: geometry.size.width)
-                            .transition(.opacity.combined(with: .scale(scale: 0.97)))
-                    case .music:
-                        musicBrand(width: geometry.size.width)
-                            .transition(.opacity.combined(with: .scale(scale: 1.02)))
-                    case .finished:
-                        EmptyView()
-                    }
+                    studioBrand(width: geometry.size.width)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .opacity(stage == .studio ? 1 : 0)
+
+                // Identical to the original Nightwell Music loading screen.
+                // Both screens remain in the ZStack so the entire scene crossfades,
+                // including the original themed backdrop and light beams.
+                MonochromeNightwellLaunch()
+                    .opacity(stage == .music ? 1 : 0)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
         .ignoresSafeArea()
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.55), value: stage)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(stage == .studio ? "Nightwell Studio" : "Nightwell Music")
     }
@@ -71,27 +73,6 @@ struct NightwellStartupSplash: View {
         .padding(.horizontal, 22)
     }
 
-    private func musicBrand(width: CGFloat) -> some View {
-        VStack(spacing: 14) {
-            Image("BrandLogo")
-                .resizable()
-                .scaledToFit()
-                .frame(width: min(width * 0.34, 142), height: min(width * 0.34, 142))
-                .padding(.bottom, 12)
-
-            Text("NIGHTWELL")
-                .font(.system(size: min(width * 0.074, 32), weight: .bold, design: .rounded))
-                .tracking(5)
-                .foregroundStyle(.white)
-
-            Text("MUSIC")
-                .font(.system(size: 12, weight: .medium))
-                .tracking(9)
-                .foregroundStyle(Color.white.opacity(0.66))
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, 22)
-    }
 }
 
 // The studio monogram is traced from the supplied photograph, not an SF Symbol.
@@ -193,5 +174,54 @@ private struct NightwellStudioMark: View {
             )
         }
         .accessibilityHidden(true)
+    }
+}
+
+private struct MonochromeNightwellLaunch: View {
+    @Environment(\.nightwellAppearance) private var appearance
+    var body: some View {
+        ZStack {
+            NightwellThemedBackground {
+                LinearGradient(colors: [Color(white: 0.085), .black], startPoint: .top, endPoint: .bottom)
+            }.ignoresSafeArea()
+            GeometryReader { geometry in
+                Canvas { context, size in
+                    let w = size.width, h = size.height
+                    for index in 0..<6 {
+                        let left = index.isMultiple(of: 2)
+                        let origin = CGPoint(x: left ? 0 : w, y: h * (0.16 + CGFloat(index / 2) * 0.22))
+                        let target = CGPoint(x: w * (left ? 0.69 : 0.31), y: h * 0.53)
+                        let spread: CGFloat = 60
+                        var beam = Path()
+                        beam.move(to: origin)
+                        beam.addLine(to: CGPoint(x: target.x - spread, y: target.y + 160))
+                        beam.addLine(to: CGPoint(x: target.x + spread, y: target.y + 160))
+                        beam.closeSubpath()
+                        context.fill(beam, with: .linearGradient(
+                            Gradient(colors: [.white.opacity(0.19), .white.opacity(0.06), .clear]),
+                            startPoint: origin, endPoint: CGPoint(x: w / 2, y: h * 0.82)
+                        ))
+                    }
+                }
+                .blur(radius: 20)
+                .allowsHitTesting(false)
+            }
+            .opacity(appearance == .vice ? 0 : 1)
+            VStack(spacing: 14) {
+                Text("N")
+                    .font(.system(size: 92, weight: .black, design: .rounded))
+                    .foregroundStyle(.white)
+                    .shadow(color: .white.opacity(0.22), radius: 24)
+                Text("NIGHTWELL")
+                    .font(.system(size: 24, weight: .bold, design: .rounded))
+                    .tracking(5)
+                Text("M U S I C")
+                    .font(.system(size: 10, weight: .medium))
+                    .tracking(5)
+                    .foregroundStyle(.white.opacity(0.58))
+            }
+            .foregroundStyle(.white)
+        }
+        .accessibilityLabel("Nightwell Music")
     }
 }
