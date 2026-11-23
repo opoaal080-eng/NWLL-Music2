@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="680" viewBox="0 0 880 680">
+  <!-- Contours traced from the supplied Nightwell Studio photo. No screen glare or background. -->
+  <defs>
+    <linearGradient id="pillar" x1="0" y1="0" x2="0.45" y2="1">
+      <stop stop-color="#F6F7FA"/>
+      <stop offset=".4" stop-color="#D0D5DC"/>
+      <stop offset="1" stop-color="#48515E"/>
+    </linearGradient>
+    <linearGradient id="foot" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#929CA8"/>
+      <stop offset=".58" stop-color="#E0E5EC"/>
+      <stop offset="1" stop-color="#FFFFFF"/>
+    </linearGradient>
+    <linearGradient id="ribbon" x1="0.15" y1="0" x2="0.9" y2="1">
+      <stop stop-color="#A3AFBB"/>
+      <stop offset=".53" stop-color="#D9E0E5"/>
+      <stop offset=".76" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#F1F5F7"/>
+    </linearGradient>
+  </defs>
+  <path fill="url(#pillar)" d="M 586,126 L 707,17 L 707,539 L 586,434 Z"/>
+  <path fill="url(#foot)" d="M 133,413 C 166,359 215,280 258,291 L 258,539 L 133,648 Z"/>
+  <path fill="url(#ribbon)" d="M 9,63 C 179,58 298,111 423,260 C 576,433 705,608 842,651 C 653,631 546,557 466,493 C 369,409 309,317 258,291 C 215,280 166,359 133,413 L 133,121 C 98,89 54,72 9,63 Z"/>
+</svg>
