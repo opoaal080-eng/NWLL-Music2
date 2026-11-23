@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
     @StateObject private var store = MusicStore()
     @AppStorage(NightwellAppearance.storageKey) private var themeID = NightwellAppearance.standard.rawValue
     @AppStorage("nw-first-run-completed-v1") private var firstRunCompleted = false
+    @State private var startupStage: NightwellStartupStage = .studio
     var body: some Scene {
         WindowGroup {
             Group {
@@ -15,6 +16,32 @@ import UniformTypeIdentifiers
             .environmentObject(store)
             .environment(\.nightwellAppearance, NightwellAppearance(rawValue: themeID) ?? .standard)
             .preferredColorScheme(.dark)
+            .overlay {
+                if startupStage != .finished {
+                    NightwellStartupSplash(stage: startupStage)
+                        .transition(.opacity)
+                        .zIndex(10)
+                }
+            }
+            .task {
+                // Run once from the app root so even the very first opening
+                // shows Studio -> Music before onboarding or the main screen.
+                guard startupStage == .studio else { return }
+                let reduceMotion = UIAccessibility.isReduceMotionEnabled
+                do {
+                    try await Task.sleep(nanoseconds: reduceMotion ? 800_000_000 : 1_700_000_000)
+                    withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.45)) {
+                        startupStage = .music
+                    }
+                    try await Task.sleep(nanoseconds: reduceMotion ? 700_000_000 : 1_150_000_000)
+                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.35)) {
+                        startupStage = .finished
+                    }
+                } catch {
+                    // A cancelled scene task must not leave a blocking splash.
+                    startupStage = .finished
+                }
+            }
         }
     }
 }
@@ -422,7 +449,6 @@ struct NativeRoot: View {
     @State private var createPlaylist = false
     @State private var shareText: String?
     @State private var showShare = false
-    @State private var launching = true
     @State private var searchScrollCollapsed = false
     @State private var searchRevealRequest = 0
     // Direction only belongs to user-initiated screen navigation. Playback,
@@ -894,8 +920,6 @@ struct NativeRoot: View {
 
     var body: some View {
         navigationSheetsScene
-        .overlay { if launching { MonochromeNightwellLaunch().transition(.opacity) } }
-        .task { try? await Task.sleep(nanoseconds: reducedMotion ? 150_000_000 : 1_200_000_000); withAnimation(.easeOut(duration: 0.3)) { launching = false } }
         // Show the new theme only once in expanded form per installation.
         // The compact paintpalette remains until the user visits Themes.
         .task {
@@ -3261,57 +3285,5 @@ private struct NightwellImportFilePicker: UIViewControllerRepresentable {
             }
             completion(.success(url))
         }
-    }
-}
-
-
-
-
-private struct MonochromeNightwellLaunch: View {
-    @Environment(\.nightwellAppearance) private var appearance
-    var body: some View {
-        ZStack {
-            NightwellThemedBackground {
-                LinearGradient(colors: [Color(white: 0.085), .black], startPoint: .top, endPoint: .bottom)
-            }.ignoresSafeArea()
-            GeometryReader { geometry in
-                Canvas { context, size in
-                    let w = size.width, h = size.height
-                    for index in 0..<6 {
-                        let left = index.isMultiple(of: 2)
-                        let origin = CGPoint(x: left ? 0 : w, y: h * (0.16 + CGFloat(index / 2) * 0.22))
-                        let target = CGPoint(x: w * (left ? 0.69 : 0.31), y: h * 0.53)
-                        let spread: CGFloat = 60
-                        var beam = Path()
-                        beam.move(to: origin)
-                        beam.addLine(to: CGPoint(x: target.x - spread, y: target.y + 160))
-                        beam.addLine(to: CGPoint(x: target.x + spread, y: target.y + 160))
-                        beam.closeSubpath()
-                        context.fill(beam, with: .linearGradient(
-                            Gradient(colors: [.white.opacity(0.19), .white.opacity(0.06), .clear]),
-                            startPoint: origin, endPoint: CGPoint(x: w / 2, y: h * 0.82)
-                        ))
-                    }
-                }
-                .blur(radius: 20)
-                .allowsHitTesting(false)
-            }
-            .opacity(appearance == .vice ? 0 : 1)
-            VStack(spacing: 14) {
-                Text("N")
-                    .font(.system(size: 92, weight: .black, design: .rounded))
-                    .foregroundStyle(.white)
-                    .shadow(color: .white.opacity(0.22), radius: 24)
-                Text("NIGHTWELL")
-                    .font(.system(size: 24, weight: .bold, design: .rounded))
-                    .tracking(5)
-                Text("M U S I C")
-                    .font(.system(size: 10, weight: .medium))
-                    .tracking(5)
-                    .foregroundStyle(.white.opacity(0.58))
-            }
-            .foregroundStyle(.white)
-        }
-        .accessibilityLabel("Nightwell Music")
     }
 }
