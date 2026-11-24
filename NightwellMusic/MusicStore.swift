@@ -53,6 +53,9 @@ import Network
             if queue != oldValue { invalidatePresentation() }
         }
     }
+    @Published var offlineQueueActive = false {
+        didSet { if offlineQueueActive != oldValue { invalidatePresentation() } }
+    }
     @Published var failure = "" {
         didSet { if failure != oldValue { invalidatePresentation() } }
     }
@@ -119,6 +122,8 @@ import Network
         let nextBuffered = rawBuffered.isFinite ? min(1, max(0, rawBuffered)) : 0
         if preparing != nextPreparing { preparing = nextPreparing }
         if abs(bufferFraction - nextBuffered) > 0.002 { bufferFraction = nextBuffered }
+        let offlineSelection = value["offlineQueueActive"] as? Bool ?? false
+        if offlineQueueActive != offlineSelection { offlineQueueActive = offlineSelection }
         let nextFailure = value["error"] as? String ?? ""
         if failure != nextFailure { failure = nextFailure }
         let revision = value["queueRevision"] as? Int ?? 0
@@ -652,10 +657,21 @@ struct NightwellAccountDevicesResponse: Decodable {
     private var lastConfirmedServerResponse = Date.distantPast
     private var consecutiveConnectionFailures = 0
 
+    // Only a verified server response can turn the offline selection back
+    // into its original online queue. An NWPath alone is not sufficient.
+    private func syncPlaybackConnectivity() {
+        if !hasNetworkPath || connectionStatus == "Оффлайн" || connectionStatus == "Ограничен" {
+            NativePlayer.shared.updateConnectivity(online: false, downloaded: offline.map(\.dictionary))
+        } else if connectionStatus == "Онлайн" {
+            NativePlayer.shared.updateConnectivity(online: true, downloaded: offline.map(\.dictionary))
+        }
+    }
+
     private func markServerReachable() {
         consecutiveConnectionFailures = 0
         lastConfirmedServerResponse = Date()
         if connectionStatus != "Онлайн" { connectionStatus = "Онлайн" }
+        syncPlaybackConnectivity()
     }
 
     // HTTP 4xx or a JSON decoding error means the API responded: it is not
@@ -684,7 +700,11 @@ struct NightwellAccountDevicesResponse: Decodable {
 
     private func checkConnection() {
         guard applicationIsActive, sessionReady, !starting, connectionCheck == nil else { return }
-        guard hasNetworkPath else { connectionStatus = "Оффлайн"; return }
+        guard hasNetworkPath else {
+            connectionStatus = "Оффлайн"
+            syncPlaybackConnectivity()
+            return
+        }
         let server = origin
         let client = api
         let session = sessionGeneration
@@ -760,6 +780,7 @@ struct NightwellAccountDevicesResponse: Decodable {
                     if self.consecutiveConnectionFailures >= 3 &&
                        Date().timeIntervalSince(self.lastConfirmedServerResponse) > 30 {
                         self.connectionStatus = "Ограничен"
+                        self.syncPlaybackConnectivity()
                     } else if self.connectionStatus != "Онлайн" {
                         self.connectionStatus = "Загрузка…"
                     }
@@ -786,6 +807,7 @@ struct NightwellAccountDevicesResponse: Decodable {
                     self.connectionCheckGeneration = UUID()
                     self.connectionStatus = "Оффлайн"
                 }
+                self.syncPlaybackConnectivity()
             }
         }
         connectionMonitor.start(queue: connectionQueue)
@@ -945,7 +967,10 @@ struct NightwellAccountDevicesResponse: Decodable {
         await localFiles
         guard generation == sessionGeneration else { return }
         if connectionStatus != "Онлайн", catalog.isEmpty {
-            restorePlayback(offlineOnly: true)
+            // Keep the full saved queue to restore the original upcoming
+            // tracks after an offline selection finishes.
+            restorePlayback()
+            syncPlaybackConnectivity()
             if !offline.isEmpty, screen == .home { screen = .library }
         }
     }
@@ -955,6 +980,8 @@ struct NightwellAccountDevicesResponse: Decodable {
         else { UserDefaults.standard.removeObject(forKey: "native.account") }
     }
     func savePlayback(force: Bool = false) {
+        // A temporary offline mix must not replace the persisted online queue.
+        if NativePlayer.shared.isOfflineQueueActive { return }
         let now = Date()
         guard force || now.timeIntervalSince(lastSaved) >= 5,
               let current = clock.current else { return }
@@ -1992,6 +2019,7 @@ struct NightwellAccountDevicesResponse: Decodable {
         guard origin == server, sessionGeneration == generation, let value else { return }
         if let tracks = value.tracks, tracks != offline { offline = tracks }
         if let broken = value.damaged, broken != damagedOffline { damagedOffline = broken }
+        syncPlaybackConnectivity()
     }
     func download(_ list: [Track]) async {
         guard !list.isEmpty else { return }
