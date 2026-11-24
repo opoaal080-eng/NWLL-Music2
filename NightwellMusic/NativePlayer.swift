@@ -344,7 +344,6 @@ final class NativePlayer {
     private var playbackRequested = false
     private var offlineCandidates: [NativeTrack] = []
     private var offlineSwitchWork: DispatchWorkItem?
-    private var restoreOnlineAtBoundary = false
     private let offlineSwitchDelay: TimeInterval = 12
 
     var isOfflineQueueActive: Bool { onlineQueueBeforeOutage != nil }
@@ -359,25 +358,14 @@ final class NativePlayer {
         if online {
             offlineSwitchWork?.cancel()
             offlineSwitchWork = nil
-            if onlineQueueBeforeOutage != nil && !restoreOnlineAtBoundary {
-                restoreOnlineAtBoundary = true
-                publish()
-                // The previous song may have ended while its next stream failed.
-                if ended && wantsPlay {
-                    restoreOriginalQueueAtBoundary()
-                    ended = false
-                    finishTrack()
-                }
+            // Restore the online *upcoming* queue immediately after the server
+            // is reachable. The local/current audio item keeps playing until
+            // its natural end; only the subsequent songs change.
+            if onlineQueueBeforeOutage != nil {
+                restoreOriginalQueueAfterCurrent()
             }
-        } else {
-            // A second outage before the boundary cancels the planned restore.
-            if restoreOnlineAtBoundary {
-                restoreOnlineAtBoundary = false
-                publish()
-            }
-            if changed || (onlineQueueBeforeOutage == nil && offlineSwitchWork == nil) {
-                scheduleOfflineQueue()
-            }
+        } else if changed || (onlineQueueBeforeOutage == nil && offlineSwitchWork == nil) {
+            scheduleOfflineQueue()
         }
     }
 
@@ -421,7 +409,6 @@ final class NativePlayer {
 
         onlineQueueBeforeOutage = OnlineQueueBeforeOutage(
             tracks: tracks, index: index, queuedIDs: queuedIDs, waveActive: waveActive)
-        restoreOnlineAtBoundary = false
         cancelPendingNext()
         invalidateNextAudioWarmup()
         waveTask?.cancel(); waveTask = nil; waveGeneration = UUID()
@@ -447,25 +434,22 @@ final class NativePlayer {
         publish()
     }
 
-    // Called only at a song boundary (or an explicit Next after reconnection).
-    // Restoring metadata doesn't replace the current AVPlayerItem mid-song.
-    private func restoreOriginalQueueAtBoundary() {
-        guard restoreOnlineAtBoundary, let saved = onlineQueueBeforeOutage else { return }
-        let playingTrack = current
+    // Switch the visible/upcoming queue back without replacing the decoder.
+    // The current local song finishes normally before the first online song.
+    private func restoreOriginalQueueAfterCurrent() {
+        guard let saved = onlineQueueBeforeOutage, let playingTrack = current else { return }
         cancelPendingNext()
         invalidateNextAudioWarmup()
-        var restored = saved.tracks
-        if let playingTrack, restored.indices.contains(saved.index) {
-            restored[saved.index] = playingTrack
-        }
-        tracks = restored
-        index = saved.index
-        queuedIDs = saved.queuedIDs
+        let prefix = Array(saved.tracks.prefix(saved.index))
+        let remainder = saved.tracks.dropFirst(saved.index + 1)
+            .filter { $0.id != playingTrack.id }
+        tracks = prefix + [playingTrack] + remainder
+        index = prefix.count
+        queuedIDs = saved.queuedIDs.intersection(Set(remainder.map(\.id)))
         waveActive = saved.waveActive
         waveWaiting = false
         unavailableIDs.removeAll()
         onlineQueueBeforeOutage = nil
-        restoreOnlineAtBoundary = false
         queueRevision += 1
         prewarmNextAsset()
         publish()
@@ -749,7 +733,7 @@ final class NativePlayer {
         fadeInActive = false; fadeNextAutomatically = false
         guard let selectedIndex = queue.firstIndex(where: { $0.id == selected }) else { return }
         offlineSwitchWork?.cancel(); offlineSwitchWork = nil
-        onlineQueueBeforeOutage = nil; restoreOnlineAtBoundary = false
+        onlineQueueBeforeOutage = nil
         playbackRequested = false
         self.offlineAccount = data["account"] as? String ?? ""
         let previousOrigin = self.origin
@@ -1148,7 +1132,7 @@ final class NativePlayer {
     }
     func stop() {
         offlineSwitchWork?.cancel(); offlineSwitchWork = nil
-        onlineQueueBeforeOutage = nil; restoreOnlineAtBoundary = false
+        onlineQueueBeforeOutage = nil
         cancelPendingNext()
         directForwardTrackID = nil
         startupTimeout?.cancel(); startupTimeout = nil
@@ -1345,8 +1329,7 @@ final class NativePlayer {
     private var previousRestartAt: TimeInterval = -Double.infinity
     func step(_ direction: Int, restartCurrent: Bool = true) {
         guard !tracks.isEmpty, tracks.indices.contains(index) else { return }
-        if direction > 0 && restoreOnlineAtBoundary { restoreOriginalQueueAtBoundary() }
-        // Repeated Next is ignored while loading. It can skip only after
+         // Repeated Next is ignored while loading. It can skip only after
         // the player has shown the actual loading-failure message.
         if direction > 0, pendingNextIndex == nil, !waveWaiting,
            let failedID = failedForwardTrackID,
@@ -1429,8 +1412,6 @@ final class NativePlayer {
         // A second callback from AVPlayer or the EQ engine must not start
         // another transition while the first is already in progress.
         guard wantsPlay, !ended, !tracks.isEmpty else { return }
-        let returningOnline = restoreOnlineAtBoundary
-        if returningOnline { restoreOriginalQueueAtBoundary() }
         ended = true
         if pendingNextIndex != nil {
             // A manual Next may already be preparing. Its completion
@@ -1438,7 +1419,7 @@ final class NativePlayer {
             return
         }
         // Repeat-one must not trap the last offline song after reconnection.
-        if repeatMode == 2 && !returningOnline {
+        if repeatMode == 2 {
             restartSmoothly()
         } else if waveActive && index + 1 >= tracks.count {
             waveWaiting = true
