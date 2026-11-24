@@ -1,6 +1,7 @@
 import XCTest
 import AVFoundation
 import UIKit
+import SwiftUI
 @testable import NightwellMusic
 
 private actor LyricsStub: LyricsService {
@@ -157,6 +158,25 @@ private actor LyricsStub: LyricsService {
         let pixel = testCornerPixel(repaired)
         XCTAssertEqual(pixel[3], 255)
         XCTAssertGreaterThan(Int(pixel[1]), 70)
+    }
+
+    func testCoverRoundsAllFourCornersAsOneSurface() throws {
+        // Regression: a blurred square backing outside the artwork's mask
+        // made every corner look sharp in the mini and full player.
+        let renderer = ImageRenderer(content:
+            Cover(track: nil, origin: origin, pixelWidth: 200, cornerRadius: 25)
+                .frame(width: 200, height: 200)
+        )
+        renderer.scale = 1
+        let image = try XCTUnwrap(renderer.uiImage)
+        for (x, y) in [(3, 3), (196, 3), (3, 196), (196, 196)] {
+            let corner = testCornerPixel(image, x: x, y: y)
+            XCTAssertLessThan(Int(corner[3]), 10,
+                "Rounded artwork corner at (\\(x), \\(y)) must remain transparent")
+        }
+        let centre = testCornerPixel(image, x: 100, y: 100)
+        XCTAssertGreaterThan(Int(centre[3]), 0,
+            "Artwork placeholder must remain visible inside its rounded boundary")
     }
 
     func testPlayerQueueRetainsDownloadedLyricsMetadata() throws {
