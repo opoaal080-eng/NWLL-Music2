@@ -8,7 +8,7 @@ on:
       - 'scripts/validate-app-sources.py'
       - '.github/workflows/build-android.yml'
   push:
-    branches: [main, feature/windows-mobile-parity-20261106, feature/android-ios-scroll-parity-20261111, fix/clip-unlimited-device-cache-20261111, feature/android-ios-interface-parity-20261111, fix/android-ios-visual-parity-player-20261111, fix/android-covers-all-libraries-20261112, feature/android-responsive-player-cover-theme-20261112, feature/search-glow-android-suggestions-ios-20261112, fix/ios-search-transfer-regressions-20261112, feature/account-devices-2-free-5-premium-20261114]
+    branches: [fix/ios-swipe-reversal-20261122, main, feature/windows-mobile-parity-20261106, feature/android-ios-scroll-parity-20261111, fix/clip-unlimited-device-cache-20261111, feature/android-ios-interface-parity-20261111, fix/android-ios-visual-parity-player-20261111, fix/android-covers-all-libraries-20261112, feature/android-responsive-player-cover-theme-20261112, feature/search-glow-android-suggestions-ios-20261112, fix/ios-search-transfer-regressions-20261112, feature/account-devices-2-free-5-premium-20261114]
     paths:
       - 'android/**'
       - 'scripts/validate-app-sources.py'
@@ -96,4 +96,51 @@ jobs:
           name: Nightwell-Music-GooglePlay-AAB
           path: android/app/build/outputs/bundle/release/*.aab
           if-no-files-found: error
+          retention-days: 7
+
+  android-screenshots:
+    name: Actual Android emulator screenshots
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enable KVM for Android emulator
+        run: |
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Build APK and capture actual native screens
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          disable-animations: true
+          script: |
+            cd android
+            gradle --no-daemon :app:assembleDebug
+            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            mkdir -p screenshots
+            for screen in 'Главная' 'Поиск' 'Избранное' 'Плейлисты' 'player' 'queue' 'menu' 'settings'; do
+              adb shell am force-stop fun.nightwell.music
+              adb shell am start -W -n fun.nightwell.music/.MainActivity --ez nativeSmoke true --es screen "$screen"
+              sleep 3
+              safe=$(printf '%s' "$screen" | tr ' ' '_')
+              adb exec-out screencap -p > "screenshots/$safe.png"
+              test -s "screenshots/$safe.png"
+            done
+      - name: Upload original Android screen captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nightwell-Music-Android-actual-screenshots
+          path: android/screenshots/*.png
+          if-no-files-found: warn
           retention-days: 7
