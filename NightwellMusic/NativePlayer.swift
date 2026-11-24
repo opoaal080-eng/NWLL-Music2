@@ -329,6 +329,142 @@ final class NativePlayer {
             queuedIDs: queuedIDs.subtracting(unavailableIDs), id: { $0.id })
     }
     private(set) var queueRevision = 0
+
+    // The online queue is held separately while a confirmed, prolonged outage
+    // changes only the upcoming songs. All transitions remain on the main queue.
+    private struct OnlineQueueBeforeOutage {
+        let tracks: [NativeTrack]
+        let index: Int
+        let queuedIDs: Set<String>
+        let waveActive: Bool
+    }
+    private var onlineQueueBeforeOutage: OnlineQueueBeforeOutage?
+    private var connectionOnline = true
+    private var offlineCandidates: [NativeTrack] = []
+    private var offlineSwitchWork: DispatchWorkItem?
+    private var restoreOnlineAtBoundary = false
+    private let offlineSwitchDelay: TimeInterval = 12
+
+    var isOfflineQueueActive: Bool { onlineQueueBeforeOutage != nil }
+
+    // Called by MusicStore's existing NWPathMonitor / verified API checks.
+    // A network path alone is not treated as proof that the server recovered.
+    func updateConnectivity(online: Bool, downloaded: [[String: Any]]) {
+        offlineCandidates = downloaded.compactMap { nativeTrack(from: $0) }
+            .filter { $0.offline }
+        let changed = connectionOnline != online
+        connectionOnline = online
+        if online {
+            offlineSwitchWork?.cancel()
+            offlineSwitchWork = nil
+            if onlineQueueBeforeOutage != nil && !restoreOnlineAtBoundary {
+                restoreOnlineAtBoundary = true
+                publish()
+                // The previous song may have ended while its next stream failed.
+                if ended && wantsPlay {
+                    restoreOriginalQueueAtBoundary()
+                    ended = false
+                    finishTrack()
+                }
+            }
+        } else if changed || (onlineQueueBeforeOutage == nil && offlineSwitchWork == nil) {
+            scheduleOfflineQueue()
+        }
+    }
+
+    private func scheduleOfflineQueue() {
+        guard !connectionOnline, onlineQueueBeforeOutage == nil,
+              offlineSwitchWork == nil, current != nil else { return }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.offlineSwitchWork = nil
+            guard !self.connectionOnline, self.onlineQueueBeforeOutage == nil else { return }
+            self.activateOfflineQueue()
+        }
+        offlineSwitchWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + offlineSwitchDelay, execute: work)
+    }
+
+    private func activateOfflineQueue() {
+        guard let current, let origin, tracks.indices.contains(index) else { return }
+        var verified: [NativeTrack] = []
+        var seen = Set<String>()
+        // listAll has already scanned the local files, but check once more in
+        // case the user deleted a download between the scan and this handoff.
+        for track in offlineCandidates {
+            let owner = track.offlineAccount.isEmpty ? offlineAccount : track.offlineAccount
+            guard seen.insert(track.id).inserted,
+                  OfflineStore.audio(origin: origin, account: owner, id: track.id) != nil else { continue }
+            verified.append(track)
+        }
+        let byID = Dictionary(uniqueKeysWithValues: verified.map { ($0.id, $0) })
+        let currentLocal = byID[current.id] ?? (current.offline ? current : nil)
+        var following: [NativeTrack] = []
+        var selected = Set([current.id])
+        // Prefer the offline copies of songs already planned to play next.
+        for track in tracks.dropFirst(index + 1) {
+            if let local = byID[track.id], selected.insert(local.id).inserted {
+                following.append(local)
+            }
+        }
+        // Fill out the offline selection from all other verified downloads.
+        for local in verified where selected.insert(local.id).inserted {
+            following.append(local)
+        }
+        guard currentLocal != nil || !following.isEmpty else { return }
+
+        onlineQueueBeforeOutage = OnlineQueueBeforeOutage(
+            tracks: tracks, index: index, queuedIDs: queuedIDs, waveActive: waveActive)
+        restoreOnlineAtBoundary = false
+        cancelPendingNext()
+        invalidateNextAudioWarmup()
+        waveTask?.cancel(); waveTask = nil; waveGeneration = UUID()
+        waveWaiting = false
+        waveActive = false
+        unavailableIDs.removeAll()
+        queuedIDs.removeAll()
+        tracks = [currentLocal ?? current] + following
+        index = 0
+        queueRevision += 1
+        // Never cut off an audible buffered stream. If the stream has already
+        // stalled, start the first local file rather than retry remote tracks.
+        if wantsPlay && !audible {
+            recovery.cancel(resetBudget: true)
+            if currentLocal != nil {
+                load(position: playbackPosition)
+                play()
+            } else if tracks.count > 1 {
+                switchDirectly(to: 1)
+            }
+        }
+        prewarmNextAsset()
+        publish()
+    }
+
+    // Called only at a song boundary (or an explicit Next after reconnection).
+    // Restoring metadata doesn't replace the current AVPlayerItem mid-song.
+    private func restoreOriginalQueueAtBoundary() {
+        guard restoreOnlineAtBoundary, let saved = onlineQueueBeforeOutage else { return }
+        let playingTrack = current
+        cancelPendingNext()
+        invalidateNextAudioWarmup()
+        var restored = saved.tracks
+        if let playingTrack, restored.indices.contains(saved.index) {
+            restored[saved.index] = playingTrack
+        }
+        tracks = restored
+        index = saved.index
+        queuedIDs = saved.queuedIDs
+        waveActive = saved.waveActive
+        waveWaiting = false
+        unavailableIDs.removeAll()
+        onlineQueueBeforeOutage = nil
+        restoreOnlineAtBoundary = false
+        queueRevision += 1
+        prewarmNextAsset()
+        publish()
+    }
+
     private var appIsActive = UIApplication.shared.applicationState == .active
     private var usesNowPlaying27: Bool {
         #if canImport(NowPlaying)
@@ -606,6 +742,8 @@ final class NativePlayer {
         startupTimeout?.cancel(); startupTimeout = nil
         fadeInActive = false; fadeNextAutomatically = false
         guard let selectedIndex = queue.firstIndex(where: { $0.id == selected }) else { return }
+        offlineSwitchWork?.cancel(); offlineSwitchWork = nil
+        onlineQueueBeforeOutage = nil; restoreOnlineAtBoundary = false
         self.offlineAccount = data["account"] as? String ?? ""
         let previousOrigin = self.origin
         self.origin = origin
@@ -637,6 +775,7 @@ final class NativePlayer {
         queuedIDs = Set(data["queued_ids"] as? [String] ?? [])
             .intersection(queue.dropFirst(selectedIndex + 1).map { $0.id })
         load(position: max(0, ((data["position"] as? NSNumber)?.doubleValue ?? 0) / 1000))
+        if !connectionOnline { scheduleOfflineQueue() }
     }
 
     private func nativeTrack(from item: [String: Any]) -> NativeTrack? {
@@ -893,6 +1032,12 @@ final class NativePlayer {
         }
         requestedPosition = lastPosition; waitingForReady = false
         player.pause()
+        if wantsPlay, !connectionOnline, onlineQueueBeforeOutage != nil,
+           current?.offline != true, index + 1 < tracks.count {
+            recovery.cancel(resetBudget: true)
+            switchDirectly(to: index + 1)
+            return
+        }
         if wantsPlay, current?.offline != true, PlaybackRecovery.isTransient(failure),
            (!failedDuringStartup || attemptedTrackLoads < 2),
            recovery.schedule({ [weak self] in
@@ -993,6 +1138,8 @@ final class NativePlayer {
         }
     }
     func stop() {
+        offlineSwitchWork?.cancel(); offlineSwitchWork = nil
+        onlineQueueBeforeOutage = nil; restoreOnlineAtBoundary = false
         cancelPendingNext()
         directForwardTrackID = nil
         startupTimeout?.cancel(); startupTimeout = nil
@@ -1189,6 +1336,7 @@ final class NativePlayer {
     private var previousRestartAt: TimeInterval = -Double.infinity
     func step(_ direction: Int, restartCurrent: Bool = true) {
         guard !tracks.isEmpty, tracks.indices.contains(index) else { return }
+        if direction > 0 && restoreOnlineAtBoundary { restoreOriginalQueueAtBoundary() }
         // Repeated Next is ignored while loading. It can skip only after
         // the player has shown the actual loading-failure message.
         if direction > 0, pendingNextIndex == nil, !waveWaiting,
@@ -1272,6 +1420,7 @@ final class NativePlayer {
         // A second callback from AVPlayer or the EQ engine must not start
         // another transition while the first is already in progress.
         guard wantsPlay, !ended, !tracks.isEmpty else { return }
+        if restoreOnlineAtBoundary { restoreOriginalQueueAtBoundary() }
         ended = true
         if pendingNextIndex != nil {
             // A manual Next may already be preparing. Its completion
@@ -1711,6 +1860,7 @@ final class NativePlayer {
             "nextPreparing": pendingNextIndex != nil || waveWaiting, "account": offlineAccount, "ended": ended, "repeat": repeatMode, "shuffle": shuffle, "shuffleMode": shuffleStyle,
             "volume": baseVolume, "smoothTransitions": true, "transitionSeconds": transitionSeconds, "queueRevision": queueRevision, "queueIds": includeQueue ? tracks.map { $0.id } : [], "error": error,
             "wave": waveActive, "waveSupported": true,
+            "offlineQueueActive": onlineQueueBeforeOutage != nil,
             "queuedIds": includeQueuedIDs ? tracks.dropFirst(index + 1).filter { queuedIDs.contains($0.id) }.map { $0.id } : [],
             "audioOutput": includeDiagnostics ? AVAudioSession.sharedInstance().currentRoute.outputs.map { ["type": $0.portType.rawValue, "name": $0.portName] } : [],
             "audioTap": audioMeter.attached, "independentAuraReady": independentMeter.envelope != nil,
