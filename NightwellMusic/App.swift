@@ -2411,12 +2411,88 @@ struct ArtistProfileView: View {
     }
 }
 
+/// Some provider artwork has opaque black wedges or transparency baked into
+/// its source corners. Repair only affected corners, not the whole album art:
+/// bleed the interior image to the corners, then preserve the original centre.
+enum CoverArtworkNormalizer {
+    static func needsCornerRepair(_ image: CGImage) -> Bool {
+        let side = 48
+        var pixels = [UInt8](repeating: 0, count: side * side * 4)
+        let rendered = pixels.withUnsafeMutableBytes { bytes -> Bool in
+            guard let ctx = CGContext(data: bytes.baseAddress, width: side,
+                height: side, bitsPerComponent: 8, bytesPerRow: side * 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGBitmapInfo.byteOrder32Big.rawValue |
+                            CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            ctx.interpolationQuality = .medium
+            ctx.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
+            return true
+        }
+        guard rendered else { return false }
+        func sample(_ x: Int, _ y: Int) -> (Double, Double) {
+            let offset = (y * side + x) * 4
+            let r = Double(pixels[offset])
+            let g = Double(pixels[offset + 1])
+            let b = Double(pixels[offset + 2])
+            let alpha = Double(pixels[offset + 3])
+            return ((r + g + b) / 3, alpha)
+        }
+        for (cornerX, cornerY, innerX, innerY) in [
+            (1, 1, 9, 9), (46, 1, 38, 9),
+            (1, 46, 9, 38), (46, 46, 38, 38)
+        ] {
+            let outer = sample(cornerX, cornerY)
+            let inner = sample(innerX, innerY)
+            if outer.1 < 244 && inner.1 > 230 { return true }
+            if outer.0 < 28 && inner.0 > 72 && inner.0 - outer.0 > 55 {
+                return true
+            }
+        }
+        return false
+    }
+
+    static func normalize(_ image: UIImage) -> UIImage {
+        guard let cg = image.cgImage else { return image }
+        let hasAlpha: Bool
+        switch cg.alphaInfo {
+        case .none, .noneSkipFirst, .noneSkipLast: hasAlpha = false
+        default: hasAlpha = true
+        }
+        guard hasAlpha || needsCornerRepair(cg) else { return image }
+        let size = CGSize(width: cg.width, height: cg.height)
+        guard size.width > 2, size.height > 2 else { return image }
+        let bounds = CGRect(origin: .zero, size: size)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        return UIGraphicsImageRenderer(size: size, format: format).image { context in
+            // Crop source corners out of the underlying fill. The resulting
+            // pixels are actual artwork, not gray/black placeholder triangles.
+            UIColor(white: 0.10, alpha: 1).setFill()
+            context.fill(bounds)
+            let overscan = CGFloat(0.17)
+            let zoom = 1 / (1 - 2 * overscan)
+            image.draw(in: CGRect(
+                x: -size.width * (zoom - 1) * 0.5,
+                y: -size.height * (zoom - 1) * 0.5,
+                width: size.width * zoom,
+                height: size.height * zoom
+            ))
+            context.cgContext.saveGState()
+            // Keep the original artwork everywhere except its damaged corner
+            // wedges. The overscanned interior is revealed only at the edges.
+            let radius = min(size.width, size.height) * 0.21
+            UIBezierPath(roundedRect: bounds, cornerRadius: radius).addClip()
+            image.draw(in: bounds)
+            context.cgContext.restoreGState()
+        }
+    }
+}
+
 struct Cover: View {
     let track: Track?
     let origin: URL
     var pixelWidth = 160
-    // Apply the rounded mask once, to the entire flattened artwork surface.
-    // Masking only the image left the gray loading tile visible in its corners.
     var cornerRadius: CGFloat = 0
     @State private var artwork: UIImage?
     @State private var loadedArtworkURL: URL?
@@ -2424,42 +2500,30 @@ struct Cover: View {
     private var coverURL: URL? {
         track.flatMap { CoverImagePipeline.coverURL(for: $0, origin: origin) }
     }
-    // Provider PNG covers sometimes contain transparent, triangular corners.
-    // Render them onto their own enlarged centre crop, making the artwork
-    // fully opaque BEFORE SwiftUI clips/scales it. A plain black backing
-    // showed through the source pixels despite any rounded masking.
-    private static func opaqueArtwork(_ image: UIImage) -> UIImage {
-        guard let cg = image.cgImage else { return image }
-        switch cg.alphaInfo {
-        case .none, .noneSkipFirst, .noneSkipLast: return image
-        default: break
-        }
-        let size = CGSize(width: cg.width, height: cg.height)
-        guard size.width > 1, size.height > 1 else { return image }
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        format.opaque = true
-        return UIGraphicsImageRenderer(size: size, format: format).image { output in
-            let bounds = CGRect(origin: .zero, size: size)
-            // The centre half of a rounded PNG is opaque. Stretch it to
-            // cover formerly transparent corners, then overlay original art.
-            UIColor.darkGray.setFill()
-            output.fill(bounds)
-            image.draw(in: CGRect(x: -size.width * 0.5, y: -size.height * 0.5,
-                                  width: size.width * 2, height: size.height * 2))
-            image.draw(in: bounds)
-        }
-    }
     var body: some View {
         GeometryReader { box in
             ZStack {
                 if let artwork, loadedArtworkURL == coverURL {
                     // Artwork pixels are already opaque, so no provider corner
                     // can expose a black triangle beneath this surface.
+                    // Do not clip the entire surface to a rounded, transparent
+                    // shape: dark player backgrounds would be visible as
+                    // triangular wedges behind those transparent corners.
+                    if cornerRadius > 0 {
+                        Image(uiImage: artwork)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: box.size.width, height: box.size.height)
+                            .scaleEffect(1.06)
+                            .blur(radius: 7)
+                            .clipped()
+                    }
                     Image(uiImage: artwork)
                         .resizable()
                         .scaledToFill()
                         .frame(width: box.size.width, height: box.size.height)
+                        .clipShape(RoundedRectangle(cornerRadius: cornerRadius,
+                                                    style: .continuous))
                 } else {
                     Color.white.opacity(0.08)
                     Image(systemName: "music.note")
@@ -2468,10 +2532,7 @@ struct Cover: View {
                 }
             }
             .frame(width: box.size.width, height: box.size.height)
-            .clipped()
-            .compositingGroup()
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous),
-                       style: FillStyle(antialiased: true))
+            .clipped() // Square backing prevents dark gaps under rounded artwork.
         }
         .task(id: "\(coverURL?.absoluteString ?? "")#\(pixelWidth)") {
             guard let coverURL else { artwork = nil; loadedArtworkURL = nil; return }
@@ -2479,7 +2540,7 @@ struct Cover: View {
             let image = await CoverImagePipeline.shared.image(for: coverURL, maxPixel: pixelWidth)
             guard !Task.isCancelled else { return }
             let normalized = await Task.detached(priority: .utility) {
-                image.map(Self.opaqueArtwork)
+                image.map(CoverArtworkNormalizer.normalize)
             }.value
             guard !Task.isCancelled else { return }
             artwork = normalized
