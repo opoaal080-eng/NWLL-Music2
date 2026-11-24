@@ -2550,15 +2550,21 @@ struct Cover: View {
     var pixelWidth = 160
     var cornerRadius: CGFloat = 0
     @State private var artwork: UIImage?
-    @State private var loadedArtworkURL: URL?
+    @State private var loadedArtworkKey = ""
 
     private var coverURL: URL? {
         track.flatMap { CoverImagePipeline.coverURL(for: $0, origin: origin) }
     }
+    private var artworkKey: String {
+        [track?.id ?? "", track?._offline_account ?? "",
+         track?._offline == true ? "offline" : "online",
+         coverURL?.absoluteString ?? "", String(pixelWidth)].joined(separator: "|")
+    }
+
     var body: some View {
         GeometryReader { box in
             ZStack {
-                if let artwork, loadedArtworkURL == coverURL {
+                if let artwork, loadedArtworkKey == artworkKey {
                     Image(uiImage: artwork)
                         .resizable()
                         .scaledToFill()
@@ -2580,17 +2586,27 @@ struct Cover: View {
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius,
                                         style: .continuous))
         }
-        .task(id: "\(coverURL?.absoluteString ?? "")#\(pixelWidth)") {
-            guard let coverURL else { artwork = nil; loadedArtworkURL = nil; return }
-            if loadedArtworkURL != coverURL { artwork = nil; loadedArtworkURL = nil }
-            let image = await CoverImagePipeline.shared.image(for: coverURL, maxPixel: pixelWidth)
+        .task(id: artworkKey) {
+            let requested = artworkKey
+            if loadedArtworkKey != requested { artwork = nil; loadedArtworkKey = "" }
+            var image: UIImage?
+            if let track, track._offline == true {
+                let owner = track._offline_account ?? "device"
+                image = await Task.detached(priority: .utility) {
+                    OfflineStore.cover(origin: origin, account: owner, id: track.id)
+                }.value
+            }
+            if image == nil, let coverURL {
+                image = await CoverImagePipeline.shared.image(for: coverURL,
+                                                              maxPixel: pixelWidth)
+            }
             guard !Task.isCancelled else { return }
             let normalized = await Task.detached(priority: .utility) {
                 image.map(CoverArtworkNormalizer.normalize)
             }.value
             guard !Task.isCancelled else { return }
             artwork = normalized
-            loadedArtworkURL = normalized == nil ? nil : coverURL
+            loadedArtworkKey = normalized == nil ? "" : requested
         }
     }
 }
