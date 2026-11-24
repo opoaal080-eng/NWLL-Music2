@@ -668,10 +668,17 @@ struct NightwellAccountDevicesResponse: Decodable {
     }
 
     private func markServerReachable() {
+        let wasUnavailable = connectionStatus != "Онлайн"
         consecutiveConnectionFailures = 0
         lastConfirmedServerResponse = Date()
         if connectionStatus != "Онлайн" { connectionStatus = "Онлайн" }
         syncPlaybackConnectivity()
+        // An offline track can have no cached lyrics at selection time.
+        // Retry that same track after recovery, retaining any saved text.
+        if wasUnavailable, let current = clock.current,
+           lyrics.trackID == current.id {
+            lyrics.select(current, api: api, origin: origin, online: account != nil)
+        }
     }
 
     // HTTP 4xx or a JSON decoding error means the API responded: it is not
