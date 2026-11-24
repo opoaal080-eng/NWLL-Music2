@@ -1732,47 +1732,85 @@ final class NativePlayer {
     }
     private func fetchArtwork(_ track: NativeTrack, generation: UUID, attempt: Int = 0) {
         if attempt == 0 { artworkLoadTask?.cancel() }
-        if let cover = track.cover, cover.hasPrefix("data:image/"), let comma = cover.firstIndex(of: ","),
+        guard let origin else { return }
+        let owner = track.offlineAccount.isEmpty ? offlineAccount : track.offlineAccount
+
+        if let cover = track.cover, cover.hasPrefix("data:image/"),
+           let comma = cover.firstIndex(of: ","),
            let data = Data(base64Encoded: String(cover[cover.index(after: comma)...])),
            data.count < 2 * 1024 * 1024, let image = UIImage(data: data) {
-            artwork = makeArtwork(image); publish(); return
+            artwork = makeArtwork(image)
+            publish()
+            if track.offline {
+                Task.detached(priority: .utility) {
+                    try? OfflineStore.saveCover(CoverArtworkNormalizer.normalize(image),
+                                                origin: origin, account: owner, id: track.id)
+                }
+            }
+            return
         }
-        guard let origin else { return }
-        let cover = track.cover?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        // Some remote records lack cover_url even when /api/covers/<id> is available.
-        let address = cover.isEmpty && (track.remote || track.source == "soundcloud")
-            ? "/api/covers/" + track.id : cover
-        guard !address.isEmpty, let url = URL(string: address, relativeTo: origin)?.absoluteURL,
-              url.scheme?.lowercased() == "https",
-              url.user == nil, url.password == nil else { return }
-        // The system artwork used to ignore EVERY SoundCloud CDN cover, because
-        // only same-origin /api/covers/ URLs were allowed. Reuse the same image
-        // pipeline as the visible player, including its disk cache and deduplication.
+
+        let raw = track.cover?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let address = raw.isEmpty && (track.remote || track.source == "soundcloud")
+            ? "/api/covers/" + track.id : raw
+        let url = URL(string: address, relativeTo: origin)?.absoluteURL
+        let trustedURL = url.flatMap { item -> URL? in
+            guard item.scheme?.lowercased() == "https", item.user == nil, item.password == nil
+            else { return nil }
+            return item
+        }
+        // A downloaded local song might have no cover URL. It can still have
+        // artwork stored next to its audio, so never return before reading it.
+        guard track.offline || trustedURL != nil else { return }
         artworkLoadTask = Task { [weak self] in
-            var image = await CoverImagePipeline.shared.image(for: url, maxPixel: 512, retryFailure: attempt > 0)
-            // Internal /api/covers may require the Nightwell session cookie.
-            // Retry authenticated only for this server, never for an external CDN.
-            if image == nil && !Task.isCancelled && ServerAddress.sameOrigin(origin, url) {
-                var request = URLRequest(url: url)
-                request.timeoutInterval = 10
-                request.cachePolicy = .returnCacheDataElseLoad
-                request.allHTTPHeaderFields = HTTPCookie.requestHeaderFields(with: self?.cookies ?? [])
-                if let (data, response) = try? await URLSession.shared.data(for: request),
-                   let http = response as? HTTPURLResponse, http.statusCode == 200,
-                   data.count <= 6 * 1024 * 1024 {
-                    image = UIImage(data: data)
+            var image: UIImage?
+            if track.offline {
+                image = await Task.detached(priority: .utility) {
+                    OfflineStore.cover(origin: origin, account: owner, id: track.id)
+                }.value
+            }
+            if image == nil, let url = trustedURL {
+                image = await CoverImagePipeline.shared.image(for: url, maxPixel: 512,
+                                                               retryFailure: attempt > 0)
+                // A server-origin cover may need the current scoped cookie.
+                // Never send Nightwell credentials to an external image CDN.
+                if image == nil && !Task.isCancelled && ServerAddress.sameOrigin(origin, url) {
+                    var request = URLRequest(url: url)
+                    request.timeoutInterval = 10
+                    request.cachePolicy = .returnCacheDataElseLoad
+                    request.allHTTPHeaderFields = HTTPCookie.requestHeaderFields(
+                        with: self?.cookies ?? [])
+                    if let (data, response) = try? await URLSession.shared.data(for: request),
+                       let http = response as? HTTPURLResponse, http.statusCode == 200,
+                       data.count <= 6 * 1024 * 1024 {
+                        image = UIImage(data: data)
+                    }
                 }
             }
             guard !Task.isCancelled else { return }
             if let image {
+                // Copy any recovered online/cached artwork into the permanent
+                // offline archive before handing it to iOS Now Playing.
+                let ready: UIImage
+                if track.offline {
+                    ready = await Task.detached(priority: .utility) {
+                        let normalized = CoverArtworkNormalizer.normalize(image)
+                        try? OfflineStore.saveCover(normalized, origin: origin,
+                                                    account: owner, id: track.id)
+                        return normalized
+                    }.value
+                } else {
+                    ready = image
+                }
+                guard !Task.isCancelled else { return }
                 await MainActor.run {
                     guard let self, self.itemGeneration == generation else { return }
-                    self.artwork = self.makeArtwork(image)
+                    self.artwork = self.makeArtwork(ready)
                     self.publish()
                 }
-            } else if attempt < 2 {
-                // The audio stream may be ready before a remote artwork CDN.
-                // Retry only for the same song; never show a previous song's cover.
+            } else if attempt < 2 && trustedURL != nil {
+                // Existing downloads with no permanent image can still migrate
+                // previously cached CDN artwork if connectivity returns.
                 try? await Task.sleep(nanoseconds: attempt == 0 ? 750_000_000 : 2_000_000_000)
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
