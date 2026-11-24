@@ -143,6 +143,45 @@ private actor LyricsStub: LyricsService {
         XCTAssertGreaterThan(Int(testCornerPixel(repaired)[1]), 40)
     }
 
+    func testLargeBlackCornerTrianglesRepairWithoutCroppingTheCover() throws {
+        let dimension = 220
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let original = UIGraphicsImageRenderer(
+            size: CGSize(width: dimension, height: dimension),
+            format: format
+        ).image { context in
+            UIColor(red: 0.72, green: 0.45, blue: 0.33, alpha: 1).setFill()
+            context.fill(CGRect(x: 0, y: 0, width: dimension, height: dimension))
+            UIColor.black.setFill()
+            for corner in 0..<4 {
+                let x: CGFloat = corner % 2 == 0 ? 0 : CGFloat(dimension)
+                let y: CGFloat = corner < 2 ? 0 : CGFloat(dimension)
+                let dx: CGFloat = corner % 2 == 0 ? 75 : -75
+                let dy: CGFloat = corner < 2 ? 75 : -75
+                let triangle = UIBezierPath()
+                triangle.move(to: CGPoint(x: x, y: y))
+                triangle.addLine(to: CGPoint(x: x + dx, y: y))
+                triangle.addLine(to: CGPoint(x: x, y: y + dy))
+                triangle.close()
+                triangle.fill()
+            }
+        }
+        XCTAssertTrue(CoverArtworkNormalizer.needsCornerRepair(try XCTUnwrap(original.cgImage)))
+        let repaired = CoverArtworkNormalizer.normalize(original)
+        for (x, y) in [(3, 3), (216, 3), (3, 216), (216, 216)] {
+            let pixel = testCornerPixel(repaired, x: x, y: y)
+            XCTAssertGreaterThan(Int(pixel[0]), 95, "Artwork corner still black")
+            XCTAssertGreaterThan(Int(pixel[3]), 240)
+        }
+        let originalCenter = testCornerPixel(original, x: 110, y: 110)
+        let repairedCenter = testCornerPixel(repaired, x: 110, y: 110)
+        XCTAssertEqual(originalCenter[0], repairedCenter[0])
+        XCTAssertEqual(originalCenter[1], repairedCenter[1])
+        XCTAssertEqual(originalCenter[2], repairedCenter[2])
+    }
+
     func testTransparentRoundedCoverCornersAreFilledWithoutBlackWedges() throws {
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
