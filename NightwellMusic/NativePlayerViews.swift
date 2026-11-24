@@ -1070,6 +1070,13 @@ struct FullPlayer: View {
     @ViewBuilder private func playerTrackDetails(compact: Bool) -> some View {
                 HStack(spacing: 10) {
                     VStack(alignment: .leading, spacing: compact ? 5 : 8) {
+                        if clock.offlineQueueActive {
+                            Label("Оффлайн подборка", systemImage: "arrow.down.circle.fill")
+                                .font(.system(size: compact ? 10 : 12, weight: .semibold))
+                                .foregroundStyle(Color.white.opacity(0.83))
+                                .transition(.opacity)
+                                .accessibilityLabel("Оффлайн подборка")
+                        }
                         Text(clock.displayCurrent?.title ?? "Выбери трек")
                             .font(.system(size: compact ? 17 : 20, weight: .bold))
                             .foregroundStyle(appearance == .vice
@@ -1321,12 +1328,12 @@ struct PlaybackQueue: View {
             VStack(spacing: compact ? 10 : 22) {
                 HStack(alignment: .center, spacing: compact ? 8 : 12) {
                     VStack(alignment: .leading, spacing: compact ? 4 : 8) {
-                        Text("ТВОЯ МУЗЫКА")
+                        Text(clock.offlineQueueActive ? "БЕЗ ИНТЕРНЕТА" : "ТВОЯ МУЗЫКА")
                             .font(.system(size: compact ? 9 : 10, weight: .semibold))
                             .tracking(compact ? 1.6 : 3.2)
                             .foregroundStyle(Color.white.opacity(0.78))
-                        Text("Очередь")
-                            .font(.system(size: compact ? 28 : 32, weight: .bold))
+                        Text(clock.offlineQueueActive ? "Оффлайн подборка" : "Очередь")
+                            .font(.system(size: compact ? 24 : 32, weight: .bold))
                             .tracking(-0.7)
                             .foregroundStyle(.white)
                     }
