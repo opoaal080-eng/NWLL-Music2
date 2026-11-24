@@ -235,12 +235,8 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
             // session still has connectivity. The player never waits for art.
             let saved = job
             Task.detached(priority: .utility) {
-                guard let url = CoverImagePipeline.coverURL(for: saved.track, origin: saved.origin),
-                      let image = await CoverImagePipeline.shared.image(for: url, maxPixel: 512)
-                else { return }
-                let normalized = CoverArtworkNormalizer.normalize(image)
-                try? OfflineStore.saveCover(normalized, origin: saved.origin,
-                                            account: saved.account, id: saved.track.id)
+                await OfflineArtworkArchive.shared.saveIfNeeded(
+                    saved.track, origin: saved.origin, account: saved.account)
             }
             finish(downloadTask, success: true)
         } catch { finish(downloadTask, success: false) }
