@@ -124,18 +124,10 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           disable-animations: true
           script: |
-            cd android
-            gradle --no-daemon :app:assembleDebug
-            adb install -r app/build/outputs/apk/debug/app-debug.apk
-            mkdir -p screenshots
-            for screen in 'Главная' 'Поиск' 'Избранное' 'Плейлисты' 'player' 'queue' 'menu' 'settings'; do
-              adb shell am force-stop fun.nightwell.music
-              adb shell am start -W -n fun.nightwell.music/.MainActivity --ez nativeSmoke true --es screen "$screen"
-              sleep 3
-              safe=$(printf '%s' "$screen" | tr ' ' '_')
-              adb exec-out screencap -p > "screenshots/$safe.png"
-              test -s "screenshots/$safe.png"
-            done
+            gradle -p android --no-daemon :app:assembleDebug
+            adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+            mkdir -p android/screenshots
+            for screen in 'Главная' 'Поиск' 'Избранное' 'Плейлисты' 'player' 'queue' 'menu' 'settings'; do adb shell am force-stop fun.nightwell.music; adb shell am start -W -n fun.nightwell.music/.MainActivity --ez nativeSmoke true --es screen "$screen"; sleep 3; safe=$(printf '%s' "$screen" | tr ' ' '_'); adb exec-out screencap -p > "android/screenshots/$safe.png"; test -s "android/screenshots/$safe.png"; done
       - name: Upload original Android screen captures
         if: always()
         uses: actions/upload-artifact@v4
