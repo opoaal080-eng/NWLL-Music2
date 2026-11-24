@@ -298,10 +298,9 @@ struct MiniPlayer: View {
                         NightwellSwipePlayback.playAdjacent(step, clock: clock)
                     }) { candidate in
                         HStack(spacing: 7) {
-                            Cover(track: candidate, origin: store.origin)
+                            Cover(track: candidate, origin: store.origin, cornerRadius: 14)
                                 .frame(width: compactHeight ? 34 : 42,
                                        height: compactHeight ? 34 : 42)
-                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(candidate?.title ?? "Выбери трек")
                                     .font(.system(size: compact ? 12 : 14, weight: .semibold))
@@ -1032,9 +1031,9 @@ struct FullPlayer: View {
                                     NightwellTrackSwipeCarousel(clock: clock, gap: 16, onStep: { step in
                                         NightwellSwipePlayback.playAdjacent(step, clock: clock)
                                     }) { candidate in
-                                        Cover(track: candidate, origin: store.origin, pixelWidth: 1024)
+                                        Cover(track: candidate, origin: store.origin, pixelWidth: 1024,
+                                              cornerRadius: 24)
                                             .frame(width: side, height: side)
-                                            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
                                             .shadow(color: .black.opacity(0.38), radius: 22, y: 12)
                                     }
                                     .frame(width: side, height: side)
@@ -1046,9 +1045,9 @@ struct FullPlayer: View {
                                     NightwellTrackSwipeCarousel(clock: clock, gap: 16, onStep: { step in
                                         NightwellSwipePlayback.playAdjacent(step, clock: clock)
                                     }) { candidate in
-                                        Cover(track: candidate, origin: store.origin, pixelWidth: 1024)
+                                        Cover(track: candidate, origin: store.origin, pixelWidth: 1024,
+                                              cornerRadius: 24)
                                             .frame(width: side, height: side)
-                                            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
                                     }
                                     .frame(width: side, height: side)
                                 }
