@@ -192,3 +192,41 @@ enum OfflineStore {
     }
 }
 
+
+
+/// Migrates artwork for recordings downloaded before covers were persisted.
+/// Work is sequential and low priority so playback and the cover CDN stay fast.
+actor OfflineArtworkArchive {
+    static let shared = OfflineArtworkArchive()
+
+    private var attempted: [String: Date] = [:]
+    private var inFlight = Set<String>()
+
+    func backfill(_ tracks: [Track], origin: URL) async {
+        for track in tracks where track._offline == true {
+            if Task.isCancelled { return }
+            let owner = track._offline_account ?? "device"
+            await saveIfNeeded(track, origin: origin, account: owner)
+        }
+    }
+
+    func saveIfNeeded(_ track: Track, origin: URL, account: String) async {
+        let key = origin.absoluteString + "|" + account + "|" + track.id
+        guard !inFlight.contains(key),
+              Date().timeIntervalSince(attempted[key] ?? .distantPast) >= 300
+        else { return }
+        if OfflineStore.cover(origin: origin, account: account, id: track.id) != nil {
+            attempted[key] = .now
+            return
+        }
+        guard let url = CoverImagePipeline.coverURL(for: track, origin: origin) else { return }
+        inFlight.insert(key)
+        attempted[key] = .now
+        defer { inFlight.remove(key) }
+        guard let image = await CoverImagePipeline.shared.image(for: url, maxPixel: 512),
+              !Task.isCancelled else { return }
+        let normalized = CoverArtworkNormalizer.normalize(image)
+        try? OfflineStore.saveCover(normalized, origin: origin,
+                                    account: account, id: track.id)
+    }
+}
