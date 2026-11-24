@@ -2504,26 +2504,11 @@ struct Cover: View {
         GeometryReader { box in
             ZStack {
                 if let artwork, loadedArtworkURL == coverURL {
-                    // Artwork pixels are already opaque, so no provider corner
-                    // can expose a black triangle beneath this surface.
-                    // Do not clip the entire surface to a rounded, transparent
-                    // shape: dark player backgrounds would be visible as
-                    // triangular wedges behind those transparent corners.
-                    if cornerRadius > 0 {
-                        Image(uiImage: artwork)
-                            .resizable()
-                            .scaledToFill()
-                            .frame(width: box.size.width, height: box.size.height)
-                            .scaleEffect(1.06)
-                            .blur(radius: 7)
-                            .clipped()
-                    }
                     Image(uiImage: artwork)
                         .resizable()
                         .scaledToFill()
                         .frame(width: box.size.width, height: box.size.height)
-                        .clipShape(RoundedRectangle(cornerRadius: cornerRadius,
-                                                    style: .continuous))
+                        .clipped()
                 } else {
                     Color.white.opacity(0.08)
                     Image(systemName: "music.note")
@@ -2532,7 +2517,13 @@ struct Cover: View {
                 }
             }
             .frame(width: box.size.width, height: box.size.height)
-            .clipped() // Square backing prevents dark gaps under rounded artwork.
+            .clipped()
+            // Clip the complete artwork and placeholder as ONE surface.
+            // The former blurred backing was left outside the image clip and
+            // visually squared off every corner. Normalized source pixels
+            // already repair black/transparent wedges inside the cover.
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius,
+                                        style: .continuous))
         }
         .task(id: "\(coverURL?.absoluteString ?? "")#\(pixelWidth)") {
             guard let coverURL else { artwork = nil; loadedArtworkURL = nil; return }
