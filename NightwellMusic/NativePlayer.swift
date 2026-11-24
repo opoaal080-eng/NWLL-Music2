@@ -395,15 +395,12 @@ final class NativePlayer {
     }
 
     private func activateOfflineQueue() {
-        guard let current, let origin, tracks.indices.contains(index) else { return }
+        guard let current, origin != nil, tracks.indices.contains(index) else { return }
         var verified: [NativeTrack] = []
         var seen = Set<String>()
-        // listAll has already scanned the local files, but check once more in
-        // case the user deleted a download between the scan and this handoff.
-        for track in offlineCandidates {
-            let owner = track.offlineAccount.isEmpty ? offlineAccount : track.offlineAccount
-            guard seen.insert(track.id).inserted,
-                  OfflineStore.audio(origin: origin, account: owner, id: track.id) != nil else { continue }
+        // MusicStore has already verified the files off the main thread.
+        // Avoid scanning every audio file again during a UI queue handoff.
+        for track in offlineCandidates where seen.insert(track.id).inserted {
             verified.append(track)
         }
         let byID = Dictionary(uniqueKeysWithValues: verified.map { ($0.id, $0) })
@@ -417,8 +414,8 @@ final class NativePlayer {
             }
         }
         // Fill out the offline selection from all other verified downloads.
-        for local in verified where selected.insert(local.id).inserted {
-            following.append(local)
+        for local in verified {
+            if selected.insert(local.id).inserted { following.append(local) }
         }
         guard currentLocal != nil || !following.isEmpty else { return }
 
