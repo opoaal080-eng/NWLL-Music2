@@ -2424,30 +2424,38 @@ struct Cover: View {
     private var coverURL: URL? {
         track.flatMap { CoverImagePipeline.coverURL(for: $0, origin: origin) }
     }
-    private var artworkHasAlpha: Bool {
-        guard let image = artwork?.cgImage else { return false }
-        switch image.alphaInfo {
-        case .none, .noneSkipFirst, .noneSkipLast: return false
-        default: return true
+    // Provider PNG covers sometimes contain transparent, triangular corners.
+    // Render them onto their own enlarged centre crop, making the artwork
+    // fully opaque BEFORE SwiftUI clips/scales it. A plain black backing
+    // showed through the source pixels despite any rounded masking.
+    private static func opaqueArtwork(_ image: UIImage) -> UIImage {
+        guard let cg = image.cgImage else { return image }
+        switch cg.alphaInfo {
+        case .none, .noneSkipFirst, .noneSkipLast: return image
+        default: break
+        }
+        let size = CGSize(width: cg.width, height: cg.height)
+        guard size.width > 1, size.height > 1 else { return image }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        return UIGraphicsImageRenderer(size: size, format: format).image { output in
+            let bounds = CGRect(origin: .zero, size: size)
+            // The centre half of a rounded PNG is opaque. Stretch it to
+            // cover formerly transparent corners, then overlay original art.
+            UIColor.darkGray.setFill()
+            output.fill(bounds)
+            image.draw(in: CGRect(x: -size.width * 0.5, y: -size.height * 0.5,
+                                  width: size.width * 2, height: size.height * 2))
+            image.draw(in: bounds)
         }
     }
     var body: some View {
         GeometryReader { box in
             ZStack {
                 if let artwork, loadedArtworkURL == coverURL {
-                    // Some provider PNGs already have transparent/rounded corners.
-                    // Don't allow the old light-gray placeholder to show through.
-                    Color.black
-                    if artworkHasAlpha {
-                        // Fill transparent source corners using the cover's own
-                        // enlarged colors, without an unrelated gray triangle.
-                        Image(uiImage: artwork)
-                            .resizable()
-                            .scaledToFill()
-                            .frame(width: box.size.width, height: box.size.height)
-                            .scaleEffect(1.3)
-                            .blur(radius: 8)
-                    }
+                    // Artwork pixels are already opaque, so no provider corner
+                    // can expose a black triangle beneath this surface.
                     Image(uiImage: artwork)
                         .resizable()
                         .scaledToFill()
@@ -2470,8 +2478,12 @@ struct Cover: View {
             if loadedArtworkURL != coverURL { artwork = nil; loadedArtworkURL = nil }
             let image = await CoverImagePipeline.shared.image(for: coverURL, maxPixel: pixelWidth)
             guard !Task.isCancelled else { return }
-            artwork = image
-            loadedArtworkURL = image == nil ? nil : coverURL
+            let normalized = await Task.detached(priority: .utility) {
+                image.map(Self.opaqueArtwork)
+            }.value
+            guard !Task.isCancelled else { return }
+            artwork = normalized
+            loadedArtworkURL = normalized == nil ? nil : coverURL
         }
     }
 }
