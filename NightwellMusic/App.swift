@@ -1972,9 +1972,9 @@ struct NativeTrackRow: View {
                 else { store.play(track, in: queue) }
             } label: {
                 HStack(spacing: 12) {
-                    Cover(track: track, origin: store.origin, pixelWidth: libraryPreview ? 224 : 160)
+                    Cover(track: track, origin: store.origin, pixelWidth: libraryPreview ? 224 : 160,
+                          cornerRadius: libraryPreview ? 8 : 12)
                         .frame(width: libraryPreview ? 56 : 46, height: libraryPreview ? 56 : 46)
-                        .clipShape(RoundedRectangle(cornerRadius: libraryPreview ? 8 : 12))
                     VStack(alignment: .leading, spacing: 5) {
                         Text(track.title).font(libraryPreview ? .body.weight(.medium) : .subheadline.weight(.semibold))
                             .lineLimit(libraryPreview ? 1 : 2)
@@ -2415,21 +2415,45 @@ struct Cover: View {
     let track: Track?
     let origin: URL
     var pixelWidth = 160
+    // Apply the rounded mask once, to the entire flattened artwork surface.
+    // Masking only the image left the gray loading tile visible in its corners.
+    var cornerRadius: CGFloat = 0
     @State private var artwork: UIImage?
     @State private var loadedArtworkURL: URL?
 
     private var coverURL: URL? {
         track.flatMap { CoverImagePipeline.coverURL(for: $0, origin: origin) }
     }
+    private var artworkHasAlpha: Bool {
+        guard let image = artwork?.cgImage else { return false }
+        switch image.alphaInfo {
+        case .none, .noneSkipFirst, .noneSkipLast: return false
+        default: return true
+        }
+    }
     var body: some View {
         GeometryReader { box in
             ZStack {
-                Color.white.opacity(0.08)
                 if let artwork, loadedArtworkURL == coverURL {
-                    Image(uiImage: artwork).resizable().scaledToFill()
+                    // Some provider PNGs already have transparent/rounded corners.
+                    // Don't allow the old light-gray placeholder to show through.
+                    Color.black
+                    if artworkHasAlpha {
+                        // Fill transparent source corners using the cover's own
+                        // enlarged colors, without an unrelated gray triangle.
+                        Image(uiImage: artwork)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: box.size.width, height: box.size.height)
+                            .scaleEffect(1.3)
+                            .blur(radius: 8)
+                    }
+                    Image(uiImage: artwork)
+                        .resizable()
+                        .scaledToFill()
                         .frame(width: box.size.width, height: box.size.height)
-                        .clipped()
                 } else {
+                    Color.white.opacity(0.08)
                     Image(systemName: "music.note")
                         .font(.title)
                         .foregroundStyle(.white.opacity(0.7))
@@ -2437,6 +2461,9 @@ struct Cover: View {
             }
             .frame(width: box.size.width, height: box.size.height)
             .clipped()
+            .compositingGroup()
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous),
+                       style: FillStyle(antialiased: true))
         }
         .task(id: "\(coverURL?.absoluteString ?? "")#\(pixelWidth)") {
             guard let coverURL else { artwork = nil; loadedArtworkURL = nil; return }
@@ -2731,7 +2758,9 @@ struct PlaylistScreen: View {
             }
         }
         .frame(width: 116, height: 116)
-        .clipShape(RoundedRectangle(cornerRadius: 23, style: .continuous))
+        .compositingGroup()
+        .clipShape(RoundedRectangle(cornerRadius: 23, style: .continuous),
+                   style: FillStyle(antialiased: true))
         .overlay {
             RoundedRectangle(cornerRadius: 23, style: .continuous)
                 .strokeBorder(.white.opacity(0.18), lineWidth: 0.7)
