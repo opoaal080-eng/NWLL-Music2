@@ -1,5 +1,6 @@
 import XCTest
 import AVFoundation
+import UIKit
 @testable import NightwellMusic
 
 private actor LyricsStub: LyricsService {
@@ -103,6 +104,61 @@ private actor LyricsStub: LyricsService {
         try await waitForResult(model)
         XCTAssertEqual(model.trackID, "second"); XCTAssertEqual(model.value?.plain, "second")
     }
+    private func testCornerPixel(_ image: UIImage, x: Int = 3, y: Int = 3) -> [UInt8] {
+        guard let cg = image.cgImage else { return [] }
+        let width = cg.width, height = cg.height
+        var pixel = [UInt8](repeating: 0, count: 4)
+        pixel.withUnsafeMutableBytes { bytes in
+            guard let context = CGContext(data: bytes.baseAddress,
+                width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGBitmapInfo.byteOrder32Big.rawValue |
+                            CGImageAlphaInfo.premultipliedLast.rawValue) else { return }
+            context.draw(cg, in: CGRect(x: -x, y: -y, width: width, height: height))
+        }
+        return pixel
+    }
+
+    func testEmbeddedBlackCoverCornersAreReplacedWithArtworkColors() throws {
+        let side = 200
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let source = UIGraphicsImageRenderer(size: CGSize(width: side, height: side),
+                                              format: format).image { context in
+            UIColor(red: 0.8, green: 0.35, blue: 0.2, alpha: 1).setFill()
+            context.fill(CGRect(x: 0, y: 0, width: side, height: side))
+            UIColor.black.setFill()
+            let corner = UIBezierPath()
+            corner.move(to: .zero)
+            corner.addLine(to: CGPoint(x: 30, y: 0))
+            corner.addLine(to: CGPoint(x: 0, y: 30))
+            corner.close()
+            corner.fill()
+        }
+        XCTAssertTrue(CoverArtworkNormalizer.needsCornerRepair(try XCTUnwrap(source.cgImage)))
+        let repaired = CoverArtworkNormalizer.normalize(source)
+        XCTAssertGreaterThan(Int(testCornerPixel(repaired)[0]), 100)
+        XCTAssertGreaterThan(Int(testCornerPixel(repaired)[1]), 40)
+    }
+
+    func testTransparentRoundedCoverCornersAreFilledWithoutBlackWedges() throws {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = false
+        let source = UIGraphicsImageRenderer(size: CGSize(width: 200, height: 200),
+                                              format: format).image { _ in
+            UIColor(red: 0.2, green: 0.7, blue: 0.5, alpha: 1).setFill()
+            UIBezierPath(roundedRect: CGRect(x: 0, y: 0, width: 200, height: 200),
+                         cornerRadius: 38).fill()
+        }
+        XCTAssertTrue(CoverArtworkNormalizer.needsCornerRepair(try XCTUnwrap(source.cgImage)))
+        let repaired = CoverArtworkNormalizer.normalize(source)
+        let pixel = testCornerPixel(repaired)
+        XCTAssertEqual(pixel[3], 255)
+        XCTAssertGreaterThan(Int(pixel[1]), 70)
+    }
+
     func testPlayerQueueRetainsDownloadedLyricsMetadata() throws {
         let player = NativePlayer.shared
         defer { player.stop() }
