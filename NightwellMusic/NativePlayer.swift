@@ -344,6 +344,7 @@ final class NativePlayer {
     private var playbackRequested = false
     private var offlineCandidates: [NativeTrack] = []
     private var offlineSwitchWork: DispatchWorkItem?
+    private var resumeOriginalQueueAfterSong = false
     private let offlineSwitchDelay: TimeInterval = 12
 
     var isOfflineQueueActive: Bool { onlineQueueBeforeOutage != nil }
@@ -440,7 +441,7 @@ final class NativePlayer {
         guard let saved = onlineQueueBeforeOutage, let playingTrack = current else { return }
         cancelPendingNext()
         invalidateNextAudioWarmup()
-        let prefix = Array(saved.tracks.prefix(saved.index))
+        let prefix = Array(saved.tracks.prefix(saved.index)).filter { $0.id != playingTrack.id }
         let remainder = saved.tracks.dropFirst(saved.index + 1)
             .filter { $0.id != playingTrack.id }
         tracks = prefix + [playingTrack] + remainder
@@ -450,9 +451,15 @@ final class NativePlayer {
         waveWaiting = false
         unavailableIDs.removeAll()
         onlineQueueBeforeOutage = nil
+        resumeOriginalQueueAfterSong = true
         queueRevision += 1
         prewarmNextAsset()
         publish()
+        // Offline queue may already be exhausted before connection recovers.
+        if ended && playbackRequested && index + 1 < tracks.count {
+            resumeOriginalQueueAfterSong = false
+            switchDirectly(to: index + 1)
+        }
     }
 
     private var appIsActive = UIApplication.shared.applicationState == .active
@@ -734,6 +741,7 @@ final class NativePlayer {
         guard let selectedIndex = queue.firstIndex(where: { $0.id == selected }) else { return }
         offlineSwitchWork?.cancel(); offlineSwitchWork = nil
         onlineQueueBeforeOutage = nil
+        resumeOriginalQueueAfterSong = false
         playbackRequested = false
         self.offlineAccount = data["account"] as? String ?? ""
         let previousOrigin = self.origin
@@ -1133,6 +1141,7 @@ final class NativePlayer {
     func stop() {
         offlineSwitchWork?.cancel(); offlineSwitchWork = nil
         onlineQueueBeforeOutage = nil
+        resumeOriginalQueueAfterSong = false
         cancelPendingNext()
         directForwardTrackID = nil
         startupTimeout?.cancel(); startupTimeout = nil
@@ -1418,8 +1427,11 @@ final class NativePlayer {
             // remains responsible for the single handoff.
             return
         }
-        // Repeat-one must not trap the last offline song after reconnection.
-        if repeatMode == 2 {
+        // The first song after an outage must come from the saved online queue,
+        // even if repeat-one was previously enabled.
+        let resumeFollowing = resumeOriginalQueueAfterSong
+        resumeOriginalQueueAfterSong = false
+        if repeatMode == 2 && !resumeFollowing {
             restartSmoothly()
         } else if waveActive && index + 1 >= tracks.count {
             waveWaiting = true
