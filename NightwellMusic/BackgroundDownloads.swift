@@ -230,6 +230,18 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
         guard statusCode == 200, !waiting else { finish(downloadTask, success: false); return }
         do {
             try OfflineStore.saveDownloadedFile(location, track: job.track, origin: job.origin, account: job.account)
+            // Keep cover art permanently with audio. Fetching it after the
+            // network is lost is unreliable, so download it while this export
+            // session still has connectivity. The player never waits for art.
+            let saved = job
+            Task.detached(priority: .utility) {
+                guard let url = CoverImagePipeline.coverURL(for: saved.track, origin: saved.origin),
+                      let image = await CoverImagePipeline.shared.image(for: url, maxPixel: 512)
+                else { return }
+                let normalized = CoverArtworkNormalizer.normalize(image)
+                try? OfflineStore.saveCover(normalized, origin: saved.origin,
+                                            account: saved.account, id: saved.track.id)
+            }
             finish(downloadTask, success: true)
         } catch { finish(downloadTask, success: false) }
     }
