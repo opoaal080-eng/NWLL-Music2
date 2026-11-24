@@ -218,6 +218,31 @@ private actor LyricsStub: LyricsService {
             "Artwork placeholder must remain visible inside its rounded boundary")
     }
 
+    func testOfflineArtworkPersistsAndIsRemovedWithDownload() throws {
+        let id = "offline_cover_" + UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        let account = "cover_test_" + UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        defer {
+            _ = try? OfflineStore.operation(
+                ["op": "remove", "id": id, "account": account], origin: origin)
+        }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let source = UIGraphicsImageRenderer(size: CGSize(width: 64, height: 64),
+                                              format: format).image { context in
+            UIColor(red: 0.2, green: 0.67, blue: 0.8, alpha: 1).setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 64, height: 64))
+        }
+        try OfflineStore.saveCover(source, origin: origin, account: account, id: id)
+        let archived = try XCTUnwrap(OfflineStore.cover(origin: origin, account: account, id: id))
+        XCTAssertEqual(archived.size.width, 64)
+        XCTAssertEqual(archived.size.height, 64)
+        let pixel = testCornerPixel(archived, x: 32, y: 32)
+        XCTAssertGreaterThan(Int(pixel[2]), Int(pixel[0]))
+        _ = try OfflineStore.operation(["op": "remove", "id": id, "account": account],
+                                       origin: origin)
+        XCTAssertNil(OfflineStore.cover(origin: origin, account: account, id: id))
+    }
+
     func testPlayerQueueRetainsDownloadedLyricsMetadata() throws {
         let player = NativePlayer.shared
         defer { player.stop() }
