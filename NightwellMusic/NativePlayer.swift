@@ -431,6 +431,11 @@ final class NativePlayer {
                 switchDirectly(to: 1)
             }
         }
+        // A buffered online song may continue playing during the handoff.
+        // Reload its locally saved artwork without restarting the audio item.
+        if currentLocal != nil && audible {
+            fetchArtwork(tracks[0], generation: itemGeneration, preferOffline: true)
+        }
         prewarmNextAsset()
         publish()
     }
