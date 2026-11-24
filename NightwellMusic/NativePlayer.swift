@@ -1432,14 +1432,16 @@ final class NativePlayer {
         // A second callback from AVPlayer or the EQ engine must not start
         // another transition while the first is already in progress.
         guard wantsPlay, !ended, !tracks.isEmpty else { return }
-        if restoreOnlineAtBoundary { restoreOriginalQueueAtBoundary() }
+        let returningOnline = restoreOnlineAtBoundary
+        if returningOnline { restoreOriginalQueueAtBoundary() }
         ended = true
         if pendingNextIndex != nil {
             // A manual Next may already be preparing. Its completion
             // remains responsible for the single handoff.
             return
         }
-        if repeatMode == 2 {
+        // Repeat-one must not trap the last offline song after reconnection.
+        if repeatMode == 2 && !returningOnline {
             restartSmoothly()
         } else if waveActive && index + 1 >= tracks.count {
             waveWaiting = true
