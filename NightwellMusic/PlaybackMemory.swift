@@ -210,8 +210,10 @@ actor LyricsDisk {
                 }
                 return
             }
-            if cached != nil && cacheEnabled &&
-               !(await LyricsDisk.shared.shouldRefreshTiming(origin, track.id)) { return }
+            if cached != nil && cacheEnabled {
+                let shouldRefresh = await LyricsDisk.shared.shouldRefreshTiming(origin, track.id)
+                if !shouldRefresh { return }
+            }
             do {
                 for _ in 0..<20 {
                     let result = try await api.fetchLyrics(track.id)
@@ -249,9 +251,9 @@ actor LyricsDisk {
             if cached?.status == "instrumental" || !(cached?.lines?.isEmpty ?? true) {
                 continue
             }
-            if cached != nil &&
-               !(await LyricsDisk.shared.shouldRefreshTiming(origin, track.id)) {
-                continue
+            if cached != nil {
+                let shouldRefresh = await LyricsDisk.shared.shouldRefreshTiming(origin, track.id)
+                if !shouldRefresh { continue }
             }
             if let result: Lyrics = try? await api.request("/api/lyrics/" + track.id) {
                 await LyricsDisk.shared.set(result, origin, track.id)
