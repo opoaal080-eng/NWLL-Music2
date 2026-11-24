@@ -1018,7 +1018,7 @@ final class NativePlayer {
         if wantsPlay { monitorStartup(generation: generation) }
         // Offline EQ can start immediately; remote EQ export is delayed
         // until the normal stream starts playing.
-        prepareEqualizerPlayback(); fetchArtwork(current, generation: generation); publish()
+        prepareEqualizerPlayback(); fetchArtwork(current, generation: generation, preferOffline: saved != nil); publish()
     }
 
     private func playbackFailed(_ failure: Error?, generation: UUID) {
@@ -1730,7 +1730,7 @@ final class NativePlayer {
         callResumeRetry = retry
         DispatchQueue.main.asyncAfter(deadline: .now() + Double(callResumeAttempts), execute: retry)
     }
-    private func fetchArtwork(_ track: NativeTrack, generation: UUID, attempt: Int = 0) {
+    private func fetchArtwork(_ track: NativeTrack, generation: UUID, attempt: Int = 0, preferOffline: Bool = false) {
         if attempt == 0 { artworkLoadTask?.cancel() }
         guard let origin else { return }
         let owner = track.offlineAccount.isEmpty ? offlineAccount : track.offlineAccount
@@ -1753,7 +1753,7 @@ final class NativePlayer {
         let raw = track.cover?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let address = raw.isEmpty && (track.remote || track.source == "soundcloud")
             ? "/api/covers/" + track.id : raw
-        let url = URL(string: address, relativeTo: origin)?.absoluteURL
+        let url = address.isEmpty ? nil : URL(string: address, relativeTo: origin)?.absoluteURL
         let trustedURL = url.flatMap { item -> URL? in
             guard item.scheme?.lowercased() == "https", item.user == nil, item.password == nil
             else { return nil }
@@ -1761,10 +1761,10 @@ final class NativePlayer {
         }
         // A downloaded local song might have no cover URL. It can still have
         // artwork stored next to its audio, so never return before reading it.
-        guard track.offline || trustedURL != nil else { return }
+        guard track.offline || preferOffline || trustedURL != nil else { return }
         artworkLoadTask = Task { [weak self] in
             var image: UIImage?
-            if track.offline {
+            if track.offline || preferOffline {
                 image = await Task.detached(priority: .utility) {
                     OfflineStore.cover(origin: origin, account: owner, id: track.id)
                 }.value
@@ -1792,7 +1792,7 @@ final class NativePlayer {
                 // Copy any recovered online/cached artwork into the permanent
                 // offline archive before handing it to iOS Now Playing.
                 let ready: UIImage
-                if track.offline {
+                if track.offline || preferOffline {
                     ready = await Task.detached(priority: .utility) {
                         let normalized = CoverArtworkNormalizer.normalize(image)
                         try? OfflineStore.saveCover(normalized, origin: origin,
@@ -1815,7 +1815,7 @@ final class NativePlayer {
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
                     guard let self, self.itemGeneration == generation else { return }
-                    self.fetchArtwork(track, generation: generation, attempt: attempt + 1)
+                    self.fetchArtwork(track, generation: generation, attempt: attempt + 1, preferOffline: preferOffline)
                 }
             }
         }
