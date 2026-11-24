@@ -699,7 +699,10 @@ struct NightwellAccountDevicesResponse: Decodable {
     }
 
     private func checkConnection() {
-        guard applicationIsActive, sessionReady, !starting, connectionCheck == nil else { return }
+        // Music continues in the background: recover the original queue there,
+        // too, without requiring the app to return to the foreground.
+        guard (applicationIsActive || NativePlayer.shared.isOfflineQueueActive),
+              sessionReady, !starting, connectionCheck == nil else { return }
         guard hasNetworkPath else {
             connectionStatus = "Оффлайн"
             syncPlaybackConnectivity()
