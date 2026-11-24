@@ -219,12 +219,29 @@ actor OfflineArtworkArchive {
             attempted[key] = .now
             return
         }
-        guard let url = CoverImagePipeline.coverURL(for: track, origin: origin) else { return }
         inFlight.insert(key)
         attempted[key] = .now
         defer { inFlight.remove(key) }
-        guard let image = await CoverImagePipeline.shared.image(for: url, maxPixel: 512),
-              !Task.isCancelled else { return }
+        // Imported/embedded artwork is also independent of the network.
+        var image: UIImage?
+        if let raw = track.cover_url, raw.hasPrefix("data:image/"),
+           let comma = raw.firstIndex(of: ","),
+           let data = Data(base64Encoded: String(raw[raw.index(after: comma)...])),
+           data.count < 2 * 1024 * 1024 {
+            image = UIImage(data: data)
+        }
+        if image == nil,
+           let url = CoverImagePipeline.coverURL(for: track, origin: origin) {
+            image = await CoverImagePipeline.shared.image(for: url, maxPixel: 512)
+        }
+        // A stale external CDN URL may be unavailable when the user
+        // downloads the track. Try Nightwell's same-origin cover endpoint.
+        if image == nil, !track.id.hasPrefix("local_"),
+           track.id.range(of: "^[A-Za-z0-9_-]+$", options: .regularExpression) != nil,
+           let fallback = URL(string: "api/covers/" + track.id, relativeTo: origin) {
+            image = await CoverImagePipeline.shared.image(for: fallback, maxPixel: 512)
+        }
+        guard let image, !Task.isCancelled else { return }
         let normalized = CoverArtworkNormalizer.normalize(image)
         try? OfflineStore.saveCover(normalized, origin: origin,
                                     account: account, id: track.id)
