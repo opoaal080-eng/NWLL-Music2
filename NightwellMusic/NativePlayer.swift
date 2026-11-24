@@ -340,6 +340,8 @@ final class NativePlayer {
     }
     private var onlineQueueBeforeOutage: OnlineQueueBeforeOutage?
     private var connectionOnline = true
+    // A decoder failure is not the same as the user pressing Pause.
+    private var playbackRequested = false
     private var offlineCandidates: [NativeTrack] = []
     private var offlineSwitchWork: DispatchWorkItem?
     private var restoreOnlineAtBoundary = false
@@ -367,8 +369,15 @@ final class NativePlayer {
                     finishTrack()
                 }
             }
-        } else if changed || (onlineQueueBeforeOutage == nil && offlineSwitchWork == nil) {
-            scheduleOfflineQueue()
+        } else {
+            // A second outage before the boundary cancels the planned restore.
+            if restoreOnlineAtBoundary {
+                restoreOnlineAtBoundary = false
+                publish()
+            }
+            if changed || (onlineQueueBeforeOutage == nil && offlineSwitchWork == nil) {
+                scheduleOfflineQueue()
+            }
         }
     }
 
@@ -428,7 +437,7 @@ final class NativePlayer {
         queueRevision += 1
         // Never cut off an audible buffered stream. If the stream has already
         // stalled, start the first local file rather than retry remote tracks.
-        if wantsPlay && !audible {
+        if (wantsPlay || playbackRequested) && !audible {
             recovery.cancel(resetBudget: true)
             if currentLocal != nil {
                 load(position: playbackPosition)
@@ -744,6 +753,7 @@ final class NativePlayer {
         guard let selectedIndex = queue.firstIndex(where: { $0.id == selected }) else { return }
         offlineSwitchWork?.cancel(); offlineSwitchWork = nil
         onlineQueueBeforeOutage = nil; restoreOnlineAtBoundary = false
+        playbackRequested = false
         self.offlineAccount = data["account"] as? String ?? ""
         let previousOrigin = self.origin
         self.origin = origin
@@ -1070,6 +1080,7 @@ final class NativePlayer {
 
     func play() {
         guard current != nil else { return }
+        playbackRequested = true
         if enginePlayback.ready {
             do {
                 try AVAudioSession.sharedInstance().setActive(true)
@@ -1105,7 +1116,8 @@ final class NativePlayer {
         refreshIndependentMeter()
         refillWave(); publish()
     }
-    func pause() {
+    func pause(clearIntent: Bool = true) {
+        if clearIntent { playbackRequested = false }
         meterActivation?.cancel(); meterActivation = nil
         cancelPendingNext()
         warmupGeneration = UUID()
@@ -1445,7 +1457,7 @@ final class NativePlayer {
             // Switch immediately on the primary AVPlayer, no second player.
             switchDirectly(to: next)
         } else {
-            pause()
+            pause(clearIntent: connectionOnline)
         }
     }
     private func refillWave(force: Bool = false) {
