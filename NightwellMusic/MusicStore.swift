@@ -673,6 +673,12 @@ struct NightwellAccountDevicesResponse: Decodable {
         lastConfirmedServerResponse = Date()
         if connectionStatus != "Онлайн" { connectionStatus = "Онлайн" }
         syncPlaybackConnectivity()
+        if wasUnavailable, !offline.isEmpty {
+            let savedTracks = offline, server = origin
+            Task.detached(priority: .utility) {
+                await OfflineArtworkArchive.shared.backfill(savedTracks, origin: server)
+            }
+        }
         // An offline track can have no cached lyrics at selection time.
         // Retry that same track after recovery, retaining any saved text.
         if wasUnavailable, let current = clock.current,
@@ -2030,6 +2036,12 @@ struct NightwellAccountDevicesResponse: Decodable {
         if let tracks = value.tracks, tracks != offline { offline = tracks }
         if let broken = value.damaged, broken != damagedOffline { damagedOffline = broken }
         syncPlaybackConnectivity()
+        if hasNetworkPath && connectionStatus == "Онлайн" && !offline.isEmpty {
+            let savedTracks = offline
+            Task.detached(priority: .utility) {
+                await OfflineArtworkArchive.shared.backfill(savedTracks, origin: server)
+            }
+        }
     }
     func download(_ list: [Track]) async {
         guard !list.isEmpty else { return }
