@@ -1,6 +1,7 @@
 import Foundation
 import CryptoKit
 import AVFoundation
+import UIKit
 
 /// Device-only files, separated by server and account. No arbitrary file paths.
 enum OfflineStore {
@@ -81,6 +82,33 @@ enum OfflineStore {
         let audio = dir.appendingPathComponent(id + ".m4a"), meta = dir.appendingPathComponent(id + ".json")
         return FileManager.default.fileExists(atPath: meta.path) && playableAudio(audio) ? audio : nil
     }
+    // Offline artwork belongs beside the downloaded recording, not in the
+    // purgeable URL cache. Both the player and iOS Now Playing use this file.
+    static func cover(origin: URL, account: String, id: String) -> UIImage? {
+        lock.lock(); defer { lock.unlock() }
+        guard valid(id), let dir = try? directory(origin, account) else { return nil }
+        let path = dir.appendingPathComponent(id + ".cover.jpg")
+        guard let length = (try? path.resourceValues(forKeys: [.fileSizeKey]))?.fileSize,
+              length > 0, length <= 3 * 1024 * 1024,
+              let data = try? Data(contentsOf: path, options: .mappedIfSafe) else { return nil }
+        return UIImage(data: data)
+    }
+
+    static func saveCover(_ image: UIImage, origin: URL, account: String, id: String) throws {
+        lock.lock(); defer { lock.unlock() }
+        guard valid(id), let directory = try? directory(origin, account),
+              let data = image.jpegData(compressionQuality: 0.83),
+              !data.isEmpty, data.count <= 3 * 1024 * 1024 else {
+            throw URLError(.cannotEncodeContentData)
+        }
+        let file = directory.appendingPathComponent(id + ".cover.jpg")
+        try data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        var mutable = file
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try? mutable.setResourceValues(values)
+    }
+
     /// Called directly from the download delegate while the system temporary file exists.
     /// Copy on disk instead of allocating base64 versions of an entire track in memory.
     static func saveDownloadedFile(_ file: URL, track: Track, origin: URL, account: String) throws {
@@ -138,6 +166,7 @@ enum OfflineStore {
         if op == "remove" {
             try? FileManager.default.removeItem(at: meta)
             try? FileManager.default.removeItem(at: target)
+            try? FileManager.default.removeItem(at: dir.appendingPathComponent(id + ".cover.jpg"))
             validated.removeValue(forKey: target.path)
             return ["ok": true]
         }
