@@ -99,7 +99,7 @@ enum OfflineStore {
         guard valid(id), let directory = try? directory(origin, account),
               let data = image.jpegData(compressionQuality: 0.83),
               !data.isEmpty, data.count <= 3 * 1024 * 1024 else {
-            throw URLError(.cannotEncodeContentData)
+            throw URLError(.cannotDecodeContentData)
         }
         let file = directory.appendingPathComponent(id + ".cover.jpg")
         try data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
