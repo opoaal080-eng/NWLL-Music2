@@ -384,6 +384,9 @@ public final class MainActivity extends Activity {
     private RibbonView ribbon;
     private ImageView coverBackdrop;
     private View coverBackdropShade;
+    // The iOS dock uses full-width backdrop blur with a soft vertical fade.
+    // Keep the glass texture behind sharp tabs, not as bordered tab buttons.
+    private ImageView navigationGlassArtwork;
     private HomeSparklesView atmosphere;
     private Runnable pendingSearch;
     private Dialog navigationPopup;
@@ -1075,6 +1078,40 @@ public final class MainActivity extends Activity {
         }
     }
 
+    /**
+     * Edge-faded album-art blur for the tab bar. Only this decorative layer is
+     * blurred; icons, labels and touch targets remain sharp. The alpha mask
+     * removes the hard rectangular boundary at the top of the dock.
+     */
+    private static final class FadedNavigationArtwork extends ImageView {
+        private final android.graphics.Paint fadePaint =
+            new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+
+        FadedNavigationArtwork(Context context){
+            super(context);
+            setScaleType(ImageView.ScaleType.CENTER_CROP);
+            setLayerType(View.LAYER_TYPE_HARDWARE,null);
+        }
+
+        @Override protected void onDraw(android.graphics.Canvas canvas){
+            int w=getWidth(),h=getHeight();
+            if(w<=0||h<=0){super.onDraw(canvas);return;}
+            int save=canvas.saveLayer(0,0,w,h,null);
+            super.onDraw(canvas);
+            fadePaint.setShader(new android.graphics.LinearGradient(
+                0,0,0,h,
+                new int[]{0x00ffffff,0x20ffffff,0xaaffffff,0xffffffff},
+                new float[]{0f,0.22f,0.62f,1f},
+                android.graphics.Shader.TileMode.CLAMP));
+            fadePaint.setXfermode(new android.graphics.PorterDuffXfermode(
+                android.graphics.PorterDuff.Mode.DST_IN));
+            canvas.drawRect(0,0,w,h,fadePaint);
+            fadePaint.setXfermode(null);
+            fadePaint.setShader(null);
+            canvas.restoreToCount(save);
+        }
+    }
+
     void build(){
         // Preserve the active collection scroll position on orientation changes.
         if(root!=null&&isCollectionScreen()&&screen.equals(displayedCollectionScreen))
@@ -1097,6 +1134,26 @@ public final class MainActivity extends Activity {
         ribbon=new RibbonView(this);ui.post(this::applyPremium);ribbon.meter(()->playback==null?0:playback.level());ribbon.bands(index->playback==null?0:playback.bandLevel(index));
         ribbon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         scene.addView(ribbon,new android.widget.FrameLayout.LayoutParams(-1,-1));
+        // This is behind the entire dock, at full screen width. No boxed
+        // navigation surface or outline: the fade blends into the scenery.
+        FrameLayout dockGlass=new FrameLayout(this);
+        navigationGlassArtwork=new FadedNavigationArtwork(this);
+        navigationGlassArtwork.setAlpha(Build.VERSION.SDK_INT>=31 ? 0.48f : 0.15f);
+        if(Build.VERSION.SDK_INT>=31){
+            navigationGlassArtwork.setRenderEffect(
+                android.graphics.RenderEffect.createBlurEffect(
+                    dp(28),dp(28),android.graphics.Shader.TileMode.CLAMP));
+        }
+        dockGlass.addView(navigationGlassArtwork,new FrameLayout.LayoutParams(-1,-1));
+        View dockGlassTint=new View(this);
+        dockGlassTint.setBackground(new GradientDrawable(
+            GradientDrawable.Orientation.TOP_BOTTOM,
+            new int[]{0x00151921,0x16151921,0x4713161d,0x75111318}));
+        dockGlass.addView(dockGlassTint,new FrameLayout.LayoutParams(-1,-1));
+        FrameLayout.LayoutParams glassParams=new FrameLayout.LayoutParams(
+            -1,dp(156),Gravity.BOTTOM);
+        scene.addView(dockGlass,glassParams);
+        dockGlass.setVisibility(backgroundOnly?View.GONE:View.VISIBLE);
         boolean landscape=isLandscapeLayout();
         root=column();root.setPadding(dp(landscape?10:20),dp(landscape?0:8),dp(landscape?10:20),0);
         collectionScrolled=false;
@@ -1200,6 +1257,7 @@ public final class MainActivity extends Activity {
             LinearLayout navigation=row();
             navigation.setGravity(Gravity.CENTER);
             navigation.setPadding(0,dp(1),0,dp(3));
+            navigation.setBackgroundColor(Color.TRANSPARENT);
             addBottomNavigationTab(navigation,"⌂","Главная",()->navigate("Главная"));
             addBottomNavigationTab(navigation,"⌕","Поиск",()->navigate("Поиск"));
             addBottomNavigationTab(navigation,"▤","Медиатека",()->navigate("Избранное"));
@@ -1213,9 +1271,20 @@ public final class MainActivity extends Activity {
     private TextView addBottomNavigationTab(LinearLayout container,String icon,String label,Runnable click){
         TextView tab=text(icon+"\n"+label,11);
         tab.setGravity(Gravity.CENTER);
-        tab.setTextColor(label.equals(screen)||label.equals("Медиатека")&&isCollectionScreen()
-            ?Color.WHITE:0xffa7a8ac);
-        tab.setBackground(touchSurface(0x11000000,12));
+        boolean selected=label.equals(screen)||label.equals("Медиатека")&&isCollectionScreen();
+        tab.setTextColor(selected?Color.WHITE:0xff92949d);
+        tab.setTypeface(android.graphics.Typeface.create(
+            selected?"sans-serif-medium":"sans-serif",android.graphics.Typeface.NORMAL));
+        tab.setLineSpacing(dp(2),1.0f);
+        tab.setBackground(null);
+        // A subtle touch ripple is visible only while pressed; no per-tab
+        // pills, borders or permanent rectangular darkening.
+        GradientDrawable rippleMask=new GradientDrawable();
+        rippleMask.setColor(Color.WHITE);
+        rippleMask.setCornerRadius(dp(16));
+        tab.setForeground(new android.graphics.drawable.RippleDrawable(
+            android.content.res.ColorStateList.valueOf(0x1effffff),null,rippleMask));
+        tab.setSelected(selected);
         tab.setOnClickListener(v->click.run());
         tab.setContentDescription(label);
         container.addView(tab,new LinearLayout.LayoutParams(0,-1,1));
@@ -3657,9 +3726,16 @@ public final class MainActivity extends Activity {
         coverBackdrop.setVisibility(visibleCover?View.VISIBLE:View.GONE);
         if(coverBackdropShade!=null)
             coverBackdropShade.setVisibility(visibleCover?View.VISIBLE:View.GONE);
-        if(!visibleCover)return;
         JSONObject selected=current();
         String url=selected==null?"":selected.optString("cover_url");
+        // The dock's frosted glass tracks artwork on every screen; the full
+        // player backdrop still respects its own visibility setting.
+        if(navigationGlassArtwork!=null){
+            if(artworkCache!=null&&!url.isEmpty())
+                artworkCache.load(navigationGlassArtwork,origin,url);
+            else navigationGlassArtwork.setImageDrawable(null);
+        }
+        if(!visibleCover)return;
         if(artworkCache!=null)artworkCache.load(coverBackdrop,origin,url);
         else coverBackdrop.setImageDrawable(null);
     }
