@@ -127,7 +127,24 @@ jobs:
             gradle -p android --no-daemon :app:assembleDebug
             adb install -r android/app/build/outputs/apk/debug/app-debug.apk
             mkdir -p android/screenshots
-            for screen in 'Главная' 'Поиск' 'Избранное' 'Плейлисты' 'player' 'queue' 'menu' 'settings'; do adb shell am force-stop fun.nightwell.music; adb shell am start -W -n fun.nightwell.music/.MainActivity --ez nativeSmoke true --es screen "$screen"; sleep 3; safe=$(printf '%s' "$screen" | tr ' ' '_'); adb exec-out screencap -p > "android/screenshots/$safe.png"; test -s "android/screenshots/$safe.png"; done
+            # Pixel Launcher may ANR in headless SwiftShader emulators and put
+            # a system-wide blocking dialog over otherwise valid app frames.
+            # Force-stop the launcher, then dismiss the ANR only if it appears
+            # in the current accessibility tree. Do not modify app screens.
+            for screen in 'Главная' 'Поиск' 'Избранное' 'Плейлисты' 'player' 'queue' 'menu' 'settings'; do
+              adb shell am force-stop fun.nightwell.music
+              adb shell am start -W -n fun.nightwell.music/.MainActivity --ez nativeSmoke true --es screen "$screen"
+              sleep 2
+              adb shell am force-stop com.google.android.apps.nexuslauncher || true
+              adb shell uiautomator dump /sdcard/nightwell-window.xml >/dev/null 2>&1 || true
+              if adb shell cat /sdcard/nightwell-window.xml 2>/dev/null | grep -qi "isn't responding"; then
+                adb shell input tap 320 1230
+                sleep 1
+              fi
+              safe=$(printf '%s' "$screen" | tr ' ' '_')
+              adb exec-out screencap -p > "android/screenshots/$safe.png"
+              test -s "android/screenshots/$safe.png"
+            done
       - name: Upload original Android screen captures
         if: always()
         uses: actions/upload-artifact@v4
