@@ -88,10 +88,15 @@ final class NightwellNowPlayingModel: MediaSessionRepresentable {
     func update(track newTrack: NightwellNowPlayingTrack?,
                 playing: Bool,
                 position: Double,
-                queueCount: Int) {
+                queueCount: Int,
+                initialArtwork: Data? = nil) {
         let trackChanged = track != newTrack
         if trackChanged {
+            // Set metadata and cover together, so the lock screen cannot
+            // snapshot the preceding track's artwork with the next song.
             track = newTrack
+            imageData = newTrack == nil ? nil : initialArtwork
+            artworkRevision &+= 1
             republishContent()
         }
         let newPlaying = newTrack != nil && playing
@@ -170,16 +175,28 @@ final class NightwellNowPlayingBridge27 {
         let next = NightwellNowPlayingTrack(track)
         let trackChanged = next.id != lastTrackID
         let artworkChanged = lastArtworkObject !== artwork
-        if trackChanged || artworkChanged {
+        // Do not send a temporary content update for the previous track,
+        // then a second content update for this track. That race could leave
+        // the compact lock-screen card on the NW placeholder.
+        if trackChanged {
             lastTrackID = next.id
             lastArtworkObject = artwork
             let data = artwork?
                 .image(at: CGSize(width: 512, height: 512))?
                 .jpegData(compressionQuality: 0.86)
-            model.updateArtwork(data)
+            model.update(track: next, playing: playing, position: elapsed,
+                         queueCount: queueCount, initialArtwork: data)
+        } else {
+            model.update(track: next, playing: playing, position: elapsed,
+                         queueCount: queueCount, initialArtwork: model.imageData)
+            if artworkChanged {
+                lastArtworkObject = artwork
+                let data = artwork?
+                    .image(at: CGSize(width: 512, height: 512))?
+                    .jpegData(compressionQuality: 0.86)
+                model.updateArtwork(data)
+            }
         }
-        model.update(track: next, playing: playing, position: elapsed,
-                     queueCount: queueCount)
         if session == nil {
             session = MediaSession(model)
         }
