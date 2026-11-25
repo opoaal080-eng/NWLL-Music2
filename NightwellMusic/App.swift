@@ -2411,45 +2411,23 @@ struct ArtistProfileView: View {
     }
 }
 
-/// Renders artwork with a genuine rounded silhouette while letting the
-/// immediate outside corners pick up soft artwork colour, not the player's
-/// pure black backdrop. Never put an opaque square behind a rounded cover.
+/// A single, unmodified artwork layer with one rounded mask.
+/// The former blurred second layer was visible outside the radius and
+/// produced coloured triangular corner wedges on top of the player backdrop.
 struct CoverArtworkSurface: View {
     let image: UIImage
     let cornerRadius: CGFloat
 
     var body: some View {
-        GeometryReader { box in
-            ZStack {
-                if cornerRadius > 0 {
-                    // Artwork-coloured ambient bleed follows the cover outside
-                    // the rounded cut-out. It is dimmed and defocused so it
-                    // cannot visually turn the rounded artwork into a square.
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: box.size.width, height: box.size.height)
-                        .scaleEffect(1.08)
-                        .blur(radius: max(7, cornerRadius * 0.85))
-                        .opacity(0.62)
-                        // A small-radius edge on the subdued glow avoids
-                        // another fully square backing, while the main artwork
-                        // keeps the full 14/24-point visible corner radius.
-                        .clipShape(RoundedRectangle(
-                            cornerRadius: max(3, cornerRadius * 0.18),
-                            style: .continuous))
-                        .accessibilityHidden(true)
-                }
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: box.size.width, height: box.size.height)
-                    .clipped()
-                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius,
-                                                style: .continuous))
-            }
-            .frame(width: box.size.width, height: box.size.height)
-            .clipped()
+        GeometryReader { geometry in
+            Image(uiImage: image)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFill()
+                .frame(width: geometry.size.width, height: geometry.size.height)
+                .clipped()
+                .clipShape(RoundedRectangle(cornerRadius: max(0, cornerRadius),
+                                            style: .continuous))
         }
     }
 }
