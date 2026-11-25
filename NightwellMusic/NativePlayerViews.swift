@@ -1034,7 +1034,14 @@ struct FullPlayer: View {
                                         Cover(track: candidate, origin: store.origin, pixelWidth: 1024,
                                               cornerRadius: 24)
                                             .frame(width: side, height: side)
-                                            .shadow(color: .black.opacity(0.38), radius: 22, y: 12)
+                                            // The GeometryReader is rectangular. Applying a
+                                            // shadow to it produced dark square corner patches
+                                            // outside the already rounded artwork on iPhone.
+                                            // Clip the complete card instead of shadowing its
+                                            // container. The ambient player backdrop supplies
+                                            // depth without extra opaque corner pixels.
+                                            .clipShape(RoundedRectangle(
+                                                cornerRadius: 24, style: .continuous))
                                     }
                                     .frame(width: side, height: side)
                                 } else {
@@ -1048,6 +1055,8 @@ struct FullPlayer: View {
                                         Cover(track: candidate, origin: store.origin, pixelWidth: 1024,
                                               cornerRadius: 24)
                                             .frame(width: side, height: side)
+                                            .clipShape(RoundedRectangle(
+                                                cornerRadius: 24, style: .continuous))
                                     }
                                     .frame(width: side, height: side)
                                 }
