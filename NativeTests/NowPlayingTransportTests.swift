@@ -30,6 +30,29 @@ final class NowPlayingTransportTests: XCTestCase {
         }
     }
 
+    func testLateArtworkRepublishesCompactNowPlayingWithoutOpeningExpandedPlayer() throws {
+        let model = NightwellNowPlayingModel()
+        let playing = track("artwork")
+        model.update(track: playing, playing: true, position: 11, queueCount: 3)
+        let before = model.contentUpdateSerial
+        let snapshot = try XCTUnwrap(model.playbackSnapshot)
+
+        // Simulate the album cover arriving after playback has started,
+        // without a user action on Dynamic Island.
+        model.updateArtwork(Data([0xFF, 0xD8, 0xFF, 0xD9]))
+        XCTAssertGreaterThan(model.contentUpdateSerial, before)
+        XCTAssertEqual(model.imageData?.count, 4)
+        XCTAssertNotNil(model.content)
+        XCTAssertEqual(model.playbackSnapshot, snapshot)
+        let updated = model.contentUpdateSerial
+        model.update(track: playing, playing: true, position: 11, queueCount: 3)
+        XCTAssertEqual(model.contentUpdateSerial, updated)
+
+        model.update(track: track("next"), playing: true, position: 0,
+                     queueCount: 3)
+        XCTAssertGreaterThan(model.contentUpdateSerial, updated)
+    }
+
     func testImmediateResumePublishesPlayingSnapshotAtTheSamePosition() {
         let model = NightwellNowPlayingModel()
         let item = track("one")
