@@ -44,10 +44,12 @@ actor CoverImagePipeline {
         compressed.countLimit = 100
 
         let configuration = URLSessionConfiguration.default
+        // Versioned cache is intentionally separate from pre-v2 artwork.
+        // The previous builds could retain modified cover thumbnails.
         configuration.urlCache = URLCache(
             memoryCapacity: 28 * 1024 * 1024,
             diskCapacity: 160 * 1024 * 1024,
-            diskPath: "nightwell-cover-thumbnails"
+            diskPath: "nightwell-cover-thumbnails-raw-v2"
         )
         configuration.httpCookieStorage = .shared
         configuration.httpShouldSetCookies = true
