@@ -2568,6 +2568,44 @@ enum CoverArtworkNormalizer {
     }
 }
 
+/// Renders artwork with a genuine rounded silhouette while letting the
+/// immediate outside corners pick up soft artwork colour, not the player's
+/// pure black backdrop. Never put an opaque square behind a rounded cover.
+struct CoverArtworkSurface: View {
+    let image: UIImage
+    let cornerRadius: CGFloat
+
+    var body: some View {
+        GeometryReader { box in
+            ZStack {
+                if cornerRadius > 0 {
+                    // Artwork-coloured ambient bleed follows the cover outside
+                    // the rounded cut-out. It is dimmed and defocused so it
+                    // cannot visually turn the rounded artwork into a square.
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: box.size.width, height: box.size.height)
+                        .scaleEffect(1.08)
+                        .blur(radius: max(7, cornerRadius * 0.85))
+                        .opacity(0.62)
+                        .clipped()
+                        .accessibilityHidden(true)
+                }
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: box.size.width, height: box.size.height)
+                    .clipped()
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius,
+                                                style: .continuous))
+            }
+            .frame(width: box.size.width, height: box.size.height)
+            .clipped()
+        }
+    }
+}
+
 struct Cover: View {
     let track: Track?
     let origin: URL
@@ -2589,26 +2627,21 @@ struct Cover: View {
         GeometryReader { box in
             ZStack {
                 if let artwork, loadedArtworkKey == artworkKey {
-                    Image(uiImage: artwork)
-                        .resizable()
-                        .scaledToFill()
+                    CoverArtworkSurface(image: artwork, cornerRadius: cornerRadius)
                         .frame(width: box.size.width, height: box.size.height)
-                        .clipped()
                 } else {
-                    Color.white.opacity(0.08)
-                    Image(systemName: "music.note")
-                        .font(.title)
-                        .foregroundStyle(.white.opacity(0.7))
+                    ZStack {
+                        Color.white.opacity(0.08)
+                        Image(systemName: "music.note")
+                            .font(.title)
+                            .foregroundStyle(.white.opacity(0.7))
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius,
+                                                style: .continuous))
                 }
             }
             .frame(width: box.size.width, height: box.size.height)
             .clipped()
-            // Clip the complete artwork and placeholder as ONE surface.
-            // The former blurred backing was left outside the image clip and
-            // visually squared off every corner. Normalized source pixels
-            // already repair black/transparent wedges inside the cover.
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius,
-                                        style: .continuous))
         }
         .task(id: artworkKey) {
             let requested = artworkKey
