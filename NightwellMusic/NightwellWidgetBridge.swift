@@ -26,7 +26,10 @@ import WidgetKit
         // Don't throw away an already downloaded cover when merely pausing.
         let previous = NWWidgetStorage.read()
         let sameCover = track != nil && previous.trackID == track?.id &&
-                        previous.coverID == track?.id
+                        previous.coverID == track?.id &&
+                        // Older widget states can point at a now-invalid
+                        // image from the destructive artwork normalizer.
+                        NWWidgetStorage.cover(for: previous) != nil
         let next = NWWidgetState(
             trackID: track?.id ?? "",
             title: track?.title ?? "Твой ритм",
