@@ -179,7 +179,7 @@ private actor LyricsStub: LyricsService {
             "Artwork placeholder must remain visible inside its rounded boundary")
     }
 
-    func testRoundedCoverCornersBlendArtworkColourInsteadOfBlackPlayerBackground() throws {
+    func testRoundedCoverCornersShowBackdropWithoutSecondaryArtworkWedges() throws {
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = true
@@ -188,21 +188,31 @@ private actor LyricsStub: LyricsService {
             UIColor(red: 0.52, green: 0.72, blue: 0.37, alpha: 1).setFill()
             context.fill(CGRect(x: 0, y: 0, width: 180, height: 180))
         }
+        let background = Color(red: 0.10, green: 0.21, blue: 0.30)
         let renderer = ImageRenderer(content:
             CoverArtworkSurface(image: artwork, cornerRadius: 26)
                 .frame(width: 180, height: 180)
-                .background(Color.black)
+                .background(background)
         )
         renderer.scale = 1
         let image = try XCTUnwrap(renderer.uiImage)
         let center = testCornerPixel(image, x: 90, y: 90)
-        XCTAssertGreaterThan(Int(center[1]), 160)
+        XCTAssertGreaterThan(Int(center[1]), 170)
+        // Outside the true radius the player background must remain visible.
+        // An artwork-coloured triangle here means the extra blurred image
+        // layer has accidentally been restored.
         for (x, y) in [(3, 3), (176, 3), (3, 176), (176, 176)] {
             let pixel = testCornerPixel(image, x: x, y: y)
-            XCTAssertGreaterThan(Int(pixel[1]), 38,
-                "Pure-black triangles must not show through rounded artwork corners")
-            XCTAssertLessThan(Int(pixel[1]), Int(center[1]) - 12,
-                "Artwork must still look rounded, not covered by an opaque square")
+            XCTAssertLessThan(Int(pixel[1]), 85,
+                "Corner must show player backdrop, not a coloured wedge")
+            XCTAssertGreaterThan(Int(pixel[2]), 55,
+                "Background colour must remain visible outside the cover radius")
+        }
+        // Just inside the rounded edge the artwork must remain fully present.
+        for (x, y) in [(13, 13), (166, 13), (13, 166), (166, 166)] {
+            let pixel = testCornerPixel(image, x: x, y: y)
+            XCTAssertGreaterThan(Int(pixel[1]), 155,
+                "Artwork must not be eaten away by an additional corner mask")
         }
     }
 
