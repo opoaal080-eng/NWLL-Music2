@@ -1846,8 +1846,11 @@ final class NativePlayer {
                     self.artwork = self.makeArtwork(cached)
                     self.publish()
                 }
+                // Keep the original cached image, and do not create a second
+                // artwork object / lock-screen update for the same photo.
+                return
             }
-            if image == nil, let url = trustedURL {
+            if let url = trustedURL {
                 image = await CoverImagePipeline.shared.image(for: url, maxPixel: 512,
                                                                retryFailure: attempt > 0)
                 // A server-origin cover may need the current scoped cookie.
