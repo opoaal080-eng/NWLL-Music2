@@ -218,6 +218,33 @@ private actor LyricsStub: LyricsService {
             "Artwork placeholder must remain visible inside its rounded boundary")
     }
 
+    func testRoundedCoverCornersBlendArtworkColourInsteadOfBlackPlayerBackground() throws {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let artwork = UIGraphicsImageRenderer(size: CGSize(width: 180, height: 180),
+                                               format: format).image { context in
+            UIColor(red: 0.52, green: 0.72, blue: 0.37, alpha: 1).setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 180, height: 180))
+        }
+        let renderer = ImageRenderer(content:
+            CoverArtworkSurface(image: artwork, cornerRadius: 26)
+                .frame(width: 180, height: 180)
+                .background(Color.black)
+        )
+        renderer.scale = 1
+        let image = try XCTUnwrap(renderer.uiImage)
+        let center = testCornerPixel(image, x: 90, y: 90)
+        XCTAssertGreaterThan(Int(center[1]), 160)
+        for (x, y) in [(3, 3), (176, 3), (3, 176), (176, 176)] {
+            let pixel = testCornerPixel(image, x: x, y: y)
+            XCTAssertGreaterThan(Int(pixel[1]), 38,
+                "Pure-black triangles must not show through rounded artwork corners")
+            XCTAssertLessThan(Int(pixel[1]), Int(center[1]) - 12,
+                "Artwork must still look rounded, not covered by an opaque square")
+        }
+    }
+
     func testOfflineArtworkPersistsAndIsRemovedWithDownload() throws {
         let id = "offline_cover_" + UUID().uuidString.replacingOccurrences(of: "-", with: "")
         let account = "cover_test_" + UUID().uuidString.replacingOccurrences(of: "-", with: "")
