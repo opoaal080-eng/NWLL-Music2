@@ -2411,163 +2411,6 @@ struct ArtistProfileView: View {
     }
 }
 
-/// Repairs black or transparent *pixels inside* provider artwork without
-/// changing the size, crop or corner radius of the album art.
-enum CoverArtworkNormalizer {
-    private static let pixelInfo = CGBitmapInfo.byteOrder32Big.rawValue |
-        CGImageAlphaInfo.premultipliedLast.rawValue
-
-    static func needsCornerRepair(_ image: CGImage) -> Bool {
-        let side = 48
-        var pixels = [UInt8](repeating: 0, count: side * side * 4)
-        let rendered = pixels.withUnsafeMutableBytes { bytes -> Bool in
-            guard let ctx = CGContext(data: bytes.baseAddress, width: side,
-                height: side, bitsPerComponent: 8, bytesPerRow: side * 4,
-                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: pixelInfo)
-            else { return false }
-            ctx.interpolationQuality = .medium
-            ctx.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
-            return true
-        }
-        guard rendered else { return false }
-        func brightness(_ x: Int, _ y: Int) -> (Int, Int) {
-            let at = (y * side + x) * 4
-            return ((Int(pixels[at]) + Int(pixels[at + 1]) + Int(pixels[at + 2])) / 3,
-                    Int(pixels[at + 3]))
-        }
-        for (x, y, dx, dy) in [(1, 1, 1, 1), (46, 1, -1, 1),
-                                (1, 46, 1, -1), (46, 46, -1, -1)] {
-            let outer = brightness(x, y)
-            let inside = [14, 19, 23].map { brightness(x + dx * $0, y + dy * $0) }
-            if outer.1 < 235 && inside.contains(where: { $0.1 > 230 }) { return true }
-            if outer.0 < 29 &&
-               inside.contains(where: { $0.0 > 67 && $0.1 > 230 }) { return true }
-        }
-        return false
-    }
-
-    static func normalize(_ image: UIImage) -> UIImage {
-        guard let cg = image.cgImage, cg.width > 8, cg.height > 8,
-              needsCornerRepair(cg) else { return image }
-        let width = cg.width, height = cg.height
-        var pixels = [UInt8](repeating: 0, count: width * height * 4)
-        let decoded = pixels.withUnsafeMutableBytes { bytes -> Bool in
-            guard let ctx = CGContext(data: bytes.baseAddress, width: width,
-                height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
-                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: pixelInfo)
-            else { return false }
-            ctx.draw(cg, in: CGRect(x: 0, y: 0, width: width, height: height))
-            return true
-        }
-        guard decoded else { return image }
-        let original = pixels
-        // Sample deep inside each corner, beyond the dark wedge.
-        // The old 65/255 source threshold admitted antialiased charcoal
-        // pixels (e.g. 91/255) and just painted smaller dark wedges back.
-        func intensity(_ index: Int) -> Int {
-            let p = index * 4
-            return max(Int(original[p]), Int(original[p + 1]), Int(original[p + 2]))
-        }
-        func opaque(_ index: Int) -> Bool { original[index * 4 + 3] >= 240 }
-
-        let reach = Int(Double(min(width, height)) * 0.44)
-        let maxSum = Int(Double(min(width, height)) * 0.66)
-        for corner in 0..<4 {
-            let right = corner % 2 == 1
-            let bottom = corner >= 2
-            let ox = right ? width - 1 : 0
-            let oy = bottom ? height - 1 : 0
-            let sx = right ? -1 : 1
-            let sy = bottom ? -1 : 1
-            let seed = oy * width + ox
-
-            // A colour reference must come from well inside the artwork,
-            // rather than the AA strip bordering a triangle.
-            let distances = [0.36, 0.41, 0.45].map {
-                Int(Double(min(width, height)) * $0)
-            }
-            let reference = distances.compactMap { distance -> Int? in
-                let x = ox + sx * distance, y = oy + sy * distance
-                guard x >= 0, x < width, y >= 0, y < height else { return nil }
-                let at = y * width + x
-                return opaque(at) ? intensity(at) : nil
-            }.max() ?? 0
-            guard reference > 72 else { continue }
-
-            // Include the antialiased transition between pure black and art.
-            // Do not touch the normal centre, or naturally dark artwork with
-            // no corner-connected damaged region.
-            let cutoff = min(135, max(35, Int(Double(reference) * 0.52)))
-            let sourceFloor = max(75, Int(Double(reference) * 0.82))
-            func damaged(_ at: Int) -> Bool {
-                original[at * 4 + 3] < 238 || intensity(at) < cutoff
-            }
-            func cleanSource(_ at: Int) -> Bool {
-                opaque(at) && intensity(at) >= sourceFloor
-            }
-            guard damaged(seed) else { continue }
-
-            var visited = Set<Int>()
-            var queue = [seed]
-            visited.insert(seed)
-            var cursor = 0
-            while cursor < queue.count {
-                let point = queue[cursor]
-                cursor += 1
-                let x = point % width, y = point / width
-                for (nx, ny) in [(x + sx, y), (x, y + sy)] {
-                    if nx < 0 || nx >= width || ny < 0 || ny >= height { continue }
-                    let px = abs(nx - ox), py = abs(ny - oy)
-                    guard px <= reach, py <= reach, px + py <= maxSum else { continue }
-                    let next = ny * width + nx
-                    if visited.insert(next).inserted && damaged(next) {
-                        queue.append(next)
-                    }
-                }
-                if queue.count > width * height / 7 { break }
-            }
-
-            for index in queue {
-                let x = index % width, y = index / width
-                // Deliberately skip partially black transition pixels when
-                // choosing the replacement. They were the previous bug.
-                var source: Int?
-                for distance in 1...max(1, reach) {
-                    let xx = x + sx * distance, yy = y + sy * distance
-                    if xx < 0 || xx >= width || yy < 0 || yy >= height { break }
-                    let position = yy * width + xx
-                    if cleanSource(position) { source = position; break }
-                }
-                if source == nil {
-                    // Thin wedges near the outer image edges may have no
-                    // clean pixel on that exact diagonal. Use an interior
-                    // diagonal colour instead of leaving a black hole.
-                    for distance in distances {
-                        let xx = ox + sx * distance, yy = oy + sy * distance
-                        if xx < 0 || xx >= width || yy < 0 || yy >= height { continue }
-                        let position = yy * width + xx
-                        if cleanSource(position) { source = position; break }
-                    }
-                }
-                guard let source else { continue }
-                let p = index * 4, q = source * 4
-                pixels[p] = original[q]
-                pixels[p + 1] = original[q + 1]
-                pixels[p + 2] = original[q + 2]
-                pixels[p + 3] = 255
-            }
-        }
-        let repaired = pixels.withUnsafeMutableBytes { bytes -> CGImage? in
-            guard let ctx = CGContext(data: bytes.baseAddress, width: width,
-                height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
-                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: pixelInfo)
-            else { return nil }
-            return ctx.makeImage()
-        }
-        return repaired.map { UIImage(cgImage: $0, scale: image.scale, orientation: .up) } ?? image
-    }
-}
-
 /// Renders artwork with a genuine rounded silhouette while letting the
 /// immediate outside corners pick up soft artwork colour, not the player's
 /// pure black backdrop. Never put an opaque square behind a rounded cover.
@@ -2663,12 +2506,11 @@ struct Cover: View {
                                                               maxPixel: pixelWidth)
             }
             guard !Task.isCancelled else { return }
-            let normalized = await Task.detached(priority: .utility) {
-                image.map(CoverArtworkNormalizer.normalize)
-            }.value
-            guard !Task.isCancelled else { return }
-            artwork = normalized
-            loadedArtworkKey = normalized == nil ? "" : requested
+            // Display the original decoded artwork. The previous corner-repair
+            // algorithm modified faces and other deliberately dark regions.
+            // Rounded geometry is handled only by CoverArtworkSurface.
+            artwork = image
+            loadedArtworkKey = image == nil ? "" : requested
         }
     }
 }
