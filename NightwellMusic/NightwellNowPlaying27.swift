@@ -36,19 +36,34 @@ final class NightwellNowPlayingModel: MediaSessionRepresentable {
     private(set) var snapshotDate: Date = .now
     private(set) var imageData: Data?
     private(set) var artworkRevision = 0
+    // Publish a stored @Observable content value. The previous computed
+    // property could be evaluated lazily for the expanded player while the
+    // compact Dynamic Island kept an earlier no-artwork snapshot.
+    private(set) var publishedContent: MusicContent?
+    private(set) var contentUpdateSerial = 0
     private(set) var canNavigate = false
     // Publish transport state, clock and timestamp as one observable value.
     // System controls must never combine a new Pause with an old running clock.
     private(set) var playbackSnapshot: MediaPlaybackSnapshot?
 
-    var content: (any MediaContentRepresentable)? {
-        guard let track else { return nil }
+    var content: (any MediaContentRepresentable)? { publishedContent }
+
+    private func republishContent() {
+        guard let track else {
+            if publishedContent != nil {
+                publishedContent = nil
+                contentUpdateSerial &+= 1
+            }
+            return
+        }
         let image: Artwork? = imageData.map { data in
             Artwork(id: track.id + "-" + String(artworkRevision)) { _ in
                 try ArtworkRepresentation(data: data)
             }
         }
-        return MusicContent(
+        // One single assignment triggers NowPlaying observation even when the
+        // title and track identifier are unchanged and only the cover changes.
+        publishedContent = MusicContent(
             id: track.id,
             songTitle: track.title,
             artistName: track.artist,
@@ -57,6 +72,7 @@ final class NightwellNowPlayingModel: MediaSessionRepresentable {
             duration: track.duration > 0 ? .finite(track.duration) : nil,
             artwork: image
         )
+        contentUpdateSerial &+= 1
     }
 
     var commands: [MediaCommand] {
@@ -76,6 +92,7 @@ final class NightwellNowPlayingModel: MediaSessionRepresentable {
         let trackChanged = track != newTrack
         if trackChanged {
             track = newTrack
+            republishContent()
         }
         let newPlaying = newTrack != nil && playing
         let playbackChanged = isPlaying != newPlaying
@@ -100,6 +117,10 @@ final class NightwellNowPlayingModel: MediaSessionRepresentable {
     func updateArtwork(_ data: Data?) {
         imageData = data
         artworkRevision &+= 1
+        // The tiny Dynamic Island view doesn't always re-evaluate a computed
+        // content getter when a request handler's underlying bytes change.
+        // Replace the published content explicitly for every new artwork ID.
+        republishContent()
     }
 }
 
