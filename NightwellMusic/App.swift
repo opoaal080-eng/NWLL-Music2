@@ -2589,7 +2589,12 @@ struct CoverArtworkSurface: View {
                         .scaleEffect(1.08)
                         .blur(radius: max(7, cornerRadius * 0.85))
                         .opacity(0.62)
-                        .clipped()
+                        // A small-radius edge on the subdued glow avoids
+                        // another fully square backing, while the main artwork
+                        // keeps the full 14/24-point visible corner radius.
+                        .clipShape(RoundedRectangle(
+                            cornerRadius: max(3, cornerRadius * 0.18),
+                            style: .continuous))
                         .accessibilityHidden(true)
                 }
                 Image(uiImage: image)
