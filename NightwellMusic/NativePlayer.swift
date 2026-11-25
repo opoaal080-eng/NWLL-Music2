@@ -64,10 +64,8 @@ enum LockScreenArtworkCache {
                 options: [.skipsHiddenFiles])) ?? []
             if files.count > maxFiles {
                 let oldFirst = files.sorted {
-                    let a = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]))
-                        ?.contentModificationDate ?? .distantPast
-                    let b = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]))
-                        ?.contentModificationDate ?? .distantPast
+                    let a = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                    let b = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
                     return a < b
                 }
                 for stale in oldFirst.prefix(files.count - maxFiles) {
