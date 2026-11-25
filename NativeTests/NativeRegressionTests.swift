@@ -120,83 +120,44 @@ private actor LyricsStub: LyricsService {
         return pixel
     }
 
-    func testEmbeddedBlackCoverCornersAreReplacedWithArtworkColors() throws {
-        let side = 200
+    func testOriginalArtworkPixelsRemainUntouchedInRenderedPlayer() throws {
+        // Dark art can be intentional: the old flood fill copied coloured
+        // pixels into faces, hair and other details next to black corners.
+        let side = 180
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = true
-        let source = UIGraphicsImageRenderer(size: CGSize(width: side, height: side),
-                                              format: format).image { context in
-            UIColor(red: 0.8, green: 0.35, blue: 0.2, alpha: 1).setFill()
+        let original = UIGraphicsImageRenderer(size: CGSize(width: side, height: side),
+                                                 format: format).image { context in
+            UIColor(red: 0.66, green: 0.50, blue: 0.37, alpha: 1).setFill()
             context.fill(CGRect(x: 0, y: 0, width: side, height: side))
             UIColor.black.setFill()
-            let corner = UIBezierPath()
-            corner.move(to: .zero)
-            corner.addLine(to: CGPoint(x: 30, y: 0))
-            corner.addLine(to: CGPoint(x: 0, y: 30))
-            corner.close()
-            corner.fill()
+            let darkHair = UIBezierPath()
+            darkHair.move(to: .zero)
+            darkHair.addLine(to: CGPoint(x: 72, y: 0))
+            darkHair.addLine(to: CGPoint(x: 0, y: 72))
+            darkHair.close()
+            darkHair.fill()
         }
-        XCTAssertTrue(CoverArtworkNormalizer.needsCornerRepair(try XCTUnwrap(source.cgImage)))
-        let repaired = CoverArtworkNormalizer.normalize(source)
-        XCTAssertGreaterThan(Int(testCornerPixel(repaired)[0]), 100)
-        XCTAssertGreaterThan(Int(testCornerPixel(repaired)[1]), 40)
-    }
-
-    func testLargeBlackCornerTrianglesRepairWithoutCroppingTheCover() throws {
-        let dimension = 220
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        format.opaque = true
-        let original = UIGraphicsImageRenderer(
-            size: CGSize(width: dimension, height: dimension),
-            format: format
-        ).image { context in
-            UIColor(red: 0.72, green: 0.45, blue: 0.33, alpha: 1).setFill()
-            context.fill(CGRect(x: 0, y: 0, width: dimension, height: dimension))
-            UIColor.black.setFill()
-            for corner in 0..<4 {
-                let x: CGFloat = corner % 2 == 0 ? 0 : CGFloat(dimension)
-                let y: CGFloat = corner < 2 ? 0 : CGFloat(dimension)
-                let dx: CGFloat = corner % 2 == 0 ? 75 : -75
-                let dy: CGFloat = corner < 2 ? 75 : -75
-                let triangle = UIBezierPath()
-                triangle.move(to: CGPoint(x: x, y: y))
-                triangle.addLine(to: CGPoint(x: x + dx, y: y))
-                triangle.addLine(to: CGPoint(x: x, y: y + dy))
-                triangle.close()
-                triangle.fill()
-            }
+        let sourceDark = testCornerPixel(original, x: 30, y: 30)
+        XCTAssertLessThan(Int(sourceDark[0]), 20)
+        let renderer = ImageRenderer(content:
+            CoverArtworkSurface(image: original, cornerRadius: 26)
+                .frame(width: CGFloat(side), height: CGFloat(side))
+                .background(Color.black)
+        )
+        renderer.scale = 1
+        let drawn = try XCTUnwrap(renderer.uiImage)
+        let dark = testCornerPixel(drawn, x: 30, y: 30)
+        XCTAssertLessThan(Int(dark[0]), 25,
+            "Deliberately dark image details must never be replaced by colour filling")
+        let centre = testCornerPixel(drawn, x: 90, y: 90)
+        let originalCentre = testCornerPixel(original, x: 90, y: 90)
+        for channel in 0..<3 {
+            XCTAssertLessThanOrEqual(
+                abs(Int(centre[channel]) - Int(originalCentre[channel])), 5,
+                "The original artwork must be rendered without per-pixel changes")
         }
-        XCTAssertTrue(CoverArtworkNormalizer.needsCornerRepair(try XCTUnwrap(original.cgImage)))
-        let repaired = CoverArtworkNormalizer.normalize(original)
-        for (x, y) in [(3, 3), (216, 3), (3, 216), (216, 216)] {
-            let pixel = testCornerPixel(repaired, x: x, y: y)
-            XCTAssertGreaterThan(Int(pixel[0]), 95, "Artwork corner still black")
-            XCTAssertGreaterThan(Int(pixel[3]), 240)
-        }
-        let originalCenter = testCornerPixel(original, x: 110, y: 110)
-        let repairedCenter = testCornerPixel(repaired, x: 110, y: 110)
-        XCTAssertEqual(originalCenter[0], repairedCenter[0])
-        XCTAssertEqual(originalCenter[1], repairedCenter[1])
-        XCTAssertEqual(originalCenter[2], repairedCenter[2])
-    }
-
-    func testTransparentRoundedCoverCornersAreFilledWithoutBlackWedges() throws {
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        format.opaque = false
-        let source = UIGraphicsImageRenderer(size: CGSize(width: 200, height: 200),
-                                              format: format).image { _ in
-            UIColor(red: 0.2, green: 0.7, blue: 0.5, alpha: 1).setFill()
-            UIBezierPath(roundedRect: CGRect(x: 0, y: 0, width: 200, height: 200),
-                         cornerRadius: 38).fill()
-        }
-        XCTAssertTrue(CoverArtworkNormalizer.needsCornerRepair(try XCTUnwrap(source.cgImage)))
-        let repaired = CoverArtworkNormalizer.normalize(source)
-        let pixel = testCornerPixel(repaired)
-        XCTAssertEqual(pixel[3], 255)
-        XCTAssertGreaterThan(Int(pixel[1]), 70)
     }
 
     func testCoverRoundsAllFourCornersAsOneSurface() throws {
