@@ -1748,8 +1748,8 @@ final class NativePlayer {
             publish()
             if track.offline {
                 Task.detached(priority: .utility) {
-                    try? OfflineStore.saveCover(CoverArtworkNormalizer.normalize(image),
-                                                origin: origin, account: owner, id: track.id)
+                    try? OfflineStore.saveCover(image, origin: origin,
+                                                account: owner, id: track.id)
                 }
             }
             return
@@ -1799,10 +1799,9 @@ final class NativePlayer {
                 let ready: UIImage
                 if track.offline || preferOffline {
                     ready = await Task.detached(priority: .utility) {
-                        let normalized = CoverArtworkNormalizer.normalize(image)
-                        try? OfflineStore.saveCover(normalized, origin: origin,
+                        try? OfflineStore.saveCover(image, origin: origin,
                                                     account: owner, id: track.id)
-                        return normalized
+                        return image
                     }.value
                 } else {
                     ready = image
