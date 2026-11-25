@@ -1,6 +1,7 @@
 import AVFoundation
 import MediaPlayer
 import UIKit
+import CryptoKit
 
 struct NativeTrack {
     let id: String
@@ -15,6 +16,68 @@ struct NativeTrack {
     var offline: Bool = false
     var offlineAccount: String = ""
     var offlineLyrics: [String: Any]? = nil
+}
+
+/// Persistent cover cache for the iOS lock screen and Dynamic Island.
+/// A successfully loaded original image stays available after app suspension.
+/// Never store the generated NW placeholder or alter album artwork pixels.
+enum LockScreenArtworkCache {
+    private static let lock = NSLock()
+    private static let maxFiles = 160
+
+    private static func file(origin: URL, track: NativeTrack) -> URL? {
+        guard !track.id.isEmpty,
+              let caches = FileManager.default.urls(
+                for: .cachesDirectory, in: .userDomainMask).first else { return nil }
+        let key = origin.absoluteString + "|" + track.id + "|" + (track.cover ?? "")
+        let digest = SHA256.hash(data: Data(key.utf8))
+        let name = digest.map { String(format: "%02x", $0) }.joined() + ".jpg"
+        return caches.appendingPathComponent("nw-lock-screen-artwork-v1", isDirectory: true)
+            .appendingPathComponent(name)
+    }
+
+    static func load(origin: URL, track: NativeTrack) -> UIImage? {
+        guard let path = file(origin: origin, track: track) else { return nil }
+        lock.lock(); defer { lock.unlock() }
+        guard let length = (try? path.resourceValues(forKeys: [.fileSizeKey]))?.fileSize,
+              length > 0 && length <= 3 * 1024 * 1024,
+              let bytes = try? Data(contentsOf: path, options: .mappedIfSafe)
+        else { return nil }
+        return UIImage(data: bytes)
+    }
+
+    static func save(_ image: UIImage, origin: URL, track: NativeTrack) {
+        guard let path = file(origin: origin, track: track),
+              let bytes = image.jpegData(compressionQuality: 0.87),
+              bytes.count > 0 && bytes.count <= 3 * 1024 * 1024 else { return }
+        lock.lock(); defer { lock.unlock() }
+        do {
+            let parent = path.deletingLastPathComponent()
+            try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+            try bytes.write(to: path, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            var file = path
+            var resources = URLResourceValues()
+            resources.isExcludedFromBackup = true
+            try? file.setResourceValues(resources)
+            let files = (try? FileManager.default.contentsOfDirectory(
+                at: parent, includingPropertiesForKeys: [.contentModificationDateKey],
+                options: [.skipsHiddenFiles])) ?? []
+            if files.count > maxFiles {
+                let oldFirst = files.sorted {
+                    let a = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]))
+                        ?.contentModificationDate ?? .distantPast
+                    let b = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]))
+                        ?.contentModificationDate ?? .distantPast
+                    return a < b
+                }
+                for stale in oldFirst.prefix(files.count - maxFiles) {
+                    try? FileManager.default.removeItem(at: stale)
+                }
+            }
+        } catch {
+            // Artwork persistence is best effort, never block audio.
+        }
+    }
 }
 
 // Manually publish playback state: the local EQ engine and the streaming
@@ -1746,8 +1809,9 @@ final class NativePlayer {
            data.count < 2 * 1024 * 1024, let image = UIImage(data: data) {
             artwork = makeArtwork(image)
             publish()
-            if track.offline {
-                Task.detached(priority: .utility) {
+            Task.detached(priority: .utility) {
+                LockScreenArtworkCache.save(image, origin: origin, track: track)
+                if track.offline {
                     try? OfflineStore.saveCover(image, origin: origin,
                                                 account: owner, id: track.id)
                 }
@@ -1766,13 +1830,22 @@ final class NativePlayer {
         }
         // A downloaded local song might have no cover URL. It can still have
         // artwork stored next to its audio, so never return before reading it.
-        guard track.offline || preferOffline || trustedURL != nil else { return }
         artworkLoadTask = Task { [weak self] in
-            var image: UIImage?
-            if track.offline || preferOffline {
-                image = await Task.detached(priority: .utility) {
-                    OfflineStore.cover(origin: origin, account: owner, id: track.id)
-                }.value
+            // Local saved art is available immediately after device lock,
+            // without waiting for an external CDN or a suspended URLSession.
+            var image: UIImage? = await Task.detached(priority: .utility) {
+                if track.offline || preferOffline {
+                    return OfflineStore.cover(origin: origin, account: owner, id: track.id)
+                        ?? LockScreenArtworkCache.load(origin: origin, track: track)
+                }
+                return LockScreenArtworkCache.load(origin: origin, track: track)
+            }.value
+            if let cached = image, !Task.isCancelled {
+                await MainActor.run {
+                    guard let self, self.itemGeneration == generation else { return }
+                    self.artwork = self.makeArtwork(cached)
+                    self.publish()
+                }
             }
             if image == nil, let url = trustedURL {
                 image = await CoverImagePipeline.shared.image(for: url, maxPixel: 512,
@@ -1794,18 +1867,15 @@ final class NativePlayer {
             }
             guard !Task.isCancelled else { return }
             if let image {
-                // Copy any recovered online/cached artwork into the permanent
-                // offline archive before handing it to iOS Now Playing.
-                let ready: UIImage
-                if track.offline || preferOffline {
-                    ready = await Task.detached(priority: .utility) {
+                // Persist only the original valid image, never a placeholder.
+                let ready = await Task.detached(priority: .utility) {
+                    LockScreenArtworkCache.save(image, origin: origin, track: track)
+                    if track.offline || preferOffline {
                         try? OfflineStore.saveCover(image, origin: origin,
                                                     account: owner, id: track.id)
-                        return image
-                    }.value
-                } else {
-                    ready = image
-                }
+                    }
+                    return image
+                }.value
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
                     guard let self, self.itemGeneration == generation else { return }
