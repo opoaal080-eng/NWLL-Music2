@@ -392,6 +392,7 @@ public final class MainActivity extends Activity {
     private Dialog navigationPopup;
     private android.widget.ImageView profileAvatarButton;
     private TextView libraryBackButton,librarySettingsButton,libraryExtraButton,premiumTabButton;
+    private TextView homeTabButton,searchTabButton,libraryTabButton;
     private View headerBrandButton;
     private android.graphics.Bitmap cachedProfileAvatar;
     private String cachedProfileUser="", cachedProfileNickname="";
@@ -1288,14 +1289,15 @@ public final class MainActivity extends Activity {
         dockParams.topMargin=dp(landscape?3:4);
         root.addView(dockContainer,dockParams);
         if(backgroundOnly)dockContainer.setVisibility(View.GONE);
+        homeTabButton=null;searchTabButton=null;libraryTabButton=null;premiumTabButton=null;
         if(!backgroundOnly){
             LinearLayout navigation=row();
             navigation.setGravity(Gravity.CENTER);
             navigation.setPadding(0,dp(1),0,dp(2));
             navigation.setBackgroundColor(Color.TRANSPARENT);
-            addBottomNavigationTab(navigation,"⌂","Главная",()->navigate("Главная"));
-            addBottomNavigationTab(navigation,"⌕","Поиск",()->navigate("Поиск"));
-            addBottomNavigationTab(navigation,"▤","Медиатека",()->navigate("Избранное"));
+            homeTabButton=addBottomNavigationTab(navigation,"⌂","Главная",()->navigate("Главная"));
+            searchTabButton=addBottomNavigationTab(navigation,"⌕","Поиск",()->navigate("Поиск"));
+            libraryTabButton=addBottomNavigationTab(navigation,"▤","Медиатека",()->navigate("Избранное"));
             premiumTabButton=addBottomNavigationTab(navigation,"✧","Premium",this::premium);
             premiumTabButton.setVisibility(shouldShowPremiumTab()?View.VISIBLE:View.GONE);
             root.addView(navigation,new LinearLayout.LayoutParams(-1,dp(58)));
@@ -1312,9 +1314,7 @@ public final class MainActivity extends Activity {
         tab.setGravity(Gravity.CENTER);
         tab.setTextSize(30);
         boolean selected=label.equals(screen)||label.equals("Медиатека")&&isCollectionScreen();
-        tab.setTextColor(selected?Color.WHITE:0xffa6a9b1);
-        tab.setTypeface(android.graphics.Typeface.create(
-            "sans-serif",selected?android.graphics.Typeface.BOLD:android.graphics.Typeface.NORMAL));
+        styleNavigationTab(tab,selected);
         tab.setBackground(null);
         // A subtle touch ripple is visible only while pressed; no per-tab
         // pills, borders or permanent rectangular darkening.
@@ -1329,6 +1329,21 @@ public final class MainActivity extends Activity {
         tab.setTooltipText(label);
         container.addView(tab,new LinearLayout.LayoutParams(0,-1,1));
         return tab;
+    }
+    private void styleNavigationTab(TextView tab,boolean selected){
+        if(tab==null)return;
+        tab.setSelected(selected);
+        tab.setTextColor(selected?Color.WHITE:0xffa6a9b1);
+        tab.setTypeface(android.graphics.Typeface.create(
+            "sans-serif",selected?android.graphics.Typeface.BOLD:android.graphics.Typeface.NORMAL));
+    }
+    private void refreshNavigationTabSelection(){
+        // Tab selection must follow screen changes without rebuilding the
+        // entire activity or disturbing the currently playing track.
+        styleNavigationTab(homeTabButton,"Главная".equals(screen));
+        styleNavigationTab(searchTabButton,"Поиск".equals(screen));
+        styleNavigationTab(libraryTabButton,isCollectionScreen()||"Медиатека".equals(screen));
+        styleNavigationTab(premiumTabButton,false);
     }
     // Audio routing is controlled by Android. Report the current media route without
     // changing the communication device (which would affect calls instead of music).
@@ -2143,6 +2158,7 @@ public final class MainActivity extends Activity {
             collectionScrolled=false;
         }
         displayedCollectionScreen=screen;
+        refreshNavigationTabSelection();
         collectionLargeTitle=null;
         collectionActions=null;
         offlineActions=null;
