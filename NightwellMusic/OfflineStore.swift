@@ -87,7 +87,13 @@ enum OfflineStore {
     static func cover(origin: URL, account: String, id: String) -> UIImage? {
         lock.lock(); defer { lock.unlock() }
         guard valid(id), let dir = try? directory(origin, account) else { return nil }
-        let path = dir.appendingPathComponent(id + ".cover.jpg")
+        // Discard pre-v2 artwork because earlier builds destructively modified
+        // its pixels. Keep the audio and metadata, only artwork is re-fetched.
+        let legacy = dir.appendingPathComponent(id + ".cover.jpg")
+        if FileManager.default.fileExists(atPath: legacy.path) {
+            try? FileManager.default.removeItem(at: legacy)
+        }
+        let path = dir.appendingPathComponent(id + ".cover-original-v2.jpg")
         guard let length = (try? path.resourceValues(forKeys: [.fileSizeKey]))?.fileSize,
               length > 0, length <= 3 * 1024 * 1024,
               let data = try? Data(contentsOf: path, options: .mappedIfSafe) else { return nil }
@@ -101,8 +107,11 @@ enum OfflineStore {
               !data.isEmpty, data.count <= 3 * 1024 * 1024 else {
             throw URLError(.cannotDecodeContentData)
         }
-        let file = directory.appendingPathComponent(id + ".cover.jpg")
+        let file = directory.appendingPathComponent(id + ".cover-original-v2.jpg")
         try data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        // A successful new download removes the old corrupted derivative.
+        try? FileManager.default.removeItem(
+            at: directory.appendingPathComponent(id + ".cover.jpg"))
         var mutable = file
         var values = URLResourceValues()
         values.isExcludedFromBackup = true
@@ -166,6 +175,7 @@ enum OfflineStore {
         if op == "remove" {
             try? FileManager.default.removeItem(at: meta)
             try? FileManager.default.removeItem(at: target)
+            try? FileManager.default.removeItem(at: dir.appendingPathComponent(id + ".cover-original-v2.jpg"))
             try? FileManager.default.removeItem(at: dir.appendingPathComponent(id + ".cover.jpg"))
             validated.removeValue(forKey: target.path)
             return ["ok": true]
@@ -242,8 +252,9 @@ actor OfflineArtworkArchive {
             image = await CoverImagePipeline.shared.image(for: fallback, maxPixel: 512)
         }
         guard let image, !Task.isCancelled else { return }
-        let normalized = CoverArtworkNormalizer.normalize(image)
-        try? OfflineStore.saveCover(normalized, origin: origin,
+        // Archive exactly the artwork returned by the cover pipeline.
+        // Do not process corner colours or copy pixels into the image.
+        try? OfflineStore.saveCover(image, origin: origin,
                                     account: account, id: track.id)
     }
 }
