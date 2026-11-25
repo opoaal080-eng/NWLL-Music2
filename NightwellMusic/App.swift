@@ -2461,18 +2461,17 @@ enum CoverArtworkNormalizer {
         }
         guard decoded else { return image }
         let original = pixels
-        func damaged(_ at: Int) -> Bool {
-            let p = at * 4
-            return original[p + 3] < 205 ||
-                max(original[p], original[p + 1], original[p + 2]) < 31
+        // Sample deep inside each corner, beyond the dark wedge.
+        // The old 65/255 source threshold admitted antialiased charcoal
+        // pixels (e.g. 91/255) and just painted smaller dark wedges back.
+        func intensity(_ index: Int) -> Int {
+            let p = index * 4
+            return max(Int(original[p]), Int(original[p + 1]), Int(original[p + 2]))
         }
-        func lit(_ at: Int) -> Bool {
-            let p = at * 4
-            return original[p + 3] > 235 &&
-                max(original[p], original[p + 1], original[p + 2]) >= 65
-        }
-        let reach = Int(Double(min(width, height)) * 0.43)
-        let maxSum = Int(Double(min(width, height)) * 0.64)
+        func opaque(_ index: Int) -> Bool { original[index * 4 + 3] >= 240 }
+
+        let reach = Int(Double(min(width, height)) * 0.44)
+        let maxSum = Int(Double(min(width, height)) * 0.66)
         for corner in 0..<4 {
             let right = corner % 2 == 1
             let bottom = corner >= 2
@@ -2481,15 +2480,32 @@ enum CoverArtworkNormalizer {
             let sx = right ? -1 : 1
             let sy = bottom ? -1 : 1
             let seed = oy * width + ox
-            guard damaged(seed) else { continue }
-            // Repair only when there is genuine artwork inside the corner:
-            // a deliberately black album cover must stay black.
-            let inside = [reach / 2, reach * 3 / 4, reach].contains { distance in
-                let x = ox + sx * distance, y = oy + sy * distance
-                return x >= 0 && x < width && y >= 0 && y < height &&
-                    lit(y * width + x)
+
+            // A colour reference must come from well inside the artwork,
+            // rather than the AA strip bordering a triangle.
+            let distances = [0.36, 0.41, 0.45].map {
+                Int(Double(min(width, height)) * $0)
             }
-            guard inside else { continue }
+            let reference = distances.compactMap { distance -> Int? in
+                let x = ox + sx * distance, y = oy + sy * distance
+                guard x >= 0, x < width, y >= 0, y < height else { return nil }
+                let at = y * width + x
+                return opaque(at) ? intensity(at) : nil
+            }.max() ?? 0
+            guard reference > 72 else { continue }
+
+            // Include the antialiased transition between pure black and art.
+            // Do not touch the normal centre, or naturally dark artwork with
+            // no corner-connected damaged region.
+            let cutoff = min(135, max(35, Int(Double(reference) * 0.52)))
+            let sourceFloor = max(75, Int(Double(reference) * 0.82))
+            func damaged(_ at: Int) -> Bool {
+                original[at * 4 + 3] < 238 || intensity(at) < cutoff
+            }
+            func cleanSource(_ at: Int) -> Bool {
+                opaque(at) && intensity(at) >= sourceFloor
+            }
+            guard damaged(seed) else { continue }
 
             var visited = Set<Int>()
             var queue = [seed]
@@ -2499,7 +2515,6 @@ enum CoverArtworkNormalizer {
                 let point = queue[cursor]
                 cursor += 1
                 let x = point % width, y = point / width
-                let dx = abs(x - ox), dy = abs(y - oy)
                 for (nx, ny) in [(x + sx, y), (x, y + sy)] {
                     if nx < 0 || nx >= width || ny < 0 || ny >= height { continue }
                     let px = abs(nx - ox), py = abs(ny - oy)
@@ -2509,21 +2524,30 @@ enum CoverArtworkNormalizer {
                         queue.append(next)
                     }
                 }
-                // Stop a malformed image from consuming an unbounded amount
-                // of work or altering the complete artwork.
                 if queue.count > width * height / 7 { break }
-                _ = dx; _ = dy
             }
+
             for index in queue {
                 let x = index % width, y = index / width
-                // Sample the closest valid interior color along the diagonal,
-                // then copy it over the isolated black/transparent corner.
+                // Deliberately skip partially black transition pixels when
+                // choosing the replacement. They were the previous bug.
                 var source: Int?
                 for distance in 1...max(1, reach) {
                     let xx = x + sx * distance, yy = y + sy * distance
                     if xx < 0 || xx >= width || yy < 0 || yy >= height { break }
                     let position = yy * width + xx
-                    if lit(position) { source = position; break }
+                    if cleanSource(position) { source = position; break }
+                }
+                if source == nil {
+                    // Thin wedges near the outer image edges may have no
+                    // clean pixel on that exact diagonal. Use an interior
+                    // diagonal colour instead of leaving a black hole.
+                    for distance in distances {
+                        let xx = ox + sx * distance, yy = oy + sy * distance
+                        if xx < 0 || xx >= width || yy < 0 || yy >= height { continue }
+                        let position = yy * width + xx
+                        if cleanSource(position) { source = position; break }
+                    }
                 }
                 guard let source else { continue }
                 let p = index * 4, q = source * 4
