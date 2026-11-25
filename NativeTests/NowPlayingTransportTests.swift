@@ -1,6 +1,7 @@
 #if canImport(NowPlaying)
 import XCTest
 import NowPlaying
+import UIKit
 @testable import NightwellMusic
 
 @available(iOS 27.0, *)
@@ -51,6 +52,63 @@ final class NowPlayingTransportTests: XCTestCase {
         model.update(track: track("next"), playing: true, position: 0,
                      queueCount: 3)
         XCTAssertGreaterThan(model.contentUpdateSerial, updated)
+    }
+
+    func testTrackChangesDoNotCarryPreviousCoverOrLoseLateArtwork() throws {
+        let model = NightwellNowPlayingModel()
+        let first = Data([1, 2, 3, 4])
+        let last = Data([5, 6, 7, 8])
+        model.update(track: track("first"), playing: true, position: 10,
+                     queueCount: 2, initialArtwork: first)
+        XCTAssertEqual(model.imageData, first)
+        let firstRevision = model.contentUpdateSerial
+
+        // Audio can advance before a CDN cover has arrived.
+        model.update(track: track("second"), playing: true, position: 0,
+                     queueCount: 2, initialArtwork: nil)
+        XCTAssertNil(model.imageData,
+            "The previous track's art must not accompany the next title")
+        XCTAssertGreaterThan(model.contentUpdateSerial, firstRevision)
+        let secondRevision = model.contentUpdateSerial
+
+        // The arrival of the cover must update content even after playback
+        // is already active, without requiring interaction with Dynamic Island.
+        model.updateArtwork(last)
+        XCTAssertEqual(model.imageData, last)
+        XCTAssertGreaterThan(model.contentUpdateSerial, secondRevision)
+        let thirdRevision = model.contentUpdateSerial
+        model.update(track: track("second"), playing: true, position: 0,
+                     queueCount: 2, initialArtwork: model.imageData)
+        XCTAssertEqual(model.contentUpdateSerial, thirdRevision)
+        XCTAssertEqual(model.imageData, last)
+    }
+
+    func testLockScreenArtworkCacheProvidesCoverWithoutNetwork() throws {
+        let origin = try XCTUnwrap(URL(string: "https://music.example.invalid/"))
+        let id = "lock_screen_" + UUID().uuidString
+        let native = NativeTrack(id: id, title: "Cover Cache", artist: "Test",
+                                 album: "Offline Test", duration: 50,
+                                 cover: "https://covers.example.invalid/" + id + ".jpg",
+                                 source: nil, sourceURL: nil, remote: true)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let source = UIGraphicsImageRenderer(size: CGSize(width: 96, height: 96),
+                                              format: format).image { context in
+            UIColor(red: 0.8, green: 0.25, blue: 0.45, alpha: 1).setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 96, height: 96))
+        }
+        LockScreenArtworkCache.save(source, origin: origin, track: native)
+        let restored = try XCTUnwrap(LockScreenArtworkCache.load(origin: origin, track: native))
+        XCTAssertEqual(restored.size, CGSize(width: 96, height: 96))
+        let imageData = try XCTUnwrap(restored.jpegData(compressionQuality: 0.86))
+        XCTAssertGreaterThan(imageData.count, 100)
+        let different = NativeTrack(id: native.id, title: native.title,
+                                    artist: native.artist, album: native.album,
+                                    duration: native.duration,
+                                    cover: "https://covers.example.invalid/changed.jpg",
+                                    source: nil, sourceURL: nil, remote: true)
+        XCTAssertNil(LockScreenArtworkCache.load(origin: origin, track: different),
+            "A changed artwork URL must never reuse an older cover")
     }
 
     func testImmediateResumePublishesPlayingSnapshotAtTheSamePosition() {
