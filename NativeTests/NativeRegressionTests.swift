@@ -132,12 +132,9 @@ private actor LyricsStub: LyricsService {
             UIColor(red: 0.66, green: 0.50, blue: 0.37, alpha: 1).setFill()
             context.fill(CGRect(x: 0, y: 0, width: side, height: side))
             UIColor.black.setFill()
-            let darkHair = UIBezierPath()
-            darkHair.move(to: .zero)
-            darkHair.addLine(to: CGPoint(x: 72, y: 0))
-            darkHair.addLine(to: CGPoint(x: 0, y: 72))
-            darkHair.close()
-            darkHair.fill()
+            // A vertical dark detail remains at the tested x-coordinate
+            // regardless of CGImage/UIKit coordinate orientation.
+            context.fill(CGRect(x: 20, y: 0, width: 40, height: side))
         }
         let sourceDark = testCornerPixel(original, x: 30, y: 30)
         XCTAssertLessThan(Int(sourceDark[0]), 20)
