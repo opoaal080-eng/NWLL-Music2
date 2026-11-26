@@ -223,8 +223,8 @@ final class NativePlayer {
         pendingNextIndex = destination
         pendingNextGeneration = UUID()
         let ticket = pendingNextGeneration
-        let asset = nextAssetID == track.id && nextAsset?.url == url
-            ? nextAsset! : AVURLAsset(url: url, options: [AVURLAssetHTTPCookiesKey: cookies])
+        let asset = nextAssetID == track.id && nextAsset?.url == NWZResourceLoader.assetURL(url)
+            ? nextAsset! : NWZResourceLoader.asset(url, cookies: cookies)
         let identity = streamRequestIdentity(track: track, url: url, origin: origin)
         let trustWarm = verifiedNextAudio.map {
             $0.asset === asset && $0.requestIdentity == identity &&
@@ -907,9 +907,9 @@ final class NativePlayer {
             invalidateNextAudioWarmup()
             return
         }
-        if nextAssetID != next.id || nextAsset?.url != url {
+        if nextAssetID != next.id || nextAsset?.url != NWZResourceLoader.assetURL(url) {
             invalidateNextAudioWarmup()
-            nextAsset = AVURLAsset(url: url, options: [AVURLAssetHTTPCookiesKey: cookies])
+            nextAsset = NWZResourceLoader.asset(url, cookies: cookies)
             nextAssetID = next.id
         }
         guard let asset = nextAsset else { return }
@@ -1010,8 +1010,8 @@ final class NativePlayer {
         if let failureObserver { NotificationCenter.default.removeObserver(failureObserver) }
         if let stallObserver { NotificationCenter.default.removeObserver(stallObserver); self.stallObserver = nil }
         itemObservation = nil
-        let asset = nextAssetID == current.id && nextAsset?.url == url
-            ? nextAsset! : AVURLAsset(url: url, options: [AVURLAssetHTTPCookiesKey: cookies])
+        let asset = nextAssetID == current.id && nextAsset?.url == NWZResourceLoader.assetURL(url)
+            ? nextAsset! : NWZResourceLoader.asset(url, cookies: cookies)
         nextAsset = nil; nextAssetID = nil; verifiedNextAudio = nil
         let item = AVPlayerItem(asset: asset)
         // Give remote streams enough audio ahead to absorb network jitter.
@@ -1616,7 +1616,26 @@ final class NativePlayer {
         eqAttempted = true
         let requestGeneration = eqGeneration
         let generation = itemGeneration
-        if let local { activateEqualizerFile(local, temporary: false, generation: generation); return }
+        if let local {
+            if NWZResourceLoader.compressed(local) {
+                // Preserve AVAudioEngine EQ with a protected, short-lived
+                // compatibility file. Ordinary AVPlayer never needs it.
+                premiumSoundStatus = "Готовим локальный файл для эквалайзера. Музыка продолжает играть."
+                Task.detached(priority: .utility) { [weak self] in
+                    let file = try? NWZ.compatibilityFile(local)
+                    await MainActor.run {
+                        guard let self, self.itemGeneration == generation,
+                              self.eqGeneration == requestGeneration, self.eqRequested else {
+                            if let file { try? FileManager.default.removeItem(at: file) }
+                            return
+                        }
+                        if let file { self.activateEqualizerFile(file, temporary: true, generation: generation) }
+                        else { self.eqAttempted = false; self.premiumSoundStatus = "Не удалось подготовить локальный файл для EQ." }
+                    }
+                }
+            } else { activateEqualizerFile(local, temporary: false, generation: generation) }
+            return
+        }
         premiumSoundStatus = "Готовим аудиофайл для эквалайзера. Музыка продолжает играть."
         var request = URLRequest(url: origin.appendingPathComponent("api/offline-export/" + current.id))
         request.url = URL(string: "api/offline-export/" + current.id + "?download=true&wait=true", relativeTo: origin)
