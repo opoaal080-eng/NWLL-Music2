@@ -2028,8 +2028,8 @@ struct NativeTrackRow: View {
                 Button(store.likes.contains(track.id) ? "Убрать из избранного" : "В избранное", systemImage: store.likes.contains(track.id) ? "heart.fill" : "heart") { Task { await store.like(track) } }
                 if store.isDownloaded(track) {
                     Button("Удалить загрузку", systemImage: "trash", role: .destructive) { Task { await store.removeDownload(track) } }
-                } else if let fraction = store.downloadProgress(track.id) {
-                    Text("Скачивание \(Int(fraction * 100))%")
+                } else if store.downloadProgress(track.id) != nil {
+                    TrackDownloadMenuProgress(progress: store.downloadProgressPresentation, trackID: track.id)
                 } else {
                     Button("Скачать", systemImage: "arrow.down.to.line") { Task { await store.download([track]) } }
                 }
@@ -2505,6 +2505,15 @@ struct PlayingIndicator: View {
         }.accessibilityLabel(playing ? "Сейчас играет" : "На паузе")
     }
 }
+private struct TrackDownloadMenuProgress: View {
+    @EnvironmentObject private var store: MusicStore
+    @ObservedObject var progress: DownloadProgressPresentation
+    let trackID: String
+    var body: some View {
+        Text("Скачивание \(Int((store.downloadProgress(trackID) ?? 0) * 100))%")
+    }
+}
+
 // A thin, determinate download ring around the playlist artwork. Keep
 // the symbol visible and avoid decoding cached playlists on each byte update.
 private struct PlaylistDownloadRing: View {
@@ -2513,24 +2522,48 @@ private struct PlaylistDownloadRing: View {
     @State private var trackIDs: [String] = []
 
     var body: some View {
-        Group {
-            if let fraction = store.playlistDownloadProgress(trackIDs: trackIDs) {
-                ZStack {
-                    Circle()
-                        .stroke(.white.opacity(0.20), lineWidth: 2)
-                    Circle()
-                        .trim(from: 0, to: fraction)
-                        .stroke(.white, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
-                        .rotationEffect(.degrees(-90))
-                }
-                .padding(3)
-                .animation(.easeOut(duration: 0.2), value: fraction)
-            }
-        }
+        PlaylistDownloadRingContent(progress: store.downloadProgressPresentation, trackIDs: trackIDs)
         .allowsHitTesting(false)
         // Refresh cache only when jobs start or finish, not on every progress tick.
         .task(id: store.pendingDownloadKeys) {
             trackIDs = (store.cachedPlaylistTracks(playlistID) ?? []).map(\.id)
+        }
+    }
+}
+
+private struct PlaylistDownloadRingContent: View {
+    @EnvironmentObject private var store: MusicStore
+    @ObservedObject var progress: DownloadProgressPresentation
+    let trackIDs: [String]
+    var body: some View {
+        if let fraction = store.playlistDownloadProgress(trackIDs: trackIDs) {
+            ZStack {
+                Circle().stroke(.white.opacity(0.20), lineWidth: 2)
+                Circle().trim(from: 0, to: fraction)
+                    .stroke(.white, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+            }
+            .padding(3)
+            .animation(.easeOut(duration: 0.2), value: fraction)
+        }
+    }
+}
+
+private struct PlaylistDownloadProgressView: View {
+    @Environment(\.nightwellAppearance) private var appearance
+    @EnvironmentObject private var store: MusicStore
+    @ObservedObject var progress: DownloadProgressPresentation
+    let tracks: [Track]
+    var body: some View {
+        if let fraction = store.playlistDownloadProgress(tracks) {
+            VStack(alignment: .leading, spacing: 7) {
+                HStack {
+                    Text("Скачивание плейлиста").font(.system(size: 12, weight: .medium))
+                    Spacer()
+                    Text("\(Int(fraction * 100))%").monospacedDigit()
+                }.foregroundStyle(.white.opacity(0.65))
+                ProgressView(value: fraction).tint(appearance.progressTint)
+            }.padding(.horizontal, 4)
         }
     }
 }
@@ -2669,21 +2702,7 @@ struct PlaylistScreen: View {
                         .nightwellThemeChrome(18)
                     }
 
-                    if let fraction = store.playlistDownloadProgress(tracks) {
-                        VStack(alignment: .leading, spacing: 7) {
-                            HStack {
-                                Text("Скачивание плейлиста")
-                                    .font(.system(size: 12, weight: .medium))
-                                Spacer()
-                                Text("\(Int(fraction * 100))%")
-                                    .monospacedDigit()
-                            }
-                            .foregroundStyle(.white.opacity(0.65))
-                            ProgressView(value: fraction)
-                                .tint(appearance.progressTint)
-                        }
-                        .padding(.horizontal, 4)
-                    }
+                    PlaylistDownloadProgressView(progress: store.downloadProgressPresentation, tracks: tracks)
 
                     HStack(alignment: .firstTextBaseline) {
                         Text("ТРЕКИ")

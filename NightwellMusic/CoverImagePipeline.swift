@@ -12,6 +12,15 @@ actor CoverImagePipeline {
     private let compressed = NSCache<NSString, NSData>()
     private var pendingData: [String: Task<Data?, Never>] = [:]
     private var pendingImages: [String: Task<UIImage?, Never>] = [:]
+    private var variants: [String: Set<Int>] = [:]
+
+    func cachedArtwork(for url: URL) -> UIImage? {
+        let key = url.absoluteString
+        for size in (variants[key] ?? []).sorted(by: >) {
+            if let image = decoded.object(forKey: "\(key)#\(size)" as NSString) { return image }
+        }
+        return nil
+    }
     // Bad/unavailable provider artwork can otherwise be re-requested by
     // every row in a recycled list, even while the network is struggling.
     private var retryAfter: [String: Date] = [:]
@@ -105,6 +114,10 @@ actor CoverImagePipeline {
         if let result, let cgImage = result.cgImage {
             decoded.setObject(result, forKey: key as NSString,
                               cost: cgImage.bytesPerRow * cgImage.height)
+            if variants.count >= 256 && variants[url.absoluteString] == nil {
+                for old in Array(variants.keys.prefix(64)) { variants.removeValue(forKey: old) }
+            }
+            variants[url.absoluteString, default: []].insert(dimension)
             retryAfter.removeValue(forKey: url.absoluteString)
         } else if result == nil && !Task.isCancelled {
             markUnavailable(url.absoluteString)

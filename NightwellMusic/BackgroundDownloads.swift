@@ -109,9 +109,16 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
         // Snapshot first: jobs added while getAllTasks is running have already
         // been submitted by enqueue() and must not be duplicated.
         let recovering = Array(state.jobs.values)
+        let knownTasks = activeTaskIDs
         lock.unlock()
         session.getAllTasks { tasks in
             self.lock.lock(); defer { self.lock.unlock() }
+            let liveIDs = Set(tasks.map(\.taskIdentifier))
+            // Forget an ID only if no newer task was submitted during this
+            // asynchronous enumeration. Missing daemon jobs can then recover.
+            for (key, id) in knownTasks where !liveIDs.contains(id) && self.activeTaskIDs[key] == id {
+                self.activeTaskIDs.removeValue(forKey: key)
+            }
             for task in tasks {
                 guard let key = task.taskDescription, self.state.jobs[key] != nil else {
                     task.cancel(); continue

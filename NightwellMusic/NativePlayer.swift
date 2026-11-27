@@ -1880,6 +1880,7 @@ final class NativePlayer {
             if let url = trustedURL {
                 image = await CoverImagePipeline.shared.image(for: url, maxPixel: 512,
                                                                retryFailure: attempt > 0)
+                if image == nil { image = await CoverImagePipeline.shared.cachedArtwork(for: url) }
                 // A server-origin cover may need the current scoped cookie.
                 // Never send Nightwell credentials to an external image CDN.
                 if image == nil && !Task.isCancelled && ServerAddress.sameOrigin(origin, url) {

@@ -4,6 +4,11 @@ import AVFoundation
 import Combine
 import Network
 
+// Download byte progress is separate from the app-wide MusicStore.
+@MainActor final class DownloadProgressPresentation: ObservableObject {
+    @Published var fractions: [String: Double] = [:]
+}
+
 @MainActor final class TrackStatus: ObservableObject {
     @Published var id = ""
     @Published var playing = false
@@ -288,7 +293,11 @@ struct NightwellAccountDevicesResponse: Decodable {
     @Published private(set) var connectionStatus = "Загрузка…"
     @Published var downloadMessage = ""
     @Published var downloading = false
-    @Published var downloadFractions: [String: Double] = [:]
+    let downloadProgressPresentation = DownloadProgressPresentation()
+    var downloadFractions: [String: Double] {
+        get { downloadProgressPresentation.fractions }
+        set { if downloadProgressPresentation.fractions != newValue { downloadProgressPresentation.fractions = newValue } }
+    }
     @Published private(set) var pendingDownloadKeys = Set<String>()
     @Published private(set) var completedDownloadKeys = Set<String>()
     @Published var authPresented = false
