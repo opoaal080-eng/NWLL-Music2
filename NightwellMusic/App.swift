@@ -2534,7 +2534,10 @@ private struct PlayingTrackOutline: UIViewRepresentable {
 
     final class TrackLightView: UIView {
         private let base = CAShapeLayer()
-        private let trails = (0..<8).map { _ in CAShapeLayer() }
+        private let lightSurface = CALayer()
+        private let outlineMask = CALayer()
+        private let maskStrokes = (0..<3).map { _ in CAShapeLayer() }
+        private let lights = (0..<2).map { _ in CALayer() }
         private let motionKey = "nightwell.track.perimeter"
         private var playing = false
         private var animate = false
@@ -2542,6 +2545,7 @@ private struct PlayingTrackOutline: UIViewRepresentable {
         private var secondary = UIColor.white
         private var laidOutSize = CGSize.zero
         private var dirty = true
+        private var textureColors: [UIColor] = []
 
         override init(frame: CGRect) {
             super.init(frame: frame)
@@ -2549,13 +2553,21 @@ private struct PlayingTrackOutline: UIViewRepresentable {
             isOpaque = false
             isUserInteractionEnabled = false
             isAccessibilityElement = false
-            layer.addSublayer(base)
-            for shape in trails {
-                shape.fillColor = nil
-                shape.lineCap = .round
-                layer.addSublayer(shape)
-            }
             base.fillColor = nil
+            layer.addSublayer(base)
+            // The moving lights have continuous alpha. A fixed rounded
+            // outline mask clips them to the row, including its corners.
+            layer.addSublayer(lightSurface)
+            lightSurface.mask = outlineMask
+            for stroke in maskStrokes {
+                stroke.fillColor = nil
+                outlineMask.addSublayer(stroke)
+            }
+            for light in lights {
+                light.contentsGravity = .resize
+                light.contentsScale = 2
+                lightSurface.addSublayer(light)
+            }
         }
         required init?(coder: NSCoder) { nil }
 
@@ -2585,8 +2597,31 @@ private struct PlayingTrackOutline: UIViewRepresentable {
         }
 
         func stopMotion() {
-            for shape in trails { shape.removeAnimation(forKey: motionKey) }
+            for light in lights { light.removeAnimation(forKey: motionKey) }
             dirty = true
+        }
+
+        // Render a smoothly fading elliptical texture only when the theme
+        // changes. No stack of abruptly ending colored dash segments and
+        // no per-frame bitmap generation, blur or SwiftUI state updates.
+        private func texture(_ tint: UIColor) -> CGImage? {
+            let size = CGSize(width: 160, height: 80)
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 2
+            format.opaque = false
+            return UIGraphicsImageRenderer(size: size, format: format).image { renderer in
+                let context = renderer.cgContext
+                let color = tint.resolvedColor(with: traitCollection)
+                let stops: [CGFloat] = [0, 0.14, 0.28, 0.43, 0.58, 0.73, 0.88, 1]
+                let alpha: [CGFloat] = [1, 0.97, 0.87, 0.65, 0.39, 0.16, 0.035, 0]
+                let colors = alpha.map { color.withAlphaComponent($0).cgColor } as CFArray
+                guard let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                                                colors: colors, locations: stops) else { return }
+                context.translateBy(x: size.width / 2, y: size.height / 2)
+                context.scaleBy(x: size.width / 2, y: size.height / 2)
+                context.drawRadialGradient(gradient, startCenter: .zero, startRadius: 0,
+                                           endCenter: .zero, endRadius: 1, options: [])
+            }.cgImage
         }
 
         private func rebuild() {
@@ -2596,54 +2631,61 @@ private struct PlayingTrackOutline: UIViewRepresentable {
             CATransaction.setDisableActions(true)
             defer { CATransaction.commit() }
 
-            let rect = CGRect(origin: .zero, size: bounds.size).insetBy(dx: 2.5, dy: 2.5)
+            let frame = CGRect(origin: .zero, size: bounds.size)
+            let rect = frame.insetBy(dx: 3, dy: 3)
             guard rect.width > 2, rect.height > 2 else {
                 base.path = nil
-                for shape in trails { shape.path = nil }
+                lightSurface.isHidden = true
                 return
             }
-            let radius = min(15.5, min(rect.width, rect.height) / 2)
+            let radius = min(15, min(rect.width, rect.height) / 2)
             let path = UIBezierPath(roundedRect: rect, cornerRadius: radius).cgPath
             let perimeter = 2 * (rect.width + rect.height - 4 * radius) + 2 * CGFloat.pi * radius
-
-            base.frame = CGRect(origin: .zero, size: bounds.size)
+            base.frame = frame
             base.path = path
-            base.strokeColor = primary.withAlphaComponent(playing ? 0.10 : 0.20).cgColor
-            base.lineWidth = 0.8
+            base.strokeColor = primary.withAlphaComponent(playing ? 0.07 : 0.19).cgColor
+            base.lineWidth = 0.75
+            lightSurface.frame = frame
+            outlineMask.frame = frame
+            lightSurface.isHidden = !playing
 
-            // Overlapping, progressively brighter rounded strokes give a soft
-            // tail and a luminous head, with no realtime Gaussian blur.
-            let widths: [CGFloat] = [4.8, 2.8, 1.6, 1.1]
-            let lengths: [CGFloat] = [0.23, 0.18, 0.12, 0.065]
-            let opacity: [CGFloat] = [0.09, 0.22, 0.52, 0.94]
+            // Soft transverse halo, with a constant fine outline. Longitudinal
+            // color/brightness is entirely the continuous moving texture.
+            let widths: [CGFloat] = [5, 3, 1.45]
+            let alpha: [CGFloat] = [0.10, 0.24, 1]
+            for (index, stroke) in maskStrokes.enumerated() {
+                stroke.frame = frame
+                stroke.path = path
+                stroke.strokeColor = UIColor.white.withAlphaComponent(alpha[index]).cgColor
+                stroke.lineWidth = widths[index]
+            }
+
+            let colors = [primary, secondary]
+            if textureColors != colors {
+                for (index, light) in lights.enumerated() {
+                    light.contents = texture(colors[index])
+                }
+                textureColors = colors
+            }
+            guard playing else { return }
+            let length = min(220, max(90, perimeter * 0.26))
+            let duration: CFTimeInterval = 4.2
             let now = CACurrentMediaTime()
-            for (index, shape) in trails.enumerated() {
-                let side = index / 4
-                let detail = index % 4
-                let color = side == 0 ? primary : secondary
-                let dash = perimeter * lengths[detail]
-                // Keep each shorter stroke near the moving head.
-                let offset = perimeter * (CGFloat(side) * 0.5 + lengths[0] - lengths[detail])
-                shape.frame = CGRect(origin: .zero, size: bounds.size)
-                shape.path = path
-                shape.lineWidth = widths[detail]
-                shape.strokeColor = color.withAlphaComponent(opacity[detail]).cgColor
-                shape.lineDashPattern = [NSNumber(value: Double(dash)),
-                                         NSNumber(value: Double(perimeter - dash))]
-                shape.lineDashPhase = -offset
-                shape.isHidden = !playing
-                guard playing, animate, window != nil else { continue }
-
-                // A full revolution returns to the same dash pattern, so the
-                // repeat boundary has no jump. No wall-clock SwiftUI state.
-                let motion = CABasicAnimation(keyPath: "lineDashPhase")
-                motion.fromValue = Double(-offset)
-                motion.toValue = Double(-offset - perimeter)
-                motion.duration = 4.2
+            for (index, light) in lights.enumerated() {
+                light.bounds = CGRect(x: 0, y: 0, width: length, height: 72)
+                light.position = CGPoint(x: rect.midX, y: index == 0 ? rect.minY : rect.maxY)
+                guard animate, window != nil else { continue }
+                // Follow the exact rounded perimeter at constant speed,
+                // with two lights half a revolution apart. Core Animation
+                // interpolates motion without visible steps or hard cuts.
+                let motion = CAKeyframeAnimation(keyPath: "position")
+                motion.path = path
+                motion.calculationMode = .paced
+                motion.rotationMode = .rotateAuto
+                motion.duration = duration
                 motion.repeatCount = .infinity
-                motion.timingFunction = CAMediaTimingFunction(name: .linear)
-                motion.beginTime = shape.convertTime(now, from: nil)
-                shape.add(motion, forKey: motionKey)
+                motion.beginTime = light.convertTime(now, from: nil) - Double(index) * duration / 2
+                light.add(motion, forKey: motionKey)
             }
         }
     }
