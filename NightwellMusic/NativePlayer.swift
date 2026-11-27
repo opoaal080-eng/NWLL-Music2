@@ -640,7 +640,11 @@ final class NativePlayer {
     private var fadeNextAutomatically = false
     private var timeObserver: Any?
     private var artwork: MPMediaItemArtwork?
-    private lazy var placeholderArtwork = makeArtwork(placeholder())
+    private var artworkTrackID: String?
+    private var systemArtwork: MPMediaItemArtwork? {
+        guard let current, artworkTrackID == current.id else { return nil }
+        return artwork
+    }
     private var artworkLoadTask: Task<Void, Never>?
     private var itemGeneration = UUID()
     private var seekGeneration = UUID()
@@ -990,6 +994,11 @@ final class NativePlayer {
         stallCheck?.cancel(); stallCheck = nil
         itemGeneration = UUID(); let generation = itemGeneration
         guard let current, let origin else { return }
+        // Missing artwork is represented by nil, not a branded image.
+        // Keep genuine artwork during a retry of the same recording only.
+        if !recovering || artworkTrackID != current.id {
+            artwork = nil; artworkTrackID = nil
+        }
         if attemptedTrackID != current.id {
             attemptedTrackID = current.id
             attemptedTrackLoads = 0
@@ -1012,8 +1021,6 @@ final class NativePlayer {
         player.volume = fadeInActive ? 0 : baseVolume
         requestedPosition = position; lastPosition = position; waitingForReady = true
         ended = false; error = ""; artworkLoadTask?.cancel()
-        // Avoid flashing a placeholder when the same track is being rebuffered.
-        if !recovering || artwork == nil { artwork = placeholderArtwork }
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
         if let failureObserver { NotificationCenter.default.removeObserver(failureObserver) }
         if let stallObserver { NotificationCenter.default.removeObserver(stallObserver); self.stallObserver = nil }
@@ -1229,6 +1236,7 @@ final class NativePlayer {
         if let failureObserver { NotificationCenter.default.removeObserver(failureObserver); self.failureObserver = nil }
         independentMeter.cancel()
         eqGeneration = UUID(); eqDownload?.cancel(); eqDownload = nil; enginePlayback.stop(); player.isMuted = false
+        artwork = nil; artworkTrackID = nil
         tracks = []; queuedIDs.removeAll(); waitingForReady = false; requestedPosition = 0; lastPosition = 0; error = ""
         queueRevision += 1; player.replaceCurrentItem(with: nil); publish()
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
@@ -1825,7 +1833,7 @@ final class NativePlayer {
     }
     private func fetchArtwork(_ track: NativeTrack, generation: UUID, attempt: Int = 0, preferOffline: Bool = false) {
         if attempt == 0 { artworkLoadTask?.cancel() }
-        guard let origin else { return }
+        guard itemGeneration == generation, current?.id == track.id, let origin else { return }
         let owner = track.offlineAccount.isEmpty ? offlineAccount : track.offlineAccount
 
         if let cover = track.cover, cover.hasPrefix("data:image/"),
@@ -1833,6 +1841,7 @@ final class NativePlayer {
            let data = Data(base64Encoded: String(cover[cover.index(after: comma)...])),
            data.count < 2 * 1024 * 1024, let image = UIImage(data: data) {
             artwork = makeArtwork(image)
+            artworkTrackID = track.id
             publish()
             Task.detached(priority: .utility) {
                 LockScreenArtworkCache.save(image, origin: origin, track: track)
@@ -1868,7 +1877,9 @@ final class NativePlayer {
             if let cached = image, !Task.isCancelled {
                 await MainActor.run {
                     guard let self, self.itemGeneration == generation else { return }
+                    guard self.current?.id == track.id else { return }
                     self.artwork = self.makeArtwork(cached)
+                    self.artworkTrackID = track.id
                     self.publish()
                 }
                 // Keep the original cached image, and do not create a second
@@ -1907,7 +1918,9 @@ final class NativePlayer {
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
                     guard let self, self.itemGeneration == generation else { return }
+                    guard self.current?.id == track.id else { return }
                     self.artwork = self.makeArtwork(ready)
+                    self.artworkTrackID = track.id
                     self.publish()
                 }
             } else if attempt < 2 && trustedURL != nil {
@@ -1924,16 +1937,6 @@ final class NativePlayer {
     }
     private func makeArtwork(_ image: UIImage) -> MPMediaItemArtwork {
         MPMediaItemArtwork(boundsSize: image.size) { _ in image }
-    }
-    private func placeholder() -> UIImage {
-        UIGraphicsImageRenderer(size: CGSize(width: 512, height: 512)).image { context in
-            UIColor(red: 0.12, green: 0.08, blue: 0.2, alpha: 1).setFill()
-            context.fill(CGRect(x: 0, y: 0, width: 512, height: 512))
-            let attrs: [NSAttributedString.Key: Any] = [.font: UIFont.boldSystemFont(ofSize: 150),
-                .foregroundColor: UIColor(red: 0.73, green: 0.6, blue: 1, alpha: 1)]
-            let label = NSAttributedString(string: "NW", attributes: attrs)
-            let size = label.size(); label.draw(at: CGPoint(x: (512-size.width)/2, y: (512-size.height)/2))
-        }
     }
     func auraLevels() -> [Double] {
         let playing = audible
@@ -2036,7 +2039,7 @@ final class NativePlayer {
                         playing: wantsPlay && audible,
                         playbackIntent: wantsPlay,
                         elapsed: playbackPosition,
-                        artwork: artwork,
+                        artwork: systemArtwork,
                         queueCount: tracks.count
                     )
                 }
@@ -2064,7 +2067,7 @@ final class NativePlayer {
                     index != lastNowPlayingIndex ||
                     queueRevision != lastNowPlayingQueueRevision ||
                     stateCode != lastNowPlayingState ||
-                    lastNowPlayingArtwork !== artwork
+                    lastNowPlayingArtwork !== systemArtwork
                 let playheadChanged = position.isFinite &&
                     abs(position - lastNowPlayingPosition) >= 1.0
                 if stateChanged || playheadChanged || now - lastNowPlayingUpdate >= 1.5 {
@@ -2081,7 +2084,7 @@ final class NativePlayer {
                     MPNowPlayingInfoPropertyPlaybackQueueIndex: index,
                     MPNowPlayingInfoPropertyPlaybackQueueCount: tracks.count,
                     MPNowPlayingInfoPropertyExternalContentIdentifier: current.id]
-                    if let artwork { info[MPMediaItemPropertyArtwork] = artwork }
+                    if let artwork = systemArtwork { info[MPMediaItemPropertyArtwork] = artwork }
                     nowPlayingCenter.nowPlayingInfo = info
                     lastNowPlayingID = current.id
                     lastNowPlayingIndex = index
@@ -2089,7 +2092,7 @@ final class NativePlayer {
                     lastNowPlayingState = stateCode
                     lastNowPlayingPosition = position.isFinite ? position : 0
                     lastNowPlayingUpdate = now
-                    lastNowPlayingArtwork = artwork
+                    lastNowPlayingArtwork = systemArtwork
                 }
             } else if !lastNowPlayingID.isEmpty {
                 nowPlayingCenter.nowPlayingInfo = nil

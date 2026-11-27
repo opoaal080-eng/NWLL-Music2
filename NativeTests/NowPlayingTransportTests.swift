@@ -111,6 +111,21 @@ final class NowPlayingTransportTests: XCTestCase {
             "A changed artwork URL must never reuse an older cover")
     }
 
+    func testMissingArtworkDoesNotPublishSyntheticImage() {
+        let model = NightwellNowPlayingModel()
+        let item = track("no-cover")
+        model.update(track: item, playing: true, position: 0, queueCount: 2)
+        XCTAssertNil(model.imageData)
+        XCTAssertNotNil(model.content)
+        model.updateArtwork(Data([1, 2, 3]))
+        XCTAssertNotNil(model.imageData)
+        model.updateArtwork(nil)
+        XCTAssertNil(model.imageData)
+        XCTAssertNotNil(model.content)
+        model.update(track: track("next-no-cover"), playing: true, position: 0, queueCount: 2)
+        XCTAssertNil(model.imageData)
+    }
+
     func testImmediateResumePublishesPlayingSnapshotAtTheSamePosition() {
         let model = NightwellNowPlayingModel()
         let item = track("one")

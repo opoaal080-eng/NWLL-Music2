@@ -177,7 +177,7 @@ final class NightwellNowPlayingBridge27 {
         let artworkChanged = lastArtworkObject !== artwork
         // Do not send a temporary content update for the previous track,
         // then a second content update for this track. That race could leave
-        // the compact lock-screen card on the NW placeholder.
+        // the compact lock-screen card with stale artwork. Missing art is nil.
         if trackChanged {
             lastTrackID = next.id
             lastArtworkObject = artwork
