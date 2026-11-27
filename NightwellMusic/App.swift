@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import QuartzCore
 import UniformTypeIdentifiers
 
 @main struct NightwellMusicApp: App {
@@ -2506,76 +2507,144 @@ struct Cover: View {
         }
     }
 }
-// A continuous, feathered light around the actual rounded shape. One
-// gradient for both the soft halo and the bright hairline: no per-frame
-// path trimming, repeated segment caps, layer blur or row layout changes.
-private struct PlayingTrackOutline: View {
+// Animate on Core Animation's render server, not on the SwiftUI row.
+// The light moves a fixed distance along the perimeter (including corners).
+private struct PlayingTrackOutline: UIViewRepresentable {
     let playing: Bool
     let tint: Color
     let secondaryTint: Color
     @Environment(\.scenePhase) private var scene
     @Environment(\.accessibilityReduceMotion) private var reduced
-    @State private var phaseOrigin = Date().timeIntervalSinceReferenceDate
-    @State private var frozenPhase = 0.0
-    @State private var running = false
 
-    private var shouldAnimate: Bool { playing && !reduced && scene == .active }
-    private let cycle = 5.8
-
-    private func phase(at time: Double) -> Double {
-        running ? frozenPhase + (time - phaseOrigin) / cycle : frozenPhase
+    func makeUIView(context: Context) -> TrackLightView {
+        let view = TrackLightView()
+        view.configure(playing: playing, animate: playing && !reduced && scene == .active,
+                       primary: UIColor(tint), secondary: UIColor(secondaryTint))
+        return view
     }
 
-    private func updateMotion() {
-        guard running != shouldAnimate else { return }
-        let now = Date().timeIntervalSinceReferenceDate
-        frozenPhase = phase(at: now).truncatingRemainder(dividingBy: 1)
-        phaseOrigin = now
-        running = shouldAnimate
+    func updateUIView(_ view: TrackLightView, context: Context) {
+        view.configure(playing: playing, animate: playing && !reduced && scene == .active,
+                       primary: UIColor(tint), secondary: UIColor(secondaryTint))
     }
 
-    private func outline(at angle: Angle) -> some View {
-        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
-        // Long, seamless gradients rather than individual bright dashes.
-        let sweep = AngularGradient(gradient: Gradient(stops: [
-            .init(color: tint.opacity(0.025), location: 0),
-            .init(color: tint.opacity(0.06), location: 0.09),
-            .init(color: tint.opacity(0.35), location: 0.19),
-            .init(color: tint.opacity(0.88), location: 0.28),
-            .init(color: tint.opacity(0.35), location: 0.33),
-            .init(color: tint.opacity(0.035), location: 0.43),
-            .init(color: secondaryTint.opacity(0.025), location: 0.50),
-            .init(color: secondaryTint.opacity(0.06), location: 0.59),
-            .init(color: secondaryTint.opacity(0.35), location: 0.69),
-            .init(color: secondaryTint.opacity(0.80), location: 0.78),
-            .init(color: secondaryTint.opacity(0.35), location: 0.83),
-            .init(color: secondaryTint.opacity(0.035), location: 0.93),
-            .init(color: tint.opacity(0.025), location: 1)
-        ]), center: .center, angle: angle)
+    static func dismantleUIView(_ view: TrackLightView, coordinator: ()) {
+        view.stopMotion()
+    }
 
-        return ZStack {
-            shape.strokeBorder(tint.opacity(playing ? 0.08 : 0.19), lineWidth: 0.75)
-            if playing {
-                shape.strokeBorder(sweep, lineWidth: 4.5)
-                    .opacity(0.10)
-                shape.strokeBorder(sweep, lineWidth: 2.4)
-                    .opacity(0.22)
-                shape.strokeBorder(sweep, lineWidth: 1.15)
+    final class TrackLightView: UIView {
+        private let base = CAShapeLayer()
+        private let trails = (0..<8).map { _ in CAShapeLayer() }
+        private let motionKey = "nightwell.track.perimeter"
+        private var playing = false
+        private var animate = false
+        private var primary = UIColor.white
+        private var secondary = UIColor.white
+        private var laidOutSize = CGSize.zero
+        private var dirty = true
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            backgroundColor = .clear
+            isOpaque = false
+            isUserInteractionEnabled = false
+            isAccessibilityElement = false
+            layer.addSublayer(base)
+            for shape in trails {
+                shape.fillColor = nil
+                shape.lineCap = .round
+                layer.addSublayer(shape)
             }
+            base.fillColor = nil
         }
-        .padding(1.5)
-    }
+        required init?(coder: NSCoder) { nil }
 
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !shouldAnimate)) { frame in
-            outline(at: .degrees(360 * phase(at: frame.date.timeIntervalSinceReferenceDate)))
+        func configure(playing: Bool, animate: Bool, primary: UIColor, secondary: UIColor) {
+            guard self.playing != playing || self.animate != animate ||
+                    !self.primary.isEqual(primary) || !self.secondary.isEqual(secondary) else { return }
+            self.playing = playing
+            self.animate = animate
+            self.primary = primary
+            self.secondary = secondary
+            dirty = true
+            setNeedsLayout()
         }
-        .onAppear { updateMotion() }
-        .onChange(of: shouldAnimate) { _ in updateMotion() }
-        .onDisappear {
-            let now = Date().timeIntervalSinceReferenceDate
-            frozenPhase = phase(at: now).truncatingRemainder(dividingBy: 1)
-            running = false
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            if window == nil { stopMotion() }
+            else { dirty = true; setNeedsLayout() }
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            guard dirty || laidOutSize != bounds.size else { return }
+            dirty = false
+            laidOutSize = bounds.size
+            rebuild()
+        }
+
+        func stopMotion() {
+            for shape in trails { shape.removeAnimation(forKey: motionKey) }
+            dirty = true
+        }
+
+        private func rebuild() {
+            stopMotion()
+            dirty = false
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            defer { CATransaction.commit() }
+
+            let rect = CGRect(origin: .zero, size: bounds.size).insetBy(dx: 2.5, dy: 2.5)
+            guard rect.width > 2, rect.height > 2 else {
+                base.path = nil
+                for shape in trails { shape.path = nil }
+                return
+            }
+            let radius = min(15.5, min(rect.width, rect.height) / 2)
+            let path = UIBezierPath(roundedRect: rect, cornerRadius: radius).cgPath
+            let perimeter = 2 * (rect.width + rect.height - 4 * radius) + 2 * CGFloat.pi * radius
+
+            base.frame = CGRect(origin: .zero, size: bounds.size)
+            base.path = path
+            base.strokeColor = primary.withAlphaComponent(playing ? 0.10 : 0.20).cgColor
+            base.lineWidth = 0.8
+
+            // Overlapping, progressively brighter rounded strokes give a soft
+            // tail and a luminous head, with no realtime Gaussian blur.
+            let widths: [CGFloat] = [4.8, 2.8, 1.6, 1.1]
+            let lengths: [CGFloat] = [0.23, 0.18, 0.12, 0.065]
+            let opacity: [CGFloat] = [0.09, 0.22, 0.52, 0.94]
+            let now = CACurrentMediaTime()
+            for (index, shape) in trails.enumerated() {
+                let side = index / 4
+                let detail = index % 4
+                let color = side == 0 ? primary : secondary
+                let dash = perimeter * lengths[detail]
+                // Keep each shorter stroke near the moving head.
+                let offset = perimeter * (CGFloat(side) * 0.5 + lengths[0] - lengths[detail])
+                shape.frame = CGRect(origin: .zero, size: bounds.size)
+                shape.path = path
+                shape.lineWidth = widths[detail]
+                shape.strokeColor = color.withAlphaComponent(opacity[detail]).cgColor
+                shape.lineDashPattern = [NSNumber(value: Double(dash)),
+                                         NSNumber(value: Double(perimeter - dash))]
+                shape.lineDashPhase = -offset
+                shape.isHidden = !playing
+                guard playing, animate, window != nil else { continue }
+
+                // A full revolution returns to the same dash pattern, so the
+                // repeat boundary has no jump. No wall-clock SwiftUI state.
+                let motion = CABasicAnimation(keyPath: "lineDashPhase")
+                motion.fromValue = Double(-offset)
+                motion.toValue = Double(-offset - perimeter)
+                motion.duration = 4.2
+                motion.repeatCount = .infinity
+                motion.timingFunction = CAMediaTimingFunction(name: .linear)
+                motion.beginTime = shape.convertTime(now, from: nil)
+                shape.add(motion, forKey: motionKey)
+            }
         }
     }
 }
