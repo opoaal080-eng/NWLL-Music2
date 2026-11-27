@@ -17,5 +17,10 @@ final class DownloadLiveActivityTests: XCTestCase {
         XCTAssertEqual(done.saved, 3)
         XCTAssertEqual(done.failed, 1)
         XCTAssertEqual(done.percent, 100)
+        XCTAssertEqual(active.islandTitle, "Скачивание")
+        XCTAssertEqual(active.compactCount, "2/4")
+        XCTAssertEqual(done.islandTitle, "Есть ошибки")
+        XCTAssertEqual(done.resultLabel, "Ошибок: 1")
+        XCTAssertEqual(done.symbol, "exclamationmark.circle.fill")
     }
 }

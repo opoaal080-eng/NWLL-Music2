@@ -24,6 +24,15 @@ struct NWDownloadActivityAttributes: ActivityAttributes {
         }
 
         var fraction: Double { Double(percent) / 100 }
+        var islandTitle: String {
+            active ? "Скачивание" : (failed > 0 ? "Есть ошибки" : "Готово")
+        }
+        var compactCount: String { "\(completed)/\(total)" }
+        var countLabel: String { "Треки: \(completed) из \(total)" }
+        var resultLabel: String { failed > 0 ? "Ошибок: \(failed)" : "Сохранено: \(saved)" }
+        var symbol: String {
+            active ? "arrow.down.circle.fill" : (failed > 0 ? "exclamationmark.circle.fill" : "checkmark.circle.fill")
+        }
         var title: String {
             active ? "Скачивание музыки" : (failed > 0 ? "Загрузка завершена с ошибками" : "Музыка скачана")
         }

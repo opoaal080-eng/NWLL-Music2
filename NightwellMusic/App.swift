@@ -2061,18 +2061,19 @@ struct NativeTrackRow: View {
         .background(
             appearance == .vice
                 ? (status.id == track.id
-                    ? NightwellAppearance.pink.opacity(0.24)
+                    ? NightwellAppearance.pink.opacity(0.13)
                     : (libraryPreview ? Color.clear
                         : Color(red: 0.18, green: 0.075, blue: 0.28).opacity(0.78)))
                 : (status.id == track.id
-                    ? pumpkin.opacity(0.12)
+                    ? Color.white.opacity(0.065)
                     : (libraryPreview ? Color.clear : Color.white.opacity(0.035))),
             in: RoundedRectangle(cornerRadius: 18)
         )
         .nightwellThemeChrome(18)
         .overlay {
             if status.id == track.id {
-                PlayingTrackOutline(playing: status.playing, tint: appearance.progressTint)
+                PlayingTrackOutline(playing: status.playing, tint: appearance.progressTint,
+                                    secondaryTint: appearance == .vice ? appearance.accent : appearance.progressTint)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
             }
@@ -2505,46 +2506,76 @@ struct Cover: View {
         }
     }
 }
-// Only the current row mounts a timeline. Render the two moving light
-// trails in one small Canvas, without per-frame layout, blur or shadows.
+// A continuous, feathered light around the actual rounded shape. One
+// gradient for both the soft halo and the bright hairline: no per-frame
+// path trimming, repeated segment caps, layer blur or row layout changes.
 private struct PlayingTrackOutline: View {
     let playing: Bool
     let tint: Color
+    let secondaryTint: Color
     @Environment(\.scenePhase) private var scene
     @Environment(\.accessibilityReduceMotion) private var reduced
+    @State private var phaseOrigin = Date().timeIntervalSinceReferenceDate
+    @State private var frozenPhase = 0.0
+    @State private var running = false
+
+    private var shouldAnimate: Bool { playing && !reduced && scene == .active }
+    private let cycle = 5.8
+
+    private func phase(at time: Double) -> Double {
+        running ? frozenPhase + (time - phaseOrigin) / cycle : frozenPhase
+    }
+
+    private func updateMotion() {
+        guard running != shouldAnimate else { return }
+        let now = Date().timeIntervalSinceReferenceDate
+        frozenPhase = phase(at: now).truncatingRemainder(dividingBy: 1)
+        phaseOrigin = now
+        running = shouldAnimate
+    }
+
+    private func outline(at angle: Angle) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+        // Long, seamless gradients rather than individual bright dashes.
+        let sweep = AngularGradient(gradient: Gradient(stops: [
+            .init(color: tint.opacity(0.025), location: 0),
+            .init(color: tint.opacity(0.06), location: 0.09),
+            .init(color: tint.opacity(0.35), location: 0.19),
+            .init(color: tint.opacity(0.88), location: 0.28),
+            .init(color: tint.opacity(0.35), location: 0.33),
+            .init(color: tint.opacity(0.035), location: 0.43),
+            .init(color: secondaryTint.opacity(0.025), location: 0.50),
+            .init(color: secondaryTint.opacity(0.06), location: 0.59),
+            .init(color: secondaryTint.opacity(0.35), location: 0.69),
+            .init(color: secondaryTint.opacity(0.80), location: 0.78),
+            .init(color: secondaryTint.opacity(0.35), location: 0.83),
+            .init(color: secondaryTint.opacity(0.035), location: 0.93),
+            .init(color: tint.opacity(0.025), location: 1)
+        ]), center: .center, angle: angle)
+
+        return ZStack {
+            shape.strokeBorder(tint.opacity(playing ? 0.08 : 0.19), lineWidth: 0.75)
+            if playing {
+                shape.strokeBorder(sweep, lineWidth: 4.5)
+                    .opacity(0.10)
+                shape.strokeBorder(sweep, lineWidth: 2.4)
+                    .opacity(0.22)
+                shape.strokeBorder(sweep, lineWidth: 1.15)
+            }
+        }
+        .padding(1.5)
+    }
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0,
-                                paused: !playing || reduced || scene != .active)) { frame in
-            Canvas { context, size in
-                guard size.width > 6, size.height > 6 else { return }
-                let rect = CGRect(origin: .zero, size: size).insetBy(dx: 2, dy: 2)
-                let outline = Path(roundedRect: rect, cornerRadius: 16)
-                context.stroke(outline, with: .color(tint.opacity(playing ? 0.16 : 0.30)), lineWidth: 1)
-                guard playing else { return }
-                let phase = reduced ? 0.16 :
-                    frame.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 3.4) / 3.4
-                // Two trails half a perimeter apart. Each trail is tapered
-                // into a bright head using short strokes, not a GPU blur.
-                for start in [phase, phase + 0.5] {
-                    for segment in 0..<5 {
-                        let weight = Double(segment + 1) / 5
-                        let a = start + Double(segment) * 0.034
-                        let b = a + 0.038
-                        let lower = a - floor(a), upper = lower + (b - a)
-                        func draw(_ from: Double, _ to: Double) {
-                            guard to > from else { return }
-                            let part = outline.trimmedPath(from: CGFloat(from), to: CGFloat(to))
-                            context.stroke(part, with: .color(tint.opacity(0.10 + 0.10 * weight)),
-                                           style: StrokeStyle(lineWidth: 4, lineCap: .round))
-                            context.stroke(part, with: .color(tint.opacity(0.20 + 0.80 * weight)),
-                                           style: StrokeStyle(lineWidth: 1.65, lineCap: .round))
-                        }
-                        draw(lower, min(1, upper))
-                        if upper > 1 { draw(0, upper - 1) }
-                    }
-                }
-            }
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !shouldAnimate)) { frame in
+            outline(at: .degrees(360 * phase(at: frame.date.timeIntervalSinceReferenceDate)))
+        }
+        .onAppear { updateMotion() }
+        .onChange(of: shouldAnimate) { _ in updateMotion() }
+        .onDisappear {
+            let now = Date().timeIntervalSinceReferenceDate
+            frozenPhase = phase(at: now).truncatingRemainder(dividingBy: 1)
+            running = false
         }
     }
 }
