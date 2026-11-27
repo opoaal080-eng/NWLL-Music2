@@ -137,6 +137,8 @@ final class NightwellNowPlayingBridge27 {
     private let model = NightwellNowPlayingModel()
     private var session: MediaSession<NightwellNowPlayingModel>?
     private var lastArtworkObject: MPMediaItemArtwork?
+    private var artworkTask: Task<Void, Never>?
+    private var artworkGeneration = UUID()
     private var lastTrackID: String?
     private var playbackRequested = false
     private var activationTask: Task<Void, Never>?
@@ -165,6 +167,7 @@ final class NightwellNowPlayingBridge27 {
             playbackRequested = false
             lastTrackID = nil
             lastArtworkObject = nil
+            artworkTask?.cancel(); artworkTask = nil; artworkGeneration = UUID()
             lastActivationAttempt = .distantPast
             lastActivationError = ""
             model.update(track: nil, playing: false, position: 0, queueCount: 0)
@@ -175,26 +178,31 @@ final class NightwellNowPlayingBridge27 {
         let next = NightwellNowPlayingTrack(track)
         let trackChanged = next.id != lastTrackID
         let artworkChanged = lastArtworkObject !== artwork
-        // Do not send a temporary content update for the previous track,
-        // then a second content update for this track. That race could leave
-        // the compact lock-screen card with stale artwork. Missing art is nil.
         if trackChanged {
             lastTrackID = next.id
-            lastArtworkObject = artwork
-            let data = artwork?
-                .image(at: CGSize(width: 512, height: 512))?
-                .jpegData(compressionQuality: 0.86)
             model.update(track: next, playing: playing, position: elapsed,
-                         queueCount: queueCount, initialArtwork: data)
+                         queueCount: queueCount, initialArtwork: nil)
         } else {
             model.update(track: next, playing: playing, position: elapsed,
                          queueCount: queueCount, initialArtwork: model.imageData)
-            if artworkChanged {
-                lastArtworkObject = artwork
-                let data = artwork?
-                    .image(at: CGSize(width: 512, height: 512))?
-                    .jpegData(compressionQuality: 0.86)
-                model.updateArtwork(data)
+        }
+        if trackChanged || artworkChanged {
+            lastArtworkObject = artwork
+            artworkTask?.cancel()
+            let generation = UUID()
+            artworkGeneration = generation
+            if let artwork, let image = artwork.image(at: CGSize(width: 512, height: 512)) {
+                let id = next.id
+                artworkTask = Task { [weak self] in
+                    let data = await Task.detached(priority: .utility) {
+                        image.jpegData(compressionQuality: 0.86)
+                    }.value
+                    guard !Task.isCancelled, let self, self.artworkGeneration == generation,
+                          self.lastTrackID == id, let data, !data.isEmpty else { return }
+                    self.model.updateArtwork(data)
+                }
+            } else if model.imageData != nil {
+                model.updateArtwork(nil)
             }
         }
         if session == nil {

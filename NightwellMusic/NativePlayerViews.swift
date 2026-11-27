@@ -31,7 +31,7 @@ struct RibbonScene: View {
     @State private var phaseSpeed = 1.0
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: playing ? 1.0 / 30.0 : 1.0 / 15.0,
+        TimelineView(.animation(minimumInterval: playing ? 1.0 / 20.0 : 1.0 / 12.0,
                                 paused: scene != .active || reduceMotion || !active || (!playing && !animatePaused))) { tick in
             Canvas(opaque: false, rendersAsynchronously: true) { context, size in
                 guard size.width > 1, size.height > 1 else { return }
@@ -1752,7 +1752,6 @@ struct NativeSettings: View {
         case themes = "Темы"
         case customization = "Кастомизация"
         case playback = "Воспроизведение"
-        case compression = "Сжатие треков"
         case about = "О приложении"
 
         var icon: String {
@@ -1760,7 +1759,6 @@ struct NativeSettings: View {
             case .themes: return "paintpalette"
             case .customization: return "slider.horizontal.3"
             case .playback: return "waveform"
-            case .compression: return "archivebox"
             case .about: return "info.circle"
             }
         }
@@ -1769,7 +1767,6 @@ struct NativeSettings: View {
             case .themes: return "Стандартная и Vice Nights"
             case .customization: return "Вкладки, обложки, очередь, текст и фон"
             case .playback: return "Звук, буфер, громкость и офлайн"
-            case .compression: return "Экономия памяти, NWZ и старые загрузки"
             case .about: return "Версия и сведения о сборке"
             }
         }
@@ -2030,8 +2027,6 @@ struct NativeSettings: View {
                             }
                         }
                 }.padding(16).frame(maxWidth: .infinity, minHeight: 166, alignment: .leading).background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
-        case .compression:
-            NWZSettingsView().equatable()
         case .about:
             VStack(alignment: .leading, spacing: 12) {
                 Label("О приложении", systemImage: "info.circle")

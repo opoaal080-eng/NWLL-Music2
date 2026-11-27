@@ -8,24 +8,6 @@ import ObjectiveC
 // NWZ1: fixed 256 KiB chunks, a bounded index, independent codecs and SHA256
 // per chunk. All sizes are little endian. No transcoding or PCM conversion.
 enum NWZ {
-    enum Mode: String, CaseIterable, Identifiable {
-        case fast, balanced, maximum
-        var id: String { rawValue }
-        var title: String {
-            switch self {
-            case .fast: return "Быстро"
-            case .balanced: return "Баланс"
-            case .maximum: return "Максимум"
-            }
-        }
-    }
-    static let enabledKey = "nw-nwz-enabled"
-    static let modeKey = "nw-nwz-mode"
-    static var enabled: Bool { UserDefaults.standard.object(forKey: enabledKey) as? Bool ?? true }
-    static var selectedMode: Mode { Mode(rawValue: UserDefaults.standard.string(forKey: modeKey) ?? "") ?? .balanced }
-    // Encoding is CPU-intensive, especially LZMA. Serialize every encoder
-    // (download and manual optimizer) without blocking readers or the UI.
-    private static let encoder = NSLock()
     static let block = 256 * 1024
     static let maximum = 128 * 1024 * 1024
     static let magic = Data([78, 87, 90, 49])
@@ -52,18 +34,6 @@ enum NWZ {
         default: return nil
         }
     }
-    static func encode(_ data: Data, _ code: Int) -> Data? {
-        guard let algorithm = algorithm(code), !data.isEmpty else { return nil }
-        var output = Data(count: data.count)
-        let capacity = output.count
-        let n = output.withUnsafeMutableBytes { dst in
-            data.withUnsafeBytes { src in
-                compression_encode_buffer(dst.bindMemory(to: UInt8.self).baseAddress!, capacity,
-                    src.bindMemory(to: UInt8.self).baseAddress!, data.count, nil, algorithm)
-            }
-        }
-        return n > 0 && n < data.count ? Data(output.prefix(n)) : nil
-    }
     static func decode(_ data: Data, code: Int, size: Int) throws -> Data {
         if code == 0 {
             guard data.count == size else { throw invalid }
@@ -81,72 +51,8 @@ enum NWZ {
         guard n == size else { throw invalid }
         return Data(result.prefix(size))
     }
-    static var permitted: Bool {
-        let info = ProcessInfo.processInfo
-        return !info.isLowPowerModeEnabled && info.thermalState != .serious && info.thermalState != .critical
-    }
-    // The caller owns the unique staging output and keeps the original until
-    // verification and installation succeed. Never keep a larger archive.
-    static func pack(_ source: URL, into destination: URL, respectPower: Bool = true,
-                     mode: Mode = .balanced, cancelled: () -> Bool = { false }) throws -> Bool {
-        let length = try source.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-        guard length > 256, length <= maximum, !cancelled(), !respectPower || permitted else { return false }
-        while !encoder.try() {
-            guard !cancelled(), !respectPower || permitted else { return false }
-            Thread.sleep(forTimeInterval: 0.05)
-        }
-        defer { encoder.unlock() }
-        guard !cancelled(), !respectPower || permitted else { return false }
-        let count = (length + block - 1) / block
-        guard FileManager.default.createFile(atPath: destination.path, contents: nil,
-            attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication]) else { throw invalid }
-        let input = try FileHandle(forReadingFrom: source)
-        defer { try? input.close() }
-        let output = try FileHandle(forWritingTo: destination)
-        defer { try? output.close() }
-        var index = Data()
-        var header = magic; header.append(number(length)); header.append(number(count))
-        try output.write(contentsOf: header)
-        try output.write(contentsOf: Data(count: count * entrySize))
-        for i in 0..<count {
-            guard !cancelled(), !respectPower || permitted else { return false }
-            let raw = try read(input, min(block, length - i * block))
-            var best = raw
-            var method = 0
-            for code in (mode == .fast ? [1] : [1, 2, 3]) {
-                guard !cancelled(), !respectPower || permitted else { return false }
-                // Avoid costly LZMA on clearly incompressible audio blocks,
-                // but sample the first two even if the fast codecs found none.
-                if mode == .balanced && code == 3 && i >= 2 && best.count > raw.count - raw.count / 100 { continue }
-                if let candidate = encode(raw, code), candidate.count < best.count {
-                    best = candidate; method = code
-                }
-            }
-            // The disk read-back below checks every block against its original
-            // and SHA256; a second decode here only doubles the work.
-            index.append(number(best.count)); index.append(number(method))
-            index.append(contentsOf: SHA256.hash(data: raw))
-            try output.write(contentsOf: best)
-            if respectPower && i % 8 == 7 { Thread.sleep(forTimeInterval: 0.005) }
-        }
-        let archived = try output.offset()
-        guard archived < UInt64(length), UInt64(length) - archived >= UInt64(512) else { return false }
-        try output.seek(toOffset: 12)
-        try output.write(contentsOf: index)
-        try output.synchronize()
-        // Verify bytes read back from disk, not only the encoder output.
-        let reader = try Reader(destination)
-        try input.seek(toOffset: 0)
-        for i in 0..<count {
-            guard !cancelled(), !respectPower || permitted else { return false }
-            let original = try read(input, min(block, length - i * block))
-            guard try reader.chunk(i) == original else { throw invalid }
-        }
-        return true
-    }
-
-    // Statistics only need the 12-byte header. Playback still verifies the
-    // full bounded index and each decoded block with SHA256.
+    // Legacy archive compatibility. Playback validates the full index and
+    // checks every decoded block with SHA256; new downloads are plain M4A.
     static func originalLength(_ url: URL) throws -> Int {
         let input = try FileHandle(forReadingFrom: url)
         defer { try? input.close() }

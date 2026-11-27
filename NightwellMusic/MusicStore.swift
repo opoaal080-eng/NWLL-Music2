@@ -116,7 +116,7 @@ import Network
         let rawDisplayPosition = value["displayPosition"] as? Double ?? position
         let nextDisplayPosition = rawDisplayPosition.isFinite
             ? min(displayDuration, max(0, rawDisplayPosition)) : 0
-        if displayPosition != nextDisplayPosition { displayPosition = nextDisplayPosition }
+        if abs(displayPosition - nextDisplayPosition) > 0.04 || nextDisplayID != id { displayPosition = nextDisplayPosition }
         let nextPreparing = value["preparing"] as? Bool ?? false
         let rawBuffered = value["bufferFraction"] as? Double ?? 0
         let nextBuffered = rawBuffered.isFinite ? min(1, max(0, rawBuffered)) : 0
@@ -201,9 +201,15 @@ struct NightwellAccountDevicesResponse: Decodable {
     @Published var artistResults: [ArtistDirectoryItem] = []
     @Published var searchArtistSuggestions: [ArtistDirectoryItem] = []
     @Published var offline: [Track] = [] {
-        didSet { downloadedTrackIDs = Set(offline.map(\.id)) }
+        didSet { downloadedTrackIDs = Set(offline.map(\.id)); offlineRevision &+= 1 }
     }
     private var downloadedTrackIDs = Set<String>()
+    private var offlineRevision = 0
+    private var lastConnectivityRevision = -1
+    private var lastConnectivityOnline: Bool?
+    private var offlineRefreshTask: Task<Void, Never>?
+    private var offlineRefreshPending = false
+    private var downloadRefreshTask: Task<Void, Never>?
     @Published private(set) var damagedOffline: [Track] = []
     @Published var playlists: [Playlist] = []
     @Published var likes: Set<String> = []
@@ -660,11 +666,13 @@ struct NightwellAccountDevicesResponse: Decodable {
     // Only a verified server response can turn the offline selection back
     // into its original online queue. An NWPath alone is not sufficient.
     private func syncPlaybackConnectivity() {
-        if !hasNetworkPath || connectionStatus == "Оффлайн" || connectionStatus == "Ограничен" {
-            NativePlayer.shared.updateConnectivity(online: false, downloaded: offline.map(\.dictionary))
-        } else if connectionStatus == "Онлайн" {
-            NativePlayer.shared.updateConnectivity(online: true, downloaded: offline.map(\.dictionary))
-        }
+        let online: Bool
+        if !hasNetworkPath || connectionStatus == "Оффлайн" || connectionStatus == "Ограничен" { online = false }
+        else if connectionStatus == "Онлайн" { online = true }
+        else { return }
+        guard lastConnectivityOnline != online || lastConnectivityRevision != offlineRevision else { return }
+        lastConnectivityOnline = online; lastConnectivityRevision = offlineRevision
+        NativePlayer.shared.updateConnectivity(online: online, downloaded: offline.map(\.dictionary))
     }
 
     private func markServerReachable() {
@@ -853,13 +861,24 @@ struct NightwellAccountDevicesResponse: Decodable {
             guard let self else { return }
             let progress = BackgroundDownloads.shared.progress
             let statusChanged = self.downloadMessage != progress.message
+            let completedChanged = self.completedDownloadKeys != progress.completedKeys
+            let finished = self.downloading && !progress.active
             if self.downloading != progress.active { self.downloading = progress.active }
             if statusChanged { self.downloadMessage = progress.message }
             if self.downloadFractions != progress.fractions { self.downloadFractions = progress.fractions }
             if self.pendingDownloadKeys != progress.pendingKeys { self.pendingDownloadKeys = progress.pendingKeys }
             if self.completedDownloadKeys != progress.completedKeys { self.completedDownloadKeys = progress.completedKeys }
             // Updating a progress bar must not rescan offline storage each percent.
-            if statusChanged || !progress.active { Task { await self.refreshOffline() } }
+            if completedChanged || finished {
+                self.downloadRefreshTask?.cancel()
+                self.downloadRefreshTask = Task {
+                    if !finished {
+                        do { try await Task.sleep(nanoseconds: 700_000_000) } catch { return }
+                    }
+                    guard !Task.isCancelled else { return }
+                    await self.refreshOffline()
+                }
+            }
         })
         BackgroundDownloads.shared.reconnect()
         let progress = BackgroundDownloads.shared.progress
@@ -2023,6 +2042,23 @@ struct NightwellAccountDevicesResponse: Decodable {
         return lines.joined(separator: "\n")
     }
     func refreshOffline() async {
+        if let running = offlineRefreshTask {
+            offlineRefreshPending = true
+            await running.value
+            return
+        }
+        let task = Task { [weak self] in
+            guard let self else { return }
+            repeat {
+                self.offlineRefreshPending = false
+                await self.scanOffline()
+            } while self.offlineRefreshPending && !Task.isCancelled
+            self.offlineRefreshTask = nil
+        }
+        offlineRefreshTask = task
+        await task.value
+    }
+    private func scanOffline() async {
         let server = origin, generation = sessionGeneration
         let value = await Task.detached(priority: .utility) { () -> (tracks: [Track]?, damaged: [Track]?)? in
             guard let raw = try? OfflineStore.operation(["op": "listAll"], origin: server) else { return nil }
@@ -2033,10 +2069,11 @@ struct NightwellAccountDevicesResponse: Decodable {
             return (decode("tracks"), decode("damaged"))
         }.value
         guard origin == server, sessionGeneration == generation, let value else { return }
-        if let tracks = value.tracks, tracks != offline { offline = tracks }
+        let changed = value.tracks.map { $0 != offline } ?? false
+        if let tracks = value.tracks, changed { offline = tracks }
         if let broken = value.damaged, broken != damagedOffline { damagedOffline = broken }
         syncPlaybackConnectivity()
-        if hasNetworkPath && connectionStatus == "Онлайн" && !offline.isEmpty {
+        if changed && hasNetworkPath && connectionStatus == "Онлайн" && !offline.isEmpty {
             let savedTracks = offline
             Task.detached(priority: .utility) {
                 await OfflineArtworkArchive.shared.backfill(savedTracks, origin: server)
@@ -2103,10 +2140,9 @@ struct NightwellAccountDevicesResponse: Decodable {
         return min(0.999, total / Double(trackIDs.count))
     }
     func isDownloaded(_ track: Track) -> Bool {
-        if downloadedTrackIDs.contains(track.id) { return true }
-        guard track._offline == true else { return false }
-        let owner = track._offline_account ?? account?.id ?? "device"
-        return OfflineStore.audio(origin: origin, account: owner, id: track.id) != nil
+        // Row rendering is a pure in-memory lookup; playback still validates
+        // the actual file and refreshOffline supplies authoritative IDs.
+        downloadedTrackIDs.contains(track.id)
     }
     func removeDownload(_ track: Track) async {
         let owner = track._offline_account ?? account?.id ?? "device"

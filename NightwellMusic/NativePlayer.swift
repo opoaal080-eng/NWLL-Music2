@@ -654,15 +654,6 @@ final class NativePlayer {
     private var callResumeAttempts = 0
     private var observers: [NSObjectProtocol] = []
     private var current: NativeTrack? { tracks.indices.contains(index) ? tracks[index] : nil }
-    // Never migrate a file that AVPlayer or EQ may still open by its raw URL.
-    var protectedOfflineIDs: Set<String> {
-        var ids = Set<String>()
-        if let current { ids.insert(current.id) }
-        if let nextAssetID { ids.insert(nextAssetID) }
-        if let pendingNextIndex, tracks.indices.contains(pendingNextIndex) { ids.insert(tracks[pendingNextIndex].id) }
-        return ids
-    }
-
     private init() {
         // Buffer intermittent HLS/HTTP streams instead of forcing immediate playback
         // and risking short rebuffering gaps on fluctuating connections.
@@ -887,7 +878,7 @@ final class NativePlayer {
     }
 
     private func streamPath(for track: NativeTrack) -> String {
-        let format = (track.remote || track.source == "soundcloud") ? "hls" : "file"
+        let format = (track.remote || track.source?.lowercased().contains("soundcloud") == true) ? "hls" : "file"
         let choice = UserDefaults.standard.string(forKey: "nw-audio-quality") ?? "auto"
         let quality = (choice == "low" || choice == "economy") ? "economy" :
             (choice == "medium" || choice == "high") ? "high" : "auto"
@@ -1905,25 +1896,29 @@ final class NativePlayer {
                 }
             }
             guard !Task.isCancelled else { return }
+            if image == nil && !Task.isCancelled && !track.id.hasPrefix("local_"),
+               let fallback = URL(string: "/api/covers/" + track.id, relativeTo: origin)?.absoluteURL,
+               fallback != trustedURL {
+                image = await CoverImagePipeline.shared.image(for: fallback, maxPixel: 512,
+                                                               retryFailure: attempt > 0)
+            }
+            guard !Task.isCancelled else { return }
             if let image {
-                // Persist only the original valid image, never a placeholder.
-                let ready = await Task.detached(priority: .utility) {
+                // Publish the cover before any JPEG encoding or disk cleanup.
+                await MainActor.run {
+                    guard let self, self.itemGeneration == generation, self.current?.id == track.id else { return }
+                    self.artwork = self.makeArtwork(image)
+                    self.artworkTrackID = track.id
+                    self.publish()
+                }
+                Task.detached(priority: .utility) {
                     LockScreenArtworkCache.save(image, origin: origin, track: track)
                     if track.offline || preferOffline {
                         try? OfflineStore.saveCover(image, origin: origin,
                                                     account: owner, id: track.id)
                     }
-                    return image
-                }.value
-                guard !Task.isCancelled else { return }
-                await MainActor.run {
-                    guard let self, self.itemGeneration == generation else { return }
-                    guard self.current?.id == track.id else { return }
-                    self.artwork = self.makeArtwork(ready)
-                    self.artworkTrackID = track.id
-                    self.publish()
                 }
-            } else if attempt < 2 && trustedURL != nil {
+            } else if attempt < 2 && self?.systemArtwork == nil && (trustedURL != nil || !track.id.hasPrefix("local_")) {
                 // Existing downloads with no permanent image can still migrate
                 // previously cached CDN artwork if connectivity returns.
                 try? await Task.sleep(nanoseconds: attempt == 0 ? 750_000_000 : 2_000_000_000)
@@ -1935,6 +1930,17 @@ final class NativePlayer {
             }
         }
     }
+    // Cover views can already hold the correct thumbnail (including offline
+    // artwork) while a separate Now Playing fetch has failed. Accept only
+    // real artwork for the actual current song and the active server.
+    func acceptDisplayedArtwork(_ image: UIImage, trackID: String, origin: URL) {
+        guard self.origin == origin, current?.id == trackID, systemArtwork == nil,
+              image.size.width > 0, image.size.height > 0 else { return }
+        artwork = makeArtwork(image)
+        artworkTrackID = trackID
+        publish()
+    }
+
     private func makeArtwork(_ image: UIImage) -> MPMediaItemArtwork {
         MPMediaItemArtwork(boundsSize: image.size) { _ in image }
     }

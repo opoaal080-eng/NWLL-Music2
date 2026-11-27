@@ -41,6 +41,8 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
     private var completedKeys = Set<String>()
     private var lastProgressNotification: [String: Date] = [:]
     private var reconciling = false
+    private var activeTaskIDs: [String: Int] = [:]
+    private var notificationPending = false
     private var eventCompletion: (() -> Void)?
     private var session: URLSession {
         sessionLock.lock(); defer { sessionLock.unlock() }
@@ -54,6 +56,7 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
         config.timeoutIntervalForResource = 7 * 24 * 3600
         config.httpCookieStorage = .shared
         let delegateQueue = OperationQueue(); delegateQueue.maxConcurrentOperationCount = 1
+        delegateQueue.qualityOfService = .utility
         let created = URLSession(configuration: config, delegate: self, delegateQueue: delegateQueue)
         storedSession = created
         return created
@@ -109,12 +112,19 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
         lock.unlock()
         session.getAllTasks { tasks in
             self.lock.lock(); defer { self.lock.unlock() }
-            let existing = Set(tasks.compactMap(\.taskDescription))
-            for job in recovering where self.state.jobs[job.key] != nil && !existing.contains(job.key) {
-                self.submit(job)
+            for task in tasks {
+                guard let key = task.taskDescription, self.state.jobs[key] != nil else {
+                    task.cancel(); continue
+                }
+                if let active = self.activeTaskIDs[key], active != task.taskIdentifier {
+                    task.cancel()
+                } else {
+                    self.activeTaskIDs[key] = task.taskIdentifier
+                }
             }
-            for task in tasks where task.taskDescription.flatMap({ self.state.jobs[$0] }) == nil {
-                task.cancel()
+            for job in recovering where self.state.jobs[job.key] != nil && self.activeTaskIDs[job.key] == nil {
+                // Read the latest persisted attempt, not the stale snapshot.
+                if let latest = self.state.jobs[job.key] { self.submit(latest) }
             }
             self.reconciling = false
             self.publish()
@@ -167,6 +177,7 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
         }
         let task = session.downloadTask(with: request)
         task.taskDescription = job.key
+        activeTaskIDs[job.key] = task.taskIdentifier
         if job.attempts > 0 {
             // Back off when the server is preparing a file, rate-limiting, or
             // temporarily unavailable. This is persisted through app restarts.
@@ -183,23 +194,42 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
     }
     private func publish() {
         cacheProgress()
-        DispatchQueue.main.async { NotificationCenter.default.post(name: Self.changed, object: nil) }
+        // Coalesce all byte updates across concurrent jobs into one UI event.
+        guard !notificationPending else { return }
+        notificationPending = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.30) {
+            self.preparationQueue.async {
+                self.lock.lock(); self.notificationPending = false; self.lock.unlock()
+                DispatchQueue.main.async { NotificationCenter.default.post(name: Self.changed, object: nil) }
+            }
+        }
     }
     private func finish(_ task: URLSessionTask, success: Bool) {
         lock.lock(); defer { lock.unlock() }
-        guard let key = task.taskDescription, state.jobs.removeValue(forKey: key) != nil else { return }
+        guard let key = task.taskDescription, ownsTask(task, key: key),
+              state.jobs.removeValue(forKey: key) != nil else { return }
+        activeTaskIDs.removeValue(forKey: key)
         fractions.removeValue(forKey: key)
         lastProgressNotification.removeValue(forKey: key)
         if success { state.added += 1; completedKeys.insert(key) } else { state.failed += 1 }
         persist(); publish()
     }
+    // A stale completion from a cancelled/retried transfer must not remove
+    // its replacement job. On system relaunch adopt the first live callback.
+    private func ownsTask(_ task: URLSessionTask, key: String) -> Bool {
+        if let active = activeTaskIDs[key] { return active == task.taskIdentifier }
+        guard state.jobs[key] != nil else { return false }
+        activeTaskIDs[key] = task.taskIdentifier
+        return true
+    }
+
     // Retry temporary server errors instead of silently dropping the track.
     // Permanent errors (401/403/404) still fail promptly.
     @discardableResult
     private func scheduleRetry(_ task: URLSessionTask, retryAfter: TimeInterval = 0) -> Bool {
         lock.lock(); defer { lock.unlock() }
-        guard let key = task.taskDescription, var job = state.jobs[key],
-              job.attempts < 24 else { return false }
+        guard let key = task.taskDescription, ownsTask(task, key: key),
+              var job = state.jobs[key], job.attempts < 24 else { return false }
         job.attempts += 1
         state.jobs[key] = job
         persist()
@@ -208,7 +238,11 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
         return true
     }
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
-        lock.lock(); let job = downloadTask.taskDescription.flatMap { state.jobs[$0] }; lock.unlock()
+        lock.lock()
+        let job = downloadTask.taskDescription.flatMap { key in
+            ownsTask(downloadTask, key: key) ? state.jobs[key] : nil
+        }
+        lock.unlock()
         guard let job, let http = downloadTask.response as? HTTPURLResponse else {
             finish(downloadTask, success: false); return
         }
@@ -239,7 +273,13 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
                     saved.track, origin: saved.origin, account: saved.account)
             }
             finish(downloadTask, success: true)
-        } catch { finish(downloadTask, success: false) }
+        } catch {
+            // A truncated export can return 200. Retry a limited number of
+            // times, but do not loop on disk-full or other local I/O errors.
+            if (error as? URLError)?.code == .cannotDecodeContentData,
+               job.attempts < 3, scheduleRetry(downloadTask) { return }
+            finish(downloadTask, success: false)
+        }
     }
     // A connection may drop while the iPhone is locked or switches networks.
     // Recover transient failures without asking a suspended SwiftUI view to
@@ -259,6 +299,7 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
         if totalBytesWritten > OfflineStore.limit || totalBytesExpectedToWrite > OfflineStore.limit { downloadTask.cancel(); return }
         guard let key = downloadTask.taskDescription, totalBytesExpectedToWrite > 0 else { return }
         lock.lock()
+        guard state.jobs[key] != nil, ownsTask(downloadTask, key: key) else { lock.unlock(); return }
         // Fraction is derived from actual transfer bytes. Saving the file is still
         // pending at 100% transferred, so only mark a track complete in finish().
         let value = min(0.999, max(0, Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)))

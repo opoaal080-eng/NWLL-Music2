@@ -460,7 +460,7 @@ struct NativeRoot: View {
                 // Keep one backdrop alive while the app changes tabs, pauses,
                 // buffers audio, and restores a session after launch.
                 RibbonScene(playing: store.clock.playing, flash: store.likeFlash,
-                            active: store.screen == .home)
+                            active: store.screen == .home && !settings && !fullPlayer && selectedPlaylist == nil && !navigationMenuPresented && !profilePresented)
                     .ignoresSafeArea()
                     .opacity(store.screen == .home ? 1.0 : 0.18)
                     .allowsHitTesting(false)
@@ -2489,6 +2489,9 @@ struct Cover: View {
             // Rounded geometry is handled only by CoverArtworkSurface.
             artwork = image
             loadedArtworkKey = image == nil ? "" : requested
+            if let image, let track {
+                NativePlayer.shared.acceptDisplayedArtwork(image, trackID: track.id, origin: origin)
+            }
         }
     }
 }
