@@ -120,9 +120,10 @@ struct RibbonScene: View {
 // Quiet decorative stars are independent of the audio engine and playback state.
 private struct HomeSparkles: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scene
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 15.0, paused: reduceMotion)) { timeline in
+        TimelineView(.animation(minimumInterval: 1.0 / 15.0, paused: reduceMotion || scene != .active)) { timeline in
             Canvas(opaque: false, rendersAsynchronously: true) { context, size in
                 guard size.width > 1, size.height > 1 else { return }
                 let time = reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate
@@ -282,10 +283,13 @@ struct MiniPlayer: View {
     @State private var glow = false
     @Environment(\.accessibilityReduceMotion) private var reduced
 
-    init(clock: PlaybackClock, open: @escaping () -> Void, compactHeight: Bool = false) {
+    var active = true
+
+    init(clock: PlaybackClock, open: @escaping () -> Void, compactHeight: Bool = false, active: Bool = true) {
         self.clock = clock
         self.open = open
         self.compactHeight = compactHeight
+        self.active = active
         _presentation = ObservedObject(wrappedValue: clock.presentation)
     }
 
@@ -323,7 +327,7 @@ struct MiniPlayer: View {
                     if let track = clock.displayCurrent {
                         Button { Task { await store.like(track) } } label: { Image(systemName: store.likes.contains(track.id) ? "heart.fill" : "heart").font(.system(size: 19)).foregroundStyle(Color.white).frame(width: compact ? 26 : 29, height: 44) }.accessibilityLabel("Избранное")
                     }
-                    MiniPlayerProgressButton(clock: clock, compactHeight: compactHeight)
+                    MiniPlayerProgressButton(clock: clock, compactHeight: compactHeight, active: active)
                 }.buttonStyle(.plain)
             }.foregroundStyle(.white) .padding(.horizontal, 14).frame(maxWidth: .infinity, maxHeight: .infinity)
             .background {
@@ -341,7 +345,7 @@ struct MiniPlayer: View {
             .shadow(color: Color.white.opacity(glow ? 0.4 : 0), radius: 18)
         }.frame(height: compactHeight ? 54 : 68)
         .animation(reduced ? nil : .spring(response: 0.32, dampingFraction: 0.82), value: clock.id)
-        .task(id: clock.id) { guard !reduced else { return }; glow = true; try? await Task.sleep(nanoseconds: 80_000_000); guard !Task.isCancelled else { return }; withAnimation(.easeOut(duration: 0.9)) { glow = false } }
+        .task(id: clock.id) { guard !reduced, active else { return }; glow = true; try? await Task.sleep(nanoseconds: 80_000_000); guard !Task.isCancelled else { return }; withAnimation(.easeOut(duration: 0.9)) { glow = false } }
         // Swipe wins over the artwork/title tap, so it never opens the full player.
     }
 }
@@ -349,13 +353,14 @@ struct MiniPlayer: View {
 private struct MiniPlayerProgressButton: View {
     @ObservedObject var clock: PlaybackClock
     let compactHeight: Bool
+    var active = true
     @Environment(\.nightwellAppearance) private var appearance
     @Environment(\.scenePhase) private var scene
     @Environment(\.accessibilityReduceMotion) private var reduced
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 15.0,
-                                paused: scene != .active || reduced || (!clock.playing && !clock.preparing))) { time in
+                                paused: !active || scene != .active || reduced || (!clock.playing && !clock.preparing))) { time in
             let position = PlaybackProgressPresentation.position(
                 displayPosition: clock.displayPosition, duration: clock.displayDuration,
                 playing: clock.playing && scene == .active,
@@ -670,13 +675,14 @@ private struct FullPlayerProgress: View {
     @ObservedObject var clock: PlaybackClock
     @Binding var seeking: Bool
     let compact: Bool
+    var active = true
     @State private var scrub = 0.0
     @Environment(\.scenePhase) private var scene
     @Environment(\.accessibilityReduceMotion) private var reduced
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 15.0,
-                                paused: scene != .active || reduced || !clock.playing || seeking)) { _ in
+                                paused: !active || scene != .active || reduced || !clock.playing || seeking)) { _ in
             let duration = clock.displayDuration.isFinite && clock.displayDuration > 0 ? clock.displayDuration : 1
             let position = PlaybackProgressPresentation.position(
                 displayPosition: clock.displayPosition, duration: duration,
@@ -853,10 +859,13 @@ struct FullPlayer: View {
     private var playerLifecycle: some View {
         playerGesture
         .onReceive(clock.$displayPosition) { position in
-            updateInlineLyricVisibility(lyrics: store.lyrics.value, position: position)
+            if !showQueue { updateInlineLyricVisibility(lyrics: store.lyrics.value, position: position) }
         }
         .onReceive(store.lyrics.$value) { lyrics in
-            updateInlineLyricVisibility(lyrics: lyrics, position: clock.displayPosition)
+            if !showQueue { updateInlineLyricVisibility(lyrics: lyrics, position: clock.displayPosition) }
+        }
+        .onChange(of: showQueue) { open in
+            if !open { updateInlineLyricVisibility(lyrics: store.lyrics.value, position: clock.displayPosition) }
         }
         .onAppear {
             refreshNativeMenu()
@@ -949,7 +958,7 @@ struct FullPlayer: View {
                         .allowsHitTesting(false)
                 }
             }
-            if showLyrics && appearance == .standard { HomeSparkles().ignoresSafeArea() }
+            if showLyrics && appearance == .standard && !showQueue { HomeSparkles().ignoresSafeArea() }
     }
 
     private var playerControls: some View {
@@ -1063,7 +1072,7 @@ struct FullPlayer: View {
                             }
                             if inlineVisible {
                                 HomeLyricLine(model: store.lyrics, clock: clock,
-                                              fontSize: 19, respectsAmbientSetting: false)
+                                              fontSize: 19, respectsAmbientSetting: false, active: !showQueue)
                                     .frame(height: 54)
                                     .padding(.horizontal, 8)
                                     .transition(.opacity.combined(with: .offset(y: 6)))
@@ -1142,7 +1151,7 @@ struct FullPlayer: View {
 
     @ViewBuilder private func playerTransport(compact: Bool) -> some View {
                 VStack(spacing: compact ? 10 : 16) {
-                    FullPlayerProgress(clock: clock, seeking: $seeking, compact: compact)
+                    FullPlayerProgress(clock: clock, seeking: $seeking, compact: compact, active: !showQueue)
                     HStack {
                         Button {
                             shuffleMode = (shuffleMode + 1) % 3
@@ -1309,7 +1318,7 @@ struct PlaybackQueue: View {
 
     init(clock: PlaybackClock) {
         self.clock = clock
-        _presentation = ObservedObject(wrappedValue: clock.presentation)
+        _presentation = ObservedObject(wrappedValue: clock.queuePresentation)
     }
 
     private var currentIndex: Int { clock.currentIndex ?? -1 }
@@ -1391,7 +1400,8 @@ struct PlaybackQueue: View {
                                             .foregroundStyle(.secondary)
                                             .padding(.vertical, 40)
                                     }
-                                    ForEach(Array(clock.queue.enumerated()), id: \.offset) { index, track in
+                                    ForEach(clock.queue.indices, id: \.self) { index in
+                                        let track = clock.queue[index]
                                         VStack(alignment: .leading, spacing: 8) {
                                             if index == currentIndex {
                                                 Text("СЕЙЧАС ИГРАЕТ")
@@ -1566,15 +1576,17 @@ struct LyricsView: View {
             }
             .simultaneousGesture(DragGesture(minimumDistance: 4)
                 .onChanged { _ in
-                    followingPlayback = false
-                    resumeFollowingAt = Date().addingTimeInterval(8)
+                    if followingPlayback {
+                        followingPlayback = false
+                        resumeFollowingAt = .distantFuture
+                    }
                 }
                 .onEnded { _ in
                     followingPlayback = false
                     resumeFollowingAt = Date().addingTimeInterval(8)
                 })
             .task(id: resumeFollowingAt) {
-                guard resumeFollowingAt > Date() else { return }
+                guard resumeFollowingAt != .distantFuture, resumeFollowingAt > Date() else { return }
                 let delay = max(0, resumeFollowingAt.timeIntervalSinceNow)
                 try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 guard !Task.isCancelled else { return }

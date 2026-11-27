@@ -578,11 +578,11 @@ struct NativeRoot: View {
     private func playerDock(landscape: Bool) -> some View {
         VStack(spacing: navigationLayout.showsTabs ? (landscape ? 2 : 4) : 0) {
             MiniPlayer(clock: store.clock, open: { fullPlayer = true },
-                       compactHeight: landscape)
+                       compactHeight: landscape, active: !fullPlayer && !settings && selectedPlaylist == nil && !profilePresented)
                 .padding(.horizontal, landscape ? 18 : 16)
                 .overlay(alignment: .bottom) {
                     if store.screen == .home && !landscape && showHomeLyrics {
-                        HomeLyricLine(model: store.lyrics, clock: store.clock)
+                        HomeLyricLine(model: store.lyrics, clock: store.clock, active: !fullPlayer && !settings && selectedPlaylist == nil && !profilePresented)
                             .saturation(0)
                             .frame(height: 60)
                             .padding(.horizontal, 24)

@@ -45,6 +45,7 @@ struct HomeLyricLine: View {
     @ObservedObject var clock: PlaybackClock
     var fontSize: CGFloat = 22
     var respectsAmbientSetting = true
+    var active = true
     @AppStorage("nw-ambient-lyrics") private var enabled = true
     @AppStorage("nw-kinetic-lyrics") private var kineticEnabled = true
     @Environment(\.scenePhase) private var scene
@@ -120,7 +121,7 @@ struct HomeLyricLine: View {
     }
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 0.15)) { _ in
+        TimelineView(.animation(minimumInterval: 0.15, paused: !active || scene != .active || !clock.playing)) { _ in
             currentLyric(at: positionForFrame())
                 .frame(maxWidth: .infinity)
         }

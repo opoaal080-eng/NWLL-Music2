@@ -21,6 +21,8 @@ import Network
 @MainActor final class PlaybackClock: ObservableObject {
     let status = TrackStatus()
     let presentation = PlaybackPresentation()
+    // Queue/deck doesn't depend on duration, playhead, buffering or preview.
+    let queuePresentation = PlaybackPresentation()
     private var queueRevision = -1
     private var queueIndexByID: [String: Int] = [:]
     private var presentationUpdateDepth = 0
@@ -84,14 +86,13 @@ import Network
             includeDiagnostics: false, includeQueuedIDs: false)
         let revision = value["queueRevision"] as? Int ?? 0
         var nextQueue: [Track]?
-        if revision != queueRevision,
-           let raw = NativePlayer.shared.snapshot()["queueTracks"],
-           let data = try? JSONSerialization.data(withJSONObject: raw) {
-            nextQueue = try? JSONDecoder().decode([Track].self, from: data)
+        if revision != queueRevision {
+            nextQueue = NativePlayer.shared.presentationQueue()
         }
         applySnapshot(value, queueTracks: nextQueue)
     }
     func applySnapshot(_ value: [String: Any], queueTracks: [Track]? = nil) {
+        let oldID = id, oldRevision = queueRevision, oldOffline = offlineQueueActive
         presentationUpdateDepth += 1
         // Streaming manifests occasionally expose NaN or infinite lengths.
         // Never pass those into a SwiftUI ClosedRange or an audio frame seek.
@@ -113,15 +114,16 @@ import Network
         if playing != next { playing = next; status.playing = next }
         if id != nextID { id = nextID; status.id = nextID }
         let nextDisplayID = value["displayID"] as? String ?? nextID
-        if displayID != nextDisplayID { displayID = nextDisplayID }
+        let displayChanged = displayID != nextDisplayID
+        if displayChanged { displayID = nextDisplayID }
         let rawDisplayDuration = value["displayDuration"] as? Double ?? duration
         let nextDisplayDuration = rawDisplayDuration.isFinite && rawDisplayDuration > 0.5
             ? max(1, min(rawDisplayDuration, 604800)) : duration
-        if displayDuration != nextDisplayDuration { displayDuration = nextDisplayDuration }
+        if displayChanged || abs(displayDuration - nextDisplayDuration) > 0.15 { displayDuration = nextDisplayDuration }
         let rawDisplayPosition = value["displayPosition"] as? Double ?? position
         let nextDisplayPosition = rawDisplayPosition.isFinite
             ? min(displayDuration, max(0, rawDisplayPosition)) : 0
-        if abs(displayPosition - nextDisplayPosition) > 0.04 || nextDisplayID != id { displayPosition = nextDisplayPosition }
+        if abs(displayPosition - nextDisplayPosition) > 0.04 || displayChanged { displayPosition = nextDisplayPosition }
         let nextPreparing = value["preparing"] as? Bool ?? false
         let rawBuffered = value["bufferFraction"] as? Double ?? 0
         let nextBuffered = rawBuffered.isFinite ? min(1, max(0, rawBuffered)) : 0
@@ -141,6 +143,9 @@ import Network
         if presentationUpdateDepth == 0 && presentationChanged {
             presentationChanged = false
             presentation.invalidate()
+        }
+        if id != oldID || queueRevision != oldRevision || offlineQueueActive != oldOffline {
+            queuePresentation.invalidate()
         }
         onTick?(value)
     }
@@ -1655,8 +1660,18 @@ struct NightwellAccountDevicesResponse: Decodable {
         guard let selected = playbackSelection(track, downloaded: downloaded) else { return }
         // Old restored queues may contain an _offline marker for a file that no
         // longer exists. Fall back to the online source instead of silence.
-        let localQueue = queue.map { verifiedPlaybackTrack(downloaded[$0.id] ?? $0) }
-        NativePlayer.shared.prepare(["id": selected.id, "queue": localQueue.map(\.dictionary), "account": account?.id ?? "device", "wave": wave, "wave_seed_artists": seedArtists, "wave_preferences": WaveSettings.read(origin, account?.id ?? "device").dictionary], origin: origin, cookies: HTTPCookieStorage.shared.cookies(for: origin) ?? [])
+        let localQueue = queue.map { item -> Track in
+            if item.id == selected.id { return selected }
+            if let local = downloaded[item.id] { return local }
+            // The verified library snapshot is enough for upcoming entries;
+            // the player validates the actual file when that entry is opened.
+            var remote = item
+            if remote._offline == true && !remote.id.hasPrefix("local_") {
+                remote._offline = false; remote._offline_account = nil
+            }
+            return remote
+        }
+        NativePlayer.shared.prepare(["id": selected.id, "account": account?.id ?? "device", "wave": wave, "wave_seed_artists": seedArtists, "wave_preferences": WaveSettings.read(origin, account?.id ?? "device").dictionary], origin: origin, cookies: HTTPCookieStorage.shared.cookies(for: origin) ?? [], typedQueue: localQueue)
         NativePlayer.shared.play()
         Task { await publishLiveSync(takeover: true) }
     }

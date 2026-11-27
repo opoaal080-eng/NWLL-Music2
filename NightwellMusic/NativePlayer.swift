@@ -797,9 +797,16 @@ final class NativePlayer {
         publish()
     }
 
-    func prepare(_ data: [String: Any], origin: URL, cookies: [HTTPCookie]) {
-        guard let raw = data["queue"] as? [[String: Any]], let selected = data["id"] as? String else { return }
-        let queue = raw.prefix(1000).compactMap { nativeTrack(from: $0) }
+    func prepare(_ data: [String: Any], origin: URL, cookies: [HTTPCookie],
+                 typedQueue: [Track]? = nil) {
+        guard let selected = data["id"] as? String else { return }
+        let queue: [NativeTrack]
+        if let typedQueue {
+            queue = typedQueue.prefix(1000).compactMap { nativeTrack(from: $0) }
+        } else {
+            guard let raw = data["queue"] as? [[String: Any]] else { return }
+            queue = raw.prefix(1000).compactMap { nativeTrack(from: $0) }
+        }
         cancelPendingNext()
         invalidateNextAudioWarmup()
         directForwardTrackID = nil
@@ -844,6 +851,35 @@ final class NativePlayer {
             .intersection(queue.dropFirst(selectedIndex + 1).map { $0.id })
         load(position: max(0, ((data["position"] as? NSNumber)?.doubleValue ?? 0) / 1000))
         if !connectionOnline { scheduleOfflineQueue() }
+    }
+
+    private func nativeTrack(from track: Track) -> NativeTrack? {
+        // Preserve the existing normalization for any unverified metadata.
+        if track._artist_checked != true { return nativeTrack(from: track.dictionary) }
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
+        guard !track.id.isEmpty, track.id.unicodeScalars.allSatisfy({ allowed.contains($0) }) else { return nil }
+        var lyrics: [String: Any]?
+        if let value = track._offline_lyrics, let data = try? JSONEncoder().encode(value) {
+            lyrics = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        }
+        return NativeTrack(id: track.id, title: track.title, artist: track.artist,
+            album: track.album ?? "", duration: track.duration ?? 0, cover: track.cover_url,
+            source: track.source, sourceURL: track.source_url, remote: track.is_remote ?? false,
+            offline: track._offline ?? false, offlineAccount: track._offline_account ?? "", offlineLyrics: lyrics)
+    }
+
+    func presentationQueue() -> [Track] {
+        tracks.map { item in
+            var lyrics: Lyrics?
+            if let raw = item.offlineLyrics, let data = try? JSONSerialization.data(withJSONObject: raw) {
+                lyrics = try? JSONDecoder().decode(Lyrics.self, from: data)
+            }
+            return Track(id: item.id, title: item.title, artist: item.artist,
+                album: item.album, duration: item.duration, cover_url: item.cover,
+                source: item.source, source_url: item.sourceURL, is_remote: item.remote,
+                _offline: item.offline, _offline_account: item.offlineAccount,
+                _offline_lyrics: lyrics, _artist_checked: true)
+        }
     }
 
     private func nativeTrack(from item: [String: Any]) -> NativeTrack? {

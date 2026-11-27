@@ -127,7 +127,7 @@ struct NightwellQueueDeck: View {
     }
     private var windowStart: Int { safePosition }
     private var upcoming: [(offset: Int, element: Track)] {
-        Array(queue.enumerated().dropFirst(windowStart).prefix(3))
+        (windowStart..<min(queue.count, windowStart + 3)).map { ($0, queue[$0]) }
     }
     private func section(for index: Int) -> String {
         index < currentIndex ? "РАНЕЕ" : index == currentIndex ? "СЕЙЧАС ИГРАЕТ" : "ДАЛЕЕ"
@@ -190,7 +190,7 @@ struct NightwellQueueDeck: View {
         let height = width * (compact ? 0.78 : 0.82)
         let selected = highlightedID == track.id
         return VStack(spacing: 0) {
-            Cover(track: track, origin: origin, pixelWidth: compact ? 600 : 680)
+            Cover(track: track, origin: origin, pixelWidth: 480)
                 .frame(width: width, height: height)
                 .clipped()
                 .overlay(alignment: .topLeading) {
@@ -200,7 +200,7 @@ struct NightwellQueueDeck: View {
                         .foregroundStyle(.white)
                         .padding(.horizontal, compact ? 9 : 12)
                         .padding(.vertical, compact ? 5 : 8)
-                        .background(.ultraThinMaterial, in: Capsule())
+                        .background(Color.black.opacity(0.56), in: Capsule())
                         .padding(compact ? 9 : 14)
                 }
             VStack(alignment: .leading, spacing: compact ? 2 : 5) {
@@ -232,7 +232,7 @@ struct NightwellQueueDeck: View {
                     lineWidth: selected ? 2 : 1
                 )
         }
-        .shadow(color: .black.opacity(0.48), radius: compact ? 10 : 18, y: compact ? 5 : 10)
+        .shadow(color: .black.opacity(depth == 0 ? 0.40 : 0), radius: depth == 0 ? 9 : 0, y: 5)
         .scaleEffect((1 - CGFloat(depth) * 0.048) * (selected ? 1.035 : 1))
         .rotationEffect(.degrees(Double(depth) * 1.3))
         .offset(x: CGFloat(depth) * (compact ? 9 : 15), y: CGFloat(depth) * (compact ? 7 : 13))
@@ -251,14 +251,6 @@ struct NightwellQueueDeck: View {
                         break
                     }
                 }
-        )
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 22).onEnded { gesture in
-                guard depth == 0,
-                      abs(gesture.translation.width) > 48,
-                      abs(gesture.translation.width) > abs(gesture.translation.height) else { return }
-                browse(gesture.translation.width < 0 ? 1 : -1)
-            }
         )
         .accessibilityLabel("\(track.title), \(track.artist)")
         .accessibilityHint("Нажми, чтобы слушать сейчас. Удерживай, чтобы поставить следующим.")
@@ -280,6 +272,12 @@ struct NightwellQueueDeck: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .simultaneousGesture(DragGesture(minimumDistance: 22).onEnded { gesture in
+                    guard abs(gesture.translation.width) > 48,
+                          abs(gesture.translation.width) > abs(gesture.translation.height) * 1.3 else { return }
+                    browse(gesture.translation.width < 0 ? 1 : -1)
+                })
             }
             .frame(height: deckHeight)
 
@@ -339,5 +337,13 @@ struct NightwellQueueDeck: View {
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .contain)
         .onChange(of: currentIndex) { _ in position = -1 }
+        .task(id: safePosition) {
+            // Warm only adjacent, not the whole playlist, and only after
+            // the swipe settles. Visible cards use the exact same cache size.
+            do { try await Task.sleep(nanoseconds: 180_000_000) } catch { return }
+            let indices = [safePosition - 1, safePosition + 3].filter { queue.indices.contains($0) }
+            let urls = indices.compactMap { CoverImagePipeline.coverURL(for: queue[$0], origin: origin) }
+            await CoverImagePipeline.shared.prefetch(urls, maxPixel: 480)
+        }
     }
 }

@@ -174,6 +174,7 @@ struct NightwellTrackSwipeCarousel<Content: View>: View {
     private func moveWithoutAnimation(to offset: CGFloat) {
         var transaction = Transaction(animation: nil)
         transaction.disablesAnimations = true
+        guard abs(dragOffset - offset) >= 0.5 || offset == 0 else { return }
         withTransaction(transaction) { dragOffset = offset }
     }
 
