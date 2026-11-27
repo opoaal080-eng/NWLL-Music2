@@ -2516,8 +2516,21 @@ struct Cover: View {
             }
             if image == nil, let track, !track.id.hasPrefix("local_"),
                let fallback = URL(string: "/api/covers/" + track.id, relativeTo: origin)?.absoluteURL,
-               fallback != coverURL, track.is_remote == true {
+               fallback != coverURL {
                 image = await CoverImagePipeline.shared.image(for: fallback, maxPixel: pixelWidth)
+            }
+            // A transient failure must not leave a visible row permanently blank.
+            if image == nil, let track, !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                guard !Task.isCancelled else { return }
+                if let coverURL {
+                    image = await CoverImagePipeline.shared.image(for: coverURL, maxPixel: pixelWidth, retryFailure: true)
+                }
+                if image == nil, !track.id.hasPrefix("local_"),
+                   let fallback = URL(string: "/api/covers/" + track.id, relativeTo: origin)?.absoluteURL,
+                   fallback != coverURL {
+                    image = await CoverImagePipeline.shared.image(for: fallback, maxPixel: pixelWidth, retryFailure: true)
+                }
             }
             guard !Task.isCancelled else { return }
             // Display the original decoded artwork. The previous corner-repair

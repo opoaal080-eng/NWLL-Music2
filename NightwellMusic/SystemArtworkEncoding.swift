@@ -23,14 +23,19 @@ enum DisplayedSystemArtwork {
         return a.isEmpty || b.isEmpty || key(origin: origin, id: id, cover: a) == key(origin: origin, id: id, cover: b)
     }
     static func image(origin: URL, id: String, cover: String?) -> UIImage? {
-        images.object(forKey: key(origin: origin, id: id, cover: cover) as NSString)
+        let exact = images.object(forKey: key(origin: origin, id: id, cover: cover) as NSString)
+        if exact != nil { return exact }
+        guard (cover ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return images.object(forKey: (key(origin: origin, id: id, cover: nil) + "|last") as NSString)
     }
     static func store(_ image: UIImage, origin: URL, id: String, cover: String?) {
         guard !id.isEmpty, let cg = image.cgImage, cg.width > 0, cg.height > 0 else { return }
         let k = key(origin: origin, id: id, cover: cover) as NSString
         if let old = images.object(forKey: k)?.cgImage,
            max(old.width, old.height) >= max(cg.width, cg.height) { return }
-        images.setObject(image, forKey: k, cost: cg.bytesPerRow * cg.height)
+        let cost = cg.bytesPerRow * cg.height
+        images.setObject(image, forKey: k, cost: cost)
+        images.setObject(image, forKey: (key(origin: origin, id: id, cover: nil) + "|last") as NSString, cost: cost)
     }
 }
 
