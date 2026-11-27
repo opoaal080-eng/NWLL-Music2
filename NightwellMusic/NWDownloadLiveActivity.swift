@@ -36,9 +36,8 @@ import UIKit
     }
 
     func flush(_ state: NWDownloadActivityAttributes.ContentState) async {
-        // The system completion handler must not wait indefinitely for a
-        // continuously changing progress stream. Final state still queues.
         receive(state)
+        if !state.active { await worker?.value }
     }
 
     private func apply(_ state: State) async {

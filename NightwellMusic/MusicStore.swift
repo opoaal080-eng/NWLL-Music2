@@ -894,6 +894,7 @@ struct NightwellAccountDevicesResponse: Decodable {
                 }
             }
         })
+        BackgroundDownloads.shared.setForeground(applicationIsActive)
         BackgroundDownloads.shared.reconnect()
         let progress = BackgroundDownloads.shared.progress
         downloading = progress.active; downloadMessage = progress.message; downloadFractions = progress.fractions
@@ -902,6 +903,7 @@ struct NightwellAccountDevicesResponse: Decodable {
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
             self.applicationIsActive = false
+            BackgroundDownloads.shared.setForeground(false)
             self.connectionCheck?.cancel(); self.connectionCheck = nil
             self.connectionCheckGeneration = UUID()
             self.savePlayback(force: true)
@@ -914,6 +916,7 @@ struct NightwellAccountDevicesResponse: Decodable {
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
             self.applicationIsActive = true
+            BackgroundDownloads.shared.setForeground(true)
             self.checkConnection()
             self.clock.sync()
             // WidgetKit may have discarded a reload while the app was asleep.

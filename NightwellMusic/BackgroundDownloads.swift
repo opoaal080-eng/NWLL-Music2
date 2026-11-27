@@ -47,6 +47,7 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
     private var completedKeys = Set<String>()
     private var lastProgressNotification: [String: Date] = [:]
     private var reconciling = false
+    private var reconciled = false
     private var activeTaskIDs: [String: Int] = [:]
     private var notificationPending = false
     private var retiredTaskIDs = Set<Int>()
@@ -91,8 +92,14 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
         network.pathUpdateHandler = { [weak self] path in
             guard let self else { return }
             self.lock.lock(); defer { self.lock.unlock() }
+            let wasConnected = self.connected
             self.connected = path.status == .satisfied
-            if self.connected && !self.reconciling { self.fillSlots() }
+            if self.connected && !wasConnected {
+                let now = Date()
+                for key in self.activeTaskIDs.keys { self.lastByteAt[key] = now }
+                self.fillSlots()
+            }
+            self.publish()
         }
         network.start(queue: preparationQueue)
         let timer = DispatchSource.makeTimerSource(queue: preparationQueue)
@@ -179,6 +186,7 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
                 }
             }
             self.reconciling = false
+            self.reconciled = true
             self.fillSlots()
             self.publish()
         }
@@ -187,7 +195,7 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
     // Caller holds lock. Schedule ready jobs first, and only one delayed
     // retry if no ready jobs exist so iOS can wake us even in background.
     private func fillSlots() {
-        guard !reconciling, connected else { return }
+        guard reconciled, !reconciling else { return }
         let now = Date()
         let waiting = state.jobs.values.filter { activeTaskIDs[$0.key] == nil }.sorted {
             let a = $0.retryAt ?? .distantPast, b = $1.retryAt ?? .distantPast
@@ -210,7 +218,8 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
 
     private func checkStalledTasks() {
         lock.lock()
-        let shouldCheck = foreground && connected && !reconciling && !state.jobs.isEmpty
+        let shouldCheck = foreground && connected && reconciled && !reconciling && !state.jobs.isEmpty
+        let checkedIDs = activeTaskIDs
         lock.unlock()
         guard shouldCheck else { return }
         session.getAllTasks { tasks in
@@ -218,12 +227,13 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
             guard self.foreground, self.connected, !self.reconciling else { return }
             let now = Date()
             let existing = Set(tasks.map(\.taskIdentifier))
-            for (key, id) in Array(self.activeTaskIDs) where !existing.contains(id) {
+            for (key, id) in checkedIDs where !existing.contains(id) && self.activeTaskIDs[key] == id {
                 self.retiredTaskIDs.insert(id)
                 self.activeTaskIDs.removeValue(forKey: key)
             }
             for task in tasks {
                 guard let key = task.taskDescription,
+                      checkedIDs[key] == task.taskIdentifier,
                       self.activeTaskIDs[key] == task.taskIdentifier,
                       task.state == .running, let job = self.state.jobs[key],
                       (job.retryAt ?? .distantPast) <= now else { continue }
@@ -391,7 +401,7 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
         }
         let retryable = [408, 425, 429, 500, 502, 503, 504].contains(statusCode)
         if waiting || retryable {
-            let retryAfter = TimeInterval(http.value(forHTTPHeaderField: "Retry-After") ?? "") ?? 0
+            let retryAfter = OfflineDownloadPolicyRetryHeader.seconds(http.value(forHTTPHeaderField: "Retry-After"))
             if scheduleRetry(downloadTask, retryAfter: retryAfter,
                              reason: waiting ? "Сервер готовит аудио" : "HTTP \(statusCode)", preparing: waiting) { return }
         }
@@ -508,5 +518,17 @@ final class DownloadAppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String, completionHandler: @escaping () -> Void) {
         guard identifier == BackgroundDownloads.identifier else { completionHandler(); return }
         BackgroundDownloads.shared.handleEvents(completionHandler)
+    }
+}
+
+private enum OfflineDownloadPolicyRetryHeader {
+    static func seconds(_ value: String?) -> TimeInterval {
+        guard let value else { return 0 }
+        if let seconds = TimeInterval(value) { return seconds }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+        return formatter.date(from: value).map { max(0, $0.timeIntervalSinceNow) } ?? 0
     }
 }
