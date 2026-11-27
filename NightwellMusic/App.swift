@@ -1982,10 +1982,12 @@ struct NativeTrackRow: View {
                             .lineLimit(libraryPreview ? 1 : 2)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    if status.id == track.id {
-                        PlayingIndicator(playing: status.playing)
-                            .foregroundStyle(appearance.progressTint)
+                    if store.isDownloaded(track) {
+                        Image(systemName: "arrow.down.circle.fill")
+                            .font(.system(size: 18, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.72))
                             .frame(width: 20, height: 20)
+                            .accessibilityLabel("Скачан, доступен офлайн")
                     }
                 }
                 .frame(maxWidth: .infinity, minHeight: libraryPreview ? 56 : 54, alignment: .leading)
@@ -2068,6 +2070,14 @@ struct NativeTrackRow: View {
             in: RoundedRectangle(cornerRadius: 18)
         )
         .nightwellThemeChrome(18)
+        .overlay {
+            if status.id == track.id {
+                PlayingTrackOutline(playing: status.playing, tint: appearance.progressTint)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
+        .accessibilityValue(status.id == track.id ? (status.playing ? "Сейчас играет" : "На паузе") : "")
         .confirmationDialog("Выбери исполнителя", isPresented: $showArtistChoices, titleVisibility: .visible) {
             ForEach(ArtistNames.split(track.artist), id: \.self) { name in
                 Button(name) { selectedArtist = ArtistSelection(name: name) }
@@ -2495,16 +2505,50 @@ struct Cover: View {
         }
     }
 }
-struct PlayingIndicator: View {
+// Only the current row mounts a timeline. Render the two moving light
+// trails in one small Canvas, without per-frame layout, blur or shadows.
+private struct PlayingTrackOutline: View {
     let playing: Bool
+    let tint: Color
     @Environment(\.scenePhase) private var scene
     @Environment(\.accessibilityReduceMotion) private var reduced
+
     var body: some View {
-        TimelineView(.animation(minimumInterval: 0.1, paused: !playing || reduced || scene != .active)) { context in
-            HStack(alignment: .center, spacing: 2) { ForEach(0..<4) { i in Capsule().fill(pumpkin).frame(width: 3, height: playing ? CGFloat(5 + 13 * abs(sin(context.date.timeIntervalSinceReferenceDate * 5 + Double(i)))) : 5) } }
-        }.accessibilityLabel(playing ? "Сейчас играет" : "На паузе")
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0,
+                                paused: !playing || reduced || scene != .active)) { frame in
+            Canvas { context, size in
+                guard size.width > 6, size.height > 6 else { return }
+                let rect = CGRect(origin: .zero, size: size).insetBy(dx: 2, dy: 2)
+                let outline = Path(roundedRect: rect, cornerRadius: 16)
+                context.stroke(outline, with: .color(tint.opacity(playing ? 0.16 : 0.30)), lineWidth: 1)
+                guard playing else { return }
+                let phase = reduced ? 0.16 :
+                    frame.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 3.4) / 3.4
+                // Two trails half a perimeter apart. Each trail is tapered
+                // into a bright head using short strokes, not a GPU blur.
+                for start in [phase, phase + 0.5] {
+                    for segment in 0..<5 {
+                        let weight = Double(segment + 1) / 5
+                        let a = start + Double(segment) * 0.034
+                        let b = a + 0.038
+                        let lower = a - floor(a), upper = lower + (b - a)
+                        func draw(_ from: Double, _ to: Double) {
+                            guard to > from else { return }
+                            let part = outline.trimmedPath(from: CGFloat(from), to: CGFloat(to))
+                            context.stroke(part, with: .color(tint.opacity(0.10 + 0.10 * weight)),
+                                           style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                            context.stroke(part, with: .color(tint.opacity(0.20 + 0.80 * weight)),
+                                           style: StrokeStyle(lineWidth: 1.65, lineCap: .round))
+                        }
+                        draw(lower, min(1, upper))
+                        if upper > 1 { draw(0, upper - 1) }
+                    }
+                }
+            }
+        }
     }
 }
+
 private struct TrackDownloadMenuProgress: View {
     @EnvironmentObject private var store: MusicStore
     @ObservedObject var progress: DownloadProgressPresentation

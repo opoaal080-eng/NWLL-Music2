@@ -25,6 +25,7 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NWSourceCommit: SOURCE_COMMIT
         NWExternalPremiumPayments: true
+        NSSupportsLiveActivities: true
         UIBackgroundModes: [audio]
         CFBundleURLTypes:
           - CFBundleURLName: fun.nightwell.music

@@ -25,6 +25,7 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
         let fractions: [String: Double]
         let pendingKeys: Set<String>
         let completedKeys: Set<String>
+        var activity: NWDownloadActivityAttributes.ContentState? = nil
     }
     private let lock = NSRecursiveLock()
     private let preparationQueue = DispatchQueue(label: "fun.nightwell.offline.preparation", qos: .utility)
@@ -77,7 +78,7 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
     // Called during initialization or while holding the state lock. Construct
     // the snapshot before taking the short, independent UI-read lock.
     private func cacheProgress() {
-        let next: Progress
+        var next: Progress
         if !state.jobs.isEmpty {
             let done = state.added + state.skipped + state.failed
             next = Progress(active: true, message: "Загрузка \(done) / \(state.total)", fractions: fractions,
@@ -86,6 +87,10 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
             next = Progress(active: false, message: state.total == 0 ? "" : "Скачано: \(state.added) · уже сохранено: \(state.skipped) · ошибок: \(state.failed)", fractions: [:],
                             pendingKeys: [], completedKeys: completedKeys)
         }
+        next.activity = NWDownloadActivityAttributes.ContentState(
+            active: !state.jobs.isEmpty, total: state.total, saved: state.added + state.skipped,
+            failed: state.failed,
+            pendingFraction: fractions.values.reduce(0, +))
         progressLock.lock()
         cachedProgress = next
         progressLock.unlock()
@@ -207,7 +212,12 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.30) {
             self.preparationQueue.async {
                 self.lock.lock(); self.notificationPending = false; self.lock.unlock()
-                DispatchQueue.main.async { NotificationCenter.default.post(name: Self.changed, object: nil) }
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(name: Self.changed, object: nil)
+                    if let snapshot = self.progress.activity {
+                        NWDownloadLiveActivity.shared.receive(snapshot)
+                    }
+                }
             }
         }
     }
@@ -328,7 +338,12 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
     }
     func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
         eventLock.lock(); let completion = eventCompletion; eventCompletion = nil; eventLock.unlock()
-        DispatchQueue.main.async { completion?() }
+        Task { @MainActor in
+            if let snapshot = self.progress.activity {
+                await NWDownloadLiveActivity.shared.flush(snapshot)
+            }
+            completion?()
+        }
     }
 }
 
