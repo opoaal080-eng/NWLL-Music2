@@ -640,6 +640,7 @@ final class NativePlayer {
     private var fadeNextAutomatically = false
     private var timeObserver: Any?
     private var artwork: MPMediaItemArtwork?
+    private var artworkImage: UIImage?
     private var artworkTrackID: String?
     private var artworkIdentity: String?
     private var artworkResolution = 0
@@ -1031,7 +1032,7 @@ final class NativePlayer {
         // Missing artwork is represented by nil, not a branded image.
         // Keep genuine artwork during a retry of the same recording only.
         if systemArtwork == nil {
-            artwork = nil; artworkTrackID = nil; artworkIdentity = nil; artworkResolution = 0
+            artwork = nil; artworkImage = nil; artworkTrackID = nil; artworkIdentity = nil; artworkResolution = 0
         }
         if let image = DisplayedSystemArtwork.image(origin: origin, id: current.id, cover: current.cover),
            installSystemArtwork(image, track: current, origin: origin, notify: false) {
@@ -1281,7 +1282,7 @@ final class NativePlayer {
         if let failureObserver { NotificationCenter.default.removeObserver(failureObserver); self.failureObserver = nil }
         independentMeter.cancel()
         eqGeneration = UUID(); eqDownload?.cancel(); eqDownload = nil; enginePlayback.stop(); player.isMuted = false
-        artwork = nil; artworkTrackID = nil; artworkIdentity = nil; artworkResolution = 0
+        artwork = nil; artworkImage = nil; artworkTrackID = nil; artworkIdentity = nil; artworkResolution = 0
         tracks = []; queuedIDs.removeAll(); waitingForReady = false; requestedPosition = 0; lastPosition = 0; error = ""
         queueRevision += 1; player.replaceCurrentItem(with: nil); publish()
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
@@ -1904,7 +1905,7 @@ final class NativePlayer {
         }
 
         let raw = track.cover?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let address = raw.isEmpty && (track.remote || track.source?.lowercased().contains("soundcloud") == true)
+        let address = raw.isEmpty && !track.id.hasPrefix("local_")
             ? "/api/covers/" + track.id : raw
         let url = address.isEmpty ? nil : URL(string: address, relativeTo: origin)?.absoluteURL
         let trustedURL = url.flatMap { item -> URL? in
@@ -2001,8 +2002,9 @@ final class NativePlayer {
     func acceptDisplayedArtwork(_ image: UIImage, trackID: String, origin: URL, cover: String? = nil) {
         DisplayedSystemArtwork.store(image, origin: origin, id: trackID, cover: cover)
         guard let activeOrigin = self.origin, let current, current.id == trackID,
-              DisplayedSystemArtwork.key(origin: activeOrigin, id: current.id, cover: current.cover) ==
-                DisplayedSystemArtwork.key(origin: origin, id: trackID, cover: cover) else { return }
+              ServerAddress.sameOrigin(activeOrigin, origin),
+              DisplayedSystemArtwork.matches(origin: activeOrigin, id: trackID, first: current.cover, second: cover)
+        else { return }
         if installSystemArtwork(image, track: current, origin: activeOrigin) {
             let owner = current.offlineAccount.isEmpty ? offlineAccount : current.offlineAccount
             Task.detached(priority: .utility) {
@@ -2024,6 +2026,7 @@ final class NativePlayer {
               image.size.width > 0, image.size.height > 0 else { return false }
         let resolution = Int(min(8192, max(image.size.width, image.size.height) * image.scale))
         guard systemArtwork == nil || resolution > artworkResolution else { return false }
+        artworkImage = image
         artwork = makeArtwork(image)
         artworkTrackID = track.id
         artworkIdentity = DisplayedSystemArtwork.key(origin: origin, id: track.id, cover: track.cover)
@@ -2033,7 +2036,10 @@ final class NativePlayer {
     }
 
     private func makeArtwork(_ image: UIImage) -> MPMediaItemArtwork {
-        MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+        let size = CGSize(width: image.size.width * image.scale, height: image.size.height * image.scale)
+        return MPMediaItemArtwork(boundsSize: size) { requested in
+            SystemArtworkEncoding.raster(image, maxPixel: min(1024, max(requested.width, requested.height))) ?? image
+        }
     }
     func auraLevels() -> [Double] {
         let playing = audible
@@ -2136,7 +2142,7 @@ final class NativePlayer {
                         playing: wantsPlay && audible,
                         playbackIntent: wantsPlay,
                         elapsed: playbackPosition,
-                        artwork: systemArtwork,
+                        artwork: systemArtwork == nil ? nil : artworkImage,
                         queueCount: tracks.count
                     )
                 }

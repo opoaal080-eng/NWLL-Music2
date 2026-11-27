@@ -46,12 +46,13 @@ final class NightwellNowPlayingModel: MediaSessionRepresentable {
     // System controls must never combine a new Pause with an old running clock.
     private(set) var playbackSnapshot: MediaPlaybackSnapshot?
 
-    var content: (any MediaContentRepresentable)? { publishedContent }
+    private(set) var content: (any MediaContentRepresentable)?
 
     private func republishContent() {
         guard let track else {
             if publishedContent != nil {
                 publishedContent = nil
+                content = nil
                 contentUpdateSerial &+= 1
             }
             return
@@ -63,8 +64,10 @@ final class NightwellNowPlayingModel: MediaSessionRepresentable {
         }
         // One single assignment triggers NowPlaying observation even when the
         // title and track identifier are unchanged and only the cover changes.
-        publishedContent = MusicContent(
-            id: track.id,
+        // A distinct content identity on artwork arrival invalidates the
+        // system's no-artwork snapshot. The media session and clock stay intact.
+        let updated = MusicContent(
+            id: track.id + "-art-" + String(artworkRevision),
             songTitle: track.title,
             artistName: track.artist,
             albumName: track.album,
@@ -72,6 +75,8 @@ final class NightwellNowPlayingModel: MediaSessionRepresentable {
             duration: track.duration > 0 ? .finite(track.duration) : nil,
             artwork: image
         )
+        publishedContent = updated
+        content = updated
         contentUpdateSerial &+= 1
     }
 
@@ -136,7 +141,7 @@ final class NightwellNowPlayingBridge27 {
 
     private let model = NightwellNowPlayingModel()
     private var session: MediaSession<NightwellNowPlayingModel>?
-    private var lastArtworkObject: MPMediaItemArtwork?
+    private var lastArtworkObject: UIImage?
     private var artworkTask: Task<Void, Never>?
     private var artworkGeneration = UUID()
     private var lastTrackID: String?
@@ -154,13 +159,14 @@ final class NightwellNowPlayingBridge27 {
         let sound = model.isPlaying ? "да" : "нет"
         let request = playbackRequested ? "да" : "нет"
         let problem = lastActivationError.isEmpty ? "" : " · ошибка: \(lastActivationError)"
-        return "NP27: приложение \(app) · система \(system) · звук \(sound) · запрос \(request)\(problem)"
+        let cover = model.imageData.map { "\($0.count) Б" } ?? (artworkTask == nil ? "нет" : "кодирование")
+        return "NP27: приложение \(app) · система \(system) · звук \(sound) · запрос \(request) · обложка \(cover)\(problem)"
     }
 
     private init() {}
 
     func update(track: NativeTrack?, playing: Bool, playbackIntent: Bool,
-                elapsed: Double, artwork: MPMediaItemArtwork?, queueCount: Int) {
+                elapsed: Double, artwork: UIImage?, queueCount: Int) {
         guard let track else {
             // A stopped player must not leave a stale system media session.
             activationTask?.cancel()
@@ -201,7 +207,7 @@ final class NightwellNowPlayingBridge27 {
             artworkTask = nil
             let generation = UUID()
             artworkGeneration = generation
-            if let artwork, let image = artwork.image(at: CGSize(width: 512, height: 512)) {
+            if let image = artwork {
                 let id = next.id
                 artworkTask = Task { [weak self] in
                     let data = await Task.detached(priority: .utility) {

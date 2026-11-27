@@ -13,8 +13,14 @@ enum DisplayedSystemArtwork {
     static func key(origin: URL, id: String, cover: String?) -> String {
         let raw = cover?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let root = origin.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let normalized = URL(string: raw, relativeTo: origin)?.absoluteURL.absoluteString ?? raw
         // Hash data URLs too, rather than retaining a large base64 key.
-        return root + "|" + id + "|" + String(raw.hashValue)
+        return root + "|" + id + "|" + String(normalized.hashValue)
+    }
+    static func matches(origin: URL, id: String, first: String?, second: String?) -> Bool {
+        let a = first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let b = second?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return a.isEmpty || b.isEmpty || key(origin: origin, id: id, cover: a) == key(origin: origin, id: id, cover: b)
     }
     static func image(origin: URL, id: String, cover: String?) -> UIImage? {
         images.object(forKey: key(origin: origin, id: id, cover: cover) as NSString)

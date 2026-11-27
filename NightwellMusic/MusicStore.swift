@@ -522,11 +522,17 @@ struct NightwellAccountDevicesResponse: Decodable {
         byID.reserveCapacity(likes.count)
         // Arrays share storage here; avoid copying the full catalogue into one
         // temporary array or indexing metadata that the favorites cannot use.
-        for source in [favoriteTrackDetails, catalog, results, clock.queue, offline] {
-            for item in source where likes.contains(item.id) && byID[item.id] == nil {
-                byID[item.id] = item
+        // Prefer current metadata over old favorite snapshots. Fill any
+        // missing cover from other records without replacing the track.
+        for source in [catalog, results, clock.queue, offline, favoriteTrackDetails] {
+            for item in source where likes.contains(item.id) {
+                if var old = byID[item.id] {
+                    if (old.cover_url ?? "").isEmpty, let cover = item.cover_url, !cover.isEmpty {
+                        old.cover_url = cover
+                        byID[item.id] = old
+                    }
+                } else { byID[item.id] = item }
             }
-            if byID.count == likes.count { break }
         }
         var seen = Set<String>()
         var presented: [Track] = []
@@ -1235,7 +1241,12 @@ struct NightwellAccountDevicesResponse: Decodable {
                 do {
                     let value: TrackResult = try await client.request("/api/tracks", timeout: 15)
                     guard current() else { return }
+                    let previous = self.favoriteDisplayTracks
                     self.catalog = value.tracks
+                    // Keep liked tracks that temporarily disappear from the catalog.
+                    let savedIDs = Set(self.favoriteTrackDetails.map(\.id))
+                    self.favoriteTrackDetails.append(contentsOf: previous.filter { !savedIDs.contains($0.id) })
+                    self.persistFavoriteTrackDetails()
                     self.syncFavoriteDownloadsIfEnabled()
                     successes += 1
                     self.markServerReachable()
@@ -1264,6 +1275,35 @@ struct NightwellAccountDevicesResponse: Decodable {
                 } catch { if current() { failures.append(error.localizedDescription) } }
             })
             guard current() else { return }
+            // Persist known liked records before a future catalog refresh can
+            // drop them. Resolve missing metadata through the existing shared
+            // track endpoint, without removing the user's saved likes.
+            let known = self.favoriteDisplayTracks
+            self.favoriteTrackDetails = known
+            self.persistFavoriteTrackDetails()
+            let missing = self.likes.subtracting(Set(known.map(\.id)))
+            let ids = missing.sorted().filter { $0.count == 32 && $0.allSatisfy { $0.isHexDigit } }
+            for start in stride(from: 0, to: min(12, ids.count), by: 3) {
+                guard current() else { return }
+                let batch = Array(ids[start..<min(start + 3, min(12, ids.count))])
+                let recovered = await withTaskGroup(of: Track?.self, returning: [Track].self) { group in
+                    for id in batch {
+                        group.addTask {
+                            let value: TrackResult? = try? await client.request("/api/shared-track/" + id, timeout: 5)
+                            return value?.tracks.first { $0.id == id }
+                        }
+                    }
+                    var found: [Track] = []
+                    for await track in group { if let track { found.append(track) } }
+                    return found
+                }
+                guard current() else { return }
+                for track in recovered where self.likes.contains(track.id) {
+                    self.rememberFavoriteTrack(track)
+                }
+            }
+            guard current() else { return }
+            self.syncFavoriteDownloadsIfEnabled()
             if successes == 0 {
                 // One failed library refresh does not override a healthy API
                 // ping. The connection watcher is the only outage authority.
@@ -1862,7 +1902,7 @@ struct NightwellAccountDevicesResponse: Decodable {
             return
         }
         guard force || Date().timeIntervalSince(lastAutoFavoritesCheck) > 120 else { return }
-        let missing = catalog.filter { likes.contains($0.id) && !isDownloaded($0) }
+        let missing = favoriteDisplayTracks.filter { !isDownloaded($0) }
         guard !missing.isEmpty else { return }
         lastAutoFavoritesCheck = Date()
         Task { await download(Array(missing.prefix(500))) }

@@ -1596,7 +1596,7 @@ struct NativeRoot: View {
                                 .lineLimit(2)
                                 .fixedSize(horizontal: false, vertical: true)
                                 .accessibilityAddTraits(.isHeader)
-                            Text(favoritesCountLabel(store.likes.count))
+                            Text(favoritesCountLabel(tracks.count))
                                 .font(.system(size: 17, weight: .medium))
                                 .foregroundStyle(.white.opacity(0.60))
                         }
@@ -1695,6 +1695,18 @@ struct NativeRoot: View {
                     .foregroundStyle(.white.opacity(0.9))
                     .padding(.top, 4)
 
+                    if store.likes.count > tracks.count {
+                        HStack(spacing: 8) {
+                            Image(systemName: "info.circle")
+                            Text("Не загружено: \(store.likes.count - tracks.count)")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Button("Обновить") { Task { await store.refresh() } }
+                                .buttonStyle(.plain)
+                                .fontWeight(.semibold)
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.65))
+                    }
                     TrackList(tracks: tracks, embedded: true)
                 }
                 .padding(.horizontal, 20)

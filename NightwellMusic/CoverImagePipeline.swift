@@ -122,6 +122,10 @@ actor CoverImagePipeline {
             variants[url.absoluteString, default: []].insert(dimension)
             retryAfter.removeValue(forKey: url.absoluteString)
         } else if result == nil && !Task.isCancelled {
+            // A server may return HTML or a temporary placeholder with HTTP
+            // 200. Do not cache undecodable bytes forever.
+            compressed.removeObject(forKey: url.absoluteString as NSString)
+            session.configuration.urlCache?.removeCachedResponse(for: URLRequest(url: url))
             markUnavailable(url.absoluteString)
         }
         return result
@@ -137,7 +141,7 @@ actor CoverImagePipeline {
                 var request = URLRequest(url: url)
                 // Cover URLs are content-addressed; reuse downloaded images even
                 // when the API serves conservative cache headers.
-                request.cachePolicy = .returnCacheDataElseLoad
+                request.cachePolicy = retryFailure ? .reloadIgnoringLocalCacheData : .returnCacheDataElseLoad
                 // Authenticate Nightwell covers only, never an external image CDN.
                 let configured = UserDefaults.standard.string(forKey: "nightwell.server") ?? "https://music.nightwell.fun/"
                 if let origin = ServerAddress.validated(configured),
@@ -150,7 +154,8 @@ actor CoverImagePipeline {
                 let (bytes, response) = try await session.data(for: request)
                 guard let http = response as? HTTPURLResponse,
                       (200..<300).contains(http.statusCode),
-                      bytes.count > 0, bytes.count <= 8 * 1024 * 1024 else { return nil }
+                      bytes.count > 0, bytes.count <= 8 * 1024 * 1024,
+                      CGImageSourceCreateWithData(bytes as CFData, nil) != nil else { return nil }
                 return bytes
             } catch {
                 return nil
