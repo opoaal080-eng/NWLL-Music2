@@ -641,8 +641,12 @@ final class NativePlayer {
     private var timeObserver: Any?
     private var artwork: MPMediaItemArtwork?
     private var artworkTrackID: String?
+    private var artworkIdentity: String?
+    private var artworkResolution = 0
     private var systemArtwork: MPMediaItemArtwork? {
-        guard let current, artworkTrackID == current.id else { return nil }
+        guard let current, let origin, artworkTrackID == current.id,
+              artworkIdentity == DisplayedSystemArtwork.key(origin: origin, id: current.id, cover: current.cover)
+        else { return nil }
         return artwork
     }
     private var artworkLoadTask: Task<Void, Never>?
@@ -711,6 +715,9 @@ final class NativePlayer {
                 self.endBackgroundHandoff()
                 if self.callInterruptionEnded { self.attemptCallResume() }
                 self.refreshIndependentMeter()
+                if self.systemArtwork == nil, let track = self.current {
+                    self.fetchArtwork(track, generation: self.itemGeneration, preferOffline: track.offline)
+                }
                 // Never remove Now Playing on foreground entry. iOS owns the
                 // Dynamic Island's presentation; the lock screen, Control
                 // Center and connected accessories need the same media session.
@@ -1023,8 +1030,11 @@ final class NativePlayer {
         guard let current, let origin else { return }
         // Missing artwork is represented by nil, not a branded image.
         // Keep genuine artwork during a retry of the same recording only.
-        if !recovering || artworkTrackID != current.id {
-            artwork = nil; artworkTrackID = nil
+        if systemArtwork == nil {
+            artwork = nil; artworkTrackID = nil; artworkIdentity = nil; artworkResolution = 0
+        }
+        if let image = DisplayedSystemArtwork.image(origin: origin, id: current.id, cover: current.cover) {
+            installSystemArtwork(image, track: current, origin: origin, notify: false)
         }
         if attemptedTrackID != current.id {
             attemptedTrackID = current.id
@@ -1263,7 +1273,7 @@ final class NativePlayer {
         if let failureObserver { NotificationCenter.default.removeObserver(failureObserver); self.failureObserver = nil }
         independentMeter.cancel()
         eqGeneration = UUID(); eqDownload?.cancel(); eqDownload = nil; enginePlayback.stop(); player.isMuted = false
-        artwork = nil; artworkTrackID = nil
+        artwork = nil; artworkTrackID = nil; artworkIdentity = nil; artworkResolution = 0
         tracks = []; queuedIDs.removeAll(); waitingForReady = false; requestedPosition = 0; lastPosition = 0; error = ""
         queueRevision += 1; player.replaceCurrentItem(with: nil); publish()
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
@@ -1865,14 +1875,16 @@ final class NativePlayer {
         if attempt == 0 { artworkLoadTask?.cancel() }
         guard itemGeneration == generation, current?.id == track.id, let origin else { return }
         let owner = track.offlineAccount.isEmpty ? offlineAccount : track.offlineAccount
+        let identity = DisplayedSystemArtwork.key(origin: origin, id: track.id, cover: track.cover)
+        if let displayed = DisplayedSystemArtwork.image(origin: origin, id: track.id, cover: track.cover) {
+            installSystemArtwork(displayed, track: track, origin: origin)
+        }
 
         if let cover = track.cover, cover.hasPrefix("data:image/"),
            let comma = cover.firstIndex(of: ","),
            let data = Data(base64Encoded: String(cover[cover.index(after: comma)...])),
            data.count < 2 * 1024 * 1024, let image = UIImage(data: data) {
-            artwork = makeArtwork(image)
-            artworkTrackID = track.id
-            publish()
+            installSystemArtwork(image, track: track, origin: origin)
             Task.detached(priority: .utility) {
                 LockScreenArtworkCache.save(image, origin: origin, track: track)
                 if track.offline {
@@ -1884,7 +1896,7 @@ final class NativePlayer {
         }
 
         let raw = track.cover?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let address = raw.isEmpty && (track.remote || track.source == "soundcloud")
+        let address = raw.isEmpty && (track.remote || track.source?.lowercased().contains("soundcloud") == true)
             ? "/api/covers/" + track.id : raw
         let url = address.isEmpty ? nil : URL(string: address, relativeTo: origin)?.absoluteURL
         let trustedURL = url.flatMap { item -> URL? in
@@ -1908,17 +1920,22 @@ final class NativePlayer {
                 await MainActor.run {
                     guard let self, self.itemGeneration == generation else { return }
                     guard self.current?.id == track.id else { return }
-                    self.artwork = self.makeArtwork(cached)
-                    self.artworkTrackID = track.id
-                    self.publish()
+                    self.installSystemArtwork(cached, track: track, origin: origin)
                 }
-                // Keep the original cached image, and do not create a second
-                // artwork object / lock-screen update for the same photo.
-                return
+                // A small row thumbnail is sufficient immediately; keep
+                // looking for a higher-resolution original if available.
+                if max(cached.size.width * cached.scale, cached.size.height * cached.scale) >= 384 ||
+                    trustedURL == nil { return }
             }
             if let url = trustedURL {
+                if let cached = await CoverImagePipeline.shared.cachedArtwork(for: url) {
+                    await MainActor.run {
+                        guard let self, self.itemGeneration == generation, self.current?.id == track.id else { return }
+                        self.installSystemArtwork(cached, track: track, origin: origin)
+                    }
+                }
                 image = await CoverImagePipeline.shared.image(for: url, maxPixel: 512,
-                                                               retryFailure: attempt > 0)
+                                                               retryFailure: true)
                 if image == nil { image = await CoverImagePipeline.shared.cachedArtwork(for: url) }
                 // A server-origin cover may need the current scoped cookie.
                 // Never send Nightwell credentials to an external image CDN.
@@ -1947,9 +1964,7 @@ final class NativePlayer {
                 // Publish the cover before any JPEG encoding or disk cleanup.
                 await MainActor.run {
                     guard let self, self.itemGeneration == generation, self.current?.id == track.id else { return }
-                    self.artwork = self.makeArtwork(image)
-                    self.artworkTrackID = track.id
-                    self.publish()
+                    self.installSystemArtwork(image, track: track, origin: origin)
                 }
                 Task.detached(priority: .utility) {
                     LockScreenArtworkCache.save(image, origin: origin, track: track)
@@ -1964,7 +1979,9 @@ final class NativePlayer {
                 try? await Task.sleep(nanoseconds: attempt == 0 ? 750_000_000 : 2_000_000_000)
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
-                    guard let self, self.itemGeneration == generation else { return }
+                    guard let self, self.itemGeneration == generation, self.systemArtwork == nil,
+                          let current = self.current, let activeOrigin = self.origin,
+                          DisplayedSystemArtwork.key(origin: activeOrigin, id: current.id, cover: current.cover) == identity else { return }
                     self.fetchArtwork(track, generation: generation, attempt: attempt + 1, preferOffline: preferOffline)
                 }
             }
@@ -1973,12 +1990,38 @@ final class NativePlayer {
     // Cover views can already hold the correct thumbnail (including offline
     // artwork) while a separate Now Playing fetch has failed. Accept only
     // real artwork for the actual current song and the active server.
-    func acceptDisplayedArtwork(_ image: UIImage, trackID: String, origin: URL) {
-        guard self.origin == origin, current?.id == trackID, systemArtwork == nil,
-              image.size.width > 0, image.size.height > 0 else { return }
+    func acceptDisplayedArtwork(_ image: UIImage, trackID: String, origin: URL, cover: String? = nil) {
+        DisplayedSystemArtwork.store(image, origin: origin, id: trackID, cover: cover)
+        guard let activeOrigin = self.origin, let current, current.id == trackID,
+              DisplayedSystemArtwork.key(origin: activeOrigin, id: current.id, cover: current.cover) ==
+                DisplayedSystemArtwork.key(origin: origin, id: trackID, cover: cover) else { return }
+        if installSystemArtwork(image, track: current, origin: activeOrigin) {
+            let owner = current.offlineAccount.isEmpty ? offlineAccount : current.offlineAccount
+            Task.detached(priority: .utility) {
+                LockScreenArtworkCache.save(image, origin: activeOrigin, track: current)
+                if current.offline {
+                    try? OfflineStore.saveCover(image, origin: activeOrigin, account: owner, id: current.id)
+                }
+            }
+        }
+    }
+
+    @discardableResult
+    private func installSystemArtwork(_ image: UIImage, track: NativeTrack, origin: URL,
+                                      notify: Bool = true) -> Bool {
+        guard let active = current, let activeOrigin = self.origin,
+              DisplayedSystemArtwork.key(origin: activeOrigin, id: active.id, cover: active.cover) ==
+                DisplayedSystemArtwork.key(origin: origin, id: track.id, cover: track.cover),
+              image.size.width.isFinite, image.size.height.isFinite,
+              image.size.width > 0, image.size.height > 0 else { return false }
+        let resolution = Int(min(8192, max(image.size.width, image.size.height) * image.scale))
+        guard systemArtwork == nil || resolution > artworkResolution else { return false }
         artwork = makeArtwork(image)
-        artworkTrackID = trackID
-        publish()
+        artworkTrackID = track.id
+        artworkIdentity = DisplayedSystemArtwork.key(origin: origin, id: track.id, cover: track.cover)
+        artworkResolution = resolution
+        if notify { publish() }
+        return true
     }
 
     private func makeArtwork(_ image: UIImage) -> MPMediaItemArtwork {

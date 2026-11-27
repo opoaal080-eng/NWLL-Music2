@@ -111,6 +111,26 @@ final class NowPlayingTransportTests: XCTestCase {
             "A changed artwork URL must never reuse an older cover")
     }
 
+    func testDisplayedArtworkHandoffBeforeTrackStartsAndIdentityIsolation() throws {
+        let origin = try XCTUnwrap(URL(string: "https://music.example.invalid/"))
+        let other = try XCTUnwrap(URL(string: "https://another.example.invalid/"))
+        let id = UUID().uuidString
+        let cover = "/api/covers/" + id
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 120, height: 80), format: format).image { context in
+            UIColor.blue.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 120, height: 80))
+        }
+        DisplayedSystemArtwork.store(image, origin: origin, id: id, cover: cover)
+        XCTAssertNotNil(DisplayedSystemArtwork.image(origin: origin, id: id, cover: cover))
+        XCTAssertNil(DisplayedSystemArtwork.image(origin: origin, id: id, cover: cover + "-changed"))
+        XCTAssertNil(DisplayedSystemArtwork.image(origin: other, id: id, cover: cover))
+        let encoded = try XCTUnwrap(SystemArtworkEncoding.data(image))
+        let restored = try XCTUnwrap(UIImage(data: encoded))
+        XCTAssertEqual(restored.size, CGSize(width: 120, height: 80))
+    }
+
     func testMissingArtworkDoesNotPublishSyntheticImage() {
         let model = NightwellNowPlayingModel()
         let item = track("no-cover")

@@ -88,7 +88,9 @@ actor CoverImagePipeline {
         let dimension = min(1200, max(96, maxPixel))
         let key = "\(url.absoluteString)#\(dimension)"
         if let hit = decoded.object(forKey: key as NSString) { return hit }
-        if !retryFailure && skipTemporarily(url.absoluteString) { return nil }
+        if !retryFailure && skipTemporarily(url.absoluteString) {
+            return cachedArtwork(for: url)
+        }
         if let inFlight = pendingImages[key] { return await inFlight.value }
 
         let task = Task<UIImage?, Never>(priority: .userInitiated) {

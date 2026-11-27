@@ -2495,6 +2495,18 @@ struct Cover: View {
                 image = await CoverImagePipeline.shared.image(for: coverURL,
                                                               maxPixel: pixelWidth)
             }
+            if image == nil, let track, let raw = track.cover_url,
+               raw.hasPrefix("data:image/"), let comma = raw.firstIndex(of: ","),
+               raw.utf8.count <= 3 * 1024 * 1024 {
+                image = await Task.detached(priority: .utility) {
+                    Data(base64Encoded: String(raw[raw.index(after: comma)...])).flatMap { UIImage(data: $0) }
+                }.value
+            }
+            if image == nil, let track, !track.id.hasPrefix("local_"),
+               let fallback = URL(string: "/api/covers/" + track.id, relativeTo: origin)?.absoluteURL,
+               fallback != coverURL, track.is_remote == true {
+                image = await CoverImagePipeline.shared.image(for: fallback, maxPixel: pixelWidth)
+            }
             guard !Task.isCancelled else { return }
             // Display the original decoded artwork. The previous corner-repair
             // algorithm modified faces and other deliberately dark regions.
@@ -2502,7 +2514,8 @@ struct Cover: View {
             artwork = image
             loadedArtworkKey = image == nil ? "" : requested
             if let image, let track {
-                NativePlayer.shared.acceptDisplayedArtwork(image, trackID: track.id, origin: origin)
+                NativePlayer.shared.acceptDisplayedArtwork(image, trackID: track.id, origin: origin,
+                                                          cover: track.cover_url)
             }
         }
     }

@@ -140,6 +140,8 @@ final class NightwellNowPlayingBridge27 {
     private var artworkTask: Task<Void, Never>?
     private var artworkGeneration = UUID()
     private var lastTrackID: String?
+    private var artworkRetryAt = Date.distantPast
+    private var artworkFailures = 0
     private var playbackRequested = false
     private var activationTask: Task<Void, Never>?
     private var lastActivationAttempt = Date.distantPast
@@ -167,6 +169,7 @@ final class NightwellNowPlayingBridge27 {
             playbackRequested = false
             lastTrackID = nil
             lastArtworkObject = nil
+            artworkRetryAt = .distantPast; artworkFailures = 0
             artworkTask?.cancel(); artworkTask = nil; artworkGeneration = UUID()
             lastActivationAttempt = .distantPast
             lastActivationError = ""
@@ -187,22 +190,42 @@ final class NightwellNowPlayingBridge27 {
                          queueCount: queueCount, initialArtwork: model.imageData)
         }
         if trackChanged || artworkChanged {
+            artworkFailures = 0
+            artworkRetryAt = .distantPast
+        }
+        let retryArtwork = artwork != nil && model.imageData == nil && artworkTask == nil &&
+            artworkFailures < 3 && Date() >= artworkRetryAt
+        if trackChanged || artworkChanged || retryArtwork {
             lastArtworkObject = artwork
             artworkTask?.cancel()
+            artworkTask = nil
             let generation = UUID()
             artworkGeneration = generation
             if let artwork, let image = artwork.image(at: CGSize(width: 512, height: 512)) {
                 let id = next.id
                 artworkTask = Task { [weak self] in
                     let data = await Task.detached(priority: .utility) {
-                        image.jpegData(compressionQuality: 0.86)
+                        SystemArtworkEncoding.data(image)
                     }.value
                     guard !Task.isCancelled, let self, self.artworkGeneration == generation,
-                          self.lastTrackID == id, let data, !data.isEmpty else { return }
-                    self.model.updateArtwork(data)
+                          self.lastTrackID == id else { return }
+                    self.artworkTask = nil
+                    if let data, !data.isEmpty {
+                        self.artworkFailures = 0
+                        self.model.updateArtwork(data)
+                    } else {
+                        self.artworkFailures += 1
+                        self.artworkRetryAt = Date().addingTimeInterval(2)
+                        NSLog("Nightwell NowPlaying: artwork encoding failed")
+                    }
                 }
-            } else if model.imageData != nil {
-                model.updateArtwork(nil)
+            } else {
+                if artwork != nil {
+                    artworkFailures += 1
+                    artworkRetryAt = Date().addingTimeInterval(2)
+                } else if model.imageData != nil {
+                    model.updateArtwork(nil)
+                }
             }
         }
         if session == nil {
