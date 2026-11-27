@@ -46,6 +46,27 @@ import Combine
         XCTAssertTrue(store.favoriteDisplayTracks.isEmpty)
     }
 
+    func testPendingRemovalCannotBeReinsertedByStaleServerSnapshot() {
+        let server = ["deleted", "keep", "keep"]
+        let membership = FavoriteMutationPolicy.membership(server: server, pending: ["deleted": false, "new": true])
+        XCTAssertEqual(membership, Set(["keep", "new"]))
+        XCTAssertEqual(FavoriteMutationPolicy.order(server: server, membership: membership, local: ["new", "deleted", "keep"]), ["new", "keep"])
+    }
+
+    func testFavoriteCountDropsEvenIfTrackRemainsInCatalogQueueAndDownloads() {
+        let store = MusicStore()
+        let removed = track("removed", "Removed")
+        let kept = track("kept", "Kept")
+        store.catalog = [removed, kept]
+        store.clock.queue = [removed]
+        store.offline = [removed]
+        store.likes = [removed.id, kept.id]
+        XCTAssertEqual(store.favoriteDisplayTracks.count, 2)
+        store.likes.remove(removed.id)
+        XCTAssertEqual(store.favoriteDisplayTracks.map(\.id), [kept.id])
+        XCTAssertEqual(store.likes.count, 1)
+    }
+
     func testLeavingInactiveSearchDoesNotPublishRedundantLibraryChanges() {
         let store = MusicStore()
         var changes = 0

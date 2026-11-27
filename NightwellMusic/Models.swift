@@ -238,9 +238,10 @@ actor MusicAPI: LyricsService {
         request.setValue(NightwellClientDevice.id, forHTTPHeaderField: "X-NW-Device-ID")
         request.setValue("ios", forHTTPHeaderField: "X-NW-Device-Platform")
         if !deviceToken.isEmpty { request.setValue(deviceToken, forHTTPHeaderField: "X-NW-Device-Token") }
-        if method == "GET", url.path == "/api/tracks", url.query != nil {
+        if method == "GET", (url.path == "/api/likes" || (url.path == "/api/tracks" && url.query != nil)) {
             request.cachePolicy = .reloadIgnoringLocalCacheData
-            request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+            request.setValue("no-cache, no-store", forHTTPHeaderField: "Cache-Control")
+            request.setValue("no-cache", forHTTPHeaderField: "Pragma")
         }
         if let timeout { request.timeoutInterval = timeout }
         if method != "GET" {
@@ -258,6 +259,7 @@ actor MusicAPI: LyricsService {
                 throw RequestRetry.HTTPFailure(status: http.statusCode,
                     message: message ?? "Сервер недоступен. Повтори попытку.")
             }
+            if data.isEmpty, method != "GET", let empty = OK(ok: true) as? T { return empty }
             return try JSONDecoder().decode(T.self, from: data)
         }
     }
