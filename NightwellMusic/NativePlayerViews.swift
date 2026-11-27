@@ -2031,7 +2031,7 @@ struct NativeSettings: View {
                         }
                 }.padding(16).frame(maxWidth: .infinity, minHeight: 166, alignment: .leading).background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
         case .compression:
-            NWZSettingsView()
+            NWZSettingsView().equatable()
         case .about:
             VStack(alignment: .leading, spacing: 12) {
                 Label("О приложении", systemImage: "info.circle")

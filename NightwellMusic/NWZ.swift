@@ -23,6 +23,9 @@ enum NWZ {
     static let modeKey = "nw-nwz-mode"
     static var enabled: Bool { UserDefaults.standard.object(forKey: enabledKey) as? Bool ?? true }
     static var selectedMode: Mode { Mode(rawValue: UserDefaults.standard.string(forKey: modeKey) ?? "") ?? .balanced }
+    // Encoding is CPU-intensive, especially LZMA. Serialize every encoder
+    // (download and manual optimizer) without blocking readers or the UI.
+    private static let encoder = NSLock()
     static let block = 256 * 1024
     static let maximum = 128 * 1024 * 1024
     static let magic = Data([78, 87, 90, 49])
@@ -88,6 +91,12 @@ enum NWZ {
                      mode: Mode = .balanced, cancelled: () -> Bool = { false }) throws -> Bool {
         let length = try source.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
         guard length > 256, length <= maximum, !cancelled(), !respectPower || permitted else { return false }
+        while !encoder.try() {
+            guard !cancelled(), !respectPower || permitted else { return false }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        defer { encoder.unlock() }
+        guard !cancelled(), !respectPower || permitted else { return false }
         let count = (length + block - 1) / block
         guard FileManager.default.createFile(atPath: destination.path, contents: nil,
             attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication]) else { throw invalid }
@@ -113,10 +122,12 @@ enum NWZ {
                     best = candidate; method = code
                 }
             }
-            guard try decode(best, code: method, size: raw.count) == raw else { throw invalid }
+            // The disk read-back below checks every block against its original
+            // and SHA256; a second decode here only doubles the work.
             index.append(number(best.count)); index.append(number(method))
             index.append(contentsOf: SHA256.hash(data: raw))
             try output.write(contentsOf: best)
+            if respectPower && i % 8 == 7 { Thread.sleep(forTimeInterval: 0.005) }
         }
         let archived = try output.offset()
         guard archived < UInt64(length), UInt64(length) - archived >= UInt64(512) else { return false }
@@ -132,6 +143,22 @@ enum NWZ {
             guard try reader.chunk(i) == original else { throw invalid }
         }
         return true
+    }
+
+    // Statistics only need the 12-byte header. Playback still verifies the
+    // full bounded index and each decoded block with SHA256.
+    static func originalLength(_ url: URL) throws -> Int {
+        let input = try FileHandle(forReadingFrom: url)
+        defer { try? input.close() }
+        let fileSize = try input.seekToEnd()
+        try input.seek(toOffset: 0)
+        let header = try read(input, 12)
+        guard header.prefix(4) == magic else { throw invalid }
+        let length = integer(header, 4), count = integer(header, 8)
+        guard length > 256, length <= maximum,
+              count == (length + block - 1) / block,
+              fileSize > UInt64(12 + count * entrySize) else { throw invalid }
+        return length
     }
 
     final class Reader {

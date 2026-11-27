@@ -13,6 +13,7 @@ final class NWZTests: XCTestCase {
         try data.write(to: input)
         XCTAssertTrue(try NWZ.pack(input, into: archive, respectPower: false))
         let reader = try NWZ.Reader(archive)
+        XCTAssertEqual(try NWZ.originalLength(archive), data.count)
         XCTAssertEqual(reader.length, data.count)
         XCTAssertEqual(try reader.range(NWZ.block - 31, count: 600), data.subdata(in: (NWZ.block - 31)..<(NWZ.block + 569)))
         XCTAssertEqual(try reader.range(0, count: data.count), data)
@@ -94,6 +95,7 @@ final class NWZTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: file) }
         try Data(repeating: 0xff, count: 128).write(to: file)
         XCTAssertThrowsError(try NWZ.Reader(file))
+        XCTAssertThrowsError(try NWZ.originalLength(file))
     }
     func testIncompressibleFileIsNotInstalled() throws {
         let input = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

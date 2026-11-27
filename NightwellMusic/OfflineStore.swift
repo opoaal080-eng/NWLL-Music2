@@ -9,9 +9,28 @@ enum OfflineStore {
     // rather than bringing whole audio files into Swift process memory.
     static let limit = 128 * 1024 * 1024
     private static let lock = NSRecursiveLock()
+    private static let compressionQueue = DispatchQueue(label: "fun.nightwell.nwz.automatic", qos: .background)
+    private static let statsLock = NSLock()
+    private static var lastStats: CompressionStats?
+    private static let metadataLimit = 2 * 1024 * 1024
     // Decode only once per unchanged file. A saved title/cover is not proof
     // that the server returned a complete and decodable audio recording.
     private static var validated: [String: (bytes: Int, changed: Date?, playable: Bool)] = [:]
+    private static var archiveValidation: [String: (bytes: Int, changed: Date?, original: Int, playable: Bool)] = [:]
+    private static var metadataSizes: [String: (bytes: Int, changed: Date?, expected: Int?)] = [:]
+
+    private static func expectedSize(_ meta: URL) -> Int? {
+        guard let attrs = try? meta.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]),
+              let size = attrs.fileSize, size > 0, size <= metadataLimit else { return nil }
+        if let hit = metadataSizes[meta.path], hit.bytes == size, hit.changed == attrs.contentModificationDate {
+            return hit.expected
+        }
+        let expected = (try? Data(contentsOf: meta))
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+            .flatMap { ($0["offline_bytes"] as? NSNumber)?.intValue }
+        metadataSizes[meta.path] = (size, attrs.contentModificationDate, expected)
+        return expected
+    }
 
     private static func playableAudio(_ url: URL, expectedBytes: Int? = nil) -> Bool {
         guard let attrs = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey]),
@@ -45,15 +64,19 @@ enum OfflineStore {
         if playableAudio(raw, expectedBytes: expectedBytes) { return raw }
         let archive = raw.deletingPathExtension().appendingPathExtension("nwz")
         guard let attrs = try? archive.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey]),
-              attrs.isRegularFile == true, let bytes = attrs.fileSize, bytes > 256, bytes <= limit,
-              let reader = try? NWZ.Reader(archive),
-              expectedBytes == nil || reader.length == expectedBytes else { return nil }
-        if let hit = validated[archive.path], hit.bytes == bytes, hit.changed == attrs.contentModificationDate {
+              attrs.isRegularFile == true, let bytes = attrs.fileSize, bytes > 0, bytes <= limit else { return nil }
+        // Cache the validated original length too. No index I/O on repeated
+        // queue checks or every player tick.
+        if let hit = archiveValidation[archive.path], hit.bytes == bytes,
+           hit.changed == attrs.contentModificationDate,
+           expectedBytes == nil || hit.original == expectedBytes {
             return hit.playable ? archive : nil
         }
+        guard let reader = try? NWZ.Reader(archive),
+              expectedBytes == nil || reader.length == expectedBytes else { return nil }
         let head = try? reader.range(0, count: 12)
         let good = head.map { String(data: $0.subdata(in: 4..<8), encoding: .ascii) == "ftyp" } ?? false
-        validated[archive.path] = (bytes: bytes, changed: attrs.contentModificationDate, playable: good)
+        archiveValidation[archive.path] = (bytes: bytes, changed: attrs.contentModificationDate, original: reader.length, playable: good)
         return good ? archive : nil
     }
 
@@ -99,10 +122,7 @@ enum OfflineStore {
         guard valid(id), let dir = try? directory(origin, account) else { return nil }
         let audio = dir.appendingPathComponent(id + ".m4a"), meta = dir.appendingPathComponent(id + ".json")
         guard FileManager.default.fileExists(atPath: meta.path) else { return nil }
-        let expected = (try? Data(contentsOf: meta))
-            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
-            .flatMap { ($0["offline_bytes"] as? NSNumber)?.intValue }
-        return storedAudio(audio, expectedBytes: expected)
+        return storedAudio(audio, expectedBytes: expectedSize(meta))
     }
     // Offline artwork belongs beside the downloaded recording, not in the
     // purgeable URL cache. Both the player and iOS Now Playing use this file.
@@ -161,13 +181,8 @@ enum OfflineStore {
         validated.removeValue(forKey: staging.path)
         lock.unlock()
         guard validStaging else { throw URLError(.cannotDecodeContentData) }
-        // Compression can be slow on hard-to-compress AAC. Do not hold the
-        // shared offline-store lock while encoding or verifying.
-        let archiveStage = dir.appendingPathComponent(UUID().uuidString + ".nwz")
-        defer { try? FileManager.default.removeItem(at: archiveStage) }
-        let mode = NWZ.selectedMode
-        let packed = NWZ.enabled && (try? NWZ.pack(staging, into: archiveStage, mode: mode,
-            cancelled: { !NWZ.enabled })) == true
+        // Publish the valid download first. A slow encoder must never stall
+        // the URLSession delegate, progress notification or next download.
         lock.lock(); defer { lock.unlock() }
         try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: staging.path)
         if FileManager.default.fileExists(atPath: target.path) { _ = try FileManager.default.replaceItemAt(target, withItemAt: staging) }
@@ -175,16 +190,10 @@ enum OfflineStore {
         try metadata.write(to: dir.appendingPathComponent(track.id + ".json"), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
         validated.removeValue(forKey: target.path)
         let archive = target.deletingPathExtension().appendingPathExtension("nwz")
-        validated.removeValue(forKey: archive.path)
+        archiveValidation.removeValue(forKey: archive.path)
         try? FileManager.default.removeItem(at: archive)
-        if packed && NWZ.enabled {
-            // If installation fails or is interrupted, the original M4A
-            // remains a valid download. Never delete it before archive commit.
-            do {
-                try FileManager.default.moveItem(at: archiveStage, to: archive)
-                try FileManager.default.removeItem(at: target)
-            } catch { /* retain the playable original or verified archive */ }
-        }
+        metadataSizes.removeValue(forKey: dir.appendingPathComponent(track.id + ".json").path)
+        scheduleCompression(target, id: track.id)
     }
     // All device downloads, including imported/local-account tracks. These
     // figures count audio file lengths, not covers, caches or APFS allocation.
@@ -200,16 +209,18 @@ enum OfflineStore {
         let raw: URL
         let expected: Int?
     }
-    private static func compressionRecords() -> [CompressionRecord] {
+    private static func compressionRecords(cancelled: () -> Bool = { false }) -> [CompressionRecord] {
         guard let root = try? storageRoot(),
               let dirs = try? FileManager.default.contentsOfDirectory(at: root,
                 includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) else { return [] }
         var records: [CompressionRecord] = []
         for dir in dirs where dir.lastPathComponent.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil {
+            if cancelled() { break }
             guard (try? dir.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true,
-                  let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.fileSizeKey]) else { continue }
+                  let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.fileSizeKey], options: [.skipsHiddenFiles]) else { continue }
             for file in files where file.pathExtension == "json" {
-                guard let size = try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= 2 * 1024 * 1024,
+                if cancelled() { return records }
+                guard let size = try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= metadataLimit,
                       let data = try? Data(contentsOf: file),
                       let meta = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                       let id = meta["id"] as? String, valid(id), file.deletingPathExtension().lastPathComponent == id else { continue }
@@ -222,30 +233,58 @@ enum OfflineStore {
     private static func byteSize(_ url: URL) -> Int64 {
         Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
     }
-    static func compressionStats() -> CompressionStats {
-        lock.lock(); defer { lock.unlock() }
+    static func cachedCompressionStats() -> CompressionStats? {
+        statsLock.lock(); defer { statsLock.unlock() }
+        return lastStats
+    }
+    // Read-only, best-effort snapshot; a concurrent install can change a
+    // single entry. Never hold the playback/storage lock across this scan.
+    static func compressionStats(cancelled: () -> Bool = { false }) -> CompressionStats {
         var stats = CompressionStats()
-        for record in compressionRecords() {
+        for record in compressionRecords(cancelled: cancelled) {
+            if cancelled() { break }
             let raw = record.raw, archive = raw.deletingPathExtension().appendingPathExtension("nwz")
             let rawSize = byteSize(raw), archiveSize = byteSize(archive)
             stats.stored += rawSize + archiveSize
             if rawSize > 256 && (record.expected == nil || Int64(record.expected!) == rawSize) {
                 stats.original += rawSize; stats.plain += 1
-            } else if archiveSize > 0, let reader = try? NWZ.Reader(archive),
-                      record.expected == nil || reader.length == record.expected {
-                stats.original += Int64(reader.length); stats.packed += 1
+            } else if archiveSize > 0, let original = try? NWZ.originalLength(archive),
+                      record.expected == nil || original == record.expected {
+                stats.original += Int64(original); stats.packed += 1
             } else {
                 stats.original += Int64(record.expected ?? Int(rawSize + archiveSize))
                 stats.damaged += 1
             }
         }
+        if !cancelled() {
+            statsLock.lock(); lastStats = stats; statsLock.unlock()
+        }
         return stats
     }
-    static func compressionCandidates() -> [URL] {
-        lock.lock(); defer { lock.unlock() }
-        return compressionRecords().filter {
-            byteSize($0.raw) > 256 && byteSize($0.raw.deletingPathExtension().appendingPathExtension("nwz")) == 0
+    static func compressionCandidates(cancelled: () -> Bool = { false }) -> [URL] {
+        compressionRecords(cancelled: cancelled).filter {
+            !cancelled() && byteSize($0.raw) > 256 && byteSize($0.raw.deletingPathExtension().appendingPathExtension("nwz")) == 0
         }.map(\.raw)
+    }
+
+    private static func scheduleCompression(_ raw: URL, id: String) {
+        guard NWZ.enabled else { return }
+        compressionQueue.async {
+            guard NWZ.enabled, NWZ.permitted else { return }
+            // Waiting on main only for a tiny identity check/rename; encoding
+            // never runs on main or the download delegate.
+            let protected = DispatchQueue.main.sync {
+                NativePlayer.shared.protectedOfflineIDs.contains(id)
+            }
+            guard !protected else { return }
+            let candidate = try? prepareCompression(raw, mode: NWZ.selectedMode, cancelled: { !NWZ.enabled })
+            guard let candidate else { return }
+            DispatchQueue.main.async {
+                defer { discardCompression(candidate) }
+                guard NWZ.enabled, !NativePlayer.shared.protectedOfflineIDs.contains(id) else { return }
+                _ = try? installCompression(candidate)
+            }
+        }
     }
 
     struct PreparedCompression {
@@ -303,7 +342,7 @@ enum OfflineStore {
             throw error
         }
         validated.removeValue(forKey: raw.path)
-        validated.removeValue(forKey: archive.path)
+        archiveValidation.removeValue(forKey: archive.path)
         return prepared.original - size
     }
 
@@ -337,10 +376,11 @@ enum OfflineStore {
         let target = dir.appendingPathComponent(id + ".m4a"), meta = dir.appendingPathComponent(id + ".json")
         if op == "remove" {
             try? FileManager.default.removeItem(at: meta)
+            metadataSizes.removeValue(forKey: meta.path)
             try? FileManager.default.removeItem(at: target)
             let archive = target.deletingPathExtension().appendingPathExtension("nwz")
             try? FileManager.default.removeItem(at: archive)
-            validated.removeValue(forKey: archive.path)
+            archiveValidation.removeValue(forKey: archive.path)
             try? FileManager.default.removeItem(at: dir.appendingPathComponent(id + ".cover-original-v2.jpg"))
             try? FileManager.default.removeItem(at: dir.appendingPathComponent(id + ".cover.jpg"))
             validated.removeValue(forKey: target.path)
@@ -366,26 +406,9 @@ enum OfflineStore {
         validated.removeValue(forKey: target.path)
         let oldArchive = target.deletingPathExtension().appendingPathExtension("nwz")
         try? FileManager.default.removeItem(at: oldArchive)
-        validated.removeValue(forKey: oldArchive.path)
-        // The legacy bridge used to bypass compression entirely. Queue the
-        // same safe conversion used by the manual optimizer, after unlocking.
-        if NWZ.enabled {
-            let candidate = target
-            DispatchQueue.global(qos: .utility).async {
-                guard NWZ.enabled, NWZ.permitted else { return }
-                // Avoid racing an active player: installation is on main and
-                // refuses the current or already-prepared track.
-                let prepared = try? prepareCompression(candidate, mode: NWZ.selectedMode,
-                    cancelled: { !NWZ.enabled })
-                guard let prepared else { return }
-                DispatchQueue.main.async {
-                    defer { discardCompression(prepared) }
-                    guard NWZ.enabled,
-                          !NativePlayer.shared.protectedOfflineIDs.contains(id) else { return }
-                    _ = try? installCompression(prepared)
-                }
-            }
-        }
+        archiveValidation.removeValue(forKey: oldArchive.path)
+        metadataSizes.removeValue(forKey: meta.path)
+        scheduleCompression(target, id: id)
         return ["ok": true, "size": bytes.count]
     }
 }
