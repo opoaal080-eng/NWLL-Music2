@@ -8,6 +8,21 @@ import ObjectiveC
 // NWZ1: fixed 256 KiB chunks, a bounded index, independent codecs and SHA256
 // per chunk. All sizes are little endian. No transcoding or PCM conversion.
 enum NWZ {
+    enum Mode: String, CaseIterable, Identifiable {
+        case fast, balanced, maximum
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .fast: return "Быстро"
+            case .balanced: return "Баланс"
+            case .maximum: return "Максимум"
+            }
+        }
+    }
+    static let enabledKey = "nw-nwz-enabled"
+    static let modeKey = "nw-nwz-mode"
+    static var enabled: Bool { UserDefaults.standard.object(forKey: enabledKey) as? Bool ?? true }
+    static var selectedMode: Mode { Mode(rawValue: UserDefaults.standard.string(forKey: modeKey) ?? "") ?? .balanced }
     static let block = 256 * 1024
     static let maximum = 128 * 1024 * 1024
     static let magic = Data([78, 87, 90, 49])
@@ -69,9 +84,10 @@ enum NWZ {
     }
     // The caller owns the unique staging output and keeps the original until
     // verification and installation succeed. Never keep a larger archive.
-    static func pack(_ source: URL, into destination: URL, respectPower: Bool = true) throws -> Bool {
+    static func pack(_ source: URL, into destination: URL, respectPower: Bool = true,
+                     mode: Mode = .balanced, cancelled: () -> Bool = { false }) throws -> Bool {
         let length = try source.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-        guard length > 256, length <= maximum, !respectPower || permitted else { return false }
+        guard length > 256, length <= maximum, !cancelled(), !respectPower || permitted else { return false }
         let count = (length + block - 1) / block
         guard FileManager.default.createFile(atPath: destination.path, contents: nil,
             attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication]) else { throw invalid }
@@ -84,14 +100,15 @@ enum NWZ {
         try output.write(contentsOf: header)
         try output.write(contentsOf: Data(count: count * entrySize))
         for i in 0..<count {
-            guard !respectPower || permitted else { return false }
+            guard !cancelled(), !respectPower || permitted else { return false }
             let raw = try read(input, min(block, length - i * block))
             var best = raw
             var method = 0
-            for code in [1, 2, 3] {
+            for code in (mode == .fast ? [1] : [1, 2, 3]) {
+                guard !cancelled(), !respectPower || permitted else { return false }
                 // Avoid costly LZMA on clearly incompressible audio blocks,
                 // but sample the first two even if the fast codecs found none.
-                if code == 3 && i >= 2 && best.count > raw.count - raw.count / 100 { continue }
+                if mode == .balanced && code == 3 && i >= 2 && best.count > raw.count - raw.count / 100 { continue }
                 if let candidate = encode(raw, code), candidate.count < best.count {
                     best = candidate; method = code
                 }
@@ -102,7 +119,7 @@ enum NWZ {
             try output.write(contentsOf: best)
         }
         let archived = try output.offset()
-        guard archived < UInt64(length), UInt64(length) - archived >= UInt64(max(1024, length / 100)) else { return false }
+        guard archived < UInt64(length), UInt64(length) - archived >= UInt64(512) else { return false }
         try output.seek(toOffset: 12)
         try output.write(contentsOf: index)
         try output.synchronize()
@@ -110,7 +127,7 @@ enum NWZ {
         let reader = try Reader(destination)
         try input.seek(toOffset: 0)
         for i in 0..<count {
-            guard !respectPower || permitted else { return false }
+            guard !cancelled(), !respectPower || permitted else { return false }
             let original = try read(input, min(block, length - i * block))
             guard try reader.chunk(i) == original else { throw invalid }
         }

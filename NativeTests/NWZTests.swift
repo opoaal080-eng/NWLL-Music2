@@ -73,6 +73,22 @@ final class NWZTests: XCTestCase {
         XCTAssertNotNil(output.copyNextSampleBuffer())
         reader.cancelReading()
     }
+    func testAllCompressionModesAreLossless() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let input = root.appendingPathComponent("source.m4a")
+        let original = Data((0..<(NWZ.block + 123)).map { UInt8($0 % 251) })
+        try original.write(to: input)
+        for mode in NWZ.Mode.allCases {
+            let target = root.appendingPathComponent(mode.rawValue + ".nwz")
+            XCTAssertTrue(try NWZ.pack(input, into: target, respectPower: false, mode: mode))
+            XCTAssertEqual(try NWZ.Reader(target).range(0, count: original.count), original)
+        }
+        let cancelled = root.appendingPathComponent("cancelled.nwz")
+        XCTAssertFalse(try NWZ.pack(input, into: cancelled, respectPower: false, mode: .maximum, cancelled: { true }))
+    }
+
     func testInvalidHeader() throws {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: file) }

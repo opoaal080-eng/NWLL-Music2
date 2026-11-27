@@ -1752,6 +1752,7 @@ struct NativeSettings: View {
         case themes = "Темы"
         case customization = "Кастомизация"
         case playback = "Воспроизведение"
+        case compression = "Сжатие треков"
         case about = "О приложении"
 
         var icon: String {
@@ -1759,6 +1760,7 @@ struct NativeSettings: View {
             case .themes: return "paintpalette"
             case .customization: return "slider.horizontal.3"
             case .playback: return "waveform"
+            case .compression: return "archivebox"
             case .about: return "info.circle"
             }
         }
@@ -1767,6 +1769,7 @@ struct NativeSettings: View {
             case .themes: return "Стандартная и Vice Nights"
             case .customization: return "Вкладки, обложки, очередь, текст и фон"
             case .playback: return "Звук, буфер, громкость и офлайн"
+            case .compression: return "Экономия памяти, NWZ и старые загрузки"
             case .about: return "Версия и сведения о сборке"
             }
         }
@@ -2027,6 +2030,8 @@ struct NativeSettings: View {
                             }
                         }
                 }.padding(16).frame(maxWidth: .infinity, minHeight: 166, alignment: .leading).background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        case .compression:
+            NWZSettingsView()
         case .about:
             VStack(alignment: .leading, spacing: 12) {
                 Label("О приложении", systemImage: "info.circle")

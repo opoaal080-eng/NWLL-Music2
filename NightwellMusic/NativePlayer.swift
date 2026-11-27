@@ -650,6 +650,14 @@ final class NativePlayer {
     private var callResumeAttempts = 0
     private var observers: [NSObjectProtocol] = []
     private var current: NativeTrack? { tracks.indices.contains(index) ? tracks[index] : nil }
+    // Never migrate a file that AVPlayer or EQ may still open by its raw URL.
+    var protectedOfflineIDs: Set<String> {
+        var ids = Set<String>()
+        if let current { ids.insert(current.id) }
+        if let nextAssetID { ids.insert(nextAssetID) }
+        if let pendingNextIndex, tracks.indices.contains(pendingNextIndex) { ids.insert(tracks[pendingNextIndex].id) }
+        return ids
+    }
 
     private init() {
         // Buffer intermittent HLS/HTTP streams instead of forcing immediate playback
