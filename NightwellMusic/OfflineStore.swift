@@ -1,6 +1,7 @@
 import Foundation
 import CryptoKit
 import AVFoundation
+import UIKit
 
 /// Device-only files, separated by server and account. No arbitrary file paths.
 enum OfflineStore {
@@ -8,9 +9,25 @@ enum OfflineStore {
     // rather than bringing whole audio files into Swift process memory.
     static let limit = 128 * 1024 * 1024
     private static let lock = NSRecursiveLock()
+    private static let metadataLimit = 2 * 1024 * 1024
     // Decode only once per unchanged file. A saved title/cover is not proof
     // that the server returned a complete and decodable audio recording.
     private static var validated: [String: (bytes: Int, changed: Date?, playable: Bool)] = [:]
+    private static var archiveValidation: [String: (bytes: Int, changed: Date?, original: Int, playable: Bool)] = [:]
+    private static var metadataSizes: [String: (bytes: Int, changed: Date?, expected: Int?)] = [:]
+
+    private static func expectedSize(_ meta: URL) -> Int? {
+        guard let attrs = try? meta.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]),
+              let size = attrs.fileSize, size > 0, size <= metadataLimit else { return nil }
+        if let hit = metadataSizes[meta.path], hit.bytes == size, hit.changed == attrs.contentModificationDate {
+            return hit.expected
+        }
+        let expected = (try? Data(contentsOf: meta))
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+            .flatMap { ($0["offline_bytes"] as? NSNumber)?.intValue }
+        metadataSizes[meta.path] = (size, attrs.contentModificationDate, expected)
+        return expected
+    }
 
     private static func playableAudio(_ url: URL, expectedBytes: Int? = nil) -> Bool {
         guard let attrs = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey]),
@@ -20,6 +37,12 @@ enum OfflineStore {
         if let hit = validated[url.path], hit.bytes == bytes, hit.changed == attrs.contentModificationDate {
             return hit.playable
         }
+        let good = inspectAudio(url)
+        validated[url.path] = (bytes: bytes, changed: attrs.contentModificationDate, playable: good)
+        return good
+    }
+
+    private static func inspectAudio(_ url: URL) -> Bool {
         let good: Bool
         if let handle = try? FileHandle(forReadingFrom: url) {
             let header = (try? handle.read(upToCount: 12)) ?? Data()
@@ -34,8 +57,29 @@ enum OfflineStore {
         } else {
             good = false
         }
-        validated[url.path] = (bytes: bytes, changed: attrs.contentModificationDate, playable: good)
         return good
+    }
+
+    // Caller holds lock. Legacy files remain valid, and archives expose the
+    // original byte length to existing offline metadata.
+    private static func storedAudio(_ raw: URL, expectedBytes: Int? = nil) -> URL? {
+        if playableAudio(raw, expectedBytes: expectedBytes) { return raw }
+        let archive = raw.deletingPathExtension().appendingPathExtension("nwz")
+        guard let attrs = try? archive.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey]),
+              attrs.isRegularFile == true, let bytes = attrs.fileSize, bytes > 0, bytes <= limit else { return nil }
+        // Cache the validated original length too. No index I/O on repeated
+        // queue checks or every player tick.
+        if let hit = archiveValidation[archive.path], hit.bytes == bytes,
+           hit.changed == attrs.contentModificationDate,
+           expectedBytes == nil || hit.original == expectedBytes {
+            return hit.playable ? archive : nil
+        }
+        guard let reader = try? NWZ.Reader(archive),
+              expectedBytes == nil || reader.length == expectedBytes else { return nil }
+        let head = try? reader.range(0, count: 12)
+        let good = head.map { String(data: $0.subdata(in: 4..<8), encoding: .ascii) == "ftyp" } ?? false
+        archiveValidation[archive.path] = (bytes: bytes, changed: attrs.contentModificationDate, original: reader.length, playable: good)
+        return good ? archive : nil
     }
 
     private static func valid(_ s: String) -> Bool { !s.isEmpty && s.count <= 80 && s.range(of: "^[A-Za-z0-9_-]+$", options: .regularExpression) != nil }
@@ -53,8 +97,13 @@ enum OfflineStore {
                 guard let size = try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= 2 * 1024 * 1024,
                       let data = try? Data(contentsOf: file), var item = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                       let id = item["id"] as? String, valid(id) else { continue }
-                if playableAudio(dir.appendingPathComponent(id + ".m4a"),
-                    expectedBytes: (item["offline_bytes"] as? NSNumber)?.intValue) {
+                // Never lock the whole library while enumerating metadata.
+                // Protect only the individual file validation/cache lookup.
+                lock.lock()
+                let available = storedAudio(dir.appendingPathComponent(id + ".m4a"),
+                    expectedBytes: (item["offline_bytes"] as? NSNumber)?.intValue) != nil
+                lock.unlock()
+                if available {
                     item["_offline"] = true
                     item["_offline_account"] = "local_" + dir.lastPathComponent
                     tracks.append(item)
@@ -79,12 +128,48 @@ enum OfflineStore {
         lock.lock(); defer { lock.unlock() }
         guard valid(id), let dir = try? directory(origin, account) else { return nil }
         let audio = dir.appendingPathComponent(id + ".m4a"), meta = dir.appendingPathComponent(id + ".json")
-        return FileManager.default.fileExists(atPath: meta.path) && playableAudio(audio) ? audio : nil
+        guard FileManager.default.fileExists(atPath: meta.path) else { return nil }
+        return storedAudio(audio, expectedBytes: expectedSize(meta))
     }
+    // Offline artwork belongs beside the downloaded recording, not in the
+    // purgeable URL cache. Both the player and iOS Now Playing use this file.
+    static func cover(origin: URL, account: String, id: String) -> UIImage? {
+        lock.lock(); defer { lock.unlock() }
+        guard valid(id), let dir = try? directory(origin, account) else { return nil }
+        // Discard pre-v2 artwork because earlier builds destructively modified
+        // its pixels. Keep the audio and metadata, only artwork is re-fetched.
+        let legacy = dir.appendingPathComponent(id + ".cover.jpg")
+        if FileManager.default.fileExists(atPath: legacy.path) {
+            try? FileManager.default.removeItem(at: legacy)
+        }
+        let path = dir.appendingPathComponent(id + ".cover-original-v2.jpg")
+        guard let length = (try? path.resourceValues(forKeys: [.fileSizeKey]))?.fileSize,
+              length > 0, length <= 3 * 1024 * 1024,
+              let data = try? Data(contentsOf: path, options: .mappedIfSafe) else { return nil }
+        return UIImage(data: data)
+    }
+
+    static func saveCover(_ image: UIImage, origin: URL, account: String, id: String) throws {
+        guard valid(id), let data = image.jpegData(compressionQuality: 0.83),
+              !data.isEmpty, data.count <= 3 * 1024 * 1024 else {
+            throw URLError(.cannotDecodeContentData)
+        }
+        lock.lock(); defer { lock.unlock() }
+        let directory = try directory(origin, account)
+        let file = directory.appendingPathComponent(id + ".cover-original-v2.jpg")
+        try data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        // A successful new download removes the old corrupted derivative.
+        try? FileManager.default.removeItem(
+            at: directory.appendingPathComponent(id + ".cover.jpg"))
+        var mutable = file
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try? mutable.setResourceValues(values)
+    }
+
     /// Called directly from the download delegate while the system temporary file exists.
     /// Copy on disk instead of allocating base64 versions of an entire track in memory.
     static func saveDownloadedFile(_ file: URL, track: Track, origin: URL, account: String) throws {
-        lock.lock(); defer { lock.unlock() }
         guard valid(track.id) else { throw URLError(.badURL) }
         let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
         guard size > 256, size <= limit else { throw URLError(.dataLengthExceedsMaximum) }
@@ -95,17 +180,24 @@ enum OfflineStore {
         var item = track.dictionary
         item["_offline"] = true; item["_offline_account"] = account; item["offline_bytes"] = size
         let metadata = try JSONSerialization.data(withJSONObject: item)
-        let staging = dir.appendingPathComponent(UUID().uuidString + ".m4a")
+        let staging = dir.appendingPathComponent("." + UUID().uuidString + ".m4a")
         defer { try? FileManager.default.removeItem(at: staging) }
         try FileManager.default.copyItem(at: file, to: staging)
-        guard playableAudio(staging, expectedBytes: size) else {
-            throw URLError(.cannotDecodeContentData)
-        }
+        guard inspectAudio(staging) else { throw URLError(.cannotDecodeContentData) }
+        // Store the original M4A without any additional compression.
+        lock.lock(); defer { lock.unlock() }
         try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: staging.path)
         if FileManager.default.fileExists(atPath: target.path) { _ = try FileManager.default.replaceItemAt(target, withItemAt: staging) }
         else { try FileManager.default.moveItem(at: staging, to: target) }
         try metadata.write(to: dir.appendingPathComponent(track.id + ".json"), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
-        validated.removeValue(forKey: target.path)
+        if let attrs = try? target.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]),
+           let bytes = attrs.fileSize {
+            validated[target.path] = (bytes: bytes, changed: attrs.contentModificationDate, playable: true)
+        } else { validated.removeValue(forKey: target.path) }
+        let archive = target.deletingPathExtension().appendingPathExtension("nwz")
+        archiveValidation.removeValue(forKey: archive.path)
+        try? FileManager.default.removeItem(at: archive)
+        metadataSizes.removeValue(forKey: dir.appendingPathComponent(track.id + ".json").path)
     }
     static func importLocalFile(_ file: URL, id: String, title: String,
                                 duration: Double, origin: URL) throws {
@@ -118,12 +210,12 @@ enum OfflineStore {
     }
 
     static func operation(_ body: [String: Any], origin: URL) throws -> [String: Any] {
-        lock.lock(); defer { lock.unlock() }
         guard let op = body["op"] as? String else { throw URLError(.badURL) }
         if op == "listAll" {
             let scan = try allTracks()
             return ["tracks": scan.tracks, "damaged": scan.damaged]
         }
+        lock.lock(); defer { lock.unlock() }
         let account = body["account"] as? String ?? "device"
         let dir = try directory(origin, account)
         if op == "list" {
@@ -137,7 +229,13 @@ enum OfflineStore {
         let target = dir.appendingPathComponent(id + ".m4a"), meta = dir.appendingPathComponent(id + ".json")
         if op == "remove" {
             try? FileManager.default.removeItem(at: meta)
+            metadataSizes.removeValue(forKey: meta.path)
             try? FileManager.default.removeItem(at: target)
+            let archive = target.deletingPathExtension().appendingPathExtension("nwz")
+            try? FileManager.default.removeItem(at: archive)
+            archiveValidation.removeValue(forKey: archive.path)
+            try? FileManager.default.removeItem(at: dir.appendingPathComponent(id + ".cover-original-v2.jpg"))
+            try? FileManager.default.removeItem(at: dir.appendingPathComponent(id + ".cover.jpg"))
             validated.removeValue(forKey: target.path)
             return ["ok": true]
         }
@@ -148,7 +246,7 @@ enum OfflineStore {
         track["_offline"] = true; track["_offline_account"] = account; track["offline_bytes"] = bytes.count
         let metadata = try JSONSerialization.data(withJSONObject: track)
         guard metadata.count <= 2 * 1024 * 1024 else { throw URLError(.dataLengthExceedsMaximum) }
-        let staging = dir.appendingPathComponent(UUID().uuidString + ".m4a")
+        let staging = dir.appendingPathComponent("." + UUID().uuidString + ".m4a")
         defer { try? FileManager.default.removeItem(at: staging) }
         try bytes.write(to: staging, options: .atomic)
         guard playableAudio(staging, expectedBytes: bytes.count) else {
@@ -159,7 +257,67 @@ enum OfflineStore {
         else { try FileManager.default.moveItem(at: staging, to: target) }
         try metadata.write(to: meta, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
         validated.removeValue(forKey: target.path)
+        let oldArchive = target.deletingPathExtension().appendingPathExtension("nwz")
+        try? FileManager.default.removeItem(at: oldArchive)
+        archiveValidation.removeValue(forKey: oldArchive.path)
+        metadataSizes.removeValue(forKey: meta.path)
         return ["ok": true, "size": bytes.count]
     }
 }
 
+
+
+/// Migrates artwork for recordings downloaded before covers were persisted.
+/// Work is sequential and low priority so playback and the cover CDN stay fast.
+actor OfflineArtworkArchive {
+    static let shared = OfflineArtworkArchive()
+
+    private var attempted: [String: Date] = [:]
+    private var inFlight = Set<String>()
+
+    func backfill(_ tracks: [Track], origin: URL) async {
+        for track in tracks where track._offline == true {
+            if Task.isCancelled { return }
+            let owner = track._offline_account ?? "device"
+            await saveIfNeeded(track, origin: origin, account: owner)
+        }
+    }
+
+    func saveIfNeeded(_ track: Track, origin: URL, account: String) async {
+        let key = origin.absoluteString + "|" + account + "|" + track.id
+        guard !inFlight.contains(key),
+              Date().timeIntervalSince(attempted[key] ?? .distantPast) >= 300
+        else { return }
+        if OfflineStore.cover(origin: origin, account: account, id: track.id) != nil {
+            attempted[key] = .now
+            return
+        }
+        inFlight.insert(key)
+        attempted[key] = .now
+        defer { inFlight.remove(key) }
+        // Imported/embedded artwork is also independent of the network.
+        var image: UIImage?
+        if let raw = track.cover_url, raw.hasPrefix("data:image/"),
+           let comma = raw.firstIndex(of: ","),
+           let data = Data(base64Encoded: String(raw[raw.index(after: comma)...])),
+           data.count < 2 * 1024 * 1024 {
+            image = UIImage(data: data)
+        }
+        if image == nil,
+           let url = CoverImagePipeline.coverURL(for: track, origin: origin) {
+            image = await CoverImagePipeline.shared.image(for: url, maxPixel: 512)
+        }
+        // A stale external CDN URL may be unavailable when the user
+        // downloads the track. Try Nightwell's same-origin cover endpoint.
+        if image == nil, !track.id.hasPrefix("local_"),
+           track.id.range(of: "^[A-Za-z0-9_-]+$", options: .regularExpression) != nil,
+           let fallback = URL(string: "api/covers/" + track.id, relativeTo: origin) {
+            image = await CoverImagePipeline.shared.image(for: fallback, maxPixel: 512)
+        }
+        guard let image, !Task.isCancelled else { return }
+        // Archive exactly the artwork returned by the cover pipeline.
+        // Do not process corner colours or copy pixels into the image.
+        try? OfflineStore.saveCover(image, origin: origin,
+                                    account: account, id: track.id)
+    }
+}

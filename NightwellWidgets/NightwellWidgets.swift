@@ -655,5 +655,6 @@ private struct NWQuickAccess: Widget {
     var body: some Widget {
         NWNowPlaying()
         NWQuickAccess()
+        NWDownloadActivityWidget()
     }
 }

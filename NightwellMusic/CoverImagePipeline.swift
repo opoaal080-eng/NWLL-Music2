@@ -12,6 +12,15 @@ actor CoverImagePipeline {
     private let compressed = NSCache<NSString, NSData>()
     private var pendingData: [String: Task<Data?, Never>] = [:]
     private var pendingImages: [String: Task<UIImage?, Never>] = [:]
+    private var variants: [String: Set<Int>] = [:]
+
+    func cachedArtwork(for url: URL) -> UIImage? {
+        let key = url.absoluteString
+        for size in (variants[key] ?? []).sorted(by: >) {
+            if let image = decoded.object(forKey: "\(key)#\(size)" as NSString) { return image }
+        }
+        return nil
+    }
     // Bad/unavailable provider artwork can otherwise be re-requested by
     // every row in a recycled list, even while the network is struggling.
     private var retryAfter: [String: Date] = [:]
@@ -44,10 +53,12 @@ actor CoverImagePipeline {
         compressed.countLimit = 100
 
         let configuration = URLSessionConfiguration.default
+        // Versioned cache is intentionally separate from pre-v2 artwork.
+        // The previous builds could retain modified cover thumbnails.
         configuration.urlCache = URLCache(
             memoryCapacity: 28 * 1024 * 1024,
             diskCapacity: 160 * 1024 * 1024,
-            diskPath: "nightwell-cover-thumbnails"
+            diskPath: "nightwell-cover-thumbnails-raw-v2"
         )
         configuration.httpCookieStorage = .shared
         configuration.httpShouldSetCookies = true
@@ -77,7 +88,9 @@ actor CoverImagePipeline {
         let dimension = min(1200, max(96, maxPixel))
         let key = "\(url.absoluteString)#\(dimension)"
         if let hit = decoded.object(forKey: key as NSString) { return hit }
-        if !retryFailure && skipTemporarily(url.absoluteString) { return nil }
+        if !retryFailure && skipTemporarily(url.absoluteString) {
+            return cachedArtwork(for: url)
+        }
         if let inFlight = pendingImages[key] { return await inFlight.value }
 
         let task = Task<UIImage?, Never>(priority: .userInitiated) {
@@ -103,8 +116,16 @@ actor CoverImagePipeline {
         if let result, let cgImage = result.cgImage {
             decoded.setObject(result, forKey: key as NSString,
                               cost: cgImage.bytesPerRow * cgImage.height)
+            if variants.count >= 256 && variants[url.absoluteString] == nil {
+                for old in Array(variants.keys.prefix(64)) { variants.removeValue(forKey: old) }
+            }
+            variants[url.absoluteString, default: []].insert(dimension)
             retryAfter.removeValue(forKey: url.absoluteString)
         } else if result == nil && !Task.isCancelled {
+            // A server may return HTML or a temporary placeholder with HTTP
+            // 200. Do not cache undecodable bytes forever.
+            compressed.removeObject(forKey: url.absoluteString as NSString)
+            session.configuration.urlCache?.removeCachedResponse(for: URLRequest(url: url))
             markUnavailable(url.absoluteString)
         }
         return result
@@ -120,7 +141,7 @@ actor CoverImagePipeline {
                 var request = URLRequest(url: url)
                 // Cover URLs are content-addressed; reuse downloaded images even
                 // when the API serves conservative cache headers.
-                request.cachePolicy = .returnCacheDataElseLoad
+                request.cachePolicy = retryFailure ? .reloadIgnoringLocalCacheData : .returnCacheDataElseLoad
                 // Authenticate Nightwell covers only, never an external image CDN.
                 let configured = UserDefaults.standard.string(forKey: "nightwell.server") ?? "https://music.nightwell.fun/"
                 if let origin = ServerAddress.validated(configured),
@@ -133,7 +154,8 @@ actor CoverImagePipeline {
                 let (bytes, response) = try await session.data(for: request)
                 guard let http = response as? HTTPURLResponse,
                       (200..<300).contains(http.statusCode),
-                      bytes.count > 0, bytes.count <= 8 * 1024 * 1024 else { return nil }
+                      bytes.count > 0, bytes.count <= 8 * 1024 * 1024,
+                      CGImageSourceCreateWithData(bytes as CFData, nil) != nil else { return nil }
                 return bytes
             } catch {
                 return nil

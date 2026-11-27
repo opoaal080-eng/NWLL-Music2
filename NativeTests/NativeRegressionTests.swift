@@ -1,5 +1,7 @@
 import XCTest
 import AVFoundation
+import UIKit
+import SwiftUI
 @testable import NightwellMusic
 
 private actor LyricsStub: LyricsService {
@@ -103,6 +105,139 @@ private actor LyricsStub: LyricsService {
         try await waitForResult(model)
         XCTAssertEqual(model.trackID, "second"); XCTAssertEqual(model.value?.plain, "second")
     }
+    private func testCornerPixel(_ image: UIImage, x: Int = 3, y: Int = 3) -> [UInt8] {
+        guard let cg = image.cgImage else { return [] }
+        let width = cg.width, height = cg.height
+        var pixel = [UInt8](repeating: 0, count: 4)
+        pixel.withUnsafeMutableBytes { bytes in
+            guard let context = CGContext(data: bytes.baseAddress,
+                width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGBitmapInfo.byteOrder32Big.rawValue |
+                            CGImageAlphaInfo.premultipliedLast.rawValue) else { return }
+            context.draw(cg, in: CGRect(x: -x, y: -y, width: width, height: height))
+        }
+        return pixel
+    }
+
+    func testOriginalArtworkPixelsRemainUntouchedInRenderedPlayer() throws {
+        // Dark art can be intentional: the old flood fill copied coloured
+        // pixels into faces, hair and other details next to black corners.
+        let side = 180
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let original = UIGraphicsImageRenderer(size: CGSize(width: side, height: side),
+                                                 format: format).image { context in
+            UIColor(red: 0.66, green: 0.50, blue: 0.37, alpha: 1).setFill()
+            context.fill(CGRect(x: 0, y: 0, width: side, height: side))
+            UIColor.black.setFill()
+            // A vertical dark detail remains at the tested x-coordinate
+            // regardless of CGImage/UIKit coordinate orientation.
+            context.fill(CGRect(x: 20, y: 0, width: 40, height: side))
+        }
+        let sourceDark = testCornerPixel(original, x: 30, y: 30)
+        XCTAssertLessThan(Int(sourceDark[0]), 20)
+        let renderer = ImageRenderer(content:
+            CoverArtworkSurface(image: original, cornerRadius: 26)
+                .frame(width: CGFloat(side), height: CGFloat(side))
+                .background(Color.black)
+        )
+        renderer.scale = 1
+        let drawn = try XCTUnwrap(renderer.uiImage)
+        let dark = testCornerPixel(drawn, x: 30, y: 30)
+        XCTAssertLessThan(Int(dark[0]), 25,
+            "Deliberately dark image details must never be replaced by colour filling")
+        let centre = testCornerPixel(drawn, x: 90, y: 90)
+        let originalCentre = testCornerPixel(original, x: 90, y: 90)
+        for channel in 0..<3 {
+            XCTAssertLessThanOrEqual(
+                abs(Int(centre[channel]) - Int(originalCentre[channel])), 5,
+                "The original artwork must be rendered without per-pixel changes")
+        }
+    }
+
+    func testCoverRoundsAllFourCornersAsOneSurface() throws {
+        // Regression: a blurred square backing outside the artwork's mask
+        // made every corner look sharp in the mini and full player.
+        let renderer = ImageRenderer(content:
+            Cover(track: nil, origin: origin, pixelWidth: 200, cornerRadius: 25)
+                .frame(width: 200, height: 200)
+        )
+        renderer.scale = 1
+        let image = try XCTUnwrap(renderer.uiImage)
+        for (x, y) in [(3, 3), (196, 3), (3, 196), (196, 196)] {
+            let corner = testCornerPixel(image, x: x, y: y)
+            XCTAssertLessThan(Int(corner[3]), 10,
+                "Rounded artwork corner at (\\(x), \\(y)) must remain transparent")
+        }
+        let centre = testCornerPixel(image, x: 100, y: 100)
+        XCTAssertGreaterThan(Int(centre[3]), 0,
+            "Artwork placeholder must remain visible inside its rounded boundary")
+    }
+
+    func testRoundedCoverCornersShowBackdropWithoutSecondaryArtworkWedges() throws {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let artwork = UIGraphicsImageRenderer(size: CGSize(width: 180, height: 180),
+                                               format: format).image { context in
+            UIColor(red: 0.52, green: 0.72, blue: 0.37, alpha: 1).setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 180, height: 180))
+        }
+        let background = Color(red: 0.10, green: 0.21, blue: 0.30)
+        let renderer = ImageRenderer(content:
+            CoverArtworkSurface(image: artwork, cornerRadius: 26)
+                .frame(width: 180, height: 180)
+                .background(background)
+        )
+        renderer.scale = 1
+        let image = try XCTUnwrap(renderer.uiImage)
+        let center = testCornerPixel(image, x: 90, y: 90)
+        XCTAssertGreaterThan(Int(center[1]), 170)
+        // Outside the true radius the player background must remain visible.
+        // An artwork-coloured triangle here means the extra blurred image
+        // layer has accidentally been restored.
+        for (x, y) in [(3, 3), (176, 3), (3, 176), (176, 176)] {
+            let pixel = testCornerPixel(image, x: x, y: y)
+            XCTAssertLessThan(Int(pixel[1]), 85,
+                "Corner must show player backdrop, not a coloured wedge")
+            XCTAssertGreaterThan(Int(pixel[2]), 55,
+                "Background colour must remain visible outside the cover radius")
+        }
+        // Just inside the rounded edge the artwork must remain fully present.
+        for (x, y) in [(13, 13), (166, 13), (13, 166), (166, 166)] {
+            let pixel = testCornerPixel(image, x: x, y: y)
+            XCTAssertGreaterThan(Int(pixel[1]), 155,
+                "Artwork must not be eaten away by an additional corner mask")
+        }
+    }
+
+    func testOfflineArtworkPersistsAndIsRemovedWithDownload() throws {
+        let id = "offline_cover_" + UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        let account = "cover_test_" + UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        defer {
+            _ = try? OfflineStore.operation(
+                ["op": "remove", "id": id, "account": account], origin: origin)
+        }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let source = UIGraphicsImageRenderer(size: CGSize(width: 64, height: 64),
+                                              format: format).image { context in
+            UIColor(red: 0.2, green: 0.67, blue: 0.8, alpha: 1).setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 64, height: 64))
+        }
+        try OfflineStore.saveCover(source, origin: origin, account: account, id: id)
+        let archived = try XCTUnwrap(OfflineStore.cover(origin: origin, account: account, id: id))
+        XCTAssertEqual(archived.size.width, 64)
+        XCTAssertEqual(archived.size.height, 64)
+        let pixel = testCornerPixel(archived, x: 32, y: 32)
+        XCTAssertGreaterThan(Int(pixel[2]), Int(pixel[0]))
+        _ = try OfflineStore.operation(["op": "remove", "id": id, "account": account],
+                                       origin: origin)
+        XCTAssertNil(OfflineStore.cover(origin: origin, account: account, id: id))
+    }
+
     func testPlayerQueueRetainsDownloadedLyricsMetadata() throws {
         let player = NativePlayer.shared
         defer { player.stop() }

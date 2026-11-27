@@ -4,6 +4,11 @@ import AVFoundation
 import Combine
 import Network
 
+// Download byte progress is separate from the app-wide MusicStore.
+@MainActor final class DownloadProgressPresentation: ObservableObject {
+    @Published var fractions: [String: Double] = [:]
+}
+
 @MainActor final class TrackStatus: ObservableObject {
     @Published var id = ""
     @Published var playing = false
@@ -16,6 +21,8 @@ import Network
 @MainActor final class PlaybackClock: ObservableObject {
     let status = TrackStatus()
     let presentation = PlaybackPresentation()
+    // Queue/deck doesn't depend on duration, playhead, buffering or preview.
+    let queuePresentation = PlaybackPresentation()
     private var queueRevision = -1
     private var queueIndexByID: [String: Int] = [:]
     private var presentationUpdateDepth = 0
@@ -53,6 +60,9 @@ import Network
             if queue != oldValue { invalidatePresentation() }
         }
     }
+    @Published var offlineQueueActive = false {
+        didSet { if offlineQueueActive != oldValue { invalidatePresentation() } }
+    }
     @Published var failure = "" {
         didSet { if failure != oldValue { invalidatePresentation() } }
     }
@@ -76,14 +86,13 @@ import Network
             includeDiagnostics: false, includeQueuedIDs: false)
         let revision = value["queueRevision"] as? Int ?? 0
         var nextQueue: [Track]?
-        if revision != queueRevision,
-           let raw = NativePlayer.shared.snapshot()["queueTracks"],
-           let data = try? JSONSerialization.data(withJSONObject: raw) {
-            nextQueue = try? JSONDecoder().decode([Track].self, from: data)
+        if revision != queueRevision {
+            nextQueue = NativePlayer.shared.presentationQueue()
         }
         applySnapshot(value, queueTracks: nextQueue)
     }
     func applySnapshot(_ value: [String: Any], queueTracks: [Track]? = nil) {
+        let oldID = id, oldRevision = queueRevision, oldOffline = offlineQueueActive
         presentationUpdateDepth += 1
         // Streaming manifests occasionally expose NaN or infinite lengths.
         // Never pass those into a SwiftUI ClosedRange or an audio frame seek.
@@ -105,20 +114,23 @@ import Network
         if playing != next { playing = next; status.playing = next }
         if id != nextID { id = nextID; status.id = nextID }
         let nextDisplayID = value["displayID"] as? String ?? nextID
-        if displayID != nextDisplayID { displayID = nextDisplayID }
+        let displayChanged = displayID != nextDisplayID
+        if displayChanged { displayID = nextDisplayID }
         let rawDisplayDuration = value["displayDuration"] as? Double ?? duration
         let nextDisplayDuration = rawDisplayDuration.isFinite && rawDisplayDuration > 0.5
             ? max(1, min(rawDisplayDuration, 604800)) : duration
-        if displayDuration != nextDisplayDuration { displayDuration = nextDisplayDuration }
+        if displayChanged || abs(displayDuration - nextDisplayDuration) > 0.15 { displayDuration = nextDisplayDuration }
         let rawDisplayPosition = value["displayPosition"] as? Double ?? position
         let nextDisplayPosition = rawDisplayPosition.isFinite
             ? min(displayDuration, max(0, rawDisplayPosition)) : 0
-        if displayPosition != nextDisplayPosition { displayPosition = nextDisplayPosition }
+        if abs(displayPosition - nextDisplayPosition) > 0.04 || displayChanged { displayPosition = nextDisplayPosition }
         let nextPreparing = value["preparing"] as? Bool ?? false
         let rawBuffered = value["bufferFraction"] as? Double ?? 0
         let nextBuffered = rawBuffered.isFinite ? min(1, max(0, rawBuffered)) : 0
         if preparing != nextPreparing { preparing = nextPreparing }
         if abs(bufferFraction - nextBuffered) > 0.002 { bufferFraction = nextBuffered }
+        let offlineSelection = value["offlineQueueActive"] as? Bool ?? false
+        if offlineQueueActive != offlineSelection { offlineQueueActive = offlineSelection }
         let nextFailure = value["error"] as? String ?? ""
         if failure != nextFailure { failure = nextFailure }
         let revision = value["queueRevision"] as? Int ?? 0
@@ -131,6 +143,9 @@ import Network
         if presentationUpdateDepth == 0 && presentationChanged {
             presentationChanged = false
             presentation.invalidate()
+        }
+        if id != oldID || queueRevision != oldRevision || offlineQueueActive != oldOffline {
+            queuePresentation.invalidate()
         }
         onTick?(value)
     }
@@ -196,9 +211,15 @@ struct NightwellAccountDevicesResponse: Decodable {
     @Published var artistResults: [ArtistDirectoryItem] = []
     @Published var searchArtistSuggestions: [ArtistDirectoryItem] = []
     @Published var offline: [Track] = [] {
-        didSet { downloadedTrackIDs = Set(offline.map(\.id)) }
+        didSet { downloadedTrackIDs = Set(offline.map(\.id)); offlineRevision &+= 1 }
     }
     private var downloadedTrackIDs = Set<String>()
+    private var offlineRevision = 0
+    private var lastConnectivityRevision = -1
+    private var lastConnectivityOnline: Bool?
+    private var offlineRefreshTask: Task<Void, Never>?
+    private var offlineRefreshPending = false
+    private var downloadRefreshTask: Task<Void, Never>?
     @Published private(set) var damagedOffline: [Track] = []
     @Published var playlists: [Playlist] = []
     @Published var likes: Set<String> = []
@@ -277,7 +298,11 @@ struct NightwellAccountDevicesResponse: Decodable {
     @Published private(set) var connectionStatus = "Загрузка…"
     @Published var downloadMessage = ""
     @Published var downloading = false
-    @Published var downloadFractions: [String: Double] = [:]
+    let downloadProgressPresentation = DownloadProgressPresentation()
+    var downloadFractions: [String: Double] {
+        get { downloadProgressPresentation.fractions }
+        set { if downloadProgressPresentation.fractions != newValue { downloadProgressPresentation.fractions = newValue } }
+    }
     @Published private(set) var pendingDownloadKeys = Set<String>()
     @Published private(set) var completedDownloadKeys = Set<String>()
     @Published var authPresented = false
@@ -497,11 +522,17 @@ struct NightwellAccountDevicesResponse: Decodable {
         byID.reserveCapacity(likes.count)
         // Arrays share storage here; avoid copying the full catalogue into one
         // temporary array or indexing metadata that the favorites cannot use.
-        for source in [favoriteTrackDetails, catalog, results, clock.queue, offline] {
-            for item in source where likes.contains(item.id) && byID[item.id] == nil {
-                byID[item.id] = item
+        // Prefer current metadata over old favorite snapshots. Fill any
+        // missing cover from other records without replacing the track.
+        for source in [catalog, results, clock.queue, offline, favoriteTrackDetails] {
+            for item in source where likes.contains(item.id) {
+                if var old = byID[item.id] {
+                    if (old.cover_url ?? "").isEmpty, let cover = item.cover_url, !cover.isEmpty {
+                        old.cover_url = cover
+                        byID[item.id] = old
+                    }
+                } else { byID[item.id] = item }
             }
-            if byID.count == likes.count { break }
         }
         var seen = Set<String>()
         var presented: [Track] = []
@@ -631,7 +662,7 @@ struct NightwellAccountDevicesResponse: Decodable {
             do { try await Task.sleep(nanoseconds: 250_000_000) } catch { return }
             guard let self, let key = self.sessionCacheKey else { return }
             let snapshot = SessionSnapshot(savedAt: Date(), tracks: Array(self.catalog.prefix(1500)),
-                                           likes: self.favoriteOrder.isEmpty ? Array(self.likes) : self.favoriteOrder,
+                                           likes: FavoriteMutationPolicy.order(server: self.favoriteOrder, membership: self.likes, local: []),
                                            playlists: self.playlists,
                                            wave: Array(self.lastWave.prefix(90)))
             let data = await Task.detached(priority: .utility) { try? JSONEncoder().encode(snapshot) }.value
@@ -652,10 +683,36 @@ struct NightwellAccountDevicesResponse: Decodable {
     private var lastConfirmedServerResponse = Date.distantPast
     private var consecutiveConnectionFailures = 0
 
+    // Only a verified server response can turn the offline selection back
+    // into its original online queue. An NWPath alone is not sufficient.
+    private func syncPlaybackConnectivity() {
+        let online: Bool
+        if !hasNetworkPath || connectionStatus == "Оффлайн" || connectionStatus == "Ограничен" { online = false }
+        else if connectionStatus == "Онлайн" { online = true }
+        else { return }
+        guard lastConnectivityOnline != online || lastConnectivityRevision != offlineRevision else { return }
+        lastConnectivityOnline = online; lastConnectivityRevision = offlineRevision
+        NativePlayer.shared.updateConnectivity(online: online, downloaded: offline.map(\.dictionary))
+    }
+
     private func markServerReachable() {
+        let wasUnavailable = connectionStatus != "Онлайн"
         consecutiveConnectionFailures = 0
         lastConfirmedServerResponse = Date()
         if connectionStatus != "Онлайн" { connectionStatus = "Онлайн" }
+        syncPlaybackConnectivity()
+        if wasUnavailable, !offline.isEmpty {
+            let savedTracks = offline, server = origin
+            Task.detached(priority: .utility) {
+                await OfflineArtworkArchive.shared.backfill(savedTracks, origin: server)
+            }
+        }
+        // An offline track can have no cached lyrics at selection time.
+        // Retry that same track after recovery, retaining any saved text.
+        if wasUnavailable, let current = clock.current,
+           lyrics.trackID == current.id {
+            lyrics.select(current, api: api, origin: origin, online: account != nil)
+        }
     }
 
     // HTTP 4xx or a JSON decoding error means the API responded: it is not
@@ -683,8 +740,15 @@ struct NightwellAccountDevicesResponse: Decodable {
     }
 
     private func checkConnection() {
-        guard applicationIsActive, sessionReady, !starting, connectionCheck == nil else { return }
-        guard hasNetworkPath else { connectionStatus = "Оффлайн"; return }
+        // Music continues in the background: recover the original queue there,
+        // too, without requiring the app to return to the foreground.
+        guard (applicationIsActive || NativePlayer.shared.isOfflineQueueActive),
+              sessionReady, !starting, connectionCheck == nil else { return }
+        guard hasNetworkPath else {
+            connectionStatus = "Оффлайн"
+            syncPlaybackConnectivity()
+            return
+        }
         let server = origin
         let client = api
         let session = sessionGeneration
@@ -760,6 +824,7 @@ struct NightwellAccountDevicesResponse: Decodable {
                     if self.consecutiveConnectionFailures >= 3 &&
                        Date().timeIntervalSince(self.lastConfirmedServerResponse) > 30 {
                         self.connectionStatus = "Ограничен"
+                        self.syncPlaybackConnectivity()
                     } else if self.connectionStatus != "Онлайн" {
                         self.connectionStatus = "Загрузка…"
                     }
@@ -786,6 +851,7 @@ struct NightwellAccountDevicesResponse: Decodable {
                     self.connectionCheckGeneration = UUID()
                     self.connectionStatus = "Оффлайн"
                 }
+                self.syncPlaybackConnectivity()
             }
         }
         connectionMonitor.start(queue: connectionQueue)
@@ -815,14 +881,26 @@ struct NightwellAccountDevicesResponse: Decodable {
             guard let self else { return }
             let progress = BackgroundDownloads.shared.progress
             let statusChanged = self.downloadMessage != progress.message
+            let completedChanged = self.completedDownloadKeys != progress.completedKeys
+            let finished = self.downloading && !progress.active
             if self.downloading != progress.active { self.downloading = progress.active }
             if statusChanged { self.downloadMessage = progress.message }
             if self.downloadFractions != progress.fractions { self.downloadFractions = progress.fractions }
             if self.pendingDownloadKeys != progress.pendingKeys { self.pendingDownloadKeys = progress.pendingKeys }
             if self.completedDownloadKeys != progress.completedKeys { self.completedDownloadKeys = progress.completedKeys }
             // Updating a progress bar must not rescan offline storage each percent.
-            if statusChanged || !progress.active { Task { await self.refreshOffline() } }
+            if completedChanged || finished {
+                self.downloadRefreshTask?.cancel()
+                self.downloadRefreshTask = Task {
+                    if !finished {
+                        do { try await Task.sleep(nanoseconds: 700_000_000) } catch { return }
+                    }
+                    guard !Task.isCancelled else { return }
+                    await self.refreshOffline()
+                }
+            }
         })
+        BackgroundDownloads.shared.setForeground(applicationIsActive)
         BackgroundDownloads.shared.reconnect()
         let progress = BackgroundDownloads.shared.progress
         downloading = progress.active; downloadMessage = progress.message; downloadFractions = progress.fractions
@@ -831,6 +909,7 @@ struct NightwellAccountDevicesResponse: Decodable {
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
             self.applicationIsActive = false
+            BackgroundDownloads.shared.setForeground(false)
             self.connectionCheck?.cancel(); self.connectionCheck = nil
             self.connectionCheckGeneration = UUID()
             self.savePlayback(force: true)
@@ -843,6 +922,7 @@ struct NightwellAccountDevicesResponse: Decodable {
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
             self.applicationIsActive = true
+            BackgroundDownloads.shared.setForeground(true)
             self.checkConnection()
             self.clock.sync()
             // WidgetKit may have discarded a reload while the app was asleep.
@@ -945,7 +1025,10 @@ struct NightwellAccountDevicesResponse: Decodable {
         await localFiles
         guard generation == sessionGeneration else { return }
         if connectionStatus != "Онлайн", catalog.isEmpty {
-            restorePlayback(offlineOnly: true)
+            // Keep the full saved queue to restore the original upcoming
+            // tracks after an offline selection finishes.
+            restorePlayback()
+            syncPlaybackConnectivity()
             if !offline.isEmpty, screen == .home { screen = .library }
         }
     }
@@ -955,6 +1038,8 @@ struct NightwellAccountDevicesResponse: Decodable {
         else { UserDefaults.standard.removeObject(forKey: "native.account") }
     }
     func savePlayback(force: Bool = false) {
+        // A temporary offline mix must not replace the persisted online queue.
+        if NativePlayer.shared.isOfflineQueueActive { return }
         let now = Date()
         guard force || now.timeIntervalSince(lastSaved) >= 5,
               let current = clock.current else { return }
@@ -1156,7 +1241,12 @@ struct NightwellAccountDevicesResponse: Decodable {
                 do {
                     let value: TrackResult = try await client.request("/api/tracks", timeout: 15)
                     guard current() else { return }
+                    let previous = self.favoriteDisplayTracks
                     self.catalog = value.tracks
+                    // Keep liked tracks that temporarily disappear from the catalog.
+                    let savedIDs = Set(self.favoriteTrackDetails.map(\.id))
+                    self.favoriteTrackDetails.append(contentsOf: previous.filter { !savedIDs.contains($0.id) })
+                    self.persistFavoriteTrackDetails()
                     self.syncFavoriteDownloadsIfEnabled()
                     successes += 1
                     self.markServerReachable()
@@ -1164,10 +1254,13 @@ struct NightwellAccountDevicesResponse: Decodable {
                 } catch { if current() { failures.append(error.localizedDescription) } }
             }, likes: {
                 do {
+                    let revision = self.likeRevision
                     let value: LikeResult = try await client.request("/api/likes", timeout: 10)
                     guard current() else { return }
-                    self.likes = Set(value.ids)
-                    self.reconcileFavoriteOrder(value.ids)
+                    // A response started before a heart tap cannot restore a removed ID.
+                    if revision == self.likeRevision {
+                        self.applyFavoriteSnapshot(value.ids)
+                    }
                     self.syncFavoriteDownloadsIfEnabled()
                     successes += 1
                     self.markServerReachable()
@@ -1185,6 +1278,35 @@ struct NightwellAccountDevicesResponse: Decodable {
                 } catch { if current() { failures.append(error.localizedDescription) } }
             })
             guard current() else { return }
+            // Persist known liked records before a future catalog refresh can
+            // drop them. Resolve missing metadata through the existing shared
+            // track endpoint, without removing the user's saved likes.
+            let known = self.favoriteDisplayTracks
+            self.favoriteTrackDetails = known
+            self.persistFavoriteTrackDetails()
+            let missing = self.likes.subtracting(Set(known.map(\.id)))
+            let ids = missing.sorted().filter { $0.count == 32 && $0.allSatisfy { $0.isHexDigit } }
+            for start in stride(from: 0, to: min(12, ids.count), by: 3) {
+                guard current() else { return }
+                let batch = Array(ids[start..<min(start + 3, min(12, ids.count))])
+                let recovered = await withTaskGroup(of: Track?.self, returning: [Track].self) { group in
+                    for id in batch {
+                        group.addTask {
+                            let value: TrackResult? = try? await client.request("/api/shared-track/" + id, timeout: 5)
+                            return value?.tracks.first { $0.id == id }
+                        }
+                    }
+                    var found: [Track] = []
+                    for await track in group { if let track { found.append(track) } }
+                    return found
+                }
+                guard current() else { return }
+                for track in recovered where self.likes.contains(track.id) {
+                    self.rememberFavoriteTrack(track)
+                }
+            }
+            guard current() else { return }
+            self.syncFavoriteDownloadsIfEnabled()
             if successes == 0 {
                 // One failed library refresh does not override a healthy API
                 // ping. The connection watcher is the only outage authority.
@@ -1584,8 +1706,18 @@ struct NightwellAccountDevicesResponse: Decodable {
         guard let selected = playbackSelection(track, downloaded: downloaded) else { return }
         // Old restored queues may contain an _offline marker for a file that no
         // longer exists. Fall back to the online source instead of silence.
-        let localQueue = queue.map { verifiedPlaybackTrack(downloaded[$0.id] ?? $0) }
-        NativePlayer.shared.prepare(["id": selected.id, "queue": localQueue.map(\.dictionary), "account": account?.id ?? "device", "wave": wave, "wave_seed_artists": seedArtists, "wave_preferences": WaveSettings.read(origin, account?.id ?? "device").dictionary], origin: origin, cookies: HTTPCookieStorage.shared.cookies(for: origin) ?? [])
+        let localQueue = queue.map { item -> Track in
+            if item.id == selected.id { return selected }
+            if let local = downloaded[item.id] { return local }
+            // The verified library snapshot is enough for upcoming entries;
+            // the player validates the actual file when that entry is opened.
+            var remote = item
+            if remote._offline == true && !remote.id.hasPrefix("local_") {
+                remote._offline = false; remote._offline_account = nil
+            }
+            return remote
+        }
+        NativePlayer.shared.prepare(["id": selected.id, "account": account?.id ?? "device", "wave": wave, "wave_seed_artists": seedArtists, "wave_preferences": WaveSettings.read(origin, account?.id ?? "device").dictionary], origin: origin, cookies: HTTPCookieStorage.shared.cookies(for: origin) ?? [], typedQueue: localQueue)
         NativePlayer.shared.play()
         Task { await publishLiveSync(takeover: true) }
     }
@@ -1773,106 +1905,129 @@ struct NightwellAccountDevicesResponse: Decodable {
             return
         }
         guard force || Date().timeIntervalSince(lastAutoFavoritesCheck) > 120 else { return }
-        let missing = catalog.filter { likes.contains($0.id) && !isDownloaded($0) }
+        let missing = favoriteDisplayTracks.filter { !isDownloaded($0) }
         guard !missing.isEmpty else { return }
         lastAutoFavoritesCheck = Date()
         Task { await download(Array(missing.prefix(500))) }
     }
-    private var likesInFlight: Set<String> = []
+    private struct PendingFavorite {
+        let desired: Bool
+        let token: UUID
+        let session: UUID
+        let owner: String
+        let origin: URL
+    }
+    private var pendingFavorites: [String: PendingFavorite] = [:]
     private var likeRevision = 0
-    func like(_ track: Track) async {
-        guard account != nil else { authPresented = true; return }
-        guard likesInFlight.insert(track.id).inserted else { return }
-        defer { likesInFlight.remove(track.id) }
-        likeRevision += 1
-        let revision = likeRevision
-        let owner = account?.id
-        let desired = !likes.contains(track.id)
-        let previousPosition = favoriteOrder.firstIndex(of: track.id)
-        let previousDetails = favoriteTrackDetails.first { $0.id == track.id }
+
+    private func pendingFavoriteStates() -> [String: Bool] {
+        guard let owner = account?.id else { return [:] }
+        return pendingFavorites.compactMapValues {
+            $0.session == sessionGeneration && $0.owner == owner && $0.origin == origin ? $0.desired : nil
+        }
+    }
+
+    private func applyFavoriteSnapshot(_ ids: [String]) {
+        let membership = FavoriteMutationPolicy.membership(server: ids, pending: pendingFavoriteStates())
+        let order = FavoriteMutationPolicy.order(server: ids, membership: membership, local: favoriteOrder)
+        if likes != membership { likes = membership }
+        if favoriteOrder != order { favoriteOrder = order; saveFavoriteOrder() }
+        favoriteTrackDetails.removeAll { !membership.contains($0.id) }
+        persistFavoriteTrackDetails()
+    }
+
+    private func setFavoriteMembership(_ track: Track, desired: Bool, oldPosition: Int? = nil) {
         if desired {
-            rememberFavoriteTrack(track)
             likes.insert(track.id)
+            favoriteTrackDetails.removeAll { $0.id == track.id }
+            favoriteTrackDetails.insert(track, at: 0)
             favoriteOrder.removeAll { $0 == track.id }
-            favoriteOrder.insert(track.id, at: 0)
-            likeFlash += 1
+            favoriteOrder.insert(track.id, at: min(oldPosition ?? 0, favoriteOrder.count))
         } else {
             likes.remove(track.id)
             favoriteOrder.removeAll { $0 == track.id }
             favoriteTrackDetails.removeAll { $0.id == track.id }
-            persistFavoriteTrackDetails()
         }
+        persistFavoriteTrackDetails()
         saveFavoriteOrder()
         saveSessionSnapshot()
-        var failure: Error?
-        do {
-            // An empty successful response is not proof that the server
-            // rejected the mutation. Canonical GET determines the outcome.
-            let _: OK = try await api.request("/api/likes/" + track.id,
-                                              method: desired ? "POST" : "DELETE")
-        } catch {
-            failure = error
+    }
+
+    func like(_ track: Track) async {
+        guard let owner = account?.id else { authPresented = true; return }
+        let id = track.id
+        let session = sessionGeneration
+        let server = origin
+        let client = api
+        if let existing = pendingFavorites[id],
+           existing.session == session && existing.owner == owner && existing.origin == server { return }
+        let desired = !likes.contains(id)
+        let previousPosition = favoriteOrder.firstIndex(of: id)
+        let previousDetails = favoriteTrackDetails.first { $0.id == id } ?? track
+        let token = UUID()
+        pendingFavorites[id] = PendingFavorite(desired: desired, token: token,
+                                                session: session, owner: owner, origin: server)
+        likeRevision &+= 1
+        func valid() -> Bool {
+            account?.id == owner && sessionGeneration == session && origin == server &&
+                pendingFavorites[id]?.token == token
         }
-        guard account?.id == owner else { return }
-        do {
-            let response: LikeResult = try await api.request("/api/likes")
-            guard account?.id == owner else { return }
-            let canonical = Set(response.ids)
-            if revision == likeRevision {
-                var merged = canonical
-                // Other heart taps may still be in flight. Preserve only
-                // their optimistic states until each has its own readback.
-                for id in likesInFlight where id != track.id {
-                    if likes.contains(id) { merged.insert(id) }
-                    else { merged.remove(id) }
-                }
-                likes = merged
-            } else {
-                // A late response for an older tap must not revert a newer tap.
-                if canonical.contains(track.id) { likes.insert(track.id) }
-                else { likes.remove(track.id) }
+        defer {
+            if pendingFavorites[id]?.token == token {
+                pendingFavorites.removeValue(forKey: id)
+                likeRevision &+= 1
+                saveSessionSnapshot()
             }
-            // A Set loses chronology. Use the server's canonical newest-first
-            // sequence, then append only optimistic favorites not on the server
-            // yet. The reconciliation step preserves newest-first presentation.
-            let pendingIDs = favoriteOrder.filter {
-                likes.contains($0) && !canonical.contains($0)
-            }
-            reconcileFavoriteOrder(response.ids.filter { likes.contains($0) },
-                                   newestID: desired && canonical.contains(track.id)
-                                       ? track.id : nil,
-                                   pendingIDs: pendingIDs)
-            saveSessionSnapshot()
-            if canonical.contains(track.id) == desired {
-                if desired { syncFavoriteDownloadsIfEnabled(newest: track) }
-                return
-            }
-            self.error = failure?.localizedDescription ??
-                "Не удалось обновить избранное. Попробуйте ещё раз."
-        } catch {
-            guard account?.id == owner else { return }
-            // Roll back this track only. Replacing the full like/details
-            // snapshots would erase another simultaneous heart tap.
-            if desired {
-                likes.remove(track.id)
-                favoriteOrder.removeAll { $0 == track.id }
-                favoriteTrackDetails.removeAll { $0.id == track.id }
-            } else {
-                likes.insert(track.id)
-                favoriteOrder.removeAll { $0 == track.id }
-                favoriteOrder.insert(track.id,
-                    at: min(previousPosition ?? favoriteOrder.count,
-                            favoriteOrder.count))
-                if let previousDetails {
-                    favoriteTrackDetails.removeAll { $0.id == track.id }
-                    favoriteTrackDetails.insert(previousDetails, at: 0)
-                }
-            }
-            persistFavoriteTrackDetails()
-            saveFavoriteOrder()
-            saveSessionSnapshot()
-            self.error = "Не удалось проверить избранное. Проверьте подключение и повторите."
         }
+        setFavoriteMembership(track, desired: desired)
+        if desired { likeFlash += 1 }
+
+        var writeError: Error?
+        var accepted = false
+        do {
+            let response: OK = try await client.request("/api/likes/" + id,
+                                                        method: desired ? "POST" : "DELETE", timeout: 12)
+            accepted = response.ok != false
+            if !accepted { writeError = APIError(message: "Сервер не подтвердил изменение избранного.") }
+        } catch { writeError = error }
+        guard valid() else { return }
+
+        // GET can race a write or be stale at the proxy. Never overwrite the
+        // optimistic removal while the server result is being verified.
+        var lastServerState: Bool?
+        for attempt in 0..<3 {
+            guard valid() else { return }
+            if attempt > 0 {
+                try? await Task.sleep(nanoseconds: attempt == 1 ? 400_000_000 : 1_200_000_000)
+                guard valid() else { return }
+            }
+            do {
+                let response: LikeResult = try await client.request("/api/likes", timeout: 5)
+                guard valid() else { return }
+                let confirmed = response.ids.contains(id)
+                lastServerState = confirmed
+                if confirmed == desired {
+                    // This read confirms this mutation only. A concurrent
+                    // write for another track must not be overwritten.
+                    if desired { syncFavoriteDownloadsIfEnabled(newest: track) }
+                    return
+                }
+            } catch {
+                guard valid() else { return }
+            }
+        }
+        guard valid() else { return }
+        if accepted && lastServerState == nil {
+            // A successful HTTP mutation is not undone merely because a
+            // follow-up read failed. The next normal refresh verifies it.
+            if desired { syncFavoriteDownloadsIfEnabled(newest: track) }
+            return
+        }
+        // A contradictory fresh server response or a failed write without
+        // confirmation is surfaced rather than silently pretending success.
+        setFavoriteMembership(previousDetails, desired: !desired, oldPosition: previousPosition)
+        self.error = writeError?.localizedDescription ??
+            "Сервер не подтвердил изменение избранного. Повтори попытку."
     }
     private func playlistCacheKey(_ id: String) -> String? {
         guard !id.isEmpty else { return nil }
@@ -1980,6 +2135,23 @@ struct NightwellAccountDevicesResponse: Decodable {
         return lines.joined(separator: "\n")
     }
     func refreshOffline() async {
+        if let running = offlineRefreshTask {
+            offlineRefreshPending = true
+            await running.value
+            return
+        }
+        let task = Task { [weak self] in
+            guard let self else { return }
+            repeat {
+                self.offlineRefreshPending = false
+                await self.scanOffline()
+            } while self.offlineRefreshPending && !Task.isCancelled
+            self.offlineRefreshTask = nil
+        }
+        offlineRefreshTask = task
+        await task.value
+    }
+    private func scanOffline() async {
         let server = origin, generation = sessionGeneration
         let value = await Task.detached(priority: .utility) { () -> (tracks: [Track]?, damaged: [Track]?)? in
             guard let raw = try? OfflineStore.operation(["op": "listAll"], origin: server) else { return nil }
@@ -1990,8 +2162,16 @@ struct NightwellAccountDevicesResponse: Decodable {
             return (decode("tracks"), decode("damaged"))
         }.value
         guard origin == server, sessionGeneration == generation, let value else { return }
-        if let tracks = value.tracks, tracks != offline { offline = tracks }
+        let changed = value.tracks.map { $0 != offline } ?? false
+        if let tracks = value.tracks, changed { offline = tracks }
         if let broken = value.damaged, broken != damagedOffline { damagedOffline = broken }
+        syncPlaybackConnectivity()
+        if changed && hasNetworkPath && connectionStatus == "Онлайн" && !offline.isEmpty {
+            let savedTracks = offline
+            Task.detached(priority: .utility) {
+                await OfflineArtworkArchive.shared.backfill(savedTracks, origin: server)
+            }
+        }
     }
     func download(_ list: [Track]) async {
         guard !list.isEmpty else { return }
@@ -2053,10 +2233,9 @@ struct NightwellAccountDevicesResponse: Decodable {
         return min(0.999, total / Double(trackIDs.count))
     }
     func isDownloaded(_ track: Track) -> Bool {
-        if downloadedTrackIDs.contains(track.id) { return true }
-        guard track._offline == true else { return false }
-        let owner = track._offline_account ?? account?.id ?? "device"
-        return OfflineStore.audio(origin: origin, account: owner, id: track.id) != nil
+        // Row rendering is a pure in-memory lookup; playback still validates
+        // the actual file and refreshOffline supplies authoritative IDs.
+        downloadedTrackIDs.contains(track.id)
     }
     func removeDownload(_ track: Track) async {
         let owner = track._offline_account ?? account?.id ?? "device"

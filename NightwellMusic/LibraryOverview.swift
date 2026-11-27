@@ -94,7 +94,7 @@ struct LibraryOverview: View {
                         .font(.title2.bold())
                         .foregroundStyle(.white)
                         .fixedSize(horizontal: false, vertical: true)
-                    Text(countText(store.likes.count))
+                    Text(countText(favorites.count))
                         .font(.subheadline)
                         .foregroundStyle(.white.opacity(0.55))
                 }
@@ -113,7 +113,7 @@ struct LibraryOverview: View {
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Избранное")
-        .accessibilityValue(countText(store.likes.count))
+        .accessibilityValue(countText(favorites.count))
         .accessibilityHint("Открывает все треки в избранном")
     }
 

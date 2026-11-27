@@ -33,7 +33,7 @@ enum NWWidgetStorage {
     static let group = "group.fun.nightwell.music"
     private static let key = "nw-widget-player-v1"
     private static let filename = "nightwell-widget-player.json"
-    private static let artworkFilename = "widget-cover.jpg"
+    private static let artworkFilename = "widget-cover-original-v2.jpg"
 
     private static let resolvedContainer: (name: String, url: URL)? = {
         let info = Bundle.main.infoDictionary ?? [:]
@@ -102,6 +102,10 @@ enum NWWidgetStorage {
         do {
             try bytes.write(to: root.appendingPathComponent(artworkFilename),
                             options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            // Remove the cover created by the former destructive artwork
+            // normalizer. The widget never reuses that file after upgrading.
+            try? FileManager.default.removeItem(
+                at: root.appendingPathComponent("widget-cover.jpg"))
             return true
         } catch { return false }
     }

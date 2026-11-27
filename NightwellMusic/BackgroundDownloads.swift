@@ -1,9 +1,11 @@
 import Foundation
 import UIKit
+import Network
+import os
 
 /// URLSession owns the transfers, not a View or an unstructured foreground Task.
-/// All jobs are submitted before returning from a user action, so iOS can run the
-/// whole playlist without waking the UI to schedule every next track.
+/// Persist the entire playlist, but submit only a bounded number of jobs.
+/// A slow provider or retry must not monopolize every connection.
 final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
     static let shared = BackgroundDownloads()
     static let identifier = "fun.nightwell.music.offline.downloads.v1"
@@ -14,6 +16,9 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
         let account: String
         let track: Track
         var attempts: Int = 0
+        // Optional for migration of the existing persisted v1 queue.
+        var order: Int?
+        var retryAt: Date?
     }
     struct State: Codable {
         var jobs: [String: Job] = [:]
@@ -25,6 +30,7 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
         let fractions: [String: Double]
         let pendingKeys: Set<String>
         let completedKeys: Set<String>
+        var activity: NWDownloadActivityAttributes.ContentState? = nil
     }
     private let lock = NSRecursiveLock()
     private let preparationQueue = DispatchQueue(label: "fun.nightwell.offline.preparation", qos: .utility)
@@ -41,6 +47,18 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
     private var completedKeys = Set<String>()
     private var lastProgressNotification: [String: Date] = [:]
     private var reconciling = false
+    private var reconciled = false
+    private var activeTaskIDs: [String: Int] = [:]
+    private var notificationPending = false
+    private var retiredTaskIDs = Set<Int>()
+    private var lastByteAt: [String: Date] = [:]
+    private var lastBytes: [String: Int64] = [:]
+    private var failures: [String: String] = [:]
+    private var connected = true
+    private var foreground = false
+    private var watchdog: DispatchSourceTimer?
+    private let network = NWPathMonitor()
+    private let logger = Logger(subsystem: "fun.nightwell.music", category: "OfflineDownloads")
     private var eventCompletion: (() -> Void)?
     private var session: URLSession {
         sessionLock.lock(); defer { sessionLock.unlock() }
@@ -49,23 +67,53 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
         config.sessionSendsLaunchEvents = true
         config.isDiscretionary = false
         config.waitsForConnectivity = true
-        config.httpMaximumConnectionsPerHost = 2
-        config.timeoutIntervalForRequest = 70
-        config.timeoutIntervalForResource = 7 * 24 * 3600
+        config.httpMaximumConnectionsPerHost = OfflineDownloadPolicy.parallelism
+        config.timeoutIntervalForRequest = 45
+        // A single transfer cannot occupy a slot for days. Pending jobs
+        // remain durable and are independently scheduled after a failure.
+        config.timeoutIntervalForResource = 300
+        config.allowsConstrainedNetworkAccess = true
+        config.allowsExpensiveNetworkAccess = true
         config.httpCookieStorage = .shared
         let delegateQueue = OperationQueue(); delegateQueue.maxConcurrentOperationCount = 1
+        delegateQueue.qualityOfService = .utility
         let created = URLSession(configuration: config, delegate: self, delegateQueue: delegateQueue)
         storedSession = created
         return created
     }
-    private var file: URL {
-        let root = try! FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+    private var file: URL? {
+        guard let root = try? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true) else { return nil }
         return root.appendingPathComponent("native-downloads.json")
     }
     private override init() {
         super.init()
-        if let bytes = try? Data(contentsOf: file), let saved = try? JSONDecoder().decode(State.self, from: bytes) { state = saved }
+        if let file, let bytes = try? Data(contentsOf: file), let saved = try? JSONDecoder().decode(State.self, from: bytes) { state = saved }
         cacheProgress()
+        network.pathUpdateHandler = { [weak self] path in
+            guard let self else { return }
+            self.lock.lock(); defer { self.lock.unlock() }
+            let wasConnected = self.connected
+            self.connected = path.status == .satisfied
+            if self.connected && !wasConnected {
+                let now = Date()
+                for key in self.activeTaskIDs.keys { self.lastByteAt[key] = now }
+                self.fillSlots()
+            }
+            self.publish()
+        }
+        network.start(queue: preparationQueue)
+        let timer = DispatchSource.makeTimerSource(queue: preparationQueue)
+        timer.schedule(deadline: .now() + 15, repeating: 15, leeway: .seconds(2))
+        timer.setEventHandler { [weak self] in self?.checkStalledTasks() }
+        watchdog = timer
+        timer.resume()
+    }
+    func setForeground(_ value: Bool) {
+        preparationQueue.async {
+            self.lock.lock(); defer { self.lock.unlock() }
+            self.foreground = value
+            if value { self.reconcile() }
+        }
     }
     var progress: Progress {
         progressLock.lock(); defer { progressLock.unlock() }
@@ -74,22 +122,28 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
     // Called during initialization or while holding the state lock. Construct
     // the snapshot before taking the short, independent UI-read lock.
     private func cacheProgress() {
-        let next: Progress
+        var next: Progress
         if !state.jobs.isEmpty {
             let done = state.added + state.skipped + state.failed
-            next = Progress(active: true, message: "Загрузка \(done) / \(state.total)", fractions: fractions,
+            let delayed = state.jobs.values.filter { ($0.retryAt ?? .distantPast) > Date() }.count
+            let suffix = !connected ? " · нет сети" : (delayed > 0 ? " · повтор: \(delayed)" : "")
+            next = Progress(active: true, message: "Загрузка \(done) / \(state.total)" + suffix, fractions: fractions,
                             pendingKeys: Set(state.jobs.keys), completedKeys: completedKeys)
         } else {
-            next = Progress(active: false, message: state.total == 0 ? "" : "Скачано: \(state.added) · уже сохранено: \(state.skipped) · ошибок: \(state.failed)", fractions: [:],
+            next = Progress(active: false, message: state.total == 0 ? "" : "Скачано: \(state.added) · уже сохранено: \(state.skipped) · ошибок: \(state.failed)" + (failures.values.sorted().first.map { " · " + $0 } ?? ""), fractions: [:],
                             pendingKeys: [], completedKeys: completedKeys)
         }
+        next.activity = NWDownloadActivityAttributes.ContentState(
+            active: !state.jobs.isEmpty, total: state.total, saved: state.added + state.skipped,
+            failed: state.failed,
+            pendingFraction: fractions.values.reduce(0, +))
         progressLock.lock()
         cachedProgress = next
         progressLock.unlock()
     }
     // Construct the persistent URLSession as soon as iOS relaunches the app
     // for background download events. The system, not SwiftUI, owns transfers.
-    func prepareForSystemEvents() { _ = session }
+    func prepareForSystemEvents() { _ = session; reconnect() }
     func handleEvents(_ completion: @escaping () -> Void) {
         eventLock.lock(); eventCompletion = completion; eventLock.unlock()
         prepareForSystemEvents()
@@ -103,20 +157,97 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
         lock.lock()
         guard !reconciling else { lock.unlock(); return }
         reconciling = true
-        // Snapshot first: jobs added while getAllTasks is running have already
-        // been submitted by enqueue() and must not be duplicated.
-        let recovering = Array(state.jobs.values)
+        let knownTasks = activeTaskIDs
         lock.unlock()
         session.getAllTasks { tasks in
             self.lock.lock(); defer { self.lock.unlock() }
-            let existing = Set(tasks.compactMap(\.taskDescription))
-            for job in recovering where self.state.jobs[job.key] != nil && !existing.contains(job.key) {
-                self.submit(job)
+            let liveIDs = Set(tasks.map(\.taskIdentifier))
+            for (key, id) in knownTasks where !liveIDs.contains(id) && self.activeTaskIDs[key] == id {
+                self.retiredTaskIDs.insert(id)
+                self.activeTaskIDs.removeValue(forKey: key)
             }
-            for task in tasks where task.taskDescription.flatMap({ self.state.jobs[$0] }) == nil {
-                task.cancel()
+            // Recover the previous app's daemon queue. Keep the oldest few
+            // tasks, retire the rest without losing their persisted jobs.
+            for task in tasks.sorted(by: { $0.taskIdentifier < $1.taskIdentifier }) {
+                guard let key = task.taskDescription, self.state.jobs[key] != nil,
+                      !self.retiredTaskIDs.contains(task.taskIdentifier) else {
+                    task.cancel(); continue
+                }
+                if let active = self.activeTaskIDs[key] {
+                    if active != task.taskIdentifier {
+                        self.retiredTaskIDs.insert(task.taskIdentifier); task.cancel()
+                    }
+                } else if self.activeTaskIDs.count < OfflineDownloadPolicy.parallelism {
+                    self.activeTaskIDs[key] = task.taskIdentifier
+                    self.lastByteAt[key] = Date()
+                    self.lastBytes[key] = task.countOfBytesReceived
+                } else {
+                    self.retiredTaskIDs.insert(task.taskIdentifier); task.cancel()
+                }
             }
             self.reconciling = false
+            self.reconciled = true
+            self.fillSlots()
+            self.publish()
+        }
+    }
+
+    // Caller holds lock. Schedule ready jobs first, and only one delayed
+    // retry if no ready jobs exist so iOS can wake us even in background.
+    private func fillSlots() {
+        guard reconciled, !reconciling else { return }
+        let now = Date()
+        let waiting = state.jobs.values.filter { activeTaskIDs[$0.key] == nil }.sorted {
+            let a = $0.retryAt ?? .distantPast, b = $1.retryAt ?? .distantPast
+            if (a <= now) != (b <= now) { return a <= now }
+            if a > now && b > now && a != b { return a < b }
+            if $0.attempts != $1.attempts { return $0.attempts < $1.attempts }
+            return ($0.order ?? Int.max, $0.key) < ($1.order ?? Int.max, $1.key)
+        }
+        var slots = OfflineDownloadPolicy.parallelism - activeTaskIDs.count
+        guard slots > 0 else { return }
+        for job in waiting where slots > 0 && (job.retryAt ?? .distantPast) <= now {
+            submit(job)
+            slots -= 1
+        }
+        if activeTaskIDs.isEmpty, let first = waiting.first,
+           (first.retryAt ?? .distantPast) > now {
+            submit(first)
+        }
+    }
+
+    private func checkStalledTasks() {
+        lock.lock()
+        let shouldCheck = foreground && connected && reconciled && !reconciling && !state.jobs.isEmpty
+        let checkedIDs = activeTaskIDs
+        lock.unlock()
+        guard shouldCheck else { return }
+        session.getAllTasks { tasks in
+            self.lock.lock(); defer { self.lock.unlock() }
+            guard self.foreground, self.connected, !self.reconciling else { return }
+            let now = Date()
+            let existing = Set(tasks.map(\.taskIdentifier))
+            for (key, id) in checkedIDs where !existing.contains(id) && self.activeTaskIDs[key] == id {
+                self.retiredTaskIDs.insert(id)
+                self.activeTaskIDs.removeValue(forKey: key)
+            }
+            for task in tasks {
+                guard let key = task.taskDescription,
+                      checkedIDs[key] == task.taskIdentifier,
+                      self.activeTaskIDs[key] == task.taskIdentifier,
+                      task.state == .running, let job = self.state.jobs[key],
+                      (job.retryAt ?? .distantPast) <= now else { continue }
+                let bytes = task.countOfBytesReceived
+                if bytes > (self.lastBytes[key] ?? 0) {
+                    self.lastBytes[key] = bytes; self.lastByteAt[key] = now
+                }
+                guard OfflineDownloadPolicy.stalled(since: self.lastByteAt[key] ?? now, now: now) else { continue }
+                if !self.scheduleRetry(task, reason: "Нет данных от сервера") {
+                    self.finish(task, success: false, reason: "Нет данных от сервера")
+                }
+                task.cancel()
+            }
+            self.fillSlots()
             self.publish()
         }
     }
@@ -131,34 +262,38 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
     private func enqueueJobs(_ tracks: [Track], origin: URL, account: String) {
         lock.lock(); defer { lock.unlock() }
         reconcile()
-        if state.jobs.isEmpty { state = State(); completedKeys.removeAll(); fractions.removeAll(); lastProgressNotification.removeAll() }
-        var pending: [Job] = []
+        if state.jobs.isEmpty {
+            state = State(); completedKeys.removeAll(); fractions.removeAll()
+            lastProgressNotification.removeAll(); failures.removeAll()
+        }
+        var seen = Set<String>()
         for track in tracks {
             // A stale _offline flag must not block repair of a corrupt download.
             // Imported local files have no remote source and cannot be re-downloaded.
             guard !track.id.hasPrefix("local_"),
                   track.id.range(of: "^[A-Za-z0-9_-]{1,80}$", options: .regularExpression) != nil else { continue }
             let key = origin.absoluteString + "|" + account + "|" + track.id
-            guard state.jobs[key] == nil else { continue }
+            guard seen.insert(key).inserted, state.jobs[key] == nil,
+                  !completedKeys.contains(key) else { continue }
             state.total += 1
             if OfflineStore.audio(origin: origin, account: account, id: track.id) != nil { state.skipped += 1; completedKeys.insert(key); continue }
-            let job = Job(key: key, origin: origin, account: account, track: track)
+            let job = Job(key: key, origin: origin, account: account, track: track,
+                          order: state.total)
             state.jobs[key] = job
-            pending.append(job)
         }
         // Persist the complete batch once before any task resumes: a system
         // wake-up can recover every submitted job without repeated full writes.
         persist()
-        for job in pending { submit(job) }
+        fillSlots()
         publish()
     }
-    private func submit(_ job: Job, retryAfter: TimeInterval = 0) {
+    private func submit(_ job: Job) {
         // Retries are a new transfer; do not carry over 100% from a preparation response.
         fractions.removeValue(forKey: job.key)
         lastProgressNotification.removeValue(forKey: job.key)
         var request = URLRequest(url: job.origin.appendingPathComponent("api/offline-export/" + job.track.id))
         request.url = URL(string: "api/offline-export/" + job.track.id + "?download=true&wait=true", relativeTo: job.origin)
-        request.timeoutInterval = 70
+        request.timeoutInterval = 45
         if let credential = try? AccountDeviceVault.read(origin: job.origin, account: job.account) {
             request.setValue(credential.device_token, forHTTPHeaderField: "X-NW-Device-Token")
         }
@@ -167,48 +302,90 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
         }
         let task = session.downloadTask(with: request)
         task.taskDescription = job.key
-        if job.attempts > 0 {
-            // Back off when the server is preparing a file, rate-limiting, or
-            // temporarily unavailable. This is persisted through app restarts.
-            let delay = min(180.0, 3.0 * pow(1.7, Double(min(job.attempts, 14))))
-            task.earliestBeginDate = Date().addingTimeInterval(max(delay, retryAfter))
-        }
+        activeTaskIDs[job.key] = task.taskIdentifier
+        if let retryAt = job.retryAt, retryAt > Date() { task.earliestBeginDate = retryAt }
+        lastByteAt[job.key] = max(Date(), job.retryAt ?? .distantPast)
+        lastBytes[job.key] = 0
         task.resume()
     }
     private func persist() {
-        if let data = try? JSONEncoder().encode(state) {
+        if let file, let data = try? JSONEncoder().encode(state) {
             try? data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
             var mutable = file; var values = URLResourceValues(); values.isExcludedFromBackup = true; try? mutable.setResourceValues(values)
         }
     }
     private func publish() {
         cacheProgress()
-        DispatchQueue.main.async { NotificationCenter.default.post(name: Self.changed, object: nil) }
+        // Coalesce all byte updates across concurrent jobs into one UI event.
+        guard !notificationPending else { return }
+        notificationPending = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.30) {
+            self.preparationQueue.async {
+                self.lock.lock(); self.notificationPending = false; self.lock.unlock()
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(name: Self.changed, object: nil)
+                    if let snapshot = self.progress.activity {
+                        NWDownloadLiveActivity.shared.receive(snapshot)
+                    }
+                }
+            }
+        }
     }
-    private func finish(_ task: URLSessionTask, success: Bool) {
+    private func finish(_ task: URLSessionTask, success: Bool, reason: String = "Не удалось загрузить файл") {
         lock.lock(); defer { lock.unlock() }
-        guard let key = task.taskDescription, state.jobs.removeValue(forKey: key) != nil else { return }
+        guard let key = task.taskDescription, ownsTask(task, key: key),
+              state.jobs.removeValue(forKey: key) != nil else { return }
+        activeTaskIDs.removeValue(forKey: key)
+        retiredTaskIDs.insert(task.taskIdentifier)
+        lastByteAt.removeValue(forKey: key); lastBytes.removeValue(forKey: key)
         fractions.removeValue(forKey: key)
         lastProgressNotification.removeValue(forKey: key)
-        if success { state.added += 1; completedKeys.insert(key) } else { state.failed += 1 }
-        persist(); publish()
+        if success {
+            state.added += 1; completedKeys.insert(key); failures.removeValue(forKey: key)
+        } else {
+            state.failed += 1; failures[key] = reason
+            logger.error("Download failed: \(reason, privacy: .public)")
+        }
+        persist(); fillSlots(); publish()
     }
+    // A stale completion from a cancelled/retried transfer must not remove
+    // its replacement job. On system relaunch adopt the first live callback.
+    private func ownsTask(_ task: URLSessionTask, key: String) -> Bool {
+        guard !retiredTaskIDs.contains(task.taskIdentifier) else { return false }
+        if let active = activeTaskIDs[key] { return active == task.taskIdentifier }
+        guard state.jobs[key] != nil else { return false }
+        activeTaskIDs[key] = task.taskIdentifier
+        return true
+    }
+
     // Retry temporary server errors instead of silently dropping the track.
     // Permanent errors (401/403/404) still fail promptly.
     @discardableResult
-    private func scheduleRetry(_ task: URLSessionTask, retryAfter: TimeInterval = 0) -> Bool {
+    private func scheduleRetry(_ task: URLSessionTask, retryAfter: TimeInterval = 0,
+                               reason: String = "Временная ошибка", preparing: Bool = false) -> Bool {
         lock.lock(); defer { lock.unlock() }
-        guard let key = task.taskDescription, var job = state.jobs[key],
-              job.attempts < 24 else { return false }
+        guard let key = task.taskDescription, ownsTask(task, key: key),
+              var job = state.jobs[key], job.attempts < OfflineDownloadPolicy.maximumRetries else { return false }
         job.attempts += 1
+        let delay = OfflineDownloadPolicy.delay(attempt: job.attempts, retryAfter: retryAfter, preparing: preparing)
+        job.retryAt = Date().addingTimeInterval(delay)
         state.jobs[key] = job
+        retiredTaskIDs.insert(task.taskIdentifier)
+        activeTaskIDs.removeValue(forKey: key)
+        lastByteAt.removeValue(forKey: key); lastBytes.removeValue(forKey: key)
+        fractions.removeValue(forKey: key); lastProgressNotification.removeValue(forKey: key)
+        logger.notice("Download retry \(job.attempts): \(reason, privacy: .public), delay \(delay)s")
         persist()
-        submit(job, retryAfter: retryAfter)
+        fillSlots()
         publish()
         return true
     }
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
-        lock.lock(); let job = downloadTask.taskDescription.flatMap { state.jobs[$0] }; lock.unlock()
+        lock.lock()
+        let job = downloadTask.taskDescription.flatMap { key in
+            ownsTask(downloadTask, key: key) ? state.jobs[key] : nil
+        }
+        lock.unlock()
         guard let job, let http = downloadTask.response as? HTTPURLResponse else {
             finish(downloadTask, success: false); return
         }
@@ -220,18 +397,36 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
         if statusCode == 200, size < 65536,
            let bytes = try? Data(contentsOf: location),
            let status = (try? JSONSerialization.jsonObject(with: bytes) as? [String: Any])?["status"] as? String {
-            waiting = ["loading", "pending", "processing"].contains(status.lowercased())
+            waiting = ["loading", "pending", "processing", "preparing", "queued"].contains(status.lowercased())
         }
         let retryable = [408, 425, 429, 500, 502, 503, 504].contains(statusCode)
         if waiting || retryable {
-            let retryAfter = TimeInterval(http.value(forHTTPHeaderField: "Retry-After") ?? "") ?? 0
-            if scheduleRetry(downloadTask, retryAfter: min(max(0, retryAfter), 900)) { return }
+            let retryAfter = OfflineDownloadPolicyRetryHeader.seconds(http.value(forHTTPHeaderField: "Retry-After"))
+            if scheduleRetry(downloadTask, retryAfter: retryAfter,
+                             reason: waiting ? "Сервер готовит аудио" : "HTTP \(statusCode)", preparing: waiting) { return }
         }
-        guard statusCode == 200, !waiting else { finish(downloadTask, success: false); return }
+        guard statusCode == 200, !waiting else {
+            finish(downloadTask, success: false, reason: waiting ? "Сервер не подготовил аудио" : "HTTP \(statusCode)")
+            return
+        }
         do {
             try OfflineStore.saveDownloadedFile(location, track: job.track, origin: job.origin, account: job.account)
+            // Keep cover art permanently with audio. Fetching it after the
+            // network is lost is unreliable, so download it while this export
+            // session still has connectivity. The player never waits for art.
+            let saved = job
+            Task.detached(priority: .utility) {
+                await OfflineArtworkArchive.shared.saveIfNeeded(
+                    saved.track, origin: saved.origin, account: saved.account)
+            }
             finish(downloadTask, success: true)
-        } catch { finish(downloadTask, success: false) }
+        } catch {
+            // A truncated export can return 200. Retry a limited number of
+            // times, but do not loop on disk-full or other local I/O errors.
+            if (error as? URLError)?.code == .cannotDecodeContentData,
+               job.attempts < 3, scheduleRetry(downloadTask, reason: "Неполный аудиофайл") { return }
+            finish(downloadTask, success: false, reason: "Ошибка сохранения аудио")
+        }
     }
     // A connection may drop while the iPhone is locked or switches networks.
     // Recover transient failures without asking a suspended SwiftUI view to
@@ -241,16 +436,23 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
               [URLError.Code.timedOut, .networkConnectionLost, .notConnectedToInternet,
                .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed,
                .backgroundSessionWasDisconnected].contains(code) else { return false }
-        return scheduleRetry(task)
+        return scheduleRetry(task, reason: "Сеть: \(code.rawValue)")
     }
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         guard let error else { return }
-        if !retryTransientFailure(task, error: error) { finish(task, success: false) }
+        if !retryTransientFailure(task, error: error) {
+            finish(task, success: false, reason: "Сеть: \((error as NSError).code)")
+        }
     }
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
         if totalBytesWritten > OfflineStore.limit || totalBytesExpectedToWrite > OfflineStore.limit { downloadTask.cancel(); return }
-        guard let key = downloadTask.taskDescription, totalBytesExpectedToWrite > 0 else { return }
+        guard let key = downloadTask.taskDescription else { return }
         lock.lock()
+        guard state.jobs[key] != nil, ownsTask(downloadTask, key: key) else { lock.unlock(); return }
+        if totalBytesWritten > (lastBytes[key] ?? 0) {
+            lastByteAt[key] = Date(); lastBytes[key] = totalBytesWritten
+        }
+        guard totalBytesExpectedToWrite > 0 else { lock.unlock(); return }
         // Fraction is derived from actual transfer bytes. Saving the file is still
         // pending at 100% transferred, so only mark a track complete in finish().
         let value = min(0.999, max(0, Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)))
@@ -272,7 +474,12 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate {
     }
     func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
         eventLock.lock(); let completion = eventCompletion; eventCompletion = nil; eventLock.unlock()
-        DispatchQueue.main.async { completion?() }
+        Task { @MainActor in
+            if let snapshot = self.progress.activity {
+                await NWDownloadLiveActivity.shared.flush(snapshot)
+            }
+            completion?()
+        }
     }
 }
 
@@ -302,8 +509,26 @@ final class DownloadAppDelegate: NSObject, UIApplicationDelegate {
         BackgroundDownloads.shared.prepareForSystemEvents()
         return true
     }
+    func applicationDidBecomeActive(_ application: UIApplication) {
+        BackgroundDownloads.shared.setForeground(true)
+    }
+    func applicationWillResignActive(_ application: UIApplication) {
+        BackgroundDownloads.shared.setForeground(false)
+    }
     func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String, completionHandler: @escaping () -> Void) {
         guard identifier == BackgroundDownloads.identifier else { completionHandler(); return }
         BackgroundDownloads.shared.handleEvents(completionHandler)
+    }
+}
+
+private enum OfflineDownloadPolicyRetryHeader {
+    static func seconds(_ value: String?) -> TimeInterval {
+        guard let value else { return 0 }
+        if let seconds = TimeInterval(value) { return seconds }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+        return formatter.date(from: value).map { max(0, $0.timeIntervalSinceNow) } ?? 0
     }
 }

@@ -1,6 +1,7 @@
 import AVFoundation
 import MediaPlayer
 import UIKit
+import CryptoKit
 
 struct NativeTrack {
     let id: String
@@ -15,6 +16,66 @@ struct NativeTrack {
     var offline: Bool = false
     var offlineAccount: String = ""
     var offlineLyrics: [String: Any]? = nil
+}
+
+/// Persistent cover cache for the iOS lock screen and Dynamic Island.
+/// A successfully loaded original image stays available after app suspension.
+/// Never store the generated NW placeholder or alter album artwork pixels.
+enum LockScreenArtworkCache {
+    private static let lock = NSLock()
+    private static let maxFiles = 160
+
+    private static func file(origin: URL, track: NativeTrack) -> URL? {
+        guard !track.id.isEmpty,
+              let caches = FileManager.default.urls(
+                for: .cachesDirectory, in: .userDomainMask).first else { return nil }
+        let key = origin.absoluteString + "|" + track.id + "|" + (track.cover ?? "")
+        let digest = SHA256.hash(data: Data(key.utf8))
+        let name = digest.map { String(format: "%02x", $0) }.joined() + ".jpg"
+        return caches.appendingPathComponent("nw-lock-screen-artwork-v1", isDirectory: true)
+            .appendingPathComponent(name)
+    }
+
+    static func load(origin: URL, track: NativeTrack) -> UIImage? {
+        guard let path = file(origin: origin, track: track) else { return nil }
+        lock.lock(); defer { lock.unlock() }
+        guard let length = (try? path.resourceValues(forKeys: [.fileSizeKey]))?.fileSize,
+              length > 0 && length <= 3 * 1024 * 1024,
+              let bytes = try? Data(contentsOf: path, options: .mappedIfSafe)
+        else { return nil }
+        return UIImage(data: bytes)
+    }
+
+    static func save(_ image: UIImage, origin: URL, track: NativeTrack) {
+        guard let path = file(origin: origin, track: track),
+              let bytes = image.jpegData(compressionQuality: 0.87),
+              bytes.count > 0 && bytes.count <= 3 * 1024 * 1024 else { return }
+        lock.lock(); defer { lock.unlock() }
+        do {
+            let parent = path.deletingLastPathComponent()
+            try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+            try bytes.write(to: path, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            var file = path
+            var resources = URLResourceValues()
+            resources.isExcludedFromBackup = true
+            try? file.setResourceValues(resources)
+            let files = (try? FileManager.default.contentsOfDirectory(
+                at: parent, includingPropertiesForKeys: [.contentModificationDateKey],
+                options: [.skipsHiddenFiles])) ?? []
+            if files.count > maxFiles {
+                let oldFirst = files.sorted {
+                    let a = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                    let b = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                    return a < b
+                }
+                for stale in oldFirst.prefix(files.count - maxFiles) {
+                    try? FileManager.default.removeItem(at: stale)
+                }
+            }
+        } catch {
+            // Artwork persistence is best effort, never block audio.
+        }
+    }
 }
 
 // Manually publish playback state: the local EQ engine and the streaming
@@ -162,8 +223,8 @@ final class NativePlayer {
         pendingNextIndex = destination
         pendingNextGeneration = UUID()
         let ticket = pendingNextGeneration
-        let asset = nextAssetID == track.id && nextAsset?.url == url
-            ? nextAsset! : AVURLAsset(url: url, options: [AVURLAssetHTTPCookiesKey: cookies])
+        let asset = nextAssetID == track.id && nextAsset?.url == NWZResourceLoader.assetURL(url)
+            ? nextAsset! : NWZResourceLoader.asset(url, cookies: cookies)
         let identity = streamRequestIdentity(track: track, url: url, origin: origin)
         let trustWarm = verifiedNextAudio.map {
             $0.asset === asset && $0.requestIdentity == identity &&
@@ -329,6 +390,144 @@ final class NativePlayer {
             queuedIDs: queuedIDs.subtracting(unavailableIDs), id: { $0.id })
     }
     private(set) var queueRevision = 0
+
+    // The online queue is held separately while a confirmed, prolonged outage
+    // changes only the upcoming songs. All transitions remain on the main queue.
+    private struct OnlineQueueBeforeOutage {
+        let tracks: [NativeTrack]
+        let index: Int
+        let queuedIDs: Set<String>
+        let waveActive: Bool
+    }
+    private var onlineQueueBeforeOutage: OnlineQueueBeforeOutage?
+    private var connectionOnline = true
+    // A decoder failure is not the same as the user pressing Pause.
+    private var playbackRequested = false
+    private var offlineCandidates: [NativeTrack] = []
+    private var offlineSwitchWork: DispatchWorkItem?
+    private var resumeOriginalQueueAfterSong = false
+    private let offlineSwitchDelay: TimeInterval = 12
+
+    var isOfflineQueueActive: Bool { onlineQueueBeforeOutage != nil }
+
+    // Called by MusicStore's existing NWPathMonitor / verified API checks.
+    // A network path alone is not treated as proof that the server recovered.
+    func updateConnectivity(online: Bool, downloaded: [[String: Any]]) {
+        offlineCandidates = downloaded.compactMap { nativeTrack(from: $0) }
+            .filter { $0.offline }
+        let changed = connectionOnline != online
+        connectionOnline = online
+        if online {
+            offlineSwitchWork?.cancel()
+            offlineSwitchWork = nil
+            // Restore the online *upcoming* queue immediately after the server
+            // is reachable. The local/current audio item keeps playing until
+            // its natural end; only the subsequent songs change.
+            if onlineQueueBeforeOutage != nil {
+                restoreOriginalQueueAfterCurrent()
+            }
+        } else if changed || (onlineQueueBeforeOutage == nil && offlineSwitchWork == nil) {
+            scheduleOfflineQueue()
+        }
+    }
+
+    private func scheduleOfflineQueue() {
+        guard !connectionOnline, onlineQueueBeforeOutage == nil,
+              offlineSwitchWork == nil, current != nil else { return }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.offlineSwitchWork = nil
+            guard !self.connectionOnline, self.onlineQueueBeforeOutage == nil else { return }
+            self.activateOfflineQueue()
+        }
+        offlineSwitchWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + offlineSwitchDelay, execute: work)
+    }
+
+    private func activateOfflineQueue() {
+        guard let current, origin != nil, tracks.indices.contains(index) else { return }
+        var verified: [NativeTrack] = []
+        var seen = Set<String>()
+        // MusicStore has already verified the files off the main thread.
+        // Avoid scanning every audio file again during a UI queue handoff.
+        for track in offlineCandidates where seen.insert(track.id).inserted {
+            verified.append(track)
+        }
+        let byID = Dictionary(uniqueKeysWithValues: verified.map { ($0.id, $0) })
+        let currentLocal = byID[current.id] ?? (current.offline ? current : nil)
+        var following: [NativeTrack] = []
+        var selected = Set([current.id])
+        // Prefer the offline copies of songs already planned to play next.
+        for track in tracks.dropFirst(index + 1) {
+            if let local = byID[track.id], selected.insert(local.id).inserted {
+                following.append(local)
+            }
+        }
+        // Fill out the offline selection from all other verified downloads.
+        for local in verified {
+            if selected.insert(local.id).inserted { following.append(local) }
+        }
+        guard currentLocal != nil || !following.isEmpty else { return }
+
+        onlineQueueBeforeOutage = OnlineQueueBeforeOutage(
+            tracks: tracks, index: index, queuedIDs: queuedIDs, waveActive: waveActive)
+        cancelPendingNext()
+        invalidateNextAudioWarmup()
+        waveTask?.cancel(); waveTask = nil; waveGeneration = UUID()
+        waveWaiting = false
+        waveActive = false
+        unavailableIDs.removeAll()
+        queuedIDs.removeAll()
+        tracks = [currentLocal ?? current] + following
+        index = 0
+        queueRevision += 1
+        // Never cut off an audible buffered stream. If the stream has already
+        // stalled, start the first local file rather than retry remote tracks.
+        if (wantsPlay || playbackRequested) && !audible {
+            recovery.cancel(resetBudget: true)
+            if currentLocal != nil {
+                load(position: playbackPosition)
+                play()
+            } else if tracks.count > 1 {
+                switchDirectly(to: 1)
+            }
+        }
+        // A buffered online song may continue playing during the handoff.
+        // Reload its locally saved artwork without restarting the audio item.
+        if currentLocal != nil && audible {
+            fetchArtwork(tracks[0], generation: itemGeneration, preferOffline: true)
+        }
+        prewarmNextAsset()
+        publish()
+    }
+
+    // Switch the visible/upcoming queue back without replacing the decoder.
+    // The current local song finishes normally before the first online song.
+    private func restoreOriginalQueueAfterCurrent() {
+        guard let saved = onlineQueueBeforeOutage, let playingTrack = current else { return }
+        cancelPendingNext()
+        invalidateNextAudioWarmup()
+        let prefix = Array(saved.tracks.prefix(saved.index)).filter { $0.id != playingTrack.id }
+        let remainder = saved.tracks.dropFirst(saved.index + 1)
+            .filter { $0.id != playingTrack.id }
+        tracks = prefix + [playingTrack] + remainder
+        index = prefix.count
+        queuedIDs = saved.queuedIDs.intersection(Set(remainder.map(\.id)))
+        waveActive = saved.waveActive
+        waveWaiting = false
+        unavailableIDs.removeAll()
+        onlineQueueBeforeOutage = nil
+        resumeOriginalQueueAfterSong = true
+        queueRevision += 1
+        prewarmNextAsset()
+        publish()
+        // Offline queue may already be exhausted before connection recovers.
+        if ended && playbackRequested && index + 1 < tracks.count {
+            resumeOriginalQueueAfterSong = false
+            switchDirectly(to: index + 1)
+        }
+    }
+
     private var appIsActive = UIApplication.shared.applicationState == .active
     private var usesNowPlaying27: Bool {
         #if canImport(NowPlaying)
@@ -441,7 +640,16 @@ final class NativePlayer {
     private var fadeNextAutomatically = false
     private var timeObserver: Any?
     private var artwork: MPMediaItemArtwork?
-    private lazy var placeholderArtwork = makeArtwork(placeholder())
+    private var artworkImage: UIImage?
+    private var artworkTrackID: String?
+    private var artworkIdentity: String?
+    private var artworkResolution = 0
+    private var systemArtwork: MPMediaItemArtwork? {
+        guard let current, let origin, artworkTrackID == current.id,
+              artworkIdentity == DisplayedSystemArtwork.key(origin: origin, id: current.id, cover: current.cover)
+        else { return nil }
+        return artwork
+    }
     private var artworkLoadTask: Task<Void, Never>?
     private var itemGeneration = UUID()
     private var seekGeneration = UUID()
@@ -451,7 +659,6 @@ final class NativePlayer {
     private var callResumeAttempts = 0
     private var observers: [NSObjectProtocol] = []
     private var current: NativeTrack? { tracks.indices.contains(index) ? tracks[index] : nil }
-
     private init() {
         // Buffer intermittent HLS/HTTP streams instead of forcing immediate playback
         // and risking short rebuffering gaps on fluctuating connections.
@@ -509,6 +716,9 @@ final class NativePlayer {
                 self.endBackgroundHandoff()
                 if self.callInterruptionEnded { self.attemptCallResume() }
                 self.refreshIndependentMeter()
+                if self.systemArtwork == nil, let track = self.current {
+                    self.fetchArtwork(track, generation: self.itemGeneration, preferOffline: track.offline)
+                }
                 // Never remove Now Playing on foreground entry. iOS owns the
                 // Dynamic Island's presentation; the lock screen, Control
                 // Center and connected accessories need the same media session.
@@ -595,9 +805,16 @@ final class NativePlayer {
         publish()
     }
 
-    func prepare(_ data: [String: Any], origin: URL, cookies: [HTTPCookie]) {
-        guard let raw = data["queue"] as? [[String: Any]], let selected = data["id"] as? String else { return }
-        let queue = raw.prefix(1000).compactMap { nativeTrack(from: $0) }
+    func prepare(_ data: [String: Any], origin: URL, cookies: [HTTPCookie],
+                 typedQueue: [Track]? = nil) {
+        guard let selected = data["id"] as? String else { return }
+        let queue: [NativeTrack]
+        if let typedQueue {
+            queue = typedQueue.prefix(1000).compactMap { nativeTrack(from: $0) }
+        } else {
+            guard let raw = data["queue"] as? [[String: Any]] else { return }
+            queue = raw.prefix(1000).compactMap { nativeTrack(from: $0) }
+        }
         cancelPendingNext()
         invalidateNextAudioWarmup()
         directForwardTrackID = nil
@@ -606,6 +823,10 @@ final class NativePlayer {
         startupTimeout?.cancel(); startupTimeout = nil
         fadeInActive = false; fadeNextAutomatically = false
         guard let selectedIndex = queue.firstIndex(where: { $0.id == selected }) else { return }
+        offlineSwitchWork?.cancel(); offlineSwitchWork = nil
+        onlineQueueBeforeOutage = nil
+        resumeOriginalQueueAfterSong = false
+        playbackRequested = false
         self.offlineAccount = data["account"] as? String ?? ""
         let previousOrigin = self.origin
         self.origin = origin
@@ -637,6 +858,36 @@ final class NativePlayer {
         queuedIDs = Set(data["queued_ids"] as? [String] ?? [])
             .intersection(queue.dropFirst(selectedIndex + 1).map { $0.id })
         load(position: max(0, ((data["position"] as? NSNumber)?.doubleValue ?? 0) / 1000))
+        if !connectionOnline { scheduleOfflineQueue() }
+    }
+
+    private func nativeTrack(from track: Track) -> NativeTrack? {
+        // Preserve the existing normalization for any unverified metadata.
+        if track._artist_checked != true { return nativeTrack(from: track.dictionary) }
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
+        guard !track.id.isEmpty, track.id.unicodeScalars.allSatisfy({ allowed.contains($0) }) else { return nil }
+        var lyrics: [String: Any]?
+        if let value = track._offline_lyrics, let data = try? JSONEncoder().encode(value) {
+            lyrics = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        }
+        return NativeTrack(id: track.id, title: track.title, artist: track.artist,
+            album: track.album ?? "", duration: track.duration ?? 0, cover: track.cover_url,
+            source: track.source, sourceURL: track.source_url, remote: track.is_remote ?? false,
+            offline: track._offline ?? false, offlineAccount: track._offline_account ?? "", offlineLyrics: lyrics)
+    }
+
+    func presentationQueue() -> [Track] {
+        tracks.map { item in
+            var lyrics: Lyrics?
+            if let raw = item.offlineLyrics, let data = try? JSONSerialization.data(withJSONObject: raw) {
+                lyrics = try? JSONDecoder().decode(Lyrics.self, from: data)
+            }
+            return Track(id: item.id, title: item.title, artist: item.artist,
+                album: item.album, duration: item.duration, cover_url: item.cover,
+                source: item.source, source_url: item.sourceURL, is_remote: item.remote,
+                _offline: item.offline, _offline_account: item.offlineAccount,
+                _offline_lyrics: lyrics, _artist_checked: true)
+        }
     }
 
     private func nativeTrack(from item: [String: Any]) -> NativeTrack? {
@@ -671,7 +922,7 @@ final class NativePlayer {
     }
 
     private func streamPath(for track: NativeTrack) -> String {
-        let format = (track.remote || track.source == "soundcloud") ? "hls" : "file"
+        let format = (track.remote || track.source?.lowercased().contains("soundcloud") == true) ? "hls" : "file"
         let choice = UserDefaults.standard.string(forKey: "nw-audio-quality") ?? "auto"
         let quality = (choice == "low" || choice == "economy") ? "economy" :
             (choice == "medium" || choice == "high") ? "high" : "auto"
@@ -703,9 +954,9 @@ final class NativePlayer {
             invalidateNextAudioWarmup()
             return
         }
-        if nextAssetID != next.id || nextAsset?.url != url {
+        if nextAssetID != next.id || nextAsset?.url != NWZResourceLoader.assetURL(url) {
             invalidateNextAudioWarmup()
-            nextAsset = AVURLAsset(url: url, options: [AVURLAssetHTTPCookiesKey: cookies])
+            nextAsset = NWZResourceLoader.asset(url, cookies: cookies)
             nextAssetID = next.id
         }
         guard let asset = nextAsset else { return }
@@ -778,6 +1029,22 @@ final class NativePlayer {
         stallCheck?.cancel(); stallCheck = nil
         itemGeneration = UUID(); let generation = itemGeneration
         guard let current, let origin else { return }
+        // Missing artwork is represented by nil, not a branded image.
+        // Keep genuine artwork during a retry of the same recording only.
+        if systemArtwork == nil {
+            artwork = nil; artworkImage = nil; artworkTrackID = nil; artworkIdentity = nil; artworkResolution = 0
+        }
+        if let image = DisplayedSystemArtwork.image(origin: origin, id: current.id, cover: current.cover),
+           installSystemArtwork(image, track: current, origin: origin, notify: false) {
+            let track = current
+            let owner = track.offlineAccount.isEmpty ? offlineAccount : track.offlineAccount
+            Task.detached(priority: .utility) {
+                LockScreenArtworkCache.save(image, origin: origin, track: track)
+                if track.offline {
+                    try? OfflineStore.saveCover(image, origin: origin, account: owner, id: track.id)
+                }
+            }
+        }
         if attemptedTrackID != current.id {
             attemptedTrackID = current.id
             attemptedTrackLoads = 0
@@ -800,14 +1067,12 @@ final class NativePlayer {
         player.volume = fadeInActive ? 0 : baseVolume
         requestedPosition = position; lastPosition = position; waitingForReady = true
         ended = false; error = ""; artworkLoadTask?.cancel()
-        // Avoid flashing a placeholder when the same track is being rebuffered.
-        if !recovering || artwork == nil { artwork = placeholderArtwork }
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
         if let failureObserver { NotificationCenter.default.removeObserver(failureObserver) }
         if let stallObserver { NotificationCenter.default.removeObserver(stallObserver); self.stallObserver = nil }
         itemObservation = nil
-        let asset = nextAssetID == current.id && nextAsset?.url == url
-            ? nextAsset! : AVURLAsset(url: url, options: [AVURLAssetHTTPCookiesKey: cookies])
+        let asset = nextAssetID == current.id && nextAsset?.url == NWZResourceLoader.assetURL(url)
+            ? nextAsset! : NWZResourceLoader.asset(url, cookies: cookies)
         nextAsset = nil; nextAssetID = nil; verifiedNextAudio = nil
         let item = AVPlayerItem(asset: asset)
         // Give remote streams enough audio ahead to absorb network jitter.
@@ -880,7 +1145,7 @@ final class NativePlayer {
         if wantsPlay { monitorStartup(generation: generation) }
         // Offline EQ can start immediately; remote EQ export is delayed
         // until the normal stream starts playing.
-        prepareEqualizerPlayback(); fetchArtwork(current, generation: generation); publish()
+        prepareEqualizerPlayback(); fetchArtwork(current, generation: generation, preferOffline: saved != nil); publish()
     }
 
     private func playbackFailed(_ failure: Error?, generation: UUID) {
@@ -893,6 +1158,12 @@ final class NativePlayer {
         }
         requestedPosition = lastPosition; waitingForReady = false
         player.pause()
+        if wantsPlay, !connectionOnline, onlineQueueBeforeOutage != nil,
+           current?.offline != true, index + 1 < tracks.count {
+            recovery.cancel(resetBudget: true)
+            switchDirectly(to: index + 1)
+            return
+        }
         if wantsPlay, current?.offline != true, PlaybackRecovery.isTransient(failure),
            (!failedDuringStartup || attemptedTrackLoads < 2),
            recovery.schedule({ [weak self] in
@@ -925,6 +1196,7 @@ final class NativePlayer {
 
     func play() {
         guard current != nil else { return }
+        playbackRequested = true
         if enginePlayback.ready {
             do {
                 try AVAudioSession.sharedInstance().setActive(true)
@@ -960,7 +1232,8 @@ final class NativePlayer {
         refreshIndependentMeter()
         refillWave(); publish()
     }
-    func pause() {
+    func pause(clearIntent: Bool = true) {
+        if clearIntent { playbackRequested = false }
         meterActivation?.cancel(); meterActivation = nil
         cancelPendingNext()
         warmupGeneration = UUID()
@@ -993,6 +1266,9 @@ final class NativePlayer {
         }
     }
     func stop() {
+        offlineSwitchWork?.cancel(); offlineSwitchWork = nil
+        onlineQueueBeforeOutage = nil
+        resumeOriginalQueueAfterSong = false
         cancelPendingNext()
         directForwardTrackID = nil
         startupTimeout?.cancel(); startupTimeout = nil
@@ -1006,6 +1282,7 @@ final class NativePlayer {
         if let failureObserver { NotificationCenter.default.removeObserver(failureObserver); self.failureObserver = nil }
         independentMeter.cancel()
         eqGeneration = UUID(); eqDownload?.cancel(); eqDownload = nil; enginePlayback.stop(); player.isMuted = false
+        artwork = nil; artworkImage = nil; artworkTrackID = nil; artworkIdentity = nil; artworkResolution = 0
         tracks = []; queuedIDs.removeAll(); waitingForReady = false; requestedPosition = 0; lastPosition = 0; error = ""
         queueRevision += 1; player.replaceCurrentItem(with: nil); publish()
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
@@ -1189,7 +1466,7 @@ final class NativePlayer {
     private var previousRestartAt: TimeInterval = -Double.infinity
     func step(_ direction: Int, restartCurrent: Bool = true) {
         guard !tracks.isEmpty, tracks.indices.contains(index) else { return }
-        // Repeated Next is ignored while loading. It can skip only after
+         // Repeated Next is ignored while loading. It can skip only after
         // the player has shown the actual loading-failure message.
         if direction > 0, pendingNextIndex == nil, !waveWaiting,
            let failedID = failedForwardTrackID,
@@ -1278,7 +1555,11 @@ final class NativePlayer {
             // remains responsible for the single handoff.
             return
         }
-        if repeatMode == 2 {
+        // The first song after an outage must come from the saved online queue,
+        // even if repeat-one was previously enabled.
+        let resumeFollowing = resumeOriginalQueueAfterSong
+        resumeOriginalQueueAfterSong = false
+        if repeatMode == 2 && !resumeFollowing {
             restartSmoothly()
         } else if waveActive && index + 1 >= tracks.count {
             waveWaiting = true
@@ -1296,7 +1577,7 @@ final class NativePlayer {
             // Switch immediately on the primary AVPlayer, no second player.
             switchDirectly(to: next)
         } else {
-            pause()
+            pause(clearIntent: connectionOnline)
         }
     }
     private func refillWave(force: Bool = false) {
@@ -1397,7 +1678,26 @@ final class NativePlayer {
         eqAttempted = true
         let requestGeneration = eqGeneration
         let generation = itemGeneration
-        if let local { activateEqualizerFile(local, temporary: false, generation: generation); return }
+        if let local {
+            if NWZResourceLoader.compressed(local) {
+                // Preserve AVAudioEngine EQ with a protected, short-lived
+                // compatibility file. Ordinary AVPlayer never needs it.
+                premiumSoundStatus = "Готовим локальный файл для эквалайзера. Музыка продолжает играть."
+                Task.detached(priority: .utility) { [weak self] in
+                    let file = try? NWZ.compatibilityFile(local)
+                    await MainActor.run {
+                        guard let self, self.itemGeneration == generation,
+                              self.eqGeneration == requestGeneration, self.eqRequested else {
+                            if let file { try? FileManager.default.removeItem(at: file) }
+                            return
+                        }
+                        if let file { self.activateEqualizerFile(file, temporary: true, generation: generation) }
+                        else { self.eqAttempted = false; self.premiumSoundStatus = "Не удалось подготовить локальный файл для EQ." }
+                    }
+                }
+            } else { activateEqualizerFile(local, temporary: false, generation: generation) }
+            return
+        }
         premiumSoundStatus = "Готовим аудиофайл для эквалайзера. Музыка продолжает играть."
         var request = URLRequest(url: origin.appendingPathComponent("api/offline-export/" + current.id))
         request.url = URL(string: "api/offline-export/" + current.id + "?download=true&wait=true", relativeTo: origin)
@@ -1483,6 +1783,9 @@ final class NativePlayer {
         let key = origin.absoluteString + "|" + offlineAccount + "|" + current.offlineAccount + "|" + current.id
         guard independentMeter.needsPreparation(for: key) else { return }
         let local = OfflineStore.audio(origin: origin, account: current.offlineAccount.isEmpty ? offlineAccount : current.offlineAccount, id: current.id)
+        // A decorative visualizer must not compete for the same audio-export
+        // worker while the user's explicit offline batch is downloading.
+        if local == nil && BackgroundDownloads.shared.progress.active { return }
         var request = URLRequest(url: origin.appendingPathComponent("api/offline-export/" + current.id))
         request.url = URL(string: "api/offline-export/" + current.id + "?download=true&wait=true", relativeTo: origin)
         request.timeoutInterval = 90
@@ -1577,69 +1880,165 @@ final class NativePlayer {
         callResumeRetry = retry
         DispatchQueue.main.asyncAfter(deadline: .now() + Double(callResumeAttempts), execute: retry)
     }
-    private func fetchArtwork(_ track: NativeTrack, generation: UUID, attempt: Int = 0) {
+    private func fetchArtwork(_ track: NativeTrack, generation: UUID, attempt: Int = 0, preferOffline: Bool = false) {
         if attempt == 0 { artworkLoadTask?.cancel() }
-        if let cover = track.cover, cover.hasPrefix("data:image/"), let comma = cover.firstIndex(of: ","),
+        guard itemGeneration == generation, current?.id == track.id, let origin else { return }
+        let owner = track.offlineAccount.isEmpty ? offlineAccount : track.offlineAccount
+        let identity = DisplayedSystemArtwork.key(origin: origin, id: track.id, cover: track.cover)
+        if let displayed = DisplayedSystemArtwork.image(origin: origin, id: track.id, cover: track.cover) {
+            installSystemArtwork(displayed, track: track, origin: origin)
+        }
+
+        if let cover = track.cover, cover.hasPrefix("data:image/"),
+           let comma = cover.firstIndex(of: ","),
            let data = Data(base64Encoded: String(cover[cover.index(after: comma)...])),
            data.count < 2 * 1024 * 1024, let image = UIImage(data: data) {
-            artwork = makeArtwork(image); publish(); return
+            installSystemArtwork(image, track: track, origin: origin)
+            Task.detached(priority: .utility) {
+                LockScreenArtworkCache.save(image, origin: origin, track: track)
+                if track.offline {
+                    try? OfflineStore.saveCover(image, origin: origin,
+                                                account: owner, id: track.id)
+                }
+            }
+            return
         }
-        guard let origin else { return }
-        let cover = track.cover?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        // Some remote records lack cover_url even when /api/covers/<id> is available.
-        let address = cover.isEmpty && (track.remote || track.source == "soundcloud")
-            ? "/api/covers/" + track.id : cover
-        guard !address.isEmpty, let url = URL(string: address, relativeTo: origin)?.absoluteURL,
-              url.scheme?.lowercased() == "https",
-              url.user == nil, url.password == nil else { return }
-        // The system artwork used to ignore EVERY SoundCloud CDN cover, because
-        // only same-origin /api/covers/ URLs were allowed. Reuse the same image
-        // pipeline as the visible player, including its disk cache and deduplication.
+
+        let raw = track.cover?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let address = raw.isEmpty && !track.id.hasPrefix("local_")
+            ? "/api/covers/" + track.id : raw
+        let url = address.isEmpty ? nil : URL(string: address, relativeTo: origin)?.absoluteURL
+        let trustedURL = url.flatMap { item -> URL? in
+            guard item.scheme?.lowercased() == "https", item.user == nil, item.password == nil
+            else { return nil }
+            return item
+        }
+        // A downloaded local song might have no cover URL. It can still have
+        // artwork stored next to its audio, so never return before reading it.
         artworkLoadTask = Task { [weak self] in
-            var image = await CoverImagePipeline.shared.image(for: url, maxPixel: 512, retryFailure: attempt > 0)
-            // Internal /api/covers may require the Nightwell session cookie.
-            // Retry authenticated only for this server, never for an external CDN.
-            if image == nil && !Task.isCancelled && ServerAddress.sameOrigin(origin, url) {
-                var request = URLRequest(url: url)
-                request.timeoutInterval = 10
-                request.cachePolicy = .returnCacheDataElseLoad
-                request.allHTTPHeaderFields = HTTPCookie.requestHeaderFields(with: self?.cookies ?? [])
-                if let (data, response) = try? await URLSession.shared.data(for: request),
-                   let http = response as? HTTPURLResponse, http.statusCode == 200,
-                   data.count <= 6 * 1024 * 1024 {
-                    image = UIImage(data: data)
+            // Local saved art is available immediately after device lock,
+            // without waiting for an external CDN or a suspended URLSession.
+            var image: UIImage? = await Task.detached(priority: .utility) {
+                if track.offline || preferOffline {
+                    return OfflineStore.cover(origin: origin, account: owner, id: track.id)
+                        ?? LockScreenArtworkCache.load(origin: origin, track: track)
+                }
+                return LockScreenArtworkCache.load(origin: origin, track: track)
+            }.value
+            if let cached = image, !Task.isCancelled {
+                await MainActor.run {
+                    guard let self, self.itemGeneration == generation else { return }
+                    guard self.current?.id == track.id else { return }
+                    self.installSystemArtwork(cached, track: track, origin: origin)
+                }
+                // A small row thumbnail is sufficient immediately; keep
+                // looking for a higher-resolution original if available.
+                if max(cached.size.width * cached.scale, cached.size.height * cached.scale) >= 384 ||
+                    trustedURL == nil { return }
+            }
+            if let url = trustedURL {
+                if let cached = await CoverImagePipeline.shared.cachedArtwork(for: url) {
+                    await MainActor.run {
+                        guard let self, self.itemGeneration == generation, self.current?.id == track.id else { return }
+                        self.installSystemArtwork(cached, track: track, origin: origin)
+                    }
+                }
+                image = await CoverImagePipeline.shared.image(for: url, maxPixel: 512,
+                                                               retryFailure: true)
+                if image == nil { image = await CoverImagePipeline.shared.cachedArtwork(for: url) }
+                // A server-origin cover may need the current scoped cookie.
+                // Never send Nightwell credentials to an external image CDN.
+                if image == nil && !Task.isCancelled && ServerAddress.sameOrigin(origin, url) {
+                    var request = URLRequest(url: url)
+                    request.timeoutInterval = 10
+                    request.cachePolicy = .returnCacheDataElseLoad
+                    request.allHTTPHeaderFields = HTTPCookie.requestHeaderFields(
+                        with: self?.cookies ?? [])
+                    if let (data, response) = try? await URLSession.shared.data(for: request),
+                       let http = response as? HTTPURLResponse, http.statusCode == 200,
+                       data.count <= 6 * 1024 * 1024 {
+                        image = UIImage(data: data)
+                    }
                 }
             }
             guard !Task.isCancelled else { return }
+            if image == nil && !Task.isCancelled && !track.id.hasPrefix("local_"),
+               let fallback = URL(string: "/api/covers/" + track.id, relativeTo: origin)?.absoluteURL,
+               fallback != trustedURL {
+                image = await CoverImagePipeline.shared.image(for: fallback, maxPixel: 512,
+                                                               retryFailure: attempt > 0)
+            }
+            guard !Task.isCancelled else { return }
             if let image {
+                // Publish the cover before any JPEG encoding or disk cleanup.
                 await MainActor.run {
-                    guard let self, self.itemGeneration == generation else { return }
-                    self.artwork = self.makeArtwork(image)
-                    self.publish()
+                    guard let self, self.itemGeneration == generation, self.current?.id == track.id else { return }
+                    self.installSystemArtwork(image, track: track, origin: origin)
                 }
-            } else if attempt < 2 {
-                // The audio stream may be ready before a remote artwork CDN.
-                // Retry only for the same song; never show a previous song's cover.
+                Task.detached(priority: .utility) {
+                    LockScreenArtworkCache.save(image, origin: origin, track: track)
+                    if track.offline || preferOffline {
+                        try? OfflineStore.saveCover(image, origin: origin,
+                                                    account: owner, id: track.id)
+                    }
+                }
+            } else if attempt < 2 && self?.systemArtwork == nil && (trustedURL != nil || !track.id.hasPrefix("local_")) {
+                // Existing downloads with no permanent image can still migrate
+                // previously cached CDN artwork if connectivity returns.
                 try? await Task.sleep(nanoseconds: attempt == 0 ? 750_000_000 : 2_000_000_000)
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
-                    guard let self, self.itemGeneration == generation else { return }
-                    self.fetchArtwork(track, generation: generation, attempt: attempt + 1)
+                    guard let self, self.itemGeneration == generation, self.systemArtwork == nil,
+                          let current = self.current, let activeOrigin = self.origin,
+                          DisplayedSystemArtwork.key(origin: activeOrigin, id: current.id, cover: current.cover) == identity else { return }
+                    self.fetchArtwork(track, generation: generation, attempt: attempt + 1, preferOffline: preferOffline)
                 }
             }
         }
     }
-    private func makeArtwork(_ image: UIImage) -> MPMediaItemArtwork {
-        MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+    // Cover views can already hold the correct thumbnail (including offline
+    // artwork) while a separate Now Playing fetch has failed. Accept only
+    // real artwork for the actual current song and the active server.
+    func acceptDisplayedArtwork(_ image: UIImage, trackID: String, origin: URL, cover: String? = nil) {
+        DisplayedSystemArtwork.store(image, origin: origin, id: trackID, cover: cover)
+        guard let activeOrigin = self.origin, let current, current.id == trackID,
+              ServerAddress.sameOrigin(activeOrigin, origin),
+              DisplayedSystemArtwork.matches(origin: activeOrigin, id: trackID, first: current.cover, second: cover)
+        else { return }
+        if installSystemArtwork(image, track: current, origin: activeOrigin) {
+            let owner = current.offlineAccount.isEmpty ? offlineAccount : current.offlineAccount
+            Task.detached(priority: .utility) {
+                LockScreenArtworkCache.save(image, origin: activeOrigin, track: current)
+                if current.offline {
+                    try? OfflineStore.saveCover(image, origin: activeOrigin, account: owner, id: current.id)
+                }
+            }
+        }
     }
-    private func placeholder() -> UIImage {
-        UIGraphicsImageRenderer(size: CGSize(width: 512, height: 512)).image { context in
-            UIColor(red: 0.12, green: 0.08, blue: 0.2, alpha: 1).setFill()
-            context.fill(CGRect(x: 0, y: 0, width: 512, height: 512))
-            let attrs: [NSAttributedString.Key: Any] = [.font: UIFont.boldSystemFont(ofSize: 150),
-                .foregroundColor: UIColor(red: 0.73, green: 0.6, blue: 1, alpha: 1)]
-            let label = NSAttributedString(string: "NW", attributes: attrs)
-            let size = label.size(); label.draw(at: CGPoint(x: (512-size.width)/2, y: (512-size.height)/2))
+
+    @discardableResult
+    private func installSystemArtwork(_ image: UIImage, track: NativeTrack, origin: URL,
+                                      notify: Bool = true) -> Bool {
+        guard let active = current, let activeOrigin = self.origin,
+              DisplayedSystemArtwork.key(origin: activeOrigin, id: active.id, cover: active.cover) ==
+                DisplayedSystemArtwork.key(origin: origin, id: track.id, cover: track.cover),
+              image.size.width.isFinite, image.size.height.isFinite,
+              image.size.width > 0, image.size.height > 0 else { return false }
+        let resolution = Int(min(8192, max(image.size.width, image.size.height) * image.scale))
+        guard systemArtwork == nil || resolution > artworkResolution else { return false }
+        artworkImage = image
+        artwork = makeArtwork(image)
+        artworkTrackID = track.id
+        artworkIdentity = DisplayedSystemArtwork.key(origin: origin, id: track.id, cover: track.cover)
+        artworkResolution = resolution
+        if notify { publish() }
+        return true
+    }
+
+    private func makeArtwork(_ image: UIImage) -> MPMediaItemArtwork {
+        let size = CGSize(width: image.size.width * image.scale, height: image.size.height * image.scale)
+        return MPMediaItemArtwork(boundsSize: size) { requested in
+            SystemArtworkEncoding.raster(image, maxPixel: min(1024, max(requested.width, requested.height))) ?? image
         }
     }
     func auraLevels() -> [Double] {
@@ -1711,6 +2110,7 @@ final class NativePlayer {
             "nextPreparing": pendingNextIndex != nil || waveWaiting, "account": offlineAccount, "ended": ended, "repeat": repeatMode, "shuffle": shuffle, "shuffleMode": shuffleStyle,
             "volume": baseVolume, "smoothTransitions": true, "transitionSeconds": transitionSeconds, "queueRevision": queueRevision, "queueIds": includeQueue ? tracks.map { $0.id } : [], "error": error,
             "wave": waveActive, "waveSupported": true,
+            "offlineQueueActive": onlineQueueBeforeOutage != nil,
             "queuedIds": includeQueuedIDs ? tracks.dropFirst(index + 1).filter { queuedIDs.contains($0.id) }.map { $0.id } : [],
             "audioOutput": includeDiagnostics ? AVAudioSession.sharedInstance().currentRoute.outputs.map { ["type": $0.portType.rawValue, "name": $0.portName] } : [],
             "audioTap": audioMeter.attached, "independentAuraReady": independentMeter.envelope != nil,
@@ -1742,7 +2142,7 @@ final class NativePlayer {
                         playing: wantsPlay && audible,
                         playbackIntent: wantsPlay,
                         elapsed: playbackPosition,
-                        artwork: artwork,
+                        artwork: systemArtwork == nil ? nil : artworkImage,
                         queueCount: tracks.count
                     )
                 }
@@ -1770,7 +2170,7 @@ final class NativePlayer {
                     index != lastNowPlayingIndex ||
                     queueRevision != lastNowPlayingQueueRevision ||
                     stateCode != lastNowPlayingState ||
-                    lastNowPlayingArtwork !== artwork
+                    lastNowPlayingArtwork !== systemArtwork
                 let playheadChanged = position.isFinite &&
                     abs(position - lastNowPlayingPosition) >= 1.0
                 if stateChanged || playheadChanged || now - lastNowPlayingUpdate >= 1.5 {
@@ -1787,7 +2187,7 @@ final class NativePlayer {
                     MPNowPlayingInfoPropertyPlaybackQueueIndex: index,
                     MPNowPlayingInfoPropertyPlaybackQueueCount: tracks.count,
                     MPNowPlayingInfoPropertyExternalContentIdentifier: current.id]
-                    if let artwork { info[MPMediaItemPropertyArtwork] = artwork }
+                    if let artwork = systemArtwork { info[MPMediaItemPropertyArtwork] = artwork }
                     nowPlayingCenter.nowPlayingInfo = info
                     lastNowPlayingID = current.id
                     lastNowPlayingIndex = index
@@ -1795,7 +2195,7 @@ final class NativePlayer {
                     lastNowPlayingState = stateCode
                     lastNowPlayingPosition = position.isFinite ? position : 0
                     lastNowPlayingUpdate = now
-                    lastNowPlayingArtwork = artwork
+                    lastNowPlayingArtwork = systemArtwork
                 }
             } else if !lastNowPlayingID.isEmpty {
                 nowPlayingCenter.nowPlayingInfo = nil

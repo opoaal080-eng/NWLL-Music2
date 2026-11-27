@@ -61,7 +61,16 @@ final class IndependentAudioMeter {
         let currentKey = key
         worker = Task.detached(priority: .utility) { [weak self] in
             defer { if temporary { try? FileManager.default.removeItem(at: file) } }
-            guard let value = try? TrackEnvelope.analyse(file, cancelled: { Task.isCancelled }), !Task.isCancelled else {
+            let input: URL
+            if NWZResourceLoader.compressed(file) {
+                guard let decoded = try? NWZ.compatibilityFile(file, cancelled: { Task.isCancelled }) else {
+                    await MainActor.run { self?.failed(expected: expected) }
+                    return
+                }
+                input = decoded
+            } else { input = file }
+            defer { if input != file { try? FileManager.default.removeItem(at: input) } }
+            guard let value = try? TrackEnvelope.analyse(input, cancelled: { Task.isCancelled }), !Task.isCancelled else {
                 await MainActor.run { self?.failed(expected: expected) }
                 return
             }
@@ -86,7 +95,9 @@ final class IndependentAudioMeter {
     private var prewarmWorker: Task<Void, Never>?
     private var prewarmKey = ""
     func prewarm(key: String, local: URL?) {
-        guard let local else { return }
+        // Avoid writing a second full temporary file before a compressed
+        // track becomes current. The live tap or current envelope handles it.
+        guard let local, !NWZResourceLoader.compressed(local) else { return }
         if prewarmKey == key { return }
         prewarmWorker?.cancel()
         prewarmKey = key

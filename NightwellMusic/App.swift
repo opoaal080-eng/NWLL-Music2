@@ -1,4 +1,6 @@
 import SwiftUI
+import UIKit
+import QuartzCore
 import UniformTypeIdentifiers
 
 @main struct NightwellMusicApp: App {
@@ -15,6 +17,7 @@ import UniformTypeIdentifiers
             .environmentObject(store)
             .environment(\.nightwellAppearance, NightwellAppearance(rawValue: themeID) ?? .standard)
             .preferredColorScheme(.dark)
+            .modifier(NightwellStudioIntro())
         }
     }
 }
@@ -422,7 +425,6 @@ struct NativeRoot: View {
     @State private var createPlaylist = false
     @State private var shareText: String?
     @State private var showShare = false
-    @State private var launching = true
     @State private var searchScrollCollapsed = false
     @State private var searchRevealRequest = 0
     // Direction only belongs to user-initiated screen navigation. Playback,
@@ -459,7 +461,7 @@ struct NativeRoot: View {
                 // Keep one backdrop alive while the app changes tabs, pauses,
                 // buffers audio, and restores a session after launch.
                 RibbonScene(playing: store.clock.playing, flash: store.likeFlash,
-                            active: store.screen == .home)
+                            active: store.screen == .home && !settings && !fullPlayer && selectedPlaylist == nil && !navigationMenuPresented && !profilePresented)
                     .ignoresSafeArea()
                     .opacity(store.screen == .home ? 1.0 : 0.18)
                     .allowsHitTesting(false)
@@ -577,11 +579,11 @@ struct NativeRoot: View {
     private func playerDock(landscape: Bool) -> some View {
         VStack(spacing: navigationLayout.showsTabs ? (landscape ? 2 : 4) : 0) {
             MiniPlayer(clock: store.clock, open: { fullPlayer = true },
-                       compactHeight: landscape)
+                       compactHeight: landscape, active: !fullPlayer && !settings && selectedPlaylist == nil && !profilePresented)
                 .padding(.horizontal, landscape ? 18 : 16)
                 .overlay(alignment: .bottom) {
                     if store.screen == .home && !landscape && showHomeLyrics {
-                        HomeLyricLine(model: store.lyrics, clock: store.clock)
+                        HomeLyricLine(model: store.lyrics, clock: store.clock, active: !fullPlayer && !settings && selectedPlaylist == nil && !profilePresented)
                             .saturation(0)
                             .frame(height: 60)
                             .padding(.horizontal, 24)
@@ -894,8 +896,6 @@ struct NativeRoot: View {
 
     var body: some View {
         navigationSheetsScene
-        .overlay { if launching { MonochromeNightwellLaunch().transition(.opacity) } }
-        .task { try? await Task.sleep(nanoseconds: reducedMotion ? 150_000_000 : 1_200_000_000); withAnimation(.easeOut(duration: 0.3)) { launching = false } }
         // Show the new theme only once in expanded form per installation.
         // The compact paintpalette remains until the user visits Themes.
         .task {
@@ -1596,7 +1596,7 @@ struct NativeRoot: View {
                                 .lineLimit(2)
                                 .fixedSize(horizontal: false, vertical: true)
                                 .accessibilityAddTraits(.isHeader)
-                            Text(favoritesCountLabel(store.likes.count))
+                            Text(favoritesCountLabel(tracks.count))
                                 .font(.system(size: 17, weight: .medium))
                                 .foregroundStyle(.white.opacity(0.60))
                         }
@@ -1695,6 +1695,18 @@ struct NativeRoot: View {
                     .foregroundStyle(.white.opacity(0.9))
                     .padding(.top, 4)
 
+                    if store.likes.count > tracks.count {
+                        HStack(spacing: 8) {
+                            Image(systemName: "info.circle")
+                            Text("Не загружено: \(store.likes.count - tracks.count)")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Button("Обновить") { Task { await store.refresh() } }
+                                .buttonStyle(.plain)
+                                .fontWeight(.semibold)
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.65))
+                    }
                     TrackList(tracks: tracks, embedded: true)
                 }
                 .padding(.horizontal, 20)
@@ -1973,9 +1985,9 @@ struct NativeTrackRow: View {
                 else { store.play(track, in: queue) }
             } label: {
                 HStack(spacing: 12) {
-                    Cover(track: track, origin: store.origin, pixelWidth: libraryPreview ? 224 : 160)
+                    Cover(track: track, origin: store.origin, pixelWidth: libraryPreview ? 224 : 160,
+                          cornerRadius: libraryPreview ? 8 : 12)
                         .frame(width: libraryPreview ? 56 : 46, height: libraryPreview ? 56 : 46)
-                        .clipShape(RoundedRectangle(cornerRadius: libraryPreview ? 8 : 12))
                     VStack(alignment: .leading, spacing: 5) {
                         Text(track.title).font(libraryPreview ? .body.weight(.medium) : .subheadline.weight(.semibold))
                             .lineLimit(libraryPreview ? 1 : 2)
@@ -1983,10 +1995,12 @@ struct NativeTrackRow: View {
                             .lineLimit(libraryPreview ? 1 : 2)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    if status.id == track.id {
-                        PlayingIndicator(playing: status.playing)
-                            .foregroundStyle(appearance.progressTint)
+                    if store.isDownloaded(track) {
+                        Image(systemName: "arrow.down.circle.fill")
+                            .font(.system(size: 18, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.72))
                             .frame(width: 20, height: 20)
+                            .accessibilityLabel("Скачан, доступен офлайн")
                     }
                 }
                 .frame(maxWidth: .infinity, minHeight: libraryPreview ? 56 : 54, alignment: .leading)
@@ -2029,8 +2043,8 @@ struct NativeTrackRow: View {
                 Button(store.likes.contains(track.id) ? "Убрать из избранного" : "В избранное", systemImage: store.likes.contains(track.id) ? "heart.fill" : "heart") { Task { await store.like(track) } }
                 if store.isDownloaded(track) {
                     Button("Удалить загрузку", systemImage: "trash", role: .destructive) { Task { await store.removeDownload(track) } }
-                } else if let fraction = store.downloadProgress(track.id) {
-                    Text("Скачивание \(Int(fraction * 100))%")
+                } else if store.downloadProgress(track.id) != nil {
+                    TrackDownloadMenuProgress(progress: store.downloadProgressPresentation, trackID: track.id)
                 } else {
                     Button("Скачать", systemImage: "arrow.down.to.line") { Task { await store.download([track]) } }
                 }
@@ -2060,15 +2074,24 @@ struct NativeTrackRow: View {
         .background(
             appearance == .vice
                 ? (status.id == track.id
-                    ? NightwellAppearance.pink.opacity(0.24)
+                    ? NightwellAppearance.pink.opacity(0.13)
                     : (libraryPreview ? Color.clear
                         : Color(red: 0.18, green: 0.075, blue: 0.28).opacity(0.78)))
                 : (status.id == track.id
-                    ? pumpkin.opacity(0.12)
+                    ? Color.white.opacity(0.065)
                     : (libraryPreview ? Color.clear : Color.white.opacity(0.035))),
             in: RoundedRectangle(cornerRadius: 18)
         )
         .nightwellThemeChrome(18)
+        .overlay {
+            if status.id == track.id {
+                PlayingTrackOutline(playing: status.playing, tint: appearance.progressTint,
+                                    secondaryTint: appearance == .vice ? appearance.accent : appearance.progressTint)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
+        .accessibilityValue(status.id == track.id ? (status.playing ? "Сейчас играет" : "На паузе") : "")
         .confirmationDialog("Выбери исполнителя", isPresented: $showArtistChoices, titleVisibility: .visible) {
             ForEach(ArtistNames.split(track.artist), id: \.self) { name in
                 Button(name) { selectedArtist = ArtistSelection(name: name) }
@@ -2412,53 +2435,309 @@ struct ArtistProfileView: View {
     }
 }
 
+/// A single, unmodified artwork layer with one rounded mask.
+/// The former blurred second layer was visible outside the radius and
+/// produced coloured triangular corner wedges on top of the player backdrop.
+struct CoverArtworkSurface: View {
+    let image: UIImage
+    let cornerRadius: CGFloat
+
+    var body: some View {
+        GeometryReader { geometry in
+            Image(uiImage: image)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFill()
+                .frame(width: geometry.size.width, height: geometry.size.height)
+                .clipped()
+                .clipShape(RoundedRectangle(cornerRadius: max(0, cornerRadius),
+                                            style: .continuous))
+        }
+    }
+}
+
 struct Cover: View {
     let track: Track?
     let origin: URL
     var pixelWidth = 160
+    var cornerRadius: CGFloat = 0
     @State private var artwork: UIImage?
-    @State private var loadedArtworkURL: URL?
+    @State private var loadedArtworkKey = ""
 
     private var coverURL: URL? {
         track.flatMap { CoverImagePipeline.coverURL(for: $0, origin: origin) }
     }
+    private var artworkKey: String {
+        [track?.id ?? "", track?._offline_account ?? "",
+         track?._offline == true ? "offline" : "online",
+         coverURL?.absoluteString ?? String(track?.cover_url?.hashValue ?? 0), String(pixelWidth)].joined(separator: "|")
+    }
+
     var body: some View {
         GeometryReader { box in
             ZStack {
-                Color.white.opacity(0.08)
-                if let artwork, loadedArtworkURL == coverURL {
-                    Image(uiImage: artwork).resizable().scaledToFill()
+                if let artwork, loadedArtworkKey == artworkKey {
+                    CoverArtworkSurface(image: artwork, cornerRadius: cornerRadius)
                         .frame(width: box.size.width, height: box.size.height)
-                        .clipped()
                 } else {
-                    Image(systemName: "music.note")
-                        .font(.title)
-                        .foregroundStyle(.white.opacity(0.7))
+                    ZStack {
+                        Color.white.opacity(0.08)
+                        Image(systemName: "music.note")
+                            .font(.title)
+                            .foregroundStyle(.white.opacity(0.7))
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius,
+                                                style: .continuous))
                 }
             }
             .frame(width: box.size.width, height: box.size.height)
             .clipped()
         }
-        .task(id: "\(coverURL?.absoluteString ?? "")#\(pixelWidth)") {
-            guard let coverURL else { artwork = nil; loadedArtworkURL = nil; return }
-            if loadedArtworkURL != coverURL { artwork = nil; loadedArtworkURL = nil }
-            let image = await CoverImagePipeline.shared.image(for: coverURL, maxPixel: pixelWidth)
+        .task(id: artworkKey) {
+            let requested = artworkKey
+            if loadedArtworkKey != requested { artwork = nil; loadedArtworkKey = "" }
+            var image: UIImage?
+            if let track, track._offline == true {
+                let owner = track._offline_account ?? "device"
+                image = await Task.detached(priority: .utility) {
+                    OfflineStore.cover(origin: origin, account: owner, id: track.id)
+                }.value
+            }
+            if image == nil, let coverURL {
+                image = await CoverImagePipeline.shared.image(for: coverURL,
+                                                              maxPixel: pixelWidth)
+            }
+            if image == nil, let track, let raw = track.cover_url,
+               raw.hasPrefix("data:image/"), let comma = raw.firstIndex(of: ","),
+               raw.utf8.count <= 3 * 1024 * 1024 {
+                image = await Task.detached(priority: .utility) {
+                    Data(base64Encoded: String(raw[raw.index(after: comma)...])).flatMap { UIImage(data: $0) }
+                }.value
+            }
+            if image == nil, let track, !track.id.hasPrefix("local_"),
+               let fallback = URL(string: "/api/covers/" + track.id, relativeTo: origin)?.absoluteURL,
+               fallback != coverURL {
+                image = await CoverImagePipeline.shared.image(for: fallback, maxPixel: pixelWidth)
+            }
+            // A transient failure must not leave a visible row permanently blank.
+            if image == nil, let track, !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                guard !Task.isCancelled else { return }
+                if let coverURL {
+                    image = await CoverImagePipeline.shared.image(for: coverURL, maxPixel: pixelWidth, retryFailure: true)
+                }
+                if image == nil, !track.id.hasPrefix("local_"),
+                   let fallback = URL(string: "/api/covers/" + track.id, relativeTo: origin)?.absoluteURL,
+                   fallback != coverURL {
+                    image = await CoverImagePipeline.shared.image(for: fallback, maxPixel: pixelWidth, retryFailure: true)
+                }
+            }
             guard !Task.isCancelled else { return }
+            // Display the original decoded artwork. The previous corner-repair
+            // algorithm modified faces and other deliberately dark regions.
+            // Rounded geometry is handled only by CoverArtworkSurface.
             artwork = image
-            loadedArtworkURL = image == nil ? nil : coverURL
+            loadedArtworkKey = image == nil ? "" : requested
+            if let image, let track {
+                NativePlayer.shared.acceptDisplayedArtwork(image, trackID: track.id, origin: origin,
+                                                          cover: track.cover_url)
+            }
         }
     }
 }
-struct PlayingIndicator: View {
+// Animate on Core Animation's render server, not on the SwiftUI row.
+// The light moves a fixed distance along the perimeter (including corners).
+private struct PlayingTrackOutline: UIViewRepresentable {
     let playing: Bool
+    let tint: Color
+    let secondaryTint: Color
     @Environment(\.scenePhase) private var scene
     @Environment(\.accessibilityReduceMotion) private var reduced
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 0.1, paused: !playing || reduced || scene != .active)) { context in
-            HStack(alignment: .center, spacing: 2) { ForEach(0..<4) { i in Capsule().fill(pumpkin).frame(width: 3, height: playing ? CGFloat(5 + 13 * abs(sin(context.date.timeIntervalSinceReferenceDate * 5 + Double(i)))) : 5) } }
-        }.accessibilityLabel(playing ? "Сейчас играет" : "На паузе")
+
+    func makeUIView(context: Context) -> TrackLightView {
+        let view = TrackLightView()
+        view.configure(playing: playing, animate: playing && !reduced && scene == .active,
+                       primary: UIColor(tint), secondary: UIColor(secondaryTint))
+        return view
+    }
+
+    func updateUIView(_ view: TrackLightView, context: Context) {
+        view.configure(playing: playing, animate: playing && !reduced && scene == .active,
+                       primary: UIColor(tint), secondary: UIColor(secondaryTint))
+    }
+
+    static func dismantleUIView(_ view: TrackLightView, coordinator: ()) {
+        view.stopMotion()
+    }
+
+    final class TrackLightView: UIView {
+        private let base = CAShapeLayer()
+        private let lightSurface = CALayer()
+        private let outlineMask = CALayer()
+        private let maskStrokes = (0..<3).map { _ in CAShapeLayer() }
+        private let lights = (0..<2).map { _ in CALayer() }
+        private let motionKey = "nightwell.track.perimeter"
+        private var playing = false
+        private var animate = false
+        private var primary = UIColor.white
+        private var secondary = UIColor.white
+        private var laidOutSize = CGSize.zero
+        private var dirty = true
+        private var textureColors: [UIColor] = []
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            backgroundColor = .clear
+            isOpaque = false
+            isUserInteractionEnabled = false
+            isAccessibilityElement = false
+            base.fillColor = nil
+            layer.addSublayer(base)
+            // The moving lights have continuous alpha. A fixed rounded
+            // outline mask clips them to the row, including its corners.
+            layer.addSublayer(lightSurface)
+            lightSurface.mask = outlineMask
+            for stroke in maskStrokes {
+                stroke.fillColor = nil
+                outlineMask.addSublayer(stroke)
+            }
+            for light in lights {
+                light.contentsGravity = .resize
+                light.contentsScale = 2
+                lightSurface.addSublayer(light)
+            }
+        }
+        required init?(coder: NSCoder) { nil }
+
+        func configure(playing: Bool, animate: Bool, primary: UIColor, secondary: UIColor) {
+            guard self.playing != playing || self.animate != animate ||
+                    !self.primary.isEqual(primary) || !self.secondary.isEqual(secondary) else { return }
+            self.playing = playing
+            self.animate = animate
+            self.primary = primary
+            self.secondary = secondary
+            dirty = true
+            setNeedsLayout()
+        }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            if window == nil { stopMotion() }
+            else { dirty = true; setNeedsLayout() }
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            guard dirty || laidOutSize != bounds.size else { return }
+            dirty = false
+            laidOutSize = bounds.size
+            rebuild()
+        }
+
+        func stopMotion() {
+            for light in lights { light.removeAnimation(forKey: motionKey) }
+            dirty = true
+        }
+
+        // Render a smoothly fading elliptical texture only when the theme
+        // changes. No stack of abruptly ending colored dash segments and
+        // no per-frame bitmap generation, blur or SwiftUI state updates.
+        private func texture(_ tint: UIColor) -> CGImage? {
+            let size = CGSize(width: 160, height: 80)
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 2
+            format.opaque = false
+            return UIGraphicsImageRenderer(size: size, format: format).image { renderer in
+                let context = renderer.cgContext
+                let color = tint.resolvedColor(with: traitCollection)
+                let stops: [CGFloat] = [0, 0.14, 0.28, 0.43, 0.58, 0.73, 0.88, 1]
+                let alpha: [CGFloat] = [1, 0.97, 0.87, 0.65, 0.39, 0.16, 0.035, 0]
+                let colors = alpha.map { color.withAlphaComponent($0).cgColor } as CFArray
+                guard let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                                                colors: colors, locations: stops) else { return }
+                context.translateBy(x: size.width / 2, y: size.height / 2)
+                context.scaleBy(x: size.width / 2, y: size.height / 2)
+                context.drawRadialGradient(gradient, startCenter: .zero, startRadius: 0,
+                                           endCenter: .zero, endRadius: 1, options: [])
+            }.cgImage
+        }
+
+        private func rebuild() {
+            stopMotion()
+            dirty = false
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            defer { CATransaction.commit() }
+
+            let frame = CGRect(origin: .zero, size: bounds.size)
+            let rect = frame.insetBy(dx: 3, dy: 3)
+            guard rect.width > 2, rect.height > 2 else {
+                base.path = nil
+                lightSurface.isHidden = true
+                return
+            }
+            let radius = min(15, min(rect.width, rect.height) / 2)
+            let path = UIBezierPath(roundedRect: rect, cornerRadius: radius).cgPath
+            let perimeter = 2 * (rect.width + rect.height - 4 * radius) + 2 * CGFloat.pi * radius
+            base.frame = frame
+            base.path = path
+            base.strokeColor = primary.withAlphaComponent(playing ? 0.07 : 0.19).cgColor
+            base.lineWidth = 0.75
+            lightSurface.frame = frame
+            outlineMask.frame = frame
+            lightSurface.isHidden = !playing
+
+            // Soft transverse halo, with a constant fine outline. Longitudinal
+            // color/brightness is entirely the continuous moving texture.
+            let widths: [CGFloat] = [5, 3, 1.45]
+            let alpha: [CGFloat] = [0.10, 0.24, 1]
+            for (index, stroke) in maskStrokes.enumerated() {
+                stroke.frame = frame
+                stroke.path = path
+                stroke.strokeColor = UIColor.white.withAlphaComponent(alpha[index]).cgColor
+                stroke.lineWidth = widths[index]
+            }
+
+            let colors = [primary, secondary]
+            if textureColors != colors {
+                for (index, light) in lights.enumerated() {
+                    light.contents = texture(colors[index])
+                }
+                textureColors = colors
+            }
+            guard playing else { return }
+            let length = min(220, max(90, perimeter * 0.26))
+            let duration: CFTimeInterval = 4.2
+            let now = CACurrentMediaTime()
+            for (index, light) in lights.enumerated() {
+                light.bounds = CGRect(x: 0, y: 0, width: length, height: 72)
+                light.position = CGPoint(x: rect.midX, y: index == 0 ? rect.minY : rect.maxY)
+                guard animate, window != nil else { continue }
+                // Follow the exact rounded perimeter at constant speed,
+                // with two lights half a revolution apart. Core Animation
+                // interpolates motion without visible steps or hard cuts.
+                let motion = CAKeyframeAnimation(keyPath: "position")
+                motion.path = path
+                motion.calculationMode = .paced
+                motion.rotationMode = .rotateAuto
+                motion.duration = duration
+                motion.repeatCount = .infinity
+                motion.beginTime = light.convertTime(now, from: nil) - Double(index) * duration / 2
+                light.add(motion, forKey: motionKey)
+            }
+        }
     }
 }
+
+private struct TrackDownloadMenuProgress: View {
+    @EnvironmentObject private var store: MusicStore
+    @ObservedObject var progress: DownloadProgressPresentation
+    let trackID: String
+    var body: some View {
+        Text("Скачивание \(Int((store.downloadProgress(trackID) ?? 0) * 100))%")
+    }
+}
+
 // A thin, determinate download ring around the playlist artwork. Keep
 // the symbol visible and avoid decoding cached playlists on each byte update.
 private struct PlaylistDownloadRing: View {
@@ -2467,24 +2746,48 @@ private struct PlaylistDownloadRing: View {
     @State private var trackIDs: [String] = []
 
     var body: some View {
-        Group {
-            if let fraction = store.playlistDownloadProgress(trackIDs: trackIDs) {
-                ZStack {
-                    Circle()
-                        .stroke(.white.opacity(0.20), lineWidth: 2)
-                    Circle()
-                        .trim(from: 0, to: fraction)
-                        .stroke(.white, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
-                        .rotationEffect(.degrees(-90))
-                }
-                .padding(3)
-                .animation(.easeOut(duration: 0.2), value: fraction)
-            }
-        }
+        PlaylistDownloadRingContent(progress: store.downloadProgressPresentation, trackIDs: trackIDs)
         .allowsHitTesting(false)
         // Refresh cache only when jobs start or finish, not on every progress tick.
         .task(id: store.pendingDownloadKeys) {
             trackIDs = (store.cachedPlaylistTracks(playlistID) ?? []).map(\.id)
+        }
+    }
+}
+
+private struct PlaylistDownloadRingContent: View {
+    @EnvironmentObject private var store: MusicStore
+    @ObservedObject var progress: DownloadProgressPresentation
+    let trackIDs: [String]
+    var body: some View {
+        if let fraction = store.playlistDownloadProgress(trackIDs: trackIDs) {
+            ZStack {
+                Circle().stroke(.white.opacity(0.20), lineWidth: 2)
+                Circle().trim(from: 0, to: fraction)
+                    .stroke(.white, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+            }
+            .padding(3)
+            .animation(.easeOut(duration: 0.2), value: fraction)
+        }
+    }
+}
+
+private struct PlaylistDownloadProgressView: View {
+    @Environment(\.nightwellAppearance) private var appearance
+    @EnvironmentObject private var store: MusicStore
+    @ObservedObject var progress: DownloadProgressPresentation
+    let tracks: [Track]
+    var body: some View {
+        if let fraction = store.playlistDownloadProgress(tracks) {
+            VStack(alignment: .leading, spacing: 7) {
+                HStack {
+                    Text("Скачивание плейлиста").font(.system(size: 12, weight: .medium))
+                    Spacer()
+                    Text("\(Int(fraction * 100))%").monospacedDigit()
+                }.foregroundStyle(.white.opacity(0.65))
+                ProgressView(value: fraction).tint(appearance.progressTint)
+            }.padding(.horizontal, 4)
         }
     }
 }
@@ -2623,21 +2926,7 @@ struct PlaylistScreen: View {
                         .nightwellThemeChrome(18)
                     }
 
-                    if let fraction = store.playlistDownloadProgress(tracks) {
-                        VStack(alignment: .leading, spacing: 7) {
-                            HStack {
-                                Text("Скачивание плейлиста")
-                                    .font(.system(size: 12, weight: .medium))
-                                Spacer()
-                                Text("\(Int(fraction * 100))%")
-                                    .monospacedDigit()
-                            }
-                            .foregroundStyle(.white.opacity(0.65))
-                            ProgressView(value: fraction)
-                                .tint(appearance.progressTint)
-                        }
-                        .padding(.horizontal, 4)
-                    }
+                    PlaylistDownloadProgressView(progress: store.downloadProgressPresentation, tracks: tracks)
 
                     HStack(alignment: .firstTextBaseline) {
                         Text("ТРЕКИ")
@@ -2732,7 +3021,9 @@ struct PlaylistScreen: View {
             }
         }
         .frame(width: 116, height: 116)
-        .clipShape(RoundedRectangle(cornerRadius: 23, style: .continuous))
+        .compositingGroup()
+        .clipShape(RoundedRectangle(cornerRadius: 23, style: .continuous),
+                   style: FillStyle(antialiased: true))
         .overlay {
             RoundedRectangle(cornerRadius: 23, style: .continuous)
                 .strokeBorder(.white.opacity(0.18), lineWidth: 0.7)
@@ -3261,57 +3552,5 @@ private struct NightwellImportFilePicker: UIViewControllerRepresentable {
             }
             completion(.success(url))
         }
-    }
-}
-
-
-
-
-private struct MonochromeNightwellLaunch: View {
-    @Environment(\.nightwellAppearance) private var appearance
-    var body: some View {
-        ZStack {
-            NightwellThemedBackground {
-                LinearGradient(colors: [Color(white: 0.085), .black], startPoint: .top, endPoint: .bottom)
-            }.ignoresSafeArea()
-            GeometryReader { geometry in
-                Canvas { context, size in
-                    let w = size.width, h = size.height
-                    for index in 0..<6 {
-                        let left = index.isMultiple(of: 2)
-                        let origin = CGPoint(x: left ? 0 : w, y: h * (0.16 + CGFloat(index / 2) * 0.22))
-                        let target = CGPoint(x: w * (left ? 0.69 : 0.31), y: h * 0.53)
-                        let spread: CGFloat = 60
-                        var beam = Path()
-                        beam.move(to: origin)
-                        beam.addLine(to: CGPoint(x: target.x - spread, y: target.y + 160))
-                        beam.addLine(to: CGPoint(x: target.x + spread, y: target.y + 160))
-                        beam.closeSubpath()
-                        context.fill(beam, with: .linearGradient(
-                            Gradient(colors: [.white.opacity(0.19), .white.opacity(0.06), .clear]),
-                            startPoint: origin, endPoint: CGPoint(x: w / 2, y: h * 0.82)
-                        ))
-                    }
-                }
-                .blur(radius: 20)
-                .allowsHitTesting(false)
-            }
-            .opacity(appearance == .vice ? 0 : 1)
-            VStack(spacing: 14) {
-                Text("N")
-                    .font(.system(size: 92, weight: .black, design: .rounded))
-                    .foregroundStyle(.white)
-                    .shadow(color: .white.opacity(0.22), radius: 24)
-                Text("NIGHTWELL")
-                    .font(.system(size: 24, weight: .bold, design: .rounded))
-                    .tracking(5)
-                Text("M U S I C")
-                    .font(.system(size: 10, weight: .medium))
-                    .tracking(5)
-                    .foregroundStyle(.white.opacity(0.58))
-            }
-            .foregroundStyle(.white)
-        }
-        .accessibilityLabel("Nightwell Music")
     }
 }

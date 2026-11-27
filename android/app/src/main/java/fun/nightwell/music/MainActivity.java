@@ -384,11 +384,15 @@ public final class MainActivity extends Activity {
     private RibbonView ribbon;
     private ImageView coverBackdrop;
     private View coverBackdropShade;
+    // The iOS dock uses full-width backdrop blur with a soft vertical fade.
+    // Keep the glass texture behind sharp tabs, not as bordered tab buttons.
+    private ImageView navigationGlassArtwork;
     private HomeSparklesView atmosphere;
     private Runnable pendingSearch;
     private Dialog navigationPopup;
     private android.widget.ImageView profileAvatarButton;
     private TextView libraryBackButton,librarySettingsButton,libraryExtraButton,premiumTabButton;
+    private TextView homeTabButton,searchTabButton,libraryTabButton;
     private View headerBrandButton;
     private android.graphics.Bitmap cachedProfileAvatar;
     private String cachedProfileUser="", cachedProfileNickname="";
@@ -502,9 +506,10 @@ public final class MainActivity extends Activity {
     private void addLandscapeTab(String glyph,String label,String destination){
         TextView button=iconButton(glyph,()->navigate(destination));
         button.setContentDescription(label);
-        button.setTextSize(21);
+        button.setTextSize(28);
         button.setPadding(0,0,0,0);
-        button.setBackground(touchSurface(screen.equals(destination)?0x662d303b:0x2220232b,14));
+        button.setBackground(null);
+        button.setTextColor(screen.equals(destination)?Color.WHITE:0xffa3a6ae);
         LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(dp(46),dp(42));
         params.bottomMargin=dp(4);
         landscapeRail.addView(button,params);
@@ -515,18 +520,45 @@ public final class MainActivity extends Activity {
     // One visual system. Dark enough to prevent the underlying player text
     // shining through dialogs, with soft lighting rather than outlined boxes.
     GradientDrawable glass(int corners){
+        // Semi-transparent sheets remain readable without bright 1dp borders.
+        // Keep modal surfaces stronger than inline controls for text contrast.
         GradientDrawable d=new GradientDrawable(GradientDrawable.Orientation.TL_BR,
-            new int[]{0xff303237,0xff1c1e23,0xff121317});
-        d.setCornerRadius(dp(corners));d.setStroke(dp(1),0x36ffffff);
+            new int[]{0xef2b2d35,0xeb1f2129,0xf0191b22});
+        d.setCornerRadius(dp(corners));
         return d;
     }
     GradientDrawable surface(){return glass(30);}
     GradientDrawable fieldSurface(int color,int corners){
-        GradientDrawable fill=new GradientDrawable(GradientDrawable.Orientation.TL_BR,
-            new int[]{0xff292b30,0xff202126});
-        fill.setCornerRadius(dp(corners));fill.setStroke(dp(1),0x24ffffff);return fill;
+        // The former fully opaque backgrounds and white strokes made every
+        // card, button and settings row look like a separate hard-edged box.
+        // Respect source alpha so low-key controls stay especially subtle.
+        int sourceAlpha=Color.alpha(color);
+        boolean light=Color.red(color)>208&&Color.green(color)>208
+            &&Color.blue(color)>208&&sourceAlpha>=210;
+        GradientDrawable fill;
+        if(light){
+            // Keep the important primary Play action readable against dark text.
+            fill=new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                new int[]{0xeef4f5f7,0xe4e6e8ed});
+        }else{
+            int topAlpha=Math.max(19,Math.min(83,Math.round(sourceAlpha*0.32f)));
+            int bottomAlpha=Math.max(11,Math.min(49,Math.round(sourceAlpha*0.19f)));
+            fill=new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                new int[]{Color.argb(topAlpha,53,56,66),
+                          Color.argb(bottomAlpha,28,31,39)});
+        }
+        fill.setCornerRadius(dp(corners));
+        return fill;
     }
-    android.graphics.drawable.Drawable touchSurface(int color,int corners){GradientDrawable fill=fieldSurface(color,corners);GradientDrawable mask=new GradientDrawable();mask.setColor(Color.WHITE);mask.setCornerRadius(dp(corners));return new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x30ffffff),fill,mask);}
+    android.graphics.drawable.Drawable touchSurface(int color,int corners){
+        GradientDrawable fill=fieldSurface(color,corners);
+        GradientDrawable mask=new GradientDrawable();
+        mask.setColor(Color.WHITE);
+        mask.setCornerRadius(dp(corners));
+        // Feedback only while pressed, no permanent outline or raised border.
+        return new android.graphics.drawable.RippleDrawable(
+            android.content.res.ColorStateList.valueOf(0x20ffffff),fill,mask);
+    }
     TextView sectionLabel(String label){TextView v=text(label.toUpperCase(java.util.Locale.ROOT),11);v.setLetterSpacing(.095f);v.setTextColor(0xffadb0b8);v.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));v.setPadding(dp(5),dp(12),dp(5),dp(7));return v;}
     void styleField(EditText view){view.setTextColor(0xfff4f4f7);view.setHintTextColor(0xff8f95a5);view.setTextSize(15);view.setMinHeight(dp(50));view.setBackground(fieldSurface(0x88262a33,16));view.setPadding(dp(14),dp(10),dp(14),dp(10));}
     void styleSwitch(android.widget.Switch view){view.setTextColor(0xfff0f1f6);view.setTextSize(15);view.setPadding(dp(2),dp(10),dp(2),dp(10));}
@@ -1075,6 +1107,40 @@ public final class MainActivity extends Activity {
         }
     }
 
+    /**
+     * Edge-faded album-art blur for the tab bar. Only this decorative layer is
+     * blurred; icons, labels and touch targets remain sharp. The alpha mask
+     * removes the hard rectangular boundary at the top of the dock.
+     */
+    private static final class FadedNavigationArtwork extends ImageView {
+        private final android.graphics.Paint fadePaint =
+            new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+
+        FadedNavigationArtwork(Context context){
+            super(context);
+            setScaleType(ImageView.ScaleType.CENTER_CROP);
+            setLayerType(View.LAYER_TYPE_HARDWARE,null);
+        }
+
+        @Override protected void onDraw(android.graphics.Canvas canvas){
+            int w=getWidth(),h=getHeight();
+            if(w<=0||h<=0){super.onDraw(canvas);return;}
+            int save=canvas.saveLayer(0,0,w,h,null);
+            super.onDraw(canvas);
+            fadePaint.setShader(new android.graphics.LinearGradient(
+                0,0,0,h,
+                new int[]{0x00ffffff,0x20ffffff,0xaaffffff,0xffffffff},
+                new float[]{0f,0.22f,0.62f,1f},
+                android.graphics.Shader.TileMode.CLAMP));
+            fadePaint.setXfermode(new android.graphics.PorterDuffXfermode(
+                android.graphics.PorterDuff.Mode.DST_IN));
+            canvas.drawRect(0,0,w,h,fadePaint);
+            fadePaint.setXfermode(null);
+            fadePaint.setShader(null);
+            canvas.restoreToCount(save);
+        }
+    }
+
     void build(){
         // Preserve the active collection scroll position on orientation changes.
         if(root!=null&&isCollectionScreen()&&screen.equals(displayedCollectionScreen))
@@ -1097,6 +1163,26 @@ public final class MainActivity extends Activity {
         ribbon=new RibbonView(this);ui.post(this::applyPremium);ribbon.meter(()->playback==null?0:playback.level());ribbon.bands(index->playback==null?0:playback.bandLevel(index));
         ribbon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         scene.addView(ribbon,new android.widget.FrameLayout.LayoutParams(-1,-1));
+        // This is behind the entire dock, at full screen width. No boxed
+        // navigation surface or outline: the fade blends into the scenery.
+        FrameLayout dockGlass=new FrameLayout(this);
+        navigationGlassArtwork=new FadedNavigationArtwork(this);
+        navigationGlassArtwork.setAlpha(Build.VERSION.SDK_INT>=31 ? 0.48f : 0.15f);
+        if(Build.VERSION.SDK_INT>=31){
+            navigationGlassArtwork.setRenderEffect(
+                android.graphics.RenderEffect.createBlurEffect(
+                    dp(28),dp(28),android.graphics.Shader.TileMode.CLAMP));
+        }
+        dockGlass.addView(navigationGlassArtwork,new FrameLayout.LayoutParams(-1,-1));
+        View dockGlassTint=new View(this);
+        dockGlassTint.setBackground(new GradientDrawable(
+            GradientDrawable.Orientation.TOP_BOTTOM,
+            new int[]{0x00151921,0x16151921,0x4713161d,0x75111318}));
+        dockGlass.addView(dockGlassTint,new FrameLayout.LayoutParams(-1,-1));
+        FrameLayout.LayoutParams glassParams=new FrameLayout.LayoutParams(
+            -1,dp(156),Gravity.BOTTOM);
+        scene.addView(dockGlass,glassParams);
+        dockGlass.setVisibility(backgroundOnly?View.GONE:View.VISIBLE);
         boolean landscape=isLandscapeLayout();
         root=column();root.setPadding(dp(landscape?10:20),dp(landscape?0:8),dp(landscape?10:20),0);
         collectionScrolled=false;
@@ -1185,7 +1271,14 @@ public final class MainActivity extends Activity {
         status=text("",landscape?10:12);
         status.setMaxLines(landscape?1:3);
         root.addView(status);
-        dock=row();dock.setPadding(dp(10),dp(10),dp(10),dp(11));GradientDrawable glassDock=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{0xff303138,0xff1a1b20});glassDock.setCornerRadius(dp(24));glassDock.setStroke(dp(1),0x30ffffff);dock.setBackground(null);
+        dock=row();dock.setPadding(dp(10),dp(10),dp(10),dp(11));
+        // Mini-player sits in the existing diffuse tab-bar blur, not a raised
+        // opaque bordered capsule competing with the controls.
+        GradientDrawable glassDock=new GradientDrawable(
+            GradientDrawable.Orientation.TL_BR,
+            new int[]{0x762d3039,0x4c22252d});
+        glassDock.setCornerRadius(dp(24));
+        dock.setBackground(null);
         miniCover=new android.widget.ImageView(this);miniCover.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);GradientDrawable coverShape=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{0xff53565c,0xff24262c});coverShape.setCornerRadius(dp(12));miniCover.setBackground(coverShape);miniCover.setClipToOutline(true);miniCover.setOnClickListener(v->openPlayer());LinearLayout.LayoutParams coverParams=new LinearLayout.LayoutParams(dp(47),dp(47));coverParams.rightMargin=dp(10);dock.addView(miniCover,coverParams);
         LinearLayout labels=column();miniTitle=text("Выбери трек",15);miniTitle.setMaxLines(1);miniTitle.setTextSize(15);miniTitle.setLetterSpacing(-.015f);miniTitle.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);miniArtist=text("Nightwell Music",12);miniArtist.setMaxLines(1);miniArtist.setTextSize(12);miniArtist.setLetterSpacing(.005f);miniArtist.setTextColor(0xffa4a6b1);miniTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);miniArtist.setEllipsize(android.text.TextUtils.TruncateAt.END);labels.addView(miniTitle);labels.addView(miniArtist);labels.setOnClickListener(v->openPlayer());dock.addView(labels,new LinearLayout.LayoutParams(0,-2,1));miniPrev=action("|‹",()->previous());miniPlay=action("▶",()->toggle());miniNext=action("›|",()->{nextTrack();});miniLike=action("♡",()->toggleFavorite(current()));miniLike.setTextColor(0xffeeeeee);miniPlay.setTextSize(23);miniNext.setTextSize(24);miniPlay.setPadding(0,0,0,0);miniNext.setPadding(0,0,0,0);miniPlay.setTextColor(0xffeeeeee);miniPlay.setBackground(null);miniPrev.setPadding(0,0,0,0);miniLike.setPadding(0,0,0,0);if(getResources().getConfiguration().screenWidthDp>=440)dock.addView(miniLike,new LinearLayout.LayoutParams(dp(38),dp(48)));miniProgressRing=new CircularProgressRing(this);miniProgressRing.addView(miniPlay,new android.widget.FrameLayout.LayoutParams(-1,-1));dock.addView(miniProgressRing,new LinearLayout.LayoutParams(dp(48),dp(48)));dock.addView(miniNext,new LinearLayout.LayoutParams(dp(42),dp(48)));
         FrameLayout dockContainer=new FrameLayout(this);
@@ -1196,30 +1289,61 @@ public final class MainActivity extends Activity {
         dockParams.topMargin=dp(landscape?3:4);
         root.addView(dockContainer,dockParams);
         if(backgroundOnly)dockContainer.setVisibility(View.GONE);
+        homeTabButton=null;searchTabButton=null;libraryTabButton=null;premiumTabButton=null;
         if(!backgroundOnly){
             LinearLayout navigation=row();
             navigation.setGravity(Gravity.CENTER);
-            navigation.setPadding(0,dp(1),0,dp(3));
-            addBottomNavigationTab(navigation,"⌂","Главная",()->navigate("Главная"));
-            addBottomNavigationTab(navigation,"⌕","Поиск",()->navigate("Поиск"));
-            addBottomNavigationTab(navigation,"▤","Медиатека",()->navigate("Избранное"));
+            navigation.setPadding(0,dp(1),0,dp(2));
+            navigation.setBackgroundColor(Color.TRANSPARENT);
+            homeTabButton=addBottomNavigationTab(navigation,"⌂","Главная",()->navigate("Главная"));
+            searchTabButton=addBottomNavigationTab(navigation,"⌕","Поиск",()->navigate("Поиск"));
+            libraryTabButton=addBottomNavigationTab(navigation,"▤","Медиатека",()->navigate("Избранное"));
             premiumTabButton=addBottomNavigationTab(navigation,"✧","Premium",this::premium);
             premiumTabButton.setVisibility(shouldShowPremiumTab()?View.VISIBLE:View.GONE);
-            root.addView(navigation,new LinearLayout.LayoutParams(-1,dp(51)));
+            root.addView(navigation,new LinearLayout.LayoutParams(-1,dp(58)));
         }
         android.view.GestureDetector miniGestures=gestures(false);labels.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));dock.setOnTouchListener((v,event)->miniGestures.onTouchEvent(event));
         showScreen();updatePlayback();loadMiniCover(current());updateCoverBackdrop();
     }
     private TextView addBottomNavigationTab(LinearLayout container,String icon,String label,Runnable click){
-        TextView tab=text(icon+"\n"+label,11);
+        // Labels remain available to accessibility and talkback but no longer
+        // consume space on screen. Larger glyphs match the iOS icon-only dock.
+        TextView tab=text(icon,30);
+        tab.setSingleLine(true);
+        tab.setIncludeFontPadding(false);
         tab.setGravity(Gravity.CENTER);
-        tab.setTextColor(label.equals(screen)||label.equals("Медиатека")&&isCollectionScreen()
-            ?Color.WHITE:0xffa7a8ac);
-        tab.setBackground(touchSurface(0x11000000,12));
+        tab.setTextSize(30);
+        boolean selected=label.equals(screen)||label.equals("Медиатека")&&isCollectionScreen();
+        styleNavigationTab(tab,selected);
+        tab.setBackground(null);
+        // A subtle touch ripple is visible only while pressed; no per-tab
+        // pills, borders or permanent rectangular darkening.
+        GradientDrawable rippleMask=new GradientDrawable();
+        rippleMask.setColor(Color.WHITE);
+        rippleMask.setCornerRadius(dp(16));
+        tab.setForeground(new android.graphics.drawable.RippleDrawable(
+            android.content.res.ColorStateList.valueOf(0x1effffff),null,rippleMask));
+        tab.setSelected(selected);
         tab.setOnClickListener(v->click.run());
         tab.setContentDescription(label);
+        tab.setTooltipText(label);
         container.addView(tab,new LinearLayout.LayoutParams(0,-1,1));
         return tab;
+    }
+    private void styleNavigationTab(TextView tab,boolean selected){
+        if(tab==null)return;
+        tab.setSelected(selected);
+        tab.setTextColor(selected?Color.WHITE:0xffa6a9b1);
+        tab.setTypeface(android.graphics.Typeface.create(
+            "sans-serif",selected?android.graphics.Typeface.BOLD:android.graphics.Typeface.NORMAL));
+    }
+    private void refreshNavigationTabSelection(){
+        // Tab selection must follow screen changes without rebuilding the
+        // entire activity or disturbing the currently playing track.
+        styleNavigationTab(homeTabButton,"Главная".equals(screen));
+        styleNavigationTab(searchTabButton,"Поиск".equals(screen));
+        styleNavigationTab(libraryTabButton,isCollectionScreen()||"Медиатека".equals(screen));
+        styleNavigationTab(premiumTabButton,false);
     }
     // Audio routing is controlled by Android. Report the current media route without
     // changing the communication device (which would affect calls instead of music).
@@ -2034,6 +2158,7 @@ public final class MainActivity extends Activity {
             collectionScrolled=false;
         }
         displayedCollectionScreen=screen;
+        refreshNavigationTabSelection();
         collectionLargeTitle=null;
         collectionActions=null;
         offlineActions=null;
@@ -3657,9 +3782,16 @@ public final class MainActivity extends Activity {
         coverBackdrop.setVisibility(visibleCover?View.VISIBLE:View.GONE);
         if(coverBackdropShade!=null)
             coverBackdropShade.setVisibility(visibleCover?View.VISIBLE:View.GONE);
-        if(!visibleCover)return;
         JSONObject selected=current();
         String url=selected==null?"":selected.optString("cover_url");
+        // The dock's frosted glass tracks artwork on every screen; the full
+        // player backdrop still respects its own visibility setting.
+        if(navigationGlassArtwork!=null){
+            if(artworkCache!=null&&!url.isEmpty())
+                artworkCache.load(navigationGlassArtwork,origin,url);
+            else navigationGlassArtwork.setImageDrawable(null);
+        }
+        if(!visibleCover)return;
         if(artworkCache!=null)artworkCache.load(coverBackdrop,origin,url);
         else coverBackdrop.setImageDrawable(null);
     }

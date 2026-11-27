@@ -26,7 +26,10 @@ import WidgetKit
         // Don't throw away an already downloaded cover when merely pausing.
         let previous = NWWidgetStorage.read()
         let sameCover = track != nil && previous.trackID == track?.id &&
-                        previous.coverID == track?.id
+                        previous.coverID == track?.id &&
+                        // Older widget states can point at a now-invalid
+                        // image from the destructive artwork normalizer.
+                        NWWidgetStorage.cover(for: previous) != nil
         let next = NWWidgetState(
             trackID: track?.id ?? "",
             title: track?.title ?? "Твой ритм",
@@ -46,10 +49,29 @@ import WidgetKit
         NWWidgetConfiguration.reloadNowPlaying()
 
         coverTask?.cancel()
-        guard !sameCover, let track,
-              let url = CoverImagePipeline.coverURL(for: track, origin: origin) else { return }
+        guard !sameCover, let track else { return }
         coverTask = Task { [weak self] in
-            let image = await CoverImagePipeline.shared.image(for: url, maxPixel: 280)
+            // WidgetKit and the Now Playing media session use different
+            // transports. Both must load downloaded art without reaching
+            // the remote cover CDN when the phone has no network.
+            var image: UIImage?
+            if track._offline == true {
+                let owner = track._offline_account ?? "device"
+                image = await Task.detached(priority: .utility) {
+                    OfflineStore.cover(origin: origin, account: owner, id: track.id)
+                }.value
+            }
+            if image == nil,
+               let url = CoverImagePipeline.coverURL(for: track, origin: origin) {
+                image = await CoverImagePipeline.shared.image(for: url, maxPixel: 280)
+                if track._offline == true, let image {
+                    let owner = track._offline_account ?? "device"
+                    Task.detached(priority: .utility) {
+                        try? OfflineStore.saveCover(image, origin: origin,
+                                                    account: owner, id: track.id)
+                    }
+                }
+            }
             guard !Task.isCancelled,
                   self?.lastWrittenKey == key,
                   let jpeg = image?.jpegData(compressionQuality: 0.78),
