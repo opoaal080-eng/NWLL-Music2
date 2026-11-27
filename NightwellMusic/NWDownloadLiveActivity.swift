@@ -20,6 +20,7 @@ import UIKit
             guard let self else { return }
             while let state = self.pending {
                 self.pending = nil
+                if state == self.lastSent, self.current != nil { continue }
                 if state.active, let last = self.lastSent, last.active,
                    state.completed == last.completed, state.total == last.total,
                    ProcessInfo.processInfo.systemUptime - self.lastUpdate < 1 {
@@ -35,8 +36,9 @@ import UIKit
     }
 
     func flush(_ state: NWDownloadActivityAttributes.ContentState) async {
+        // The system completion handler must not wait indefinitely for a
+        // continuously changing progress stream. Final state still queues.
         receive(state)
-        await worker?.value
     }
 
     private func apply(_ state: State) async {

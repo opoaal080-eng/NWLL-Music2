@@ -37,6 +37,12 @@ enum OfflineStore {
         if let hit = validated[url.path], hit.bytes == bytes, hit.changed == attrs.contentModificationDate {
             return hit.playable
         }
+        let good = inspectAudio(url)
+        validated[url.path] = (bytes: bytes, changed: attrs.contentModificationDate, playable: good)
+        return good
+    }
+
+    private static func inspectAudio(_ url: URL) -> Bool {
         let good: Bool
         if let handle = try? FileHandle(forReadingFrom: url) {
             let header = (try? handle.read(upToCount: 12)) ?? Data()
@@ -51,7 +57,6 @@ enum OfflineStore {
         } else {
             good = false
         }
-        validated[url.path] = (bytes: bytes, changed: attrs.contentModificationDate, playable: good)
         return good
     }
 
@@ -145,12 +150,12 @@ enum OfflineStore {
     }
 
     static func saveCover(_ image: UIImage, origin: URL, account: String, id: String) throws {
-        lock.lock(); defer { lock.unlock() }
-        guard valid(id), let directory = try? directory(origin, account),
-              let data = image.jpegData(compressionQuality: 0.83),
+        guard valid(id), let data = image.jpegData(compressionQuality: 0.83),
               !data.isEmpty, data.count <= 3 * 1024 * 1024 else {
             throw URLError(.cannotDecodeContentData)
         }
+        lock.lock(); defer { lock.unlock() }
+        let directory = try directory(origin, account)
         let file = directory.appendingPathComponent(id + ".cover-original-v2.jpg")
         try data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
         // A successful new download removes the old corrupted derivative.
@@ -178,18 +183,17 @@ enum OfflineStore {
         let staging = dir.appendingPathComponent("." + UUID().uuidString + ".m4a")
         defer { try? FileManager.default.removeItem(at: staging) }
         try FileManager.default.copyItem(at: file, to: staging)
-        lock.lock()
-        let validStaging = playableAudio(staging, expectedBytes: size)
-        validated.removeValue(forKey: staging.path)
-        lock.unlock()
-        guard validStaging else { throw URLError(.cannotDecodeContentData) }
+        guard inspectAudio(staging) else { throw URLError(.cannotDecodeContentData) }
         // Store the original M4A without any additional compression.
         lock.lock(); defer { lock.unlock() }
         try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: staging.path)
         if FileManager.default.fileExists(atPath: target.path) { _ = try FileManager.default.replaceItemAt(target, withItemAt: staging) }
         else { try FileManager.default.moveItem(at: staging, to: target) }
         try metadata.write(to: dir.appendingPathComponent(track.id + ".json"), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
-        validated.removeValue(forKey: target.path)
+        if let attrs = try? target.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]),
+           let bytes = attrs.fileSize {
+            validated[target.path] = (bytes: bytes, changed: attrs.contentModificationDate, playable: true)
+        } else { validated.removeValue(forKey: target.path) }
         let archive = target.deletingPathExtension().appendingPathExtension("nwz")
         archiveValidation.removeValue(forKey: archive.path)
         try? FileManager.default.removeItem(at: archive)

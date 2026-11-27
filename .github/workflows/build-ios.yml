@@ -127,7 +127,7 @@ jobs:
           print(phones[0]['udid'])
           PYCODE
           )"
-          xcodebuild -project NightwellMusic.xcodeproj -scheme NightwellMusic -configuration Debug -destination "platform=iOS Simulator,id=$NIGHTWELL_SIMULATOR_ID" -derivedDataPath build-transport -resultBundlePath transport.xcresult -only-testing:NightwellMusicTests/NowPlayingTransportTests -only-testing:NightwellMusicTests/NativeEQPlaybackTests/testPauseStopsRenderingAndResumeContinuesTheScheduledFile -only-testing:NightwellMusicTests/LibraryNavigationSessionTests -only-testing:NightwellMusicTests/PlaybackProgressPresentationTests -only-testing:NightwellMusicTests/PlaybackPresentationTests -only-testing:NightwellMusicTests/TrackSwipeInteractionTests -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO test
+          xcodebuild -project NightwellMusic.xcodeproj -scheme NightwellMusic -configuration Debug -destination "platform=iOS Simulator,id=$NIGHTWELL_SIMULATOR_ID" -derivedDataPath build-transport -resultBundlePath transport.xcresult -only-testing:NightwellMusicTests/NowPlayingTransportTests -only-testing:NightwellMusicTests/NativeEQPlaybackTests/testPauseStopsRenderingAndResumeContinuesTheScheduledFile -only-testing:NightwellMusicTests/LibraryNavigationSessionTests -only-testing:NightwellMusicTests/PlaybackProgressPresentationTests -only-testing:NightwellMusicTests/PlaybackPresentationTests -only-testing:NightwellMusicTests/TrackSwipeInteractionTests -only-testing:NightwellMusicTests/OfflineDownloadPolicyTests -only-testing:NightwellMusicTests/DownloadLiveActivityTests -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO test
 
   presentation-regression:
     name: Artist and search regression

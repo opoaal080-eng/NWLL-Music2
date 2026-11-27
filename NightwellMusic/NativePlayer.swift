@@ -1764,6 +1764,9 @@ final class NativePlayer {
         let key = origin.absoluteString + "|" + offlineAccount + "|" + current.offlineAccount + "|" + current.id
         guard independentMeter.needsPreparation(for: key) else { return }
         let local = OfflineStore.audio(origin: origin, account: current.offlineAccount.isEmpty ? offlineAccount : current.offlineAccount, id: current.id)
+        // A decorative visualizer must not compete for the same audio-export
+        // worker while the user's explicit offline batch is downloading.
+        if local == nil && BackgroundDownloads.shared.progress.active { return }
         var request = URLRequest(url: origin.appendingPathComponent("api/offline-export/" + current.id))
         request.url = URL(string: "api/offline-export/" + current.id + "?download=true&wait=true", relativeTo: origin)
         request.timeoutInterval = 90
