@@ -2458,7 +2458,7 @@ struct Cover: View {
     private var artworkKey: String {
         [track?.id ?? "", track?._offline_account ?? "",
          track?._offline == true ? "offline" : "online",
-         coverURL?.absoluteString ?? "", String(pixelWidth)].joined(separator: "|")
+         coverURL?.absoluteString ?? String(track?.cover_url?.hashValue ?? 0), String(pixelWidth)].joined(separator: "|")
     }
 
     var body: some View {

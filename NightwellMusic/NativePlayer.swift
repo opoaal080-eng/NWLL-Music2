@@ -1033,8 +1033,16 @@ final class NativePlayer {
         if systemArtwork == nil {
             artwork = nil; artworkTrackID = nil; artworkIdentity = nil; artworkResolution = 0
         }
-        if let image = DisplayedSystemArtwork.image(origin: origin, id: current.id, cover: current.cover) {
-            installSystemArtwork(image, track: current, origin: origin, notify: false)
+        if let image = DisplayedSystemArtwork.image(origin: origin, id: current.id, cover: current.cover),
+           installSystemArtwork(image, track: current, origin: origin, notify: false) {
+            let track = current
+            let owner = track.offlineAccount.isEmpty ? offlineAccount : track.offlineAccount
+            Task.detached(priority: .utility) {
+                LockScreenArtworkCache.save(image, origin: origin, track: track)
+                if track.offline {
+                    try? OfflineStore.saveCover(image, origin: origin, account: owner, id: track.id)
+                }
+            }
         }
         if attemptedTrackID != current.id {
             attemptedTrackID = current.id
